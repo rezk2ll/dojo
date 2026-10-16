@@ -4,20 +4,18 @@ const STARTER = 'https://github.com/actions/starter-workflows/blob/e3c451d60f119
 export default {
 	slug: 'github-actions',
 	part: 'CI/CD',
-	title: 'GitHub Actions : un pipeline qui vit à côté du code',
+	title: 'GitHub Actions : un pipeline dans le dépôt',
 	minutes: 10,
 	hook: [
 		'Tu as un serveur de build quelque part. Un cron, ou un hook, lance `make test` et t’envoie un mail quand ça casse. Tu le patches, tu le mets à jour, et tu es le seul à savoir comment il marche.',
 		'Avec GitHub Actions, le pipeline est **un fichier YAML dans le dépôt**, sous `.github/workflows/`. GitHub surveille les événements (un push, une pull request), démarre une machine neuve et y exécute tes étapes.',
-		'Aujourd’hui : workflows, événements, jobs, steps, runners et actions, plus deux choses qui piègent vite : les **secrets** et la **matrice**.'
+		'Deux réglages posent problème très tôt : les secrets, et la matrice qui lance un même job plusieurs fois.'
 	],
 	terms: [
 		{ term: 'Workflow', def: 'Un fichier YAML dans `.github/workflows/`. Il dit quand tourner (`on:`) et quoi exécuter (`jobs:`).' },
-		{ term: 'Événement', def: 'Ce qui lance un workflow : un `push`, une `pull_request`, une planification ou un clic manuel.' },
 		{ term: 'Job et step', def: 'Un job est une liste de steps exécutés dans l’ordre **sur le même runner**. Les jobs tournent en parallèle, sauf si l’un a besoin (`needs`) d’un autre.' },
 		{ term: 'Runner', def: 'La machine qui exécute un job. Les runners hébergés par GitHub sont des machines virtuelles neuves (Ubuntu, Windows, macOS). Tu peux aussi héberger les tiens.' },
-		{ term: 'Action', def: 'Un step réutilisable empaqueté par quelqu’un, appelé avec `uses:`, comme `actions/checkout`. Un simple step shell utilise `run:` à la place.' },
-		{ term: 'Matrice', def: 'Exécuter le même job plusieurs fois avec des valeurs différentes, par exemple trois versions de Node.js, sans copier le job.' }
+		{ term: 'Matrice', def: 'Une liste de valeurs pour laquelle GitHub lance le même job une fois par valeur, par exemple trois versions de Node.js, sans que tu copies le job.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,7 +23,7 @@ export default {
 			{
 				add: ['ev["Événement : push ou pull_request"] --> wf["Workflow : .github/workflows/node.js.yml"]'],
 				highlight: ['ev', 'wf'],
-				note: 'Un **événement** dans le dépôt lance le **workflow**. Pas de serveur qui interroge Git, pas de hook à installer : le fichier dans le dépôt, c’est toute la configuration.'
+				note: 'Un événement dans le dépôt, un `push` ou une `pull_request`, lance le **workflow**. Tu n’installes ni serveur ni hook : GitHub lit le fichier dans `.github/workflows/`, et rien d’autre.'
 			},
 			{
 				add: ['wf --> job["Job : build"]', 'job -.->|runs-on| run["Runner : VM ubuntu-latest"]', 'class run ext'],
@@ -44,17 +42,17 @@ export default {
 					's2 --> s3'
 				],
 				highlight: ['s1', 's2', 's3'],
-				note: 'Les **steps** partagent le disque du runner, donc le step 3 voit le code que le step 1 a récupéré. `uses:` appelle une **action**. `run:` c’est du shell, la partie que tu connais déjà.'
+				note: 'Les steps partagent le disque du runner, donc le step 3 voit le code que le step 1 a récupéré. `uses:` appelle une **action**, un step réutilisable que quelqu’un a empaqueté, comme `actions/checkout`. `run:` lance de simples commandes shell.'
 			},
 			{
 				add: ['mx["Matrice : un job par node-version, 18, 20, 22"]', 'wf --> mx', 'mx -.-> job'],
 				highlight: ['mx'],
-				note: 'Une **matrice** transforme un job en trois, un par version de Node.js, en parallèle. Par défaut, si l’un échoue, GitHub **annule les autres**.'
+				note: 'La matrice lance le job trois fois en parallèle, une fois par version de Node.js. Par défaut, si l’un échoue, GitHub **annule les autres**.'
 			},
 			{
 				add: ['sec["Secrets : secrets.DEPLOY_KEY"]', 'sec -.-> s3', 'class sec ext'],
 				highlight: ['sec'],
-				note: 'Les **secrets** vivent dans les paramètres du dépôt, pas dans le YAML. Un step en lit un avec `${{ secrets.NAME }}`, et GitHub masque sa valeur dans les logs. Ce masquage n’est pas garanti : un secret transformé (encodé, ou dans du JSON) peut quand même fuiter.'
+				note: 'Tu ranges les secrets dans les paramètres du dépôt, hors du YAML. Un step en lit un avec `${{ secrets.NAME }}`, et GitHub masque sa valeur dans les logs. Ce masquage n’est pas garanti : un secret transformé (encodé, ou dans du JSON) peut quand même fuiter.'
 			}
 		]
 	},
@@ -92,22 +90,22 @@ jobs:
     - run: npm run build --if-present
     - run: npm test`,
 		notes: [
-			'C’est le workflow de démarrage que GitHub propose pour les projets Node.js. `$default-branch` est un [paramètre](https://github.com/actions/starter-workflows/blob/e3c451d60f119b71caebf13c98ac45da6e15b4b7/README.md?plain=1#L68) que GitHub remplace par le nom de ta branche (`main`) quand tu ajoutes le template.',
-			'La matrice crée **trois jobs**. [`strategy.fail-fast`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategyfail-fast) vaut `true` par défaut : si le job 18.x échoue, GitHub annule les jobs 20.x et 22.x encore en cours ou en attente.',
-			'`actions/checkout@v4` pointe vers un **tag**, et un tag peut être déplacé. Le [guide de sécurité](https://docs.github.com/en/actions/reference/security/secure-use) de GitHub recommande d’épingler les actions sur un SHA de commit complet, et sur un tag seulement si tu fais confiance à l’auteur. Même idée que les digests d’image du jour 19.',
-			'`cache: \'npm\'` fait garder par `setup-node` les données globales des paquets npm d’un run à l’autre. Son [README](https://github.com/actions/setup-node/blob/949feb2413d6458794dcd2491c4babbbce0c15c1/README.md?plain=1#L162-L168) précise qu’il ne met pas `node_modules` en cache. `npm ci` installe ensuite exactement ce que dit le fichier lock.'
+			'GitHub propose ce workflow de démarrage pour les projets Node.js. Aux lignes 5 et 7, `$default-branch` est un [paramètre](https://github.com/actions/starter-workflows/blob/e3c451d60f119b71caebf13c98ac45da6e15b4b7/README.md?plain=1#L68) que GitHub remplace par le nom de ta branche (`main`) quand tu ajoutes le template.',
+			'Les lignes 14 à 16 créent **trois jobs**, un par version de Node.js. [`strategy.fail-fast`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategyfail-fast) vaut `true` par défaut : si le job 18.x échoue, GitHub annule les jobs 20.x et 22.x encore en cours ou en attente.',
+			'La ligne 20, `actions/checkout@v4`, pointe vers un **tag**, et l’auteur peut déplacer ce tag vers un autre code. Le [guide de sécurité](https://docs.github.com/en/actions/reference/security/secure-use) de GitHub recommande d’épingler les actions sur un SHA de commit complet, et sur un tag seulement si tu fais confiance à l’auteur. Au jour 19, tu as épinglé les images sur un digest pour la même raison.',
+			'La ligne 25, `cache: \'npm\'`, fait garder par `setup-node` les données globales des paquets npm d’un run à l’autre. Son [README](https://github.com/actions/setup-node/blob/949feb2413d6458794dcd2491c4babbbce0c15c1/README.md?plain=1#L162-L168) précise qu’il ne met pas `node_modules` en cache. `npm ci` installe ensuite exactement ce que dit le fichier lock.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Pas de serveur de build à patcher : les runners hébergés par GitHub sont des machines neuves que quelqu’un d’autre maintient.',
 			'Le pipeline est relu dans la même pull request que le code qu’il teste.',
-			'Des actions toutes prêtes pour les étapes courantes : checkout, installation d’un langage, connexion au cloud. Tu écris moins de shell.'
+			'Des actions toutes prêtes couvrent les étapes courantes (checkout, installation d’un langage, connexion au cloud), donc tu écris moins de shell.'
 		],
 		cost: [
-			'Chaque `uses:` est du code de quelqu’un d’autre qui tourne avec ton token et tes secrets. Il faut les choisir et les épingler avec soin.',
-			'Ça lie ton pipeline à GitHub. Passer à GitLab ou Jenkins veut dire le réécrire.',
-			'Une machine propre à chaque run veut dire que rien n’est en cache sauf si tu le demandes, donc les installations lentes reviennent à chaque fois.'
+			'Chaque `uses:` fait tourner le code de quelqu’un d’autre avec ton token et tes secrets. Tu dois choisir chaque action et l’épingler sur un commit.',
+			'La syntaxe des workflows ne marche que sur GitHub. Pour passer à GitLab ou Jenkins, tu réécris le pipeline.',
+			'Chaque run démarre sur une machine propre : rien n’est en cache sauf si tu le demandes, donc les installations lentes reviennent à chaque run.'
 		]
 	},
 	task: {
@@ -155,7 +153,10 @@ jobs:
 			why: 'GitHub n’envoie pas tes secrets à un run lancé depuis un dépôt forké. Sinon n’importe qui pourrait ouvrir une pull request qui les affiche.'
 		}
 	],
-	takeaway: 'Un événement lance un workflow, un workflow lance des jobs, chaque job exécute ses steps sur un runner. Garde les secrets dans les paramètres, et épingle les actions que tu utilises.',
+	recall: {
+		q: 'Dans le workflow de démarrage Node.js, le job de matrice 18.x échoue. Qu’arrive-t-il aux jobs 20.x et 22.x, et quel réglage en décide ?',
+		a: 'GitHub les annule s’ils tournent encore ou attendent, parce que `strategy.fail-fast` vaut `true` par défaut. Mets-le à `false` pour avoir tous les résultats.'
+	},
 	sources: [
 		{ title: 'Doc GitHub, Understanding GitHub Actions', url: 'https://docs.github.com/en/actions/get-started/understand-github-actions' },
 		{ title: 'Doc GitHub, syntaxe des workflows GitHub Actions', url: 'https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax' },

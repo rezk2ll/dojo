@@ -4,18 +4,17 @@ const COMPOSE = 'https://github.com/docker/awesome-compose/blob/30f4b7f6a6c3b0c0
 export default {
 	slug: 'small-safe-images',
 	part: 'Les conteneurs',
-	title: 'Des images petites et sûres : livre le binaire, pas la caisse à outils',
+	title: 'Des images petites et sûres',
 	minutes: 10,
 	hook: [
-		'Tu ne laisserais jamais `gcc`, `make` et un shell root sur un serveur web de prod « au cas où ». Pourtant une image naïve fait exactement ça : le compilateur, le cache des paquets, les fichiers de test, le tout en root.',
-		'Chaque paquet en trop est une chose à patcher et un outil de plus pour un attaquant. Chaque mégaoctet en trop est tiré à chaque déploiement.',
-		'Quatre habitudes règlent l’essentiel : les **builds multi-stage**, un **utilisateur non root**, un **`.dockerignore`** et une **image de base minimale**. Aujourd’hui tu appliques les quatre.'
+		'Tu ne laisserais jamais `gcc`, `make` et un shell root sur un serveur web de prod « au cas où ». Pourtant une image naïve embarque le compilateur, le cache des paquets et les fichiers de test, le tout en root.',
+		'Chaque paquet en trop est une chose à patcher et un outil de plus pour un attaquant. Chaque nœud tire chaque mégaoctet en trop à chaque déploiement.',
+		'Quatre changements règlent l’essentiel : un build multi-stage, un utilisateur non root, un fichier `.dockerignore` et une **image de base minimale**.'
 	],
 	terms: [
 		{ term: 'Build multi-stage', def: 'Un Dockerfile avec plusieurs lignes `FROM`. Les premiers stages compilent, le dernier copie seulement le résultat avec `COPY --from`. Les outils de build restent derrière.' },
 		{ term: 'Stage', def: 'Tout ce qui va d’un `FROM` au suivant. Tu peux le nommer avec `AS builder` et ne construire que jusqu’à lui avec `--target`.' },
 		{ term: 'Utilisateur non root', def: 'Une ligne `USER` pour que l’appli ne tourne pas en UID 0. Sans elle, ni dans ton Dockerfile ni dans l’image de base, l’utilisateur par défaut dans un conteneur est root.' },
-		{ term: '.dockerignore', def: 'Un fichier qui liste les chemins à laisser hors du contexte de build, comme `.git` ou `node_modules`. Ils n’arrivent jamais au builder.' },
 		{ term: 'Image de base minimale', def: 'Une base qui ne contient presque rien d’autre que ce dont l’appli a besoin : `scratch` (vide), distroless (ni shell ni gestionnaire de paquets), ou une variante slim.' }
 	],
 	diagram: {
@@ -28,7 +27,7 @@ export default {
 					'end'
 				],
 				highlight: ['sdk', 'bin'],
-				note: 'Le **stage builder** a toute la chaîne d’outils. Il est gros, et ce n’est pas grave : il n’est jamais livré.'
+				note: 'Le stage builder contient toute la chaîne d’outils Go, donc il est gros. Sa taille ne compte pas, parce qu’**il n’est jamais livré**.'
 			},
 			{
 				add: [
@@ -38,7 +37,7 @@ export default {
 					'bin -->|COPY --from=builder| app'
 				],
 				highlight: ['scr', 'app'],
-				note: 'Le **stage final** part d’une image vide et copie **juste le binaire**. Le compilateur et les sources restent derrière, ils ne sont pas dans le résultat.'
+				note: 'Le stage final part d’une image vide et copie **juste le binaire**. Le compilateur et les sources restent dans le stage builder, et l’image finale ne les contient pas.'
 			},
 			{
 				add: [
@@ -47,7 +46,7 @@ export default {
 					'class ign ext'
 				],
 				highlight: ['ign'],
-				note: '`.dockerignore` retire des fichiers du contexte de build **avant** qu’ils n’arrivent au builder. Des builds plus rapides, et pas de `.git` ni de `.env` qui se glissent dans une image via un `COPY . .`.'
+				note: '`.dockerignore` liste les chemins à retirer du contexte de build **avant** qu’ils n’arrivent au builder. Le build envoie moins de données, et un `COPY . .` ne peut plus mettre `.git` ou `.env` dans l’image.'
 			},
 			{
 				add: [
@@ -55,7 +54,7 @@ export default {
 					'app --> usr'
 				],
 				highlight: ['usr'],
-				note: 'Ajoute une ligne **`USER`** dans le stage final. Donne aussi un groupe : si l’utilisateur n’a pas de groupe principal, le processus tourne avec le **groupe root**.'
+				note: 'Ajoute une ligne `USER` dans le stage final. Donne aussi un groupe : si l’utilisateur n’a pas de groupe principal, le processus tourne avec le **groupe root**.'
 			}
 		]
 	},
@@ -85,15 +84,15 @@ FROM scratch
 COPY --from=builder /code/bin/backend /usr/local/bin/backend
 CMD ["/usr/local/bin/backend"]`,
 		notes: [
-			'Le stage `builder` contient Go, Alpine et les sources. Le dernier stage est `FROM scratch` : une image **vide** qui porte un seul binaire statique (`CGO_ENABLED 0` est posé dans les lignes coupées ici).',
-			'Même astuce de cache qu’hier : `go.mod` et `go.sum` d’abord, puis `go mod download`, puis le reste. `--mount=type=cache` garde en plus le cache de téléchargement de Go entre les builds, sans le mettre dans une couche.',
-			'Il n’y a **pas de ligne `USER`**, donc le binaire tourne en root. Root dans un système de fichiers vide, ce qui limite les dégâts, mais `USER 10001:10001` dans le dernier stage ne coûte rien.',
-			'Regarde le [fichier compose](https://github.com/docker/awesome-compose/blob/30f4b7f6a6c3b0c0ecf4d4efb0de203c48d11562/nginx-golang-postgres/compose.yaml#L2-L5) : il build avec `target: builder`, le gros stage, parce que c’est un environnement de dev. Un simple `docker build` construit le dernier stage.'
+			'La ligne 2 ouvre le stage `builder`, avec Go, Alpine et les sources. La ligne 18 ouvre le dernier stage, `FROM scratch` : une image **vide** qui porte un seul binaire statique (`CGO_ENABLED 0` est posé dans les lignes coupées ici).',
+			'Les lignes 6 à 10 reprennent l’ordre de cache d’hier : `go.mod` et `go.sum` d’abord, puis `go mod download`, puis le reste. `--mount=type=cache` garde en plus le cache de téléchargement de Go entre les builds, sans le mettre dans une couche.',
+			'Le fichier n’a pas de ligne `USER`, donc le binaire tourne en root. Dans un système de fichiers vide, root a peu d’outils à détourner, et un `USER 10001:10001` après la ligne 19 supprimerait root.',
+			'Le [fichier compose](https://github.com/docker/awesome-compose/blob/30f4b7f6a6c3b0c0ecf4d4efb0de203c48d11562/nginx-golang-postgres/compose.yaml#L2-L5) build avec `target: builder`, le gros stage, parce qu’il sert au dev. Un simple `docker build` construit le dernier stage.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Moins de paquets, moins de CVE à patcher et moins d’outils pour un attaquant.',
+			'Une image avec moins de paquets a moins de CVE à patcher et moins d’outils pour un attaquant.',
 			'Des images plus petites se tirent plus vite à chaque déploiement et sur chaque nouveau nœud.',
 			'Un processus non root ne peut pas écrire là où root pourrait, donc une compromission reste plus petite.'
 		],
@@ -107,10 +106,10 @@ CMD ["/usr/local/bin/backend"]`,
 		prompt: 'Ton image Node.js est en `FROM node:22`, fait `COPY . .` et `RUN npm ci`, n’a pas de `.dockerignore` et tourne en root. Elle dépasse 1 Go et le scanner remonte des centaines de CVE. Note les quatre changements que tu ferais, par ordre d’impact.',
 		hint: 'Un changement pour chacun : ce qu’il y a dans la base, ce qui arrive au builder, ce qui finit dans le stage final, et qui fait tourner le processus.',
 		answer: [
-			'**Multi-stage** : build dans un stage `node:22` (`npm ci`, `npm run build`), puis copie seulement le résultat du build et les dépendances de prod dans un stage final.',
-			'**Base minimale** pour le stage final : une variante slim ou une image Node distroless au lieu du `node:22` complet.',
-			'**`.dockerignore`** avec `.git`, `node_modules`, `.env` et les données de test, pour qu’ils n’arrivent jamais au builder ni dans l’image.',
-			'**`USER`** avec un utilisateur et un groupe non root dans le stage final (les images Node officielles [fournissent un utilisateur `node`](https://github.com/nodejs/docker-node/blob/02641286c1f5041d9025d3cf6d38a64b84cd72e5/docs/BestPractices.md#non-root-user) avec l’UID 1000), puis vérifie que l’appli peut encore écrire là où elle en a besoin.'
+			'Multi-stage : build dans un stage `node:22` (`npm ci`, `npm run build`), puis copie seulement le résultat du build et les dépendances de prod dans un stage final.',
+			'Base minimale pour le stage final : une variante slim ou une image Node distroless au lieu du `node:22` complet.',
+			'`.dockerignore` : liste `.git`, `node_modules`, `.env` et les données de test, pour qu’ils n’arrivent jamais au builder ni dans l’image.',
+			'`USER` : fixe un utilisateur et un groupe non root dans le stage final (les images Node officielles [fournissent un utilisateur `node`](https://github.com/nodejs/docker-node/blob/02641286c1f5041d9025d3cf6d38a64b84cd72e5/docs/BestPractices.md#non-root-user) avec l’UID 1000), puis vérifie que l’appli peut encore écrire là où elle en a besoin.'
 		]
 	},
 	quiz: [
@@ -129,7 +128,7 @@ CMD ["/usr/local/bin/backend"]`,
 			q: 'Ni ton Dockerfile ni son image de base n’ont d’instruction `USER`. Avec quel utilisateur tourne le processus du conteneur ?',
 			options: ['nobody', 'L’utilisateur qui a lancé `docker build`', 'root (UID 0)', 'Un UID non privilégié au hasard'],
 			answer: 2,
-			why: 'L’utilisateur par défaut dans un conteneur est root. Il faut une ligne `USER` pour changer ça.'
+			why: 'Docker lance le processus en root (UID 0), sauf si une ligne `USER` dans le Dockerfile ou dans l’image de base dit autre chose.'
 		},
 		{
 			q: 'Que fait un fichier `.dockerignore` ?',
@@ -143,7 +142,10 @@ CMD ["/usr/local/bin/backend"]`,
 			why: 'Les fichiers qui correspondent au `.dockerignore` sont retirés du contexte avant que le builder ne le voie, donc `COPY` ne peut pas les prendre.'
 		}
 	],
-	takeaway: 'Build avec tout, livre avec rien : un build multi-stage sur une base minimale, un `.dockerignore`, et un `USER` qui n’est pas root.',
+	recall: {
+		q: 'Dans le Dockerfile du backend Go, que contient l’image finale, et quel utilisateur la fait tourner ?',
+		a: 'Seulement le binaire `backend`, copié avec `COPY --from=builder` sur `FROM scratch`. Sans ligne `USER`, il tourne en root, et `USER 10001:10001` corrigerait ça.'
+	},
 	sources: [
 		{ title: 'Doc Docker, builds multi-stage', url: 'https://docs.docker.com/build/building/multi-stage/' },
 		{ title: 'Doc Docker, bonnes pratiques de build', url: 'https://docs.docker.com/build/building/best-practices/' },

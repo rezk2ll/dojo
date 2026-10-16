@@ -4,19 +4,18 @@ const COMPOSE = 'https://github.com/docker/awesome-compose/blob/30f4b7f6a6c3b0c0
 export default {
 	slug: 'dockerfile',
 	part: 'Les conteneurs',
-	title: 'Le Dockerfile : un script de build qui se met en cache',
+	title: 'Le Dockerfile et son cache de build',
 	minutes: 10,
 	hook: [
 		'Tu as une page de wiki « Installer le serveur d’appli » : installer Node, copier le code, lancer `npm ci`, démarrer. À chaque nouveau serveur tu la suis à la main, et chaque serveur finit un peu différent.',
-		'Un **Dockerfile**, c’est cette page transformée en script que le builder exécute pareil à chaque fois. Le résultat est une image, pas un serveur.',
-		'Un détail le rend rapide : chaque étape est sauvée comme **couche** et réutilisée au build suivant si rien n’a changé. Mets les étapes dans le mauvais ordre et un changement d’une ligne de code réinstalle toutes les dépendances. Aujourd’hui tu apprends l’ordre qui garde les builds rapides.'
+		'Un **Dockerfile** contient les mêmes étapes sous forme de script, et le builder les exécute à l’identique à chaque fois. Il produit une image, que tu lances ensuite sur n’importe quel serveur.',
+		'Le builder sauve chaque étape comme une couche et la réutilise au build suivant si rien n’a changé. Mets les étapes dans le mauvais ordre, et une ligne de code modifiée réinstalle toutes les dépendances.'
 	],
 	terms: [
 		{ term: 'Dockerfile', def: 'Un fichier texte d’instructions (`FROM`, `COPY`, `RUN`, `CMD`...) que le builder exécute de haut en bas pour produire une image.' },
 		{ term: 'Instruction', def: 'Une ligne du Dockerfile. `FROM` choisit l’image de base, `COPY` ajoute des fichiers, `RUN` lance une commande, `CMD` fixe la commande par défaut.' },
 		{ term: 'Couche', def: 'L’ensemble des changements de fichiers faits par une instruction. `RUN`, `COPY` et `ADD` ajoutent des couches, `CMD` ou `EXPOSE` ne changent que des réglages.' },
-		{ term: 'Cache de build', def: 'Les couches gardées des builds précédents. Si une instruction et ses entrées sont identiques, le builder réutilise la couche au lieu de la relancer.' },
-		{ term: 'Contexte de build', def: 'Les fichiers que tu donnes au builder, en général le dossier courant (`docker build .`). Un `COPY` simple ne peut lire que là.' }
+		{ term: 'Cache de build', def: 'Les couches gardées des builds précédents. Si une instruction et ses entrées sont identiques, le builder réutilise la couche au lieu de la relancer.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -33,7 +32,7 @@ export default {
 					'base --> deps --> inst'
 				],
 				highlight: ['deps', 'inst'],
-				note: 'Copie d’abord **seulement les fichiers de dépendances**, puis installe. Ils changent rarement, donc cette couche lente vient presque toujours du **cache**.'
+				note: 'Copie d’abord **seulement les fichiers de dépendances**, puis installe. Ces fichiers changent rarement, donc le builder prend presque toujours cette couche lente dans le cache.'
 			},
 			{
 				add: [
@@ -42,7 +41,7 @@ export default {
 					'inst --> src --> cmd'
 				],
 				highlight: ['src', 'cmd'],
-				note: 'Copie le code **en dernier**. Il change à chaque commit. `CMD` n’ajoute pas de couche, il enregistre juste la commande par défaut.'
+				note: 'Copie le code **en dernier**, parce qu’il change à chaque commit. `CMD` n’ajoute pas de couche : il enregistre la commande par défaut dans les réglages de l’image.'
 			},
 			{
 				add: [
@@ -60,7 +59,7 @@ export default {
 					'class bad ext'
 				],
 				highlight: ['bad'],
-				note: 'Inverse l’ordre et n’importe quelle modif, même une coquille dans le README, casse le cache **au dessus** de `npm ci`. Chaque build réinstalle tout. **Règle : ce qui change le moins en premier, ce qui change le plus en dernier.**'
+				note: 'Inverse l’ordre et n’importe quelle modif, même une coquille dans le README, casse le cache **au dessus** de `npm ci`. Chaque build réinstalle alors toutes les dépendances. Place en premier les fichiers qui changent le moins, et en dernier ceux qui changent le plus.'
 			}
 		]
 	},
@@ -88,10 +87,10 @@ COPY . /code
 …
 CMD [ "node", "src/index.js" ]`,
 		notes: [
-			'Le commentaire le dit sans détour : **« copy in our source code last, as it changes the most »**. Toute la règle du cache tient en une ligne.',
-			'`package.json` et le lock file sont copiés seuls avant `npm ci`. Tu modifies du code : `npm ci` vient du cache. Tu ajoutes une dépendance : là seulement il est relancé.',
-			'`FROM node:lts` suit un tag qui bouge. Le fichier lui-même prévient, quelques lignes plus haut, qu’il faut fixer une version précise dès qu’on sort du portable. C’est tout le sujet du jour 19.',
-			'`CMD [ "node", "src/index.js" ]` utilise la forme JSON (exec) : node tourne en PID 1 et reçoit les signaux d’arrêt directement, sans shell au milieu.'
+			'Le commentaire de la ligne 15 dit : « copy in our source code last, as it changes the most ». La ligne 16 copie ensuite le code, après l’installation de la ligne 9.',
+			'Les lignes 5 et 6 copient `package.json` et le lock file seuls, avant `npm ci`. Tu modifies du code : `npm ci` vient du cache. Tu ajoutes une dépendance : là seulement il est relancé.',
+			'La ligne 1, `FROM node:lts`, suit un tag qui bouge. Le fichier lui-même prévient, quelques lignes plus haut, qu’il faut fixer une version précise dès qu’on sort du portable. Le jour 19 traite de ce point.',
+			'La ligne 18, `CMD [ "node", "src/index.js" ]`, utilise la forme JSON (exec) : node tourne en PID 1 et reçoit les signaux d’arrêt directement, sans shell au milieu.'
 		]
 	},
 	tradeoff: {
@@ -101,9 +100,9 @@ CMD [ "node", "src/index.js" ]`,
 			'Avec un bon ordre, la plupart des rebuilds réutilisent toutes les couches lentes et prennent quelques secondes.'
 		],
 		cost: [
-			'Les règles du cache sont strictes : un fichier modifié invalide toutes les couches qui suivent.',
+			'Un fichier modifié invalide sa couche et toutes les couches qui suivent.',
 			'Un `RUN apt-get update` en cache peut cacher des paquets périmés, parce que le builder compare seulement le texte de la commande, pas ce que le réseau renverrait aujourd’hui.',
-			'Un mauvais ordre n’est pas une erreur. Il rend juste chaque build lent, et personne ne le remarque pendant des mois.'
+			'Le builder ne signale aucune erreur pour un mauvais ordre : chaque build réinstalle toutes les dépendances, et personne ne le remarque pendant des mois.'
 		]
 	},
 	task: {
@@ -113,7 +112,7 @@ CMD [ "node", "src/index.js" ]`,
 			'`FROM python:3.12-slim`, `WORKDIR /app`, `COPY requirements.txt .`, `RUN pip install -r requirements.txt`, `COPY . .`, `CMD ["python", "app.py"]`.',
 			'Tu modifies `app.py` : seul `COPY . .` (et ce qui suit) est reconstruit. `pip install` vient du cache.',
 			'Tu modifies `requirements.txt` : l’installation est relancée, et c’est ce que tu veux.',
-			'Bonus : ajoute un `.dockerignore` pour que `.git`, les virtualenvs et le bazar local restent hors du contexte de build et hors de l’image.'
+			'Bonus : ajoute un `.dockerignore` pour que `.git`, les virtualenvs et le bazar local restent hors du contexte de build (les fichiers que `docker build .` envoie au builder) et hors de l’image.'
 		]
 	},
 	quiz: [
@@ -146,7 +145,10 @@ CMD [ "node", "src/index.js" ]`,
 			why: 'Le builder compare seulement le texte de la commande `RUN`. La ligne update n’a pas changé, donc elle vient du cache. Docker recommande `apt-get update && apt-get install` dans un seul `RUN`.'
 		}
 	],
-	takeaway: 'Un Dockerfile, c’est ton runbook d’installation en code. Ordonne-le de ce qui change le moins à ce qui change le plus, pour garder les couches lentes en cache.',
+	recall: {
+		q: 'Dans un Dockerfile Node, que copies-tu avant `RUN npm ci`, et pourquoi ?',
+		a: 'Seulement `package.json` et le lock file. Une modif du code ne reconstruit alors que la couche `COPY . /code` et les suivantes, et `npm ci` vient du cache.'
+	},
 	sources: [
 		{ title: 'Doc Docker, référence Dockerfile', url: 'https://docs.docker.com/reference/dockerfile/' },
 		{ title: 'Doc Docker, le cache de build', url: 'https://docs.docker.com/build/cache/' },

@@ -8,14 +8,12 @@ export default {
 	minutes: 10,
 	hook: [
 		'Ton appli a besoin de nginx, d’un backend et de PostgreSQL. À la main, ça fait trois lignes `docker run` avec des ports, un réseau, un volume et un mot de passe, tapées dans le bon ordre. Oublie un flag et le backend ne trouve plus la base.',
-		'**Compose** écrit tout ça dans un seul fichier YAML. `docker compose up -d` démarre la stack, `docker compose down` la supprime. Le même fichier sur ton portable et sur le serveur de test.',
-		'Le point qui pique, c’est **l’ordre de démarrage**. Compose sait démarrer la base en premier, mais « démarrée » ne veut pas dire « prête ». Aujourd’hui tu apprends comment un **healthcheck** comble cet écart.'
+		'Docker Compose écrit tout ça dans un seul fichier YAML. `docker compose up -d` démarre la stack, `docker compose down` la supprime. Le même fichier tourne sur ton portable et sur le serveur de test.',
+		'Compose peut démarrer le conteneur de la base en premier, mais PostgreSQL n’accepte peut-être pas encore de connexions. Un **healthcheck** dit à Compose quand la base est prête.'
 	],
 	terms: [
 		{ term: 'Service', def: 'Un composant de l’appli dans `compose.yaml` (web, backend, db). Compose fait tourner un ou plusieurs conteneurs pour lui.' },
-		{ term: 'Réseau', def: 'Compose crée un réseau par défaut pour le projet. Chaque service le rejoint et joint les autres **par leur nom de service**, comme `db:5432`.' },
 		{ term: 'Volume', def: 'Un stockage qui survit au conteneur. Un volume nommé (`db-data`) survit à `docker compose down`. `down -v` le supprime.' },
-		{ term: 'Fichier env', def: 'Deux sortes. Un fichier `.env` dans le dossier du projet remplit les `${VAR}` du fichier compose. `env_file:` sur un service passe des variables dans son conteneur.' },
 		{ term: 'Healthcheck', def: 'Une commande que le conteneur lance à intervalle régulier pour dire « je suis prêt ». Son résultat donne l’état de santé du conteneur.' },
 		{ term: 'depends_on', def: 'L’ordre de démarrage entre services. Avec `condition: service_healthy`, Compose attend que le healthcheck de la dépendance passe.' }
 	],
@@ -32,7 +30,7 @@ export default {
 					'class user ext'
 				],
 				highlight: ['proxy', 'be', 'db'],
-				note: 'Trois **services** sur un seul **réseau** par défaut. Seul `proxy` publie un port sur l’hôte. Le backend joint la base par son nom de service, `db`.'
+				note: 'Compose met les trois services sur un seul réseau par défaut, créé pour le projet. Seul `proxy` publie un port sur l’hôte. Le backend joint la base **par son nom de service**, `db`.'
 			},
 			{
 				add: [
@@ -48,14 +46,14 @@ export default {
 					'hc -.->|en bonne santé ?| db'
 				],
 				highlight: ['hc'],
-				note: 'Un **healthcheck** lance `pg_isready` toutes les 10 secondes. Le processus peut tourner un moment avant que PostgreSQL accepte les connexions. Le healthcheck fait la différence entre les deux.'
+				note: 'Le healthcheck lance `pg_isready` toutes les 10 secondes. Le processus peut tourner un moment avant que PostgreSQL accepte les connexions. `pg_isready` ne réussit qu’à partir de ce moment.'
 			},
 			{
 				add: [
 					'be -.->|attend healthy| hc'
 				],
 				highlight: ['be', 'hc'],
-				note: 'Un `depends_on` simple attend seulement que le conteneur de la base **tourne**. Avec `condition: service_healthy`, le backend ne démarre qu’une fois le healthcheck passé. Fini les « connection refused » au premier démarrage.'
+				note: 'Un `depends_on` simple attend seulement que le conteneur de la base **tourne**. Avec `condition: service_healthy`, le backend ne démarre qu’une fois le healthcheck passé, et sa première connexion ne reçoit pas de « connection refused ».'
 			},
 			{
 				add: [
@@ -119,10 +117,10 @@ secrets:
   db-password:
     file: db/password.txt`,
 		notes: [
-			'Aucune clé `networks:`. Compose met les trois services sur le réseau par défaut, donc le backend se connecte à `db` par son nom.',
-			'`expose: 5432` ne publie rien sur l’hôte. Il note seulement le port : les autres services du réseau partagé peuvent de toute façon joindre n’importe quel port de `db`. `ports: 80:80` sur `proxy` est la seule porte depuis l’hôte.',
-			'`backend` attend que `db` soit **healthy**. `proxy` utilise la forme courte, `depends_on: [backend]`, qui attend seulement que le conteneur du backend démarre.',
-			'`POSTGRES_PASSWORD_FILE` pointe vers le secret monté, donc le mot de passe n’est jamais dans `environment`. Et `image: postgres` n’a pas de tag, donc ça veut dire `latest` : fixe-le avant que ça quitte ton portable (jour 19).'
+			'Le fichier n’a pas de clé `networks:`. Compose met les trois services sur le réseau par défaut, donc le backend se connecte à `db` par son nom.',
+			'Les lignes 23 et 24, `expose: 5432`, ne publient rien sur l’hôte. Elles notent seulement le port : les autres services du réseau partagé peuvent de toute façon joindre n’importe quel port de `db`. Les lignes 34 et 35, `ports: 80:80` sur `proxy`, ouvrent le seul port accessible depuis l’hôte.',
+			'Les lignes 8 à 10 font attendre `backend` jusqu’à ce que `db` soit **healthy**. Les lignes 36 et 37 donnent à `proxy` la forme courte, `depends_on: [backend]`, qui attend seulement que le conteneur du backend démarre.',
+			'La ligne 22, `POSTGRES_PASSWORD_FILE`, pointe vers le secret monté, donc le mot de passe n’est jamais dans `environment`. La ligne 13, `image: postgres`, n’a pas de tag, donc Docker tire `latest` : fixe la version avant que ce fichier quitte ton portable (jour 19).'
 		]
 	},
 	tradeoff: {
@@ -132,9 +130,9 @@ secrets:
 			'Les healthchecks et `depends_on` donnent un ordre de démarrage prévisible.'
 		],
 		cost: [
-			'Compose tourne sur **un seul hôte**. Pas de bascule vers une autre machine, pas de déploiement progressif sur un parc. C’est le rôle de Kubernetes.',
-			'Tu écris chaque healthcheck toi-même. Un healthcheck faible (le port est ouvert, l’appli non) donne une fausse confiance.',
-			'Deux sortes de fichiers env avec deux rôles différents, c’est une source classique de « pourquoi ma variable est vide ».'
+			'Compose fait tourner tous les services sur **un seul hôte**, sans bascule vers une autre machine ni déploiement progressif sur un parc. Kubernetes s’en charge.',
+			'Tu écris chaque healthcheck toi-même, et un healthcheck faible passe trop tôt : il vérifie que le port est ouvert alors que l’appli refuse encore les requêtes.',
+			'Un fichier `.env` remplit les `${VAR}` du fichier compose, et `env_file:` sur un service passe des variables dans son conteneur. Confondre les deux mène souvent à « pourquoi ma variable est vide ».'
 		]
 	},
 	task: {
@@ -157,7 +155,7 @@ secrets:
 				'Rien : ça documente seulement la dépendance'
 			],
 			answer: 0,
-			why: 'Compose attend que le conteneur tourne, pas qu’il soit prêt. Il faut un healthcheck et `condition: service_healthy` pour attendre qu’il soit prêt.'
+			why: 'Compose attend que le processus du conteneur tourne. Pour attendre que la base accepte les connexions, il te faut un healthcheck et `condition: service_healthy`.'
 		},
 		{
 			q: 'Ton backend doit joindre la base définie dans le même fichier compose. Quel nom d’hôte utilise-t-il ?',
@@ -182,7 +180,10 @@ secrets:
 			why: 'Par défaut `down` supprime les conteneurs et les réseaux qu’il a créés. Les volumes nommés ne sont supprimés qu’avec `--volumes` (`-v`).'
 		}
 	],
-	takeaway: 'Compose transforme un tas de commandes `docker run` en un seul fichier. Donne aux services avec état un volume et un healthcheck, et fais attendre le reste avec `service_healthy`.',
+	recall: {
+		q: 'Qu’ajoutes-tu pour que le backend ne démarre qu’une fois que PostgreSQL accepte les connexions ?',
+		a: 'Un healthcheck sur `db` (`pg_isready`, toutes les 10 secondes) et `depends_on: { db: { condition: service_healthy } }` sur le backend. Un `depends_on` simple attend seulement que le conteneur tourne.'
+	},
 	sources: [
 		{ title: 'Doc Docker, contrôler l’ordre de démarrage dans Compose', url: 'https://docs.docker.com/compose/how-tos/startup-order/' },
 		{ title: 'Doc Docker, le réseau dans Compose', url: 'https://docs.docker.com/compose/how-tos/networking/' },

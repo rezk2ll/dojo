@@ -8,15 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'You have one SSH key, no passphrase, copied to every laptop you ever owned. It opens forty servers. Last week a colleague pasted the database password into `deploy.sh` and pushed it.',
-		'Automation multiplies both problems. Pipelines log in to servers and talk to databases, so **secrets spread**: into scripts, env files, logs and Git history.',
-		'Today: keys done right, `ssh-agent` and `~/.ssh/config` so you stop typing, and the rule that matters most. **A secret pushed to Git is a leaked secret.** The fix is to rotate it.'
+		'Pipelines log in to servers and talk to databases, so they need keys and passwords too. Those secrets end up in scripts, env files, logs and Git history.',
+		'You protect the key with a passphrase, and `ssh-agent` and `~/.ssh/config` save you the typing. A secret pushed to Git is in every clone of the repository, so **the fix is to rotate it**.'
 	],
 	terms: [
 		{ term: 'Key pair', def: 'A private key that stays with you and a public key you put on servers, in `~/.ssh/authorized_keys`. Make one with `ssh-keygen -t ed25519 -C "you@laptop"`.' },
-		{ term: 'Passphrase', def: 'Encrypts the private key file on disk. A stolen laptop then does not mean a stolen key.' },
 		{ term: 'ssh-agent', def: 'A process that holds your unlocked keys in memory, so you type the passphrase once per session, not once per login.' },
 		{ term: 'Secret', def: 'Anything that grants access: a password, a token, a private key, an API key. If it leaks, someone else can act as you.' },
-		{ term: 'Rotation', def: 'Replacing a secret with a new one and revoking the old one. The only real fix once a secret has leaked.' }
+		{ term: 'Rotation', def: 'Replacing a secret with a new one and revoking the old one. After a leak, rotating the secret makes the leaked value useless.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -24,27 +23,27 @@ export default {
 			{
 				add: ['key["Private key: id_ed25519"]', 'pub["Public key in authorized_keys"]', 'key -.->|"proves you hold it"| pub'],
 				highlight: ['key', 'pub'],
-				note: 'The private key never leaves your machine. The server only has the public half. `ssh` simply **ignores a private key file that others can read**, so keep it at `chmod 600`.'
+				note: 'The private key never leaves your machine. The server only has the public half. `ssh` **ignores a private key file that others can read**, so keep it at `chmod 600`.'
 			},
 			{
 				add: ['agent["ssh-agent"]', 'key -->|"ssh-add, passphrase once"| agent'],
 				highlight: ['agent'],
-				note: 'The passphrase protects the file, the agent saves you from typing it. `ssh-add -t 8h` drops the key after eight hours. `ssh-add -l` lists what the agent holds.'
+				note: 'The passphrase encrypts the key file on disk, so a stolen laptop does not give away the key. The agent holds the unlocked key, so you type the passphrase once. `ssh-add -t 8h` drops the key after eight hours, and `ssh-add -l` lists what the agent holds.'
 			},
 			{
 				add: ['cfg["~/.ssh/config"]', 'bast["bastion"]', 'web["web1, private network"]', 'agent --> bast', 'bast -->|"ProxyJump"| web', 'cfg -.-> bast'],
 				highlight: ['cfg', 'bast', 'web'],
-				note: '`Host web1`, `HostName 10.0.1.5`, `User deploy`, `ProxyJump bastion`, and `ssh web1` just works. The first value found wins, so put specific `Host` blocks first and `Host *` last. The OpenSSH docs call a jump host **safer than agent forwarding**.'
+				note: 'With `Host web1`, `HostName 10.0.1.5`, `User deploy` and `ProxyJump bastion` in the config, `ssh web1` connects through the bastion. ssh uses the first value it finds for each option, so put specific `Host` blocks first and `Host *` last. The OpenSSH docs call a jump host **safer than agent forwarding**.'
 			},
 			{
 				add: ['sec["Secret: DB password"]', 'repo["Git repository"]', 'sec -->|"never"| repo'],
 				highlight: ['sec', 'repo'],
-				note: 'Once pushed, a secret lives in the history, in every clone and every fork. Deleting the file in a new commit removes nothing. GitHub\'s own docs say the first step is to **revoke or rotate** the secret.'
+				note: 'Once pushed, a secret lives in the history, in every clone and every fork. Deleting the file in a new commit removes nothing. GitHub\'s docs say the first step is to **revoke or rotate** the secret.'
 			},
 			{
 				add: ['store["Secret store: CI secrets, a vault, systemd credentials"]', 'app["Service or pipeline"]', 'store -->|"injected at run time"| app', 'class store ext'],
 				highlight: ['store', 'app'],
-				note: 'Secrets live **outside the code** and arrive at run time. Environment variables are common, but the systemd docs warn they are not suitable for secrets. For a service, `LoadCredential=` puts the secret in a file under `$CREDENTIALS_DIRECTORY` instead.'
+				note: 'The secret is stored **outside the code** and reaches the service at run time. Environment variables are common, but the systemd docs warn they are not suitable for secrets. For a service, `LoadCredential=` puts the secret in a file under `$CREDENTIALS_DIRECTORY` instead.'
 			}
 		]
 	},
@@ -79,32 +78,32 @@ export default {
     else:
         return 0`,
 		notes: [
-			'The whole check is a list of header lines. If a file you are about to commit contains one, the hook prints its name and **returns 1**. A non-zero exit code makes the commit fail: the contract from day 6 again.',
+			'Lines 1 to 12 list the key header lines the hook looks for. If a file you are about to commit contains one, lines 20 to 23 print its name and **return 1**. A non-zero exit code makes the commit fail, as in day 6.',
 			'The hook is declared in [`.pre-commit-hooks.yaml`](https://github.com/pre-commit/pre-commit-hooks/blob/2ee68084ed80421ef5a6d062cf1637825adfcb22/.pre-commit-hooks.yaml#L125-L130) with `types: [text]`. The same file also ships `detect-aws-credentials`.',
-			'It only knows key headers. A database password in `deploy.sh` passes. Wider scanners exist, like [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning), which runs on the server side.',
-			'A local hook is a seatbelt, not a lock. `git commit --no-verify` skips it. Keep the real secrets somewhere a commit cannot reach.'
+			'Line 17 matches key headers only, so a database password in `deploy.sh` passes. Wider scanners exist, like [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning), which runs on the server side.',
+			'`git commit --no-verify` skips a local hook. Keep the real secrets somewhere a commit cannot reach.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'A passphrase plus the agent: a stolen key file is useless, and you still type the passphrase only once.',
-			'`~/.ssh/config` turns long commands into `ssh web1`, and scripts get shorter too.',
+			'With a passphrase, a stolen key file is useless, and with the agent you still type the passphrase only once per session.',
+			'With `~/.ssh/config`, you and your scripts type `ssh web1` instead of the full user, address and jump host.',
 			'Secrets injected at run time can be rotated without changing or redeploying the code.'
 		],
 		cost: [
 			'A secret store is one more system to run, back up and grant access to.',
-			'Agent forwarding is convenient but risky: root on the remote host can use your loaded keys through the forwarded socket.',
-			'Environment variables leak. The OWASP cheat sheet notes they may end up in logs or system dumps, and Caddy\'s `--environ` from day 6 prints them all at startup.'
+			'With agent forwarding, root on the remote host can use your loaded keys through the forwarded socket.',
+			'The OWASP cheat sheet notes that environment variables may end up in logs or system dumps, and Caddy\'s `--environ` from day 6 prints them all at startup.'
 		]
 	},
 	task: {
 		prompt: 'An hour ago a colleague pushed `DB_PASSWORD=S3cret!` inside `deploy.sh` to a shared GitHub repository. List what you do, in order.',
 		hint: 'Ask what an attacker can do right now, and which step actually takes that away from them.',
 		answer: [
-			'**Rotate first**: change the database password now. Until then, anyone who cloned the repository can log in.',
+			'Rotate first: change the database password now. Until then, anyone who cloned the repository can log in.',
 			'Check the database logs for logins with the old password since the push.',
 			'Move the secret out: `deploy.sh` reads it at run time, from the CI secret store or a file only the service user can read (`chmod 600`), never from the script itself.',
-			'Rewriting history is optional and slow: the secret is still in every clone and fork. GitHub\'s docs list the side effects. Rotation is what protects you.',
+			'Rewriting history is optional and slow: the secret is still in every clone and fork, and GitHub\'s docs list the side effects. Only the new password locks the attacker out.',
 			'Prevent the next one: a pre-commit hook, secret scanning on the server, and `.env` files in `.gitignore`.'
 		]
 	},
@@ -129,7 +128,7 @@ export default {
 				'The server rejects keys that are stored with mode 644'
 			],
 			answer: 0,
-			why: 'The ssh manual says it simply ignores a private key file if it is accessible by others. `chmod 600` fixes it. The server never sees the file mode.'
+			why: 'The ssh manual says it ignores a private key file if it is accessible by others. `chmod 600` fixes it. The server never sees the file mode.'
 		},
 		{
 			q: 'You must reach `web1` through a bastion. According to the OpenSSH docs, which is the safer option?',
@@ -143,7 +142,10 @@ export default {
 			why: 'With agent forwarding, anyone who can bypass file permissions on the bastion can use your loaded keys. ProxyJump tunnels through the bastion and your keys stay on your machine.'
 		}
 	],
-	takeaway: 'Private keys stay on your machine, behind a passphrase and an agent. Secrets live outside Git and arrive at run time. When one leaks, rotate it first.',
+	recall: {
+		q: 'A password was pushed to a shared Git repository. What is the first step, and why does deleting the file not help?',
+		a: 'Rotate the password: replace it and revoke the old one. A new commit that deletes the file leaves the password in the history, in every clone and in every fork.'
+	},
 	sources: [
 		{ title: 'ssh(1) manual page (private key permissions, agent forwarding)', url: 'https://man7.org/linux/man-pages/man1/ssh.1.html' },
 		{ title: 'ssh_config(5) manual page (Host, ProxyJump, ForwardAgent)', url: 'https://man7.org/linux/man-pages/man5/ssh_config.5.html' },

@@ -9,11 +9,10 @@ export default {
 	hook: [
 		'Production breaks after the Friday deploy. Your boss asks: "what was running on Thursday?" If the answer is "the commit from around 4 p.m., I think", you have no releases.',
 		'A **tag** is a ref that names one commit: `v1.4.2`. Unlike a branch, it does not move when you commit. Thursday\'s version gets a name you can check out, compare and roll back to.',
-		'A **release** adds the rest: a version number that means something (**semantic versioning**), a **changelog** written for humans, and the **artifacts** (a binary, a package, an image) built from that exact commit.'
+		'A **release** adds the rest: a version number that tells users what changed (semantic versioning), a changelog written for humans, and the artifacts (a binary, a package, an image) built from that exact commit.'
 	],
 	terms: [
-		{ term: 'Annotated tag', def: 'A tag object with the tagger\'s name and email, a date and a message. Made with `git tag -a`. Meant for releases.' },
-		{ term: 'Lightweight tag', def: 'Just a name pointing at a commit, nothing else. Meant for private or temporary labels.' },
+		{ term: 'Annotated tag', def: 'A tag object with the tagger\'s name and email, a date and a message. Made with `git tag -a`. Meant for releases. A lightweight tag is only a name pointing at a commit, meant for private or temporary labels.' },
 		{ term: 'Semantic versioning', def: '`MAJOR.MINOR.PATCH`: MAJOR for incompatible changes, MINOR for new backward compatible features, PATCH for backward compatible bug fixes.' },
 		{ term: 'Changelog', def: 'A file listing the notable changes of each version, newest first, for the people who use your software.' },
 		{ term: 'Release artifact', def: 'The built output users install: a package, a binary, a container image. Built once from the tagged commit.' }
@@ -29,7 +28,7 @@ export default {
 			{
 				add: ['tag -->|"git push origin v1.4.0"| remote[("Remote: GitHub")]'],
 				highlight: ['remote'],
-				note: '**`git push` does not send tags by default.** Push the tag by name, or use `git push --follow-tags` to send the annotated tags that point at commits reachable from what you push.'
+				note: 'Push the tag by name, because **`git push` does not send tags by default**. Or use `git push --follow-tags` to send the annotated tags that point at commits reachable from what you push.'
 			},
 			{
 				add: ['remote -->|"release published"| ci["CI release job"]', 'ci --> art["artifacts: package, binary, image"]'],
@@ -39,12 +38,12 @@ export default {
 			{
 				add: ['art --> rel["Release v1.4.0: notes and files"]', 'log["CHANGELOG.md"] -.-> rel'],
 				highlight: ['rel', 'log'],
-				note: 'The release page holds the notes and the files. The notes come from the **changelog**, written for humans, not a dump of `git log`.'
+				note: 'The release page holds the notes and the files. The notes come from the **changelog**, which groups the notable changes for users. A `git log` dump would list every commit instead.'
 			},
 			{
 				add: ['rel --> users["Users: 2.0.0 means read before upgrading"]', 'class users ext'],
 				highlight: ['users'],
-				note: 'Semantic versioning is a **promise** to users. 1.4.0 to 1.4.1: safe fix. To 1.5.0: new features, nothing breaks. To 2.0.0: something incompatible, read the changelog first.'
+				note: 'With semantic versioning, the number tells users what an upgrade does. 1.4.0 to 1.4.1: safe fix. To 1.5.0: new features, nothing breaks. To 2.0.0: something incompatible, read the changelog first.'
 			}
 		]
 	},
@@ -108,22 +107,22 @@ jobs:
         with:
           packages-dir: dist/`,
 		notes: [
-			'`on: release: types: [published]` runs when someone publishes a GitHub Release. For this event, GitHub sets `GITHUB_REF` to `refs/tags/<tag_name>` and `GITHUB_SHA` to the last commit in the tagged release. So `actions/checkout` gets **exactly the tagged commit**.',
-			'Build once, publish what you built. `release-build` uploads `dist/` as an artifact, and `pypi-publish` (`needs: release-build`) downloads those same files. Nothing is rebuilt between the two jobs.',
-			'`id-token: write` is for [trusted publishing](https://docs.pypi.org/trusted-publishers/): PyPI trusts a short-lived identity token from the workflow, so you do not store a PyPI API token as a secret.',
-			'`environment: name: pypi`: the file\'s comments strongly recommend a dedicated environment with protection rules for publishing. A release is the one job you want to be the most careful with.'
+			'Lines 3 to 5 run the workflow when someone publishes a GitHub Release. For this event, GitHub sets `GITHUB_REF` to `refs/tags/<tag_name>` and `GITHUB_SHA` to the last commit in the tagged release. So `actions/checkout` on line 15 gets **exactly the tagged commit**.',
+			'Lines 27 to 31 upload `dist/` as an artifact. In `pypi-publish` (`needs: release-build`), lines 45 to 49 download those same files, so PyPI gets the files `release-build` built, with no second build.',
+			'Line 39: `id-token: write` is for [trusted publishing](https://docs.pypi.org/trusted-publishers/). PyPI trusts a short-lived identity token from the workflow, so you do not store a PyPI API token as a secret.',
+			'Lines 41 and 42 run the job in the `pypi` environment. The file\'s comments strongly recommend a dedicated environment with protection rules for publishing.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Anyone can name the exact code in production and get it back: `git checkout v1.4.2`.',
-			'Semantic versioning tells users at a glance whether an upgrade can break them.',
-			'Artifacts built once from a tag mean the thing you tested is the thing you ship, and a rollback is "deploy the previous version".'
+			'Semantic versioning tells users from the number alone whether an upgrade can break them: only a MAJOR bump may.',
+			'The artifacts are built once from the tag, so you ship the files you tested, and a rollback means deploying the previous version.'
 		],
 		cost: [
-			'Semver needs a clear public API. Without one, nobody agrees whether a change is MINOR or MAJOR.',
-			'A good changelog takes writing. A `git log` dump is fast, and nobody reads it.',
-			'A published tag must never move. Re-tagging means two people can hold different "v1.4.2", so a bad release costs a new version number.'
+			'Semver needs a clear public API: without one, nobody agrees whether a change is MINOR or MAJOR.',
+			'Someone has to write the changelog by hand. A `git log` dump is fast, but it lists commits instead of changes for users.',
+			'You never move a published tag: after a re-tag, two people can hold different "v1.4.2" builds. A bad release therefore costs a new version number.'
 		]
 	},
 	task: {
@@ -166,7 +165,10 @@ jobs:
 			why: 'New backward compatible functionality bumps MINOR and resets PATCH. PATCH is for bug fixes only, MAJOR for breaking changes.'
 		}
 	],
-	takeaway: 'Tag every release with an annotated tag, give it a semantic version, write the changelog for humans, and build the artifacts once from the tagged commit. A published tag never moves.',
+	recall: {
+		q: 'Your CLI at 1.4.2 drops the `--force` flag. What is the next version, and which commands tag and publish it?',
+		a: '2.0.0, because removing a flag breaks the scripts that use it. `git tag -a v2.0.0 -m "Release 2.0.0"`, then `git push origin v2.0.0`, since a plain `git push` sends no tags.'
+	},
 	sources: [
 		{ title: 'Git docs, git-tag', url: 'https://git-scm.com/docs/git-tag' },
 		{ title: 'Pro Git, Tagging', url: 'https://git-scm.com/book/en/v2/Git-Basics-Tagging' },

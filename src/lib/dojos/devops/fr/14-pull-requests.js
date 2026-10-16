@@ -8,12 +8,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'Sur les anciens serveurs, la revue d’un changement, c’était un message sur le chat : « je redémarre nginx avec la nouvelle config, ok ? » Quelqu’un répondait « ok ». Personne n’avait vu le diff.',
-		'Une **pull request** (PR) est une proposition : « merge ma branche dans `main` ». Elle montre le diff, lance la CI et rassemble les revues, tout ça **avant** que quoi que ce soit n’arrive sur `main`. GitLab appelle la même chose une merge request.',
-		'Les bonnes habitudes sautent un jour de rush, alors tu en fais des règles. Sur GitHub, une **branche protégée** peut exiger une PR, une approbation et des **checks obligatoires** au vert avant que `main` bouge. Un fichier **CODEOWNERS** décide à qui on demande la revue.'
+		'Une pull request (PR) est une proposition : « merge ma branche dans `main` ». Elle montre le diff, lance la CI et rassemble les revues, tout ça **avant** que quoi que ce soit n’arrive sur `main`. GitLab appelle la même chose une merge request.',
+		'Un jour de rush, quelqu’un saute la revue, alors tu demandes à GitHub de l’imposer. Une **branche protégée** peut exiger une PR, une approbation et des checks obligatoires au vert avant que `main` bouge. Un fichier CODEOWNERS décide à qui GitHub demande la revue.'
 	],
 	terms: [
 		{ term: 'Pull request', def: 'Une demande de merge d’une branche dans une autre, avec le diff, la discussion, les revues et les résultats de CI au même endroit.' },
-		{ term: 'Revue', def: 'Un relecteur commente, approuve ou demande des changements. Quand les revues sont obligatoires, la PR a besoin d’assez d’approbations pour être mergée.' },
 		{ term: 'Branche protégée', def: 'Une branche avec des règles : par défaut pas de force push ni de suppression, plus des règles en option comme les revues et les checks obligatoires.' },
 		{ term: 'Status check obligatoire', def: 'Un job de CI qui doit finir en succès, skipped ou neutral avant que la PR puisse être mergée.' },
 		{ term: 'CODEOWNERS', def: 'Un fichier qui associe des chemins à des personnes ou des équipes. Les owners sont sollicités automatiquement en revue quand une PR, une fois sortie du brouillon, touche leurs fichiers.' }
@@ -24,7 +23,7 @@ export default {
 			{
 				add: ['br["branche feature"] -->|"ouvre une PR"| pr["Pull request : diff et discussion"]'],
 				highlight: ['br', 'pr'],
-				note: 'Tu pousses ta branche et tu ouvres une PR vers `main`. Rien n’a encore changé sur `main`. La PR est l’endroit où le changement est **regardé**.'
+				note: 'Tu pousses ta branche et tu ouvres une PR vers `main`. Rien n’a encore changé sur `main`. Les relecteurs lisent le diff et commentent dans la PR.'
 			},
 			{
 				add: ['pr --> ci["CI : lint, tests"]'],
@@ -46,7 +45,7 @@ export default {
 					'gate -->|non| blocked["le merge reste bloqué"]'
 				],
 				highlight: ['gate', 'main', 'blocked'],
-				note: 'La règle de protection est la **barrière**. Sans les approbations et les checks obligatoires au vert, le merge reste bloqué. Avec les revues obligatoires, les collaborateurs ne peuvent changer `main` **que par une PR approuvée**.'
+				note: 'La règle de protection bloque le merge tant que les approbations manquent ou que les checks obligatoires ne sont pas verts. Avec les revues obligatoires, les collaborateurs ne peuvent changer `main` **que par une PR approuvée**.'
 			},
 			{
 				add: ['br -.->|"nouveau push après approbation"| pr'],
@@ -84,23 +83,23 @@ export default {
 /LICENSE @nodejs/tsc
 /onboarding.md @nodejs/tsc`,
 		notes: [
-			'L’en-tête le dit clairement : ce fichier envoie des **pings de courtoisie**, il ne décide pas de ce qui peut être mergé. C’est CODEOWNERS tout seul. Il ne devient une barrière que quand une règle de protection de branche (ou un ruleset, la forme plus récente des mêmes règles sur GitHub) active « Require review from Code Owners ».',
-			'Les owners sont **des équipes, jamais des personnes**. Les gens changent de poste, les équipes restent. GitHub exige aussi que chaque owner, équipe ou personne, ait l’accès en écriture au dépôt.',
+			'Les lignes 3 à 7 disent que ce fichier envoie des **pings de courtoisie** et ne décide pas de ce qui peut être mergé. Tout seul, CODEOWNERS ne fait que demander des revues. Il ne bloque un merge que si une règle de protection de branche (ou un ruleset, la forme plus récente des mêmes règles sur GitHub) active « Require review from Code Owners ».',
+			'Ligne 9 : les owners doivent être des équipes, jamais des personnes. Une entrée d’équipe continue de marcher quand une personne quitte le projet. GitHub exige aussi que chaque owner, équipe ou personne, ait l’accès en écriture au dépôt.',
 			'La ligne 13 rend le fichier propriétaire de lui-même : changer qui possède quoi demande l’équipe `@nodejs/tsc`. La doc GitHub présente un CODEOWNERS dans `.github/` qui se possède lui-même comme la méthode la plus sûre.',
-			'`/BUILDING.md` liste deux équipes. Quand la revue des code owners est obligatoire, **l’approbation d’un seul owner** suffit.',
-			'L’ordre compte : **le dernier motif qui correspond gagne**. Mets la ligne fourre-tout `*` en premier et les chemins précis après. Une ligne à la syntaxe invalide est ignorée, et GitHub affiche l’erreur quand tu ouvres le fichier.'
+			'Ligne 21 : `/BUILDING.md` liste deux équipes. Quand la revue des code owners est obligatoire, **l’approbation d’un seul owner** suffit.',
+			'Quand deux motifs correspondent à un fichier, **c’est le dernier qui s’applique**. Mets la ligne fourre-tout `*` en premier et les chemins précis après. Une ligne à la syntaxe invalide est ignorée, et GitHub affiche l’erreur quand tu ouvres le fichier.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Chaque changement sur `main` est relu et testé avant d’arriver, pas après avoir cassé quelque chose.',
+			'Chaque changement est relu et testé avant d’arriver sur `main`.',
 			'La discussion reste à côté du diff : six mois plus tard, tu peux relire pourquoi un changement a été fait.',
 			'CODEOWNERS envoie chaque changement aux gens qui connaissent la zone, sans que personne ait à faire le tri à la main.'
 		],
 		cost: [
-			'Attendre une revue ralentit le flux. Garde des PR petites : le [guide Kubernetes](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L141) dit que les très grosses PR sont très difficiles à relire.',
-			'Les règles ne sont strictes que si les réglages le sont. Par défaut, la protection de branche ne s’applique pas aux admins, sauf si tu le demandes.',
-			'La protection de branche vit dans les réglages du dépôt, pas dans un fichier dans Git, donc on l’oublie facilement en créant le dépôt suivant.'
+			'Chaque PR attend un relecteur avant de pouvoir être mergée. Garde des PR petites : le [guide Kubernetes](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L141) dit que les très grosses PR sont très difficiles à relire.',
+			'Par défaut, la protection de branche ne s’applique pas aux admins, sauf si tu actives « Do not allow bypassing the above settings ».',
+			'La protection de branche se règle dans les paramètres du dépôt et dans aucun fichier Git, donc tu l’oublies facilement en créant le dépôt suivant.'
 		]
 	},
 	task: {
@@ -148,7 +147,10 @@ export default {
 			why: 'GitHub exige que chaque check obligatoire finisse en succès, skipped ou neutral. Un check en échec garde le merge bloqué.'
 		}
 	],
-	takeaway: 'Une PR place le diff, la CI et la revue devant `main`. La protection de branche la rend obligatoire, et CODEOWNERS envoie chaque changement aux gens qui possèdent ce code.',
+	recall: {
+		q: 'CODEOWNERS contient `/prod/ @acme/ops`. Qu’est-ce qui rend l’approbation d’ops obligatoire avant qu’un changement dans `prod/` soit mergé ?',
+		a: 'Une règle de protection de branche (ou un ruleset) sur `main` avec « Require review from Code Owners » activé. Tout seul, CODEOWNERS ne fait que demander la revue.'
+	},
 	sources: [
 		{ title: 'GitHub Docs, About pull requests', url: 'https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests' },
 		{ title: 'GitHub Docs, About pull request reviews', url: 'https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews' },

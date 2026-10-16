@@ -8,16 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Tu as déjà fait ça : `cp nginx.conf nginx.conf.bak-2024-03-02`, tu modifies, tu recharges, tu croises les doigts. Un mois plus tard il y a six fichiers `.bak` et personne ne sait lequel marchait.',
-		'Git règle ça, à condition d’avoir la bonne image en tête. Git ne garde pas une liste de modifications. **Chaque commit est un snapshot** du projet entier, avec un auteur, un message et un lien vers le commit d’avant.',
-		'Aujourd’hui : les trois endroits où un fichier peut se trouver (working tree, index, dépôt), et les noms qui pointent vers des commits : les **refs** et **HEAD**. Tout ce qui, en DevOps, « déploie depuis Git » repose là-dessus.'
+		'Git ne garde pas une liste de modifications. **Chaque commit est un snapshot** du projet entier, avec un auteur, un message et un lien vers le commit d’avant.',
+		'Un fichier peut se trouver à trois endroits : le working tree sur le disque, l’index, et le dépôt dans `.git`. Des noms appelés refs pointent vers des commits, et HEAD indique sur quelle ref tu es.'
 	],
 	terms: [
 		{ term: 'Commit', def: 'Un snapshot du projet entier, nommé par son hash (par défaut SHA-1, 40 caractères hexadécimaux), avec auteur, message et un pointeur vers son commit parent.' },
-		{ term: 'Working tree', def: 'Les fichiers sur le disque, ceux que tu ouvres et modifies. Une version du projet extraite.' },
 		{ term: 'Index', def: 'Aussi appelé staging area. Un fichier dans `.git` qui contient ce qui ira dans ton prochain commit.' },
-		{ term: 'Dépôt', def: 'Le répertoire `.git` : tous les commits et les métadonnées. C’est son historique que `git clone` copie.' },
 		{ term: 'Ref', def: 'Un nom pour un commit. Une branche comme `main` est une ref, `refs/heads/main`, qui contient le hash d’un commit. Souvent c’est un petit fichier de ce nom ; après un `git gc`, elle peut se trouver dans `.git/packed-refs` à la place.' },
-		{ term: 'HEAD', def: 'La ref sur laquelle tu es en ce moment. En général un pointeur vers une branche, pas vers un commit.' }
+		{ term: 'HEAD', def: 'La ref sur laquelle tu es en ce moment. En général il contient un nom de branche comme `refs/heads/main` ; en detached HEAD, il contient un hash de commit.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -78,9 +76,9 @@ crash.*.log
 *.tfvars
 *.tfvars.json`,
 		notes: [
-			'Un `.gitignore` décide de ce qui **n’arrive jamais dans l’index**. `git add .` saute ces chemins, ils restent seulement dans le working tree.',
-			'Il ne protège que les fichiers non suivis. La [doc gitignore](https://git-scm.com/docs/gitignore) le dit : « Files already tracked by Git are not affected ». Pour arrêter de suivre un fichier, `git rm --cached` le retire de l’index.',
-			'Pourquoi c’est important : un commit est un snapshot. Si un `.tfvars` avec un mot de passe arrive dans un commit, le supprimer au commit suivant ne l’efface pas. **L’ancien snapshot l’a toujours**, dans chaque clone.',
+			'Les lignes 2 à 17 listent des chemins qui **n’arrivent jamais dans l’index**. `git add .` les saute, ils restent seulement dans le working tree.',
+			'Il ne protège que les fichiers non suivis. La [doc gitignore](https://git-scm.com/docs/gitignore) : « Files already tracked by Git are not affected ». Pour arrêter de suivre un fichier, `git rm --cached` le retire de l’index.',
+			'Les lignes 12 à 17 ignorent les `.tfvars`, qui peuvent contenir des mots de passe. Si un `.tfvars` arrive dans un commit, le supprimer au commit suivant ne l’efface pas. **L’ancien snapshot l’a toujours**, dans chaque clone.',
 			'Les fichiers d’ignore ont leur place dans le dépôt. Commite le `.gitignore` pour que toute l’équipe ait les mêmes règles.'
 		]
 	},
@@ -91,9 +89,9 @@ crash.*.log
 			'Une branche est une toute petite ref qui contient un hash, donc en créer une ne coûte rien.'
 		],
 		cost: [
-			'L’historique n’oublie pas. Un secret commité une fois reste dans les anciens snapshots tant que personne ne réécrit l’historique.',
-			'L’index est un endroit de plus à garder en tête. `git diff` montre seulement ce qui n’est pas encore stagé, `git diff --staged` montre le reste.',
-			'Un hash n’est pas un nom qu’un humain retient, donc il te faut des refs : des branches et des tags.'
+			'Un secret commité une fois reste dans les anciens snapshots tant que personne ne réécrit l’historique.',
+			'`git diff` montre seulement les changements pas encore stagés, et `git diff --staged` montre ceux qui le sont : tu vérifies à deux endroits.',
+			'Personne ne retient un hash de 40 caractères hexadécimaux, donc il te faut des refs : des branches et des tags.'
 		]
 	},
 	task: {
@@ -116,7 +114,7 @@ crash.*.log
 				'La différence entre l’index et le working tree'
 			],
 			answer: 1,
-			why: 'Git pense en snapshots, pas en diffs. Les fichiers inchangés sont reliés à la copie déjà stockée, donc les snapshots restent légers.'
+			why: 'Chaque commit pointe vers l’ensemble des fichiers. Un fichier inchangé pointe vers la copie déjà stockée, donc un snapshot prend peu de place.'
 		},
 		{
 			q: 'Tu as lancé `git add app.conf` mais pas `git commit`. Où est la nouvelle version de `app.conf` ?',
@@ -141,7 +139,10 @@ crash.*.log
 			why: 'HEAD est en général une référence symbolique vers la branche courante. Il ne contient directement un hash de commit qu’en detached HEAD.'
 		}
 	],
-	takeaway: 'Un commit est un snapshot, une branche est un nom pour un commit, et HEAD dit sur quel nom tu es. `git add` remplit l’index, `git commit` transforme l’index en snapshot.',
+	recall: {
+		q: 'Tu as lancé `git add nginx.conf` mais pas `git commit`. Où est la nouvelle version, et vers quoi pointe HEAD ?',
+		a: 'Dans le working tree et dans l’index, dans aucun commit pour l’instant. HEAD pointe vers la branche `main`, qui contient le hash du dernier commit.'
+	},
 	sources: [
 		{ title: 'Pro Git, What is Git?', url: 'https://git-scm.com/book/en/v2/Getting-Started-What-is-Git%3F' },
 		{ title: 'Pro Git, Branches in a Nutshell', url: 'https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell' },

@@ -8,16 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Dans une ancienne boîte, une release, c’était un week-end. Trois mois de travail sur une branche `develop`. Puis un gel du code, un gros merge, et une semaine à réparer ce que le merge avait cassé.',
-		'Une **stratégie de branches**, c’est la règle d’équipe : quelles branches existent, combien de temps elles vivent, et comment le code arrive en production. Git s’en fiche. Ton équipe, non.',
-		'Deux réponses connues. **GitFlow** : plusieurs branches longues et des releases planifiées. **Trunk-based development** : une seule branche principale, et tout le monde merge dedans au moins une fois par jour. La recherche DORA relie la deuxième à une meilleure livraison.'
+		'Une **stratégie de branches**, c’est la règle d’équipe : quelles branches existent, combien de temps elles vivent, et comment le code arrive en production.',
+		'GitFlow utilise plusieurs branches longues et des releases planifiées. En **trunk-based development**, tout le monde merge de petits changements dans une seule branche principale, au moins une fois par jour. La recherche DORA relie le trunk-based development à une meilleure livraison.'
 	],
 	terms: [
 		{ term: 'Trunk', def: 'La branche partagée unique dans laquelle tout le monde merge, en général `main`.' },
-		{ term: 'Trunk-based development', def: 'De petits changements mergés dans le trunk au moins une fois par jour, via des branches courtes ou directement sur le trunk.' },
 		{ term: 'Branche courte', def: 'Une branche qui vit quelques heures, un ou deux jours au maximum, puis est mergée et supprimée.' },
 		{ term: 'GitFlow', def: 'Un modèle de 2010 avec deux branches permanentes, `master` (souvent renommée `main` aujourd’hui) et `develop`, plus des branches feature, release et hotfix.' },
-		{ term: 'Feature flag', def: 'Un interrupteur dans le code qui active ou désactive une fonctionnalité sans déploiement. Un release toggle cache le travail pas fini.' },
-		{ term: 'Gel du code', def: 'Une période où personne n’a le droit de merger, pour stabiliser la release. Le signe de branches qui vivent trop longtemps.' }
+		{ term: 'Feature flag', def: 'Un interrupteur dans le code qui active ou désactive une fonctionnalité sans déploiement. Un release toggle cache le travail pas fini.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -31,7 +29,7 @@ export default {
 					'end'
 				],
 				highlight: ['gdev', 'gmain'],
-				note: 'Avec GitFlow, les features sont mergées dans `develop`. Une branche release part de `develop`, est stabilisée, puis mergée dans `main`. Les hotfix partent de `main`. `develop` et `main` vivent **pour toujours**, et chaque release est un événement.'
+				note: 'Avec GitFlow, les features sont mergées dans `develop`. Une branche release part de `develop`, est stabilisée, puis mergée dans `main`. Les hotfix partent de `main`. `develop` et `main` vivent **pour toujours**.'
 			},
 			{
 				add: [
@@ -49,7 +47,7 @@ export default {
 					'flag["feature flag : off"] -.-> prod'
 				],
 				highlight: ['prod', 'flag'],
-				note: 'Le trunk est toujours livrable. Une fonctionnalité qui prend trois semaines est quand même mergée chaque jour, cachée derrière un **feature flag** qui reste sur off jusqu’à ce qu’elle soit finie.'
+				note: 'Tout commit de `main` avec une CI verte peut partir en production. Une fonctionnalité qui prend trois semaines est quand même mergée chaque jour, cachée derrière un **feature flag** qui reste sur off jusqu’à ce qu’elle soit finie.'
 			}
 		]
 	},
@@ -84,21 +82,21 @@ jobs:
     - name: Test
       run: go test -v ./...`,
 		notes: [
-			'C’est la CI de démarrage de GitHub pour Go. Elle surveille **une seule** branche, la branche par défaut. C’est la forme trunk-based : un trunk, des branches courtes qui y mènent.',
-			'`pull_request` lance les tests sur chaque pull request vers le trunk, avant le merge. `push` les relance sur le trunk après le merge. Le trunk doit rester vert, parce que tout le monde construit dessus chaque jour.',
-			'`$default-branch` est un placeholder du template. Le [README de starter-workflows](https://github.com/actions/starter-workflows/blob/e3c451d60f119b71caebf13c98ac45da6e15b4b7/README.md#L68) dit que GitHub le remplace par la branche par défaut de ton dépôt, comme `main`.',
-			'Avec GitFlow, il faudrait aussi lister `develop` et les branches release, et les garder toutes vertes. Plus de branches, plus de pipelines à surveiller.'
+			'La CI de démarrage de GitHub pour Go. Les lignes 3 à 7 surveillent **une seule** branche, la branche par défaut, qui sert de trunk en trunk-based development.',
+			'La ligne 6 (`pull_request`) lance les tests sur chaque pull request vers le trunk, avant le merge. La ligne 4 (`push`) les relance sur le trunk après le merge. Tout le monde part du trunk chaque jour, donc un trunk rouge les bloque tous.',
+			'Lignes 5 et 7 : `$default-branch` est un placeholder du template. Le [README de starter-workflows](https://github.com/actions/starter-workflows/blob/e3c451d60f119b71caebf13c98ac45da6e15b4b7/README.md#L68) dit que GitHub le remplace par la branche par défaut de ton dépôt, comme `main`.',
+			'Avec GitFlow, les lignes 5 et 7 listeraient aussi `develop` et les branches release, et chacune aurait besoin d’une CI verte.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'De petits merges quotidiens : les conflits sont petits, et tu les trouves le jour même.',
-			'Pas de gel du code ni de phase d’intégration. La recherche DORA relie l’abandon des deux à une meilleure livraison.',
-			'Le trunk est toujours livrable, donc un déploiement est un jour normal, pas un week-end.'
+			'La recherche DORA relie l’abandon du gel du code et de la phase d’intégration à une meilleure livraison.',
+			'Tout commit vert du trunk peut être livré, donc tu déploies n’importe quel jour, sans week-end de release.'
 		],
 		cost: [
-			'Il faut des tests automatiques rapides et fiables. Un trunk cassé bloque tout le monde.',
-			'Les feature flags ajoutent des chemins de code à tester, et chacun doit être retiré plus tard. Fowler les décrit comme un stock qui a un coût de possession.',
+			'Chaque merge repose sur des tests automatiques rapides et fiables, car un trunk cassé bloque tout le monde.',
+			'Les feature flags ajoutent des chemins de code à tester. Fowler les décrit comme un stock qui a un coût de possession : chaque flag coûte du travail tant que personne ne le retire.',
 			'Si tu dois maintenir plusieurs versions publiées en même temps, il te faut quand même des branches release. L’auteur de GitFlow dit qu’il est fait pour ce cas.'
 		]
 	},
@@ -122,7 +120,7 @@ jobs:
 				'Travailler sur `develop` et merger dans `main` une fois par release'
 			],
 			answer: 2,
-			why: 'Une seule branche longue, de petits changements, mergés chaque jour. La relecture et la CI sont toujours là, simplement rapides et fréquentes.'
+			why: 'Chaque changement est petit et mergé le jour même dans l’unique branche longue. La relecture et la CI tournent toujours sur chaque pull request.'
 		},
 		{
 			q: 'Du code pas fini est mergé dans `main`, mais les utilisateurs ne doivent pas encore le voir. Qu’est-ce qui le cache ?',
@@ -147,7 +145,10 @@ jobs:
 			why: 'Pour les applis web en livraison continue, il conseille un flow plus simple. GitFlow est pour les logiciels versionnés explicitement, ou quand tu maintiens plusieurs versions à la fois.'
 		}
 	],
-	takeaway: 'Garde un seul trunk, merge de petits changements dedans chaque jour, et cache le travail pas fini derrière des feature flags. Les branches longues n’ont leur place que si tu livres vraiment plusieurs versions.',
+	recall: {
+		q: 'Une fonctionnalité prend trois semaines. En trunk-based development, comment son code arrive-t-il dans `main` sans que les utilisateurs le voient ?',
+		a: 'Tu le merges dans `main` par petits morceaux au moins une fois par jour, derrière un feature flag qui reste sur off jusqu’à la fin. Ensuite tu supprimes le flag.'
+	},
 	sources: [
 		{ title: 'DORA, Trunk-based development', url: 'https://dora.dev/capabilities/trunk-based-development/' },
 		{ title: 'trunkbaseddevelopment.com', url: 'https://trunkbaseddevelopment.com/' },

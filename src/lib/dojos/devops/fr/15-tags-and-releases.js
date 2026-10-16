@@ -9,11 +9,10 @@ export default {
 	hook: [
 		'La production casse après le déploiement du vendredi. Ton chef demande : « qu’est-ce qui tournait jeudi ? » Si ta réponse est « le commit de vers 16 h, je crois », tu n’as pas de releases.',
 		'Un **tag** est une ref qui nomme un commit : `v1.4.2`. Contrairement à une branche, il ne bouge pas quand tu commites. La version de jeudi a un nom que tu peux extraire, comparer, et sur lequel tu peux faire un rollback.',
-		'Une **release** ajoute le reste : un numéro de version qui a un sens (le **semantic versioning**), un **changelog** écrit pour des humains, et les **artefacts** (un binaire, un paquet, une image) construits à partir de ce commit précis.'
+		'Une **release** ajoute le reste : un numéro de version qui dit aux utilisateurs ce qui a changé (le semantic versioning), un changelog écrit pour des humains, et les artefacts (un binaire, un paquet, une image) construits à partir de ce commit précis.'
 	],
 	terms: [
-		{ term: 'Tag annoté', def: 'Un objet tag avec le nom et l’email de la personne qui tague, une date et un message. Créé avec `git tag -a`. Fait pour les releases.' },
-		{ term: 'Tag léger', def: 'Juste un nom qui pointe vers un commit, rien d’autre. Fait pour des étiquettes privées ou temporaires.' },
+		{ term: 'Tag annoté', def: 'Un objet tag avec le nom et l’email de la personne qui tague, une date et un message. Créé avec `git tag -a`. Fait pour les releases. Un tag léger n’est qu’un nom qui pointe vers un commit, pour des étiquettes privées ou temporaires.' },
 		{ term: 'Semantic versioning', def: '`MAJOR.MINOR.PATCH` : MAJOR pour les changements incompatibles, MINOR pour les nouvelles fonctionnalités rétrocompatibles, PATCH pour les corrections de bugs rétrocompatibles.' },
 		{ term: 'Changelog', def: 'Un fichier qui liste les changements notables de chaque version, du plus récent au plus ancien, pour les gens qui utilisent ton logiciel.' },
 		{ term: 'Artefact de release', def: 'Le résultat construit que les utilisateurs installent : un paquet, un binaire, une image de conteneur. Construit une seule fois à partir du commit tagué.' }
@@ -29,7 +28,7 @@ export default {
 			{
 				add: ['tag -->|"git push origin v1.4.0"| remote[("Remote : GitHub")]'],
 				highlight: ['remote'],
-				note: '**`git push` n’envoie pas les tags par défaut.** Pousse le tag par son nom, ou utilise `git push --follow-tags` pour envoyer les tags annotés qui pointent vers des commits atteignables depuis ce que tu pousses.'
+				note: 'Pousse le tag par son nom, car **`git push` n’envoie pas les tags par défaut**. Ou utilise `git push --follow-tags` pour envoyer les tags annotés qui pointent vers des commits atteignables depuis ce que tu pousses.'
 			},
 			{
 				add: ['remote -->|"release publiée"| ci["Job CI de release"]', 'ci --> art["artefacts : paquet, binaire, image"]'],
@@ -39,12 +38,12 @@ export default {
 			{
 				add: ['art --> rel["Release v1.4.0 : notes et fichiers"]', 'log["CHANGELOG.md"] -.-> rel'],
 				highlight: ['rel', 'log'],
-				note: 'La page de release contient les notes et les fichiers. Les notes viennent du **changelog**, écrit pour des humains, pas d’un copier-coller de `git log`.'
+				note: 'La page de release contient les notes et les fichiers. Les notes viennent du **changelog**, qui regroupe les changements notables pour les utilisateurs. Un copier-coller de `git log` listerait chaque commit.'
 			},
 			{
 				add: ['rel --> users["Utilisateurs : 2.0.0 veut dire lire avant de mettre à jour"]', 'class users ext'],
 				highlight: ['users'],
-				note: 'Le semantic versioning est une **promesse** aux utilisateurs. De 1.4.0 à 1.4.1 : correctif sans risque. Vers 1.5.0 : nouvelles fonctionnalités, rien ne casse. Vers 2.0.0 : quelque chose d’incompatible, lis d’abord le changelog.'
+				note: 'Avec le semantic versioning, le numéro dit aux utilisateurs ce que fait une mise à jour. De 1.4.0 à 1.4.1 : correctif sans risque. Vers 1.5.0 : nouvelles fonctionnalités, rien ne casse. Vers 2.0.0 : quelque chose d’incompatible, lis d’abord le changelog.'
 			}
 		]
 	},
@@ -108,22 +107,22 @@ jobs:
         with:
           packages-dir: dist/`,
 		notes: [
-			'`on: release: types: [published]` se déclenche quand quelqu’un publie une GitHub Release. Pour cet événement, GitHub met `GITHUB_REF` à `refs/tags/<tag_name>` et `GITHUB_SHA` au dernier commit de la release taguée. Donc `actions/checkout` récupère **exactement le commit tagué**.',
-			'Construire une fois, publier ce qu’on a construit. `release-build` envoie `dist/` comme artefact, et `pypi-publish` (`needs: release-build`) télécharge ces mêmes fichiers. Rien n’est reconstruit entre les deux jobs.',
-			'`id-token: write` sert au [trusted publishing](https://docs.pypi.org/trusted-publishers/) : PyPI fait confiance à un jeton d’identité de courte durée émis pour le workflow, donc tu ne stockes pas de token d’API PyPI dans un secret.',
-			'`environment: name: pypi` : les commentaires du fichier recommandent fortement un environnement dédié avec des règles de protection pour la publication. Une release est le job où tu veux être le plus prudent.'
+			'Les lignes 3 à 5 lancent le workflow quand quelqu’un publie une GitHub Release. Pour cet événement, GitHub met `GITHUB_REF` à `refs/tags/<tag_name>` et `GITHUB_SHA` au dernier commit de la release taguée. Donc `actions/checkout`, ligne 15, récupère **exactement le commit tagué**.',
+			'Les lignes 27 à 31 envoient `dist/` comme artefact. Dans `pypi-publish` (`needs: release-build`), les lignes 45 à 49 téléchargent ces mêmes fichiers : PyPI reçoit ce que `release-build` a construit, sans second build.',
+			'Ligne 39 : `id-token: write` sert au [trusted publishing](https://docs.pypi.org/trusted-publishers/). PyPI fait confiance à un jeton d’identité de courte durée émis pour le workflow, donc tu ne stockes pas de token d’API PyPI dans un secret.',
+			'Les lignes 41 et 42 font tourner le job dans l’environnement `pypi`. Les commentaires du fichier recommandent fortement un environnement dédié avec des règles de protection pour la publication.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Tout le monde peut nommer le code exact en production et le récupérer : `git checkout v1.4.2`.',
-			'Le semantic versioning dit aux utilisateurs d’un coup d’œil si une mise à jour peut les casser.',
-			'Des artefacts construits une fois à partir d’un tag : ce que tu as testé est ce que tu livres, et un rollback revient à « déployer la version précédente ».'
+			'Avec le seul numéro, le semantic versioning dit aux utilisateurs si une mise à jour peut les casser : seul un saut de MAJOR le peut.',
+			'Les artefacts sont construits une fois à partir du tag, donc tu livres les fichiers que tu as testés, et un rollback consiste à redéployer la version précédente.'
 		],
 		cost: [
-			'Le semver demande une API publique claire. Sans elle, personne ne s’accorde sur MINOR ou MAJOR.',
-			'Un bon changelog demande d’écrire. Un copier-coller de `git log` est rapide, et personne ne le lit.',
-			'Un tag publié ne doit jamais bouger. Retaguer, c’est risquer que deux personnes aient chacune une « v1.4.2 » différente, donc une release ratée coûte un nouveau numéro de version.'
+			'Le semver demande une API publique claire : sans elle, personne ne s’accorde sur MINOR ou MAJOR.',
+			'Quelqu’un doit écrire le changelog à la main. Un copier-coller de `git log` va vite, mais il liste des commits au lieu des changements utiles aux utilisateurs.',
+			'Tu ne déplaces jamais un tag publié : après un retag, deux personnes peuvent avoir chacune un build « v1.4.2 » différent. Une release ratée coûte donc un nouveau numéro de version.'
 		]
 	},
 	task: {
@@ -166,7 +165,10 @@ jobs:
 			why: 'Une nouvelle fonctionnalité rétrocompatible fait monter MINOR et remet PATCH à zéro. PATCH, c’est seulement pour les corrections de bugs, MAJOR pour les changements cassants.'
 		}
 	],
-	takeaway: 'Tague chaque release avec un tag annoté, donne-lui une version sémantique, écris le changelog pour des humains, et construis les artefacts une seule fois à partir du commit tagué. Un tag publié ne bouge jamais.',
+	recall: {
+		q: 'Ton CLI en 1.4.2 supprime l’option `--force`. Quelle est la version suivante, et quelles commandes la taguent et la publient ?',
+		a: '2.0.0, parce que supprimer une option casse les scripts qui l’utilisent. `git tag -a v2.0.0 -m "Release 2.0.0"`, puis `git push origin v2.0.0`, car un simple `git push` n’envoie aucun tag.'
+	},
 	sources: [
 		{ title: 'Doc Git, git-tag', url: 'https://git-scm.com/docs/git-tag' },
 		{ title: 'Pro Git, Tagging', url: 'https://git-scm.com/book/en/v2/Git-Basics-Tagging' },

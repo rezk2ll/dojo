@@ -7,17 +7,15 @@ export default {
 	title: 'Branches, merge et rebase',
 	minutes: 10,
 	hook: [
-		'Deux admins modifient la même config sur le même serveur le même jour. Le dernier qui enregistre gagne. L’autre modification est **perdue sans un bruit**.',
+		'Deux admins modifient la même config sur le même serveur le même jour. Le second enregistrement écrase le premier, et **personne n’est prévenu**.',
 		'Avec Git, chacun travaille sur une **branche**. Une branche n’est qu’un pointeur vers un commit, donc en créer une ne copie aucun fichier et ne coûte rien.',
-		'Quand le travail se rejoint, Git fait soit un **merge** (il relie les deux lignes avec un nouveau commit), soit un **rebase** (il rejoue tes commits au-dessus de l’autre ligne). Si vous avez changé les mêmes lignes tous les deux, Git s’arrête et te demande. C’est un **conflit**, et c’est une bonne chose : rien ne se perd en silence.'
+		'Quand le travail se rejoint, Git fait soit un merge (il relie les deux lignes avec un nouveau commit), soit un rebase (il rejoue tes commits au-dessus de l’autre ligne). Si vous avez changé les mêmes lignes tous les deux, Git s’arrête sur un **conflit** et te demande quelle version garder.'
 	],
 	terms: [
 		{ term: 'Branche', def: 'Un pointeur mobile vers un commit. Chaque nouveau commit sur la branche fait avancer le pointeur.' },
-		{ term: 'Ancêtre commun', def: 'Le dernier commit que deux branches partagent, le point où elles se séparent.' },
 		{ term: 'Fast-forward', def: 'Un merge où la branche cible n’a pas bougé depuis la séparation. Git déplace juste le pointeur, sans nouveau commit.' },
 		{ term: 'Commit de merge', def: 'Un commit avec deux parents, écrit par un merge à trois points : les deux bouts de branche plus leur ancêtre commun.' },
-		{ term: 'Rebase', def: 'Rejouer tes commits au-dessus d’une autre branche. Mêmes changements, nouveaux commits avec de nouveaux hashes.' },
-		{ term: 'Conflit', def: 'Les deux côtés ont changé les mêmes lignes. Git marque le fichier et attend que tu choisisses.' }
+		{ term: 'Rebase', def: 'Rejouer tes commits au-dessus d’une autre branche. Mêmes changements, nouveaux commits avec de nouveaux hashes.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -35,12 +33,12 @@ export default {
 			{
 				add: ['c2 --> c4["C4 sur main : hotfix"]'],
 				highlight: ['c4', 'c2'],
-				note: 'Pendant ce temps, un hotfix C4 arrive sur `main`, qui pointe maintenant vers C4. L’historique a **divergé**. C2 est l’**ancêtre commun** des deux bouts.'
+				note: 'Pendant ce temps, un hotfix C4 arrive sur `main`, qui pointe maintenant vers C4. L’historique a divergé. C2 est l’**ancêtre commun** des deux bouts.'
 			},
 			{
 				add: ['c3 --> m["M : commit de merge, deux parents"]', 'c4 --> m'],
 				highlight: ['m'],
-				note: '`git merge feature` depuis `main` : Git compare C3, C4 et leur ancêtre commun C2 (un **merge à trois points**), puis écrit M avec deux parents. `main` avance sur M. Rien n’est réécrit.'
+				note: '`git merge feature` depuis `main` : Git compare C3, C4 et leur ancêtre commun C2 (un **merge à trois points**), puis écrit M avec deux parents. `main` avance sur M. C3 et C4 gardent leurs hashes.'
 			},
 			{
 				add: ['c4 -.->|"ou : git rebase main"| c3r["C3 prime : même changement, nouveau hash"]'],
@@ -76,21 +74,21 @@ and useful (see below).
 You might also consider changing your \`.git/config\` file via
 \`git config branch.autoSetupRebase always\` to change the behavior of \`git pull\`, or another non-merge option such as \`git pull --rebase\`.`,
 		notes: [
-			'Kubernetes choisit le **rebase** pour garder une branche à jour : `git fetch` télécharge les nouveaux commits, `git rebase` rejoue ton travail par-dessus. Ta branche reste une ligne droite au-dessus de `master`.',
-			'Le guide part du principe que `git pull`, c’est `fetch` plus `merge` : chaque synchro d’une branche qui a divergé ajouterait un commit de merge qui ne dit rien. C’est l’historique « messy » qu’ils refusent. Les versions récentes de Git s’arrêtent à la place et te demandent de choisir `--rebase` ou `--no-rebase`.',
-			'Le rebase crée de nouveaux commits, donc la copie déjà poussée sur ton fork ne correspond plus. C’est pour ça que le même guide pousse avec [`git push -f`](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L111-L118), et plus loin avec `--force-with-lease`, plus sûr.',
-			'Ici c’est sans risque parce que la branche est **à toi seul**, sur ton fork. La règle unique de Pro Git : ne rebase pas des commits qui existent en dehors de ton dépôt et sur lesquels d’autres ont pu baser leur travail.'
+			'Lignes 11 et 12 : `git fetch upstream` télécharge les nouveaux commits, et `git rebase upstream/master` rejoue ton travail par-dessus. Kubernetes choisit le **rebase** pour garder une branche à jour, qui reste ainsi une ligne droite au-dessus de `master`.',
+			'Les lignes 15 à 18 partent du principe que `git pull` fait `fetch` puis `merge` : chaque synchro d’une branche qui a divergé ajouterait un commit de merge sans changement propre. Le guide qualifie cet historique de « messy ». Les versions récentes de Git s’arrêtent à la place et te demandent de choisir `--rebase` ou `--no-rebase`.',
+			'Le rebase crée de nouveaux commits, donc la copie déjà poussée sur ton fork ne correspond plus. Le même guide pousse donc avec [`git push -f`](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L111-L118), et plus loin avec `--force-with-lease`, plus sûr.',
+			'Ce force push ne pose pas de problème ici, car la branche est **à toi seul**, sur ton fork. Pro Git : ne rebase pas des commits qui existent en dehors de ton dépôt et sur lesquels d’autres ont pu baser leur travail.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Le merge garde un historique fidèle : tu vois que le travail s’est fait en parallèle, et aucun commit n’est réécrit.',
-			'Le rebase donne une ligne droite : `git log` se lit comme une histoire, un changement après l’autre.',
+			'Le merge ne réécrit aucun commit, et l’historique montre que le travail s’est fait en parallèle.',
+			'Le rebase donne une ligne droite : `git log` montre un changement après l’autre, sans commit de merge.',
 			'Les branches ne coûtent rien, donc tu peux tester une idée, jeter la branche, et rien n’est perdu sur `main`.'
 		],
 		cost: [
-			'Les commits de merge s’empilent. Un log plein de « Merge branch main into feature » cache les vrais changements.',
-			'Le rebase réécrit les hashes. Si la branche était déjà poussée, tu dois faire un force push, et quiconque a construit sur les anciens commits se retrouve dans le pétrin.',
+			'Un log rempli de commits « Merge branch main into feature » cache les vrais changements.',
+			'Le rebase donne un nouveau hash à chaque commit rejoué. Si la branche était déjà poussée, tu dois faire un force push, et quiconque a construit sur les anciens commits doit réparer sa branche.',
 			'Plus deux branches vivent longtemps séparées, plus le conflit est gros quand elles se retrouvent.'
 		]
 	},
@@ -139,7 +137,10 @@ You might also consider changing your \`.git/config\` file via
 			why: 'Le rebase remplace des commits par de nouveaux. Si d’autres ont construit sur les anciens, leur historique et le tien ne correspondent plus.'
 		}
 	],
-	takeaway: 'Une branche est un pointeur, donc créer une branche est gratuit. Le merge relie deux lignes avec un nouveau commit, le rebase rejoue les tiens par-dessus, et tu ne rebases que ce sur quoi personne n’a construit.',
+	recall: {
+		q: '`main` a reçu le hotfix C4 après ton commit C3 sur `feature`. Qu’écrit `git merge feature`, et que fait `git rebase main` à la place ?',
+		a: 'Le merge écrit un commit de merge avec deux parents, C3 et C4. Le rebase rejoue C3 au-dessus de C4 sous forme d’un nouveau commit avec un nouveau hash, donc tu ne rebases que des commits sur lesquels personne n’a construit.'
+	},
 	sources: [
 		{ title: 'Pro Git, Basic Branching and Merging', url: 'https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging' },
 		{ title: 'Pro Git, Rebasing', url: 'https://git-scm.com/book/en/v2/Git-Branching-Rebasing' },

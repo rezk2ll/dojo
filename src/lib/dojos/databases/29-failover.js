@@ -1,0 +1,179 @@
+const PATRONI = 'https://github.com/patroni/patroni/blob/dbee9c3523540db23232871479ddc5698a3b9435';
+const HA = `${PATRONI}/patroni/ha.py`;
+
+/** @type {import('../../content.js').Chapter} */
+export default {
+	slug: 'failover',
+	part: 'Keeping it running',
+	title: 'Failover without split brain',
+	minutes: 10,
+	hook: [
+		'3 a.m. The primary\'s network card flaps. A script sees the primary gone, promotes the replica, and points the app at it. Ten seconds later the old primary is back, **still a primary**, and half the app servers still write to it.',
+		'Now there are **two primaries**. Orders land on both. Each one is a valid database on its own, and neither has the other\'s rows. No replay can merge them. Someone will spend a week sorting it out by hand.',
+		'That is split brain, and it is worse than downtime. Today: how Patroni lets **exactly one** node be primary, using a lock in etcd that expires, a node that demotes itself when it cannot renew it, and a watchdog for when even that fails.'
+	],
+	terms: [
+		{ term: 'Split brain', def: 'Two servers both accept writes as primary. Their histories fork, and the commits on the losing side are lost or merged by hand.' },
+		{ term: 'DCS', def: 'Distributed configuration store: etcd, Consul, ZooKeeper or the Kubernetes API. A small cluster that agrees on a few keys, even when some of its own nodes fail.' },
+		{ term: 'Leader key', def: 'A key in the DCS naming the primary, attached to a lease with a TTL. Whoever holds it may run as primary; if nobody renews it, it disappears.' },
+		{ term: 'Leader race', def: 'When the leader key is gone, healthy replicas try to create it. The DCS lets only one create succeed.' },
+		{ term: 'Fencing', def: 'Making sure the old primary stops taking writes before or as a new one starts: demote it, stop it, or cut its power.' },
+		{ term: 'Watchdog', def: 'A kernel or hardware timer that resets the machine unless it gets a keepalive in time. The fence of last resort.' }
+	],
+	diagram: {
+		direction: 'TD',
+		steps: [
+			{
+				add: ['a["Node A: primary"] -->|"renew lock every 10 s"| etcd[("etcd: leader key, TTL 30 s")]', 'b["Node B: replica"] -->|"reads: leader is A"| etcd'],
+				highlight: ['a', 'etcd'],
+				note: '**One key, one primary.** A holds the leader key and renews it on every loop, every `loop_wait` (10 s by default). The failsafe doc states the rule: "the node is allowed to run Postgres as the primary only if it can update the leader lock in DCS." B sees the key and keeps replicating from A.'
+			},
+			{
+				add: ['cut["Network split: A cannot reach etcd"] -.-> a'],
+				highlight: ['cut'],
+				note: '**A cannot renew.** From where A stands, etcd being down and A being cut off look the same. Patroni assumes the worst, a partition, so A **demotes itself** to read-only right away, before its key can expire. No one else is primary yet, and now A is not either.'
+			},
+			{
+				add: ['b -->|"key expired: create it if absent"| etcd'],
+				highlight: ['b'],
+				note: '**The race.** After the TTL, etcd deletes the key. B checks it is healthy enough (not too far behind), then tries to create the key. The create only succeeds if the key does not exist, and etcd agrees on that across its own nodes. One winner, which then promotes.'
+			},
+			{
+				add: ['wd["Watchdog on A"] -->|"reset if no keepalive"| a'],
+				highlight: ['wd'],
+				note: '**When A cannot even demote.** If Patroni on A has crashed or its VM is paused, nobody runs the demote. The watchdog does not care: without a keepalive it resets the machine. Patroni sets it to fire 5 seconds before the TTL, so A is down before B can win.'
+			},
+			{
+				add: ['a -.->|"commits B never got"| lost["Forked timeline on A"]'],
+				highlight: ['lost'],
+				note: '**What failover still costs.** With asynchronous replication, commits A had not streamed to B stay on A\'s old timeline, "effectively unrecoverable". `maximum_lag_on_failover` caps how far behind a winner may be. `synchronous_mode` makes it zero, at the price of blocking writes when no synchronous standby is left.'
+			}
+		]
+	},
+	example: {
+		title: 'patroni/ha.py: the leader renews its lock, or stops being the leader',
+		repo: 'patroni/patroni',
+		url: `${HA}#L1969-L2020`,
+		lang: 'python',
+		code: `    def process_healthy_cluster(self) -> str:
+        if self.has_lock():
+            if self.is_paused() and not self.state_handler.is_primary():
+                if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
+                    return 'waiting to become primary after promote...'
+
+                if not self.is_standby_cluster():
+                    self._delete_leader()
+                    return 'removed leader lock because postgres is not running as primary'
+
+            # update lock to avoid split-brain
+            if self.update_lock(True):
+                msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+
+                # check if the node is ready to be used by pg_rewind
+                self._rewind.ensure_checkpoint_after_promote(self.wakeup)
+
+                if self.is_standby_cluster():
+                    # in case of standby cluster we don't really need to
+                    # enforce anything, since the leader is not a primary
+                    # So just remind the role.
+                    msg = 'no action. I am ({0}), the standby leader with the lock'.format(self.state_handler.name) \\
+                          if self.state_handler.role == PostgresqlRole.STANDBY_LEADER else \\
+                          'promoted self to a standby leader because i had the session lock'
+                    return self.enforce_follow_remote_member(msg)
+                else:
+                    return self.enforce_primary_role(
+                        'no action. I am ({0}), the leader with the lock'.format(self.state_handler.name),
+                        'promoted self to leader because I had the session lock'
+                    )
+            else:
+                # Either there is no connection to DCS or someone else acquired the lock
+                logger.error('failed to update leader lock')
+                if self.state_handler.is_primary():
+                    if self.is_paused():
+                        return 'continue to run as primary after failing to update leader lock in DCS'
+                    self.demote('immediate-nolock')
+                    return 'demoted self because failed to update leader lock in DCS'
+                else:
+                    return 'not promoting because failed to update leader lock in DCS'
+…
+        return self.follow('demoting self because I do not have the lock and I was a leader',
+                           'no action. I am ({0}), a secondary, and following a leader ({1})'.format(
+                               self.state_handler.name, lock_owner), refresh=False)`,
+		notes: [
+			'**The lock comes first.** Nothing else happens on the leader until `update_lock(True)` succeeds. [`update_lock`](' + HA + '#L375-L410) writes the leader key, and only after a successful write calls `self.watchdog.keepalive()`. A leader that cannot write the key stops feeding its own watchdog.',
+			'**Failure means demote, at once.** On a failed update, a running primary calls `demote(\'immediate-nolock\')`. The [failsafe doc](' + PATRONI + '/docs/dcs_failsafe_mode.rst?plain=1#L15-L20) explains why: a failed update can be a partition or a DCS outage, and "it is impossible to distinguish between these two from a single node". Only in pause, when a human is in charge, does it stay primary.',
+			'**Taking the lock is create-if-absent.** On etcd v3, [`_do_attempt_to_acquire_leader`](' + PATRONI + '/patroni/dcs/etcd3.py#L973-L991) writes the leader key with the node\'s lease and `create_revision=\'0\'`, a condition that only holds when the key does not exist. etcd\'s docs: "When a lease expires or is revoked, all keys attached to that lease will be deleted."',
+			'**Several may think they are best; one wins.** A replica only races when [`is_lagging`](' + HA + '#L1371-L1379) is false, that is, it is within `maximum_lag_on_failover` bytes of the last known primary position. The [docstring](' + HA + '#L1390-L1393) admits that several nodes may count themselves as the healthiest, "but this is totally fine": the create-if-absent picks one.',
+			'**The watchdog closes the gap.** The [watchdog doc](' + PATRONI + '/docs/watchdog.rst?plain=1#L6-L18) lists what can stop the demote: Patroni "has crashed", "Shutting down PostgreSQL is too slow", or the VM is paused. With `ttl=30` and `loop_wait=10`, the loop has "at least 15 seconds" before the machine is reset.'
+		]
+	},
+	tradeoff: {
+		gain: [
+			'At most one primary at a time, as long as the DCS works and the fence fires: no forked histories to merge by hand.',
+			'Failover needs no human: within about a TTL, a healthy replica holds the lock and promotes.',
+			'The rules are small and readable: hold the key or demote, race only when healthy, and let the DCS pick one winner.'
+		],
+		cost: [
+			'The primary now depends on the DCS. If etcd is unreachable, a perfectly healthy primary demotes itself, unless you turn on `failsafe_mode` and every member can confirm it.',
+			'Failover is not instant. The old key has to expire first, so expect tens of seconds of no primary with the default `ttl` of 30.',
+			'Asynchronous replication still loses the last commits on failover. `synchronous_mode` avoids that, but "the system may be unavailable for writes even though some servers are available".',
+			'One more cluster to run: the DCS needs its own three or five nodes, monitoring and upgrades.'
+		]
+	},
+	task: {
+		prompt: 'Three Patroni nodes, etcd with three members, `ttl: 30`, `loop_wait: 10`, `retry_timeout: 10`, asynchronous replication. At 03:00:00 the switch port of the primary, node A, dies: A can no longer reach etcd, B or C, but the app servers on its rack still reach A. Write a timeline of the next minute: who is primary when, and what the app on A\'s rack sees.',
+		hint: 'Follow A first: when does it try to renew, and what does it do when that fails? Then follow the key in etcd.',
+		answer: [
+			'Until A\'s next loop, at most 10 s later, A is still primary and its rack keeps writing. Those writes cannot reach B or C.',
+			'At that loop A tries to renew the key. The call fails within `retry_timeout` (10 s). A demotes itself to read-only. From now on, the app on A\'s rack gets errors on writes: downtime for them, but no second primary.',
+			'In etcd the key expires 30 s after A\'s last successful renewal, so by about 03:00:30. On their next loop B and C see no leader, check their lag, and race. Say B creates the key first and promotes; C follows B.',
+			'If A\'s Patroni had hung instead of demoting, the watchdog, set 5 s before the TTL, resets A before the key expires. That is why B may promote safely.',
+			'The cost: commits A took in the last seconds before it demoted, and that never streamed to B, stay on A\'s old timeline. With `synchronous_mode` they would not have been acknowledged in the first place.'
+		]
+	},
+	quiz: [
+		{
+			q: 'Patroni on the primary cannot update the leader key, but Postgres itself is fine and clients are connected. What does Patroni do, by default?',
+			options: [
+				'Keeps it primary until a replica actually takes the key, then demotes',
+				'Demotes Postgres right away, because it cannot tell a partition from an outage',
+				'Keeps it primary, because a healthy Postgres is a better choice than none',
+				'Shuts Postgres down and waits for an operator to restart it by hand'
+			],
+			answer: 1,
+			why: 'The doc: "In case the update of the leader lock fails, Postgres is immediately demoted and started as read-only." From one node, a DCS outage and a network partition look the same, and in a partition another node may already be promoting. `failsafe_mode` is the opt-in exception.'
+		},
+		{
+			q: 'Why does Patroni need a watchdog when it already demotes the primary on a failed lock update?',
+			options: [
+				'Because the watchdog is what actually renews the leader key in etcd',
+				'Because Postgres ignores demote requests while it has open transactions',
+				'Because Patroni itself may be crashed or frozen and never run the demote',
+				'Because etcd can only expire a key after the old node has been reset'
+			],
+			answer: 2,
+			why: 'The demote is code Patroni must run. The watchdog doc lists what can stop it: a crash, a slow shutdown, or Patroni not getting to run because the VM is paused. The watchdog resets the machine without asking Patroni anything.'
+		},
+		{
+			q: 'With asynchronous replication and `maximum_lag_on_failover` at 1 MB, the primary dies. What can you lose?',
+			options: [
+				'Up to about 1 MB of WAL, plus what was written since the last status update',
+				'Nothing, because Patroni only promotes a replica that has every commit',
+				'Exactly 1 MB of WAL, because that is the size Patroni keeps in reserve',
+				'Everything since the last base backup, since the replica has to be rebuilt'
+			],
+			answer: 0,
+			why: 'The replication modes doc: loss is "worst case bounded by maximum_lag_on_failover bytes of transaction log plus the amount that is written in the last ttl seconds", because the primary\'s position is only sampled each loop. With `synchronous_mode`, Patroni only promotes a standby it is "certain" holds every commit acknowledged to a client (day 28).'
+		}
+	],
+	takeaway: 'A primary is whoever holds an expiring lock in a store that agrees with itself; a node that cannot renew it demotes at once, and a watchdog fences it when it cannot.',
+	sources: [
+		{ title: 'Patroni docs, Watchdog support', url: 'https://patroni.readthedocs.io/en/latest/watchdog.html' },
+		{ title: 'Patroni docs, DCS Failsafe Mode', url: 'https://patroni.readthedocs.io/en/latest/dcs_failsafe_mode.html' },
+		{ title: 'Patroni docs, Replication modes', url: 'https://patroni.readthedocs.io/en/latest/replication_modes.html' },
+		{ title: 'etcd docs, KV API guarantees and leases', url: 'https://etcd.io/docs/v3.5/learning/api/' },
+		{ title: 'Patroni source, patroni/ha.py', url: HA }
+	]
+};

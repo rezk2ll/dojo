@@ -29,7 +29,7 @@
 	let progress = $derived(progressOf(dojo));
 	let all = $derived(chaptersIn(dojo, lang.current));
 	let c = $derived(all[data.index]);
-	let prev = $derived(all[data.index - 1]);
+	let prev = $derived(all[data.index - 1]?.quiz.length ? all[data.index - 1] : undefined);
 	let nextChapter = $derived(all[data.index + 1]);
 
 	/** @typedef {{ id: string, label: string, quiz?: string }} Section */

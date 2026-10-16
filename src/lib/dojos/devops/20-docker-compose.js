@@ -8,14 +8,12 @@ export default {
 	minutes: 10,
 	hook: [
 		'Your app needs nginx, a backend and PostgreSQL. By hand that is three `docker run` lines with ports, a network, a volume and a password, typed in the right order. Miss one flag and the backend cannot find the database.',
-		'**Compose** writes all of it down in one YAML file. `docker compose up -d` starts the stack, `docker compose down` removes it. Same file on your laptop and on the test server.',
-		'The part that bites is **startup order**. Compose can start the database first, but "started" is not "ready". Today you learn how a **healthcheck** closes that gap.'
+		'Docker Compose writes all of it down in one YAML file. `docker compose up -d` starts the stack, `docker compose down` removes it. The same file runs on your laptop and on the test server.',
+		'Compose can start the database container first, but PostgreSQL may not accept connections yet. A **healthcheck** tells Compose when the database is ready.'
 	],
 	terms: [
 		{ term: 'Service', def: 'One component of the app in `compose.yaml` (web, backend, db). Compose runs one or more containers for it.' },
-		{ term: 'Network', def: 'Compose creates a default network for the project. Every service joins it and reaches the others **by service name**, like `db:5432`.' },
 		{ term: 'Volume', def: 'Storage that outlives the container. A named volume (`db-data`) survives `docker compose down`. `down -v` removes it.' },
-		{ term: 'Env file', def: 'Two kinds. A `.env` file in the project folder fills `${VAR}` in the compose file. `env_file:` on a service passes variables into its container.' },
 		{ term: 'Healthcheck', def: 'A command the container runs on a schedule to say "I am ready". Its result is the container\'s health status.' },
 		{ term: 'depends_on', def: 'Start order between services. With `condition: service_healthy`, Compose waits for the dependency\'s healthcheck to pass.' }
 	],
@@ -32,7 +30,7 @@ export default {
 					'class user ext'
 				],
 				highlight: ['proxy', 'be', 'db'],
-				note: 'Three **services** on one default **network**. Only `proxy` publishes a port to the host. The backend reaches the database by its service name, `db`.'
+				note: 'Compose puts the three services on one default network for the project. Only `proxy` publishes a port to the host. The backend reaches the database **by its service name**, `db`.'
 			},
 			{
 				add: [
@@ -48,14 +46,14 @@ export default {
 					'hc -.->|healthy?| db'
 				],
 				highlight: ['hc'],
-				note: 'A **healthcheck** runs `pg_isready` every 10 seconds. The process can be running for a while before PostgreSQL accepts connections. The healthcheck tells the two apart.'
+				note: 'The healthcheck runs `pg_isready` every 10 seconds. The process can be running for a while before PostgreSQL accepts connections. `pg_isready` passes only once it does.'
 			},
 			{
 				add: [
 					'be -.->|waits for healthy| hc'
 				],
 				highlight: ['be', 'hc'],
-				note: 'Plain `depends_on` only waits until the database container is **running**. With `condition: service_healthy`, the backend starts only once the healthcheck passes. No more "connection refused" on first boot.'
+				note: 'Plain `depends_on` only waits until the database container is **running**. With `condition: service_healthy`, the backend starts only once the healthcheck passes, so its first connection does not get "connection refused".'
 			},
 			{
 				add: [
@@ -119,10 +117,10 @@ secrets:
   db-password:
     file: db/password.txt`,
 		notes: [
-			'No `networks:` key at all. Compose puts the three services on the default network, so the backend connects to `db` by name.',
-			'`expose: 5432` publishes nothing to the host. It only records the port: other services on the shared network can reach any port of `db` anyway. `ports: 80:80` on `proxy` is the one door from the host.',
-			'`backend` waits for `db` to be **healthy**. `proxy` uses the short form, `depends_on: [backend]`, which only waits for the backend container to start.',
-			'`POSTGRES_PASSWORD_FILE` points at the mounted secret, so the password never sits in `environment`. And `image: postgres` has no tag, so it means `latest`: pin it before this leaves your laptop (day 19).'
+			'The file has no `networks:` key. Compose puts the three services on the default network, so the backend connects to `db` by name.',
+			'Lines 23 and 24, `expose: 5432`, publish nothing to the host. They only record the port: other services on the shared network can reach any port of `db` anyway. Lines 34 and 35, `ports: 80:80` on `proxy`, are the only port open to the host.',
+			'Lines 8 to 10 make `backend` wait for `db` to be **healthy**. Lines 36 and 37 give `proxy` the short form, `depends_on: [backend]`, which only waits for the backend container to start.',
+			'Line 22, `POSTGRES_PASSWORD_FILE`, points at the mounted secret, so the password never sits in `environment`. Line 13, `image: postgres`, has no tag, so it means `latest`: pin it before this leaves your laptop (day 19).'
 		]
 	},
 	tradeoff: {
@@ -132,9 +130,9 @@ secrets:
 			'Healthchecks and `depends_on` give a predictable startup order.'
 		],
 		cost: [
-			'Compose runs on **one host**. No failover to another machine, no rolling deploys across a fleet. That is what Kubernetes is for.',
-			'You write every healthcheck yourself. A weak one (the port is open, the app is not) gives false confidence.',
-			'Two kinds of env files with two jobs is a classic source of "why is my variable empty".'
+			'Compose runs every service on **one host**, with no failover to another machine and no rolling deploys across a fleet. Kubernetes handles those.',
+			'You write every healthcheck yourself, and a weak one passes too early: it checks that the port is open while the app still refuses requests.',
+			'A `.env` file fills `${VAR}` in the compose file, and `env_file:` on a service passes variables into its container. Mixing the two up is a classic cause of "why is my variable empty".'
 		]
 	},
 	task: {
@@ -157,7 +155,7 @@ secrets:
 				'Nothing: it only documents the dependency'
 			],
 			answer: 0,
-			why: 'Compose waits for the container to be running, not ready. You need a healthcheck and `condition: service_healthy` to wait for ready.'
+			why: 'Compose waits for the container process to be running. To wait until the database accepts connections, you need a healthcheck and `condition: service_healthy`.'
 		},
 		{
 			q: 'Your backend needs to reach the database in the same compose file. Which host name does it use?',
@@ -182,7 +180,10 @@ secrets:
 			why: 'By default `down` removes containers and the networks it created. Named volumes are removed only with `--volumes` (`-v`).'
 		}
 	],
-	takeaway: 'Compose turns a pile of `docker run` commands into one file. Give stateful services a volume and a healthcheck, and make the rest wait for `service_healthy`.',
+	recall: {
+		q: 'What do you add so the backend starts only once PostgreSQL accepts connections?',
+		a: 'A healthcheck on `db` (`pg_isready`, every 10 seconds) and `depends_on: { db: { condition: service_healthy } }` on the backend. Plain `depends_on` only waits for the container to run.'
+	},
 	sources: [
 		{ title: 'Docker docs, Control startup order in Compose', url: 'https://docs.docker.com/compose/how-tos/startup-order/' },
 		{ title: 'Docker docs, Networking in Compose', url: 'https://docs.docker.com/compose/how-tos/networking/' },

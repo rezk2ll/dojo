@@ -4,19 +4,18 @@ const COMPOSE = 'https://github.com/docker/awesome-compose/blob/30f4b7f6a6c3b0c0
 export default {
 	slug: 'dockerfile',
 	part: 'Containers',
-	title: 'The Dockerfile: a build script that caches itself',
+	title: 'The Dockerfile and its build cache',
 	minutes: 10,
 	hook: [
 		'You have a wiki page called "Set up the app server": install Node, copy the code, run `npm ci`, start it. Every new server, you follow it by hand, and every server ends up a little different.',
-		'A **Dockerfile** is that page turned into a script the builder runs the same way every time. The result is an image, not a server.',
-		'One twist makes it fast: each step is saved as a **layer** and reused on the next build if nothing changed. Put the steps in the wrong order and a one-line code change reinstalls every dependency. Today you learn the order that keeps builds quick.'
+		'A **Dockerfile** holds the same steps as a script, and the builder runs them the same way every time. It produces an image, which you then start on any server.',
+		'The builder saves each step as a layer and reuses it on the next build if nothing changed. Put the steps in the wrong order and a one-line code change reinstalls every dependency.'
 	],
 	terms: [
 		{ term: 'Dockerfile', def: 'A text file of instructions (`FROM`, `COPY`, `RUN`, `CMD`...) that the builder runs top to bottom to produce an image.' },
 		{ term: 'Instruction', def: 'One line of the Dockerfile. `FROM` picks the base image, `COPY` adds files, `RUN` runs a command, `CMD` sets the default command.' },
 		{ term: 'Layer', def: 'The set of filesystem changes one instruction makes. `RUN`, `COPY` and `ADD` add layers, `CMD` or `EXPOSE` only change settings.' },
-		{ term: 'Build cache', def: 'Saved layers from earlier builds. If an instruction and its inputs match, the builder reuses the layer instead of running it again.' },
-		{ term: 'Build context', def: 'The files you hand to the builder, usually the current directory (`docker build .`). A plain `COPY` can only read from it.' }
+		{ term: 'Build cache', def: 'Saved layers from earlier builds. If an instruction and its inputs match, the builder reuses the layer instead of running it again.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -33,7 +32,7 @@ export default {
 					'base --> deps --> inst'
 				],
 				highlight: ['deps', 'inst'],
-				note: 'Copy **only the dependency files** first, then install. These change rarely, so this slow layer is almost always taken from the **cache**.'
+				note: 'Copy **only the dependency files** first, then install. These files change rarely, so the builder almost always takes this slow layer from the cache.'
 			},
 			{
 				add: [
@@ -42,7 +41,7 @@ export default {
 					'inst --> src --> cmd'
 				],
 				highlight: ['src', 'cmd'],
-				note: 'Copy the source **last**. It changes on every commit. `CMD` adds no layer, it just records the default command.'
+				note: 'Copy the source **last**, because it changes on every commit. `CMD` adds no layer: it records the default command in the image settings.'
 			},
 			{
 				add: [
@@ -60,7 +59,7 @@ export default {
 					'class bad ext'
 				],
 				highlight: ['bad'],
-				note: 'Swap the order and any edit, even a README typo, breaks the cache **above** `npm ci`. Every build reinstalls everything. **Rule: least often changed first, most often changed last.**'
+				note: 'Swap the order and any edit, even a README typo, breaks the cache **above** `npm ci`. Every build then reinstalls all dependencies. Put the files that change least often first and the ones that change most often last.'
 			}
 		]
 	},
@@ -88,10 +87,10 @@ COPY . /code
 …
 CMD [ "node", "src/index.js" ]`,
 		notes: [
-			'The comment says it plainly: **"copy in our source code last, as it changes the most"**. That is the whole cache rule in one line.',
-			'`package.json` and the lock file are copied alone before `npm ci`. Edit code, and `npm ci` is a cache hit. Add a dependency, and only then does it run again.',
-			'`FROM node:lts` follows a moving tag. The file itself warns, a few lines up, to pin a specific version for anything beyond your laptop. Day 19 is about exactly that.',
-			'`CMD [ "node", "src/index.js" ]` uses the JSON (exec) form: node runs as PID 1 and receives stop signals directly, with no shell in between.'
+			'The comment on line 15 reads: "copy in our source code last, as it changes the most". Line 16 then copies the source, after the install on line 9.',
+			'Lines 5 and 6 copy `package.json` and the lock file alone before `npm ci`. Edit code, and `npm ci` is a cache hit. Add a dependency, and only then does it run again.',
+			'Line 1, `FROM node:lts`, follows a moving tag. The file itself warns, a few lines up, to pin a specific version for anything beyond your laptop. Day 19 covers pinning.',
+			'Line 18, `CMD [ "node", "src/index.js" ]`, uses the JSON (exec) form: node runs as PID 1 and receives stop signals directly, with no shell in between.'
 		]
 	},
 	tradeoff: {
@@ -101,9 +100,9 @@ CMD [ "node", "src/index.js" ]`,
 			'With a good order, most rebuilds reuse every slow layer and take seconds.'
 		],
 		cost: [
-			'Cache rules are strict: one changed file invalidates every layer after it.',
+			'One changed file invalidates its layer and every layer after it.',
 			'A cached `RUN apt-get update` can hide stale packages, because the builder only compares the command text, not what the network would return today.',
-			'A wrong order is not an error. It just makes every build slow, and nobody notices for months.'
+			'The builder raises no error for a wrong order, so every build reinstalls all dependencies and nobody notices for months.'
 		]
 	},
 	task: {
@@ -113,7 +112,7 @@ CMD [ "node", "src/index.js" ]`,
 			'`FROM python:3.12-slim`, `WORKDIR /app`, `COPY requirements.txt .`, `RUN pip install -r requirements.txt`, `COPY . .`, `CMD ["python", "app.py"]`.',
 			'Change `app.py`: only `COPY . .` (and anything after it) is rebuilt. `pip install` is a cache hit.',
 			'Change `requirements.txt`: the install runs again, which is what you want.',
-			'Bonus: add a `.dockerignore` so `.git`, virtualenvs and local junk stay out of the build context and out of the image.'
+			'Bonus: add a `.dockerignore` so `.git`, virtualenvs and local junk stay out of the build context (the files `docker build .` sends to the builder) and out of the image.'
 		]
 	},
 	quiz: [
@@ -146,7 +145,10 @@ CMD [ "node", "src/index.js" ]`,
 			why: 'The builder compares only the `RUN` command text. The update line did not change, so it is a cache hit. Docker recommends `apt-get update && apt-get install` in one `RUN`.'
 		}
 	],
-	takeaway: 'A Dockerfile is your setup runbook as code. Order it from least to most often changed, so the slow layers stay in cache.',
+	recall: {
+		q: 'In a Node Dockerfile, what do you copy before `RUN npm ci`, and why?',
+		a: 'Only `package.json` and the lock file. A source edit then rebuilds only the `COPY . /code` layer and after, and `npm ci` comes from the cache.'
+	},
 	sources: [
 		{ title: 'Docker docs, Dockerfile reference', url: 'https://docs.docker.com/reference/dockerfile/' },
 		{ title: 'Docker docs, Docker build cache', url: 'https://docs.docker.com/build/cache/' },

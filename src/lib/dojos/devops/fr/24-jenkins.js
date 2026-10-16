@@ -4,19 +4,17 @@ const APP = 'https://github.com/jenkins-docs/simple-java-maven-app/blob/bffd953f
 export default {
 	slug: 'jenkins',
 	part: 'CI/CD',
-	title: 'Jenkins : le serveur dont tu vas hériter',
+	title: 'Jenkins : controller, agents et Jenkinsfile',
 	minutes: 10,
 	hook: [
 		'Quelque part dans la salle serveur, il y a une VM qui s’appelle `jenkins01`. Elle fait tous les builds depuis des années. Elle a des dizaines de plugins, et **personne ne veut être celui qui la met à jour**.',
-		'Tu vas croiser Jenkins. Il est auto-hébergé, gratuit, et il fait presque tout grâce aux plugins. Son vieux défaut : des jobs configurés en cliquant dans une interface web, que personne ne pouvait relire ni reconstruire.',
-		'Aujourd’hui : le **controller** et ses **agents**, le **Jenkinsfile** qui remet le pipeline dans le dépôt, et quand Jenkins reste le bon choix.'
+		'Jenkins est auto-hébergé et gratuit, et ses plugins lui permettent de faire presque tout. Les équipes configuraient ses jobs en cliquant dans une interface web, et personne ne pouvait les relire ni les reconstruire.',
+		'Un Jenkinsfile remet le pipeline dans le dépôt. Le controller planifie les builds, et les agents les exécutent.'
 	],
 	terms: [
-		{ term: 'Controller', def: 'Le service Jenkins lui-même : interface web, configuration, et le « cerveau » qui décide où et quand les builds tournent.' },
+		{ term: 'Controller', def: 'Le service Jenkins lui-même : interface web, configuration, et le planificateur qui décide où et quand les builds tournent.' },
 		{ term: 'Agent', def: 'Une machine (ou un conteneur) qui exécute les étapes de build pour le controller. Les agents portent des labels, comme `linux` ou `docker`.' },
-		{ term: 'Executor', def: 'Un emplacement sur un agent pour une tâche à la fois. Deux executors sur un agent, c’est deux builds possibles en même temps.' },
-		{ term: 'Jenkinsfile', def: 'Un fichier texte dans le dépôt qui définit le pipeline. Relu et versionné comme du code.' },
-		{ term: 'Pipeline déclaratif', def: 'La syntaxe structurée du Jenkinsfile : un bloc `pipeline { }` avec `agent`, `stages`, `steps` et `post`. Plus lisible que l’ancienne syntaxe scriptée, qui est du Groovy brut.' },
+		{ term: 'Jenkinsfile', def: 'Un fichier texte dans le dépôt qui définit le pipeline, et que tu relis et versionnes comme du code.' },
 		{ term: 'Plugin', def: 'Un module ajouté au controller. Git, les rapports JUnit, les credentials et le pipeline lui-même sont tous des plugins.' }
 	],
 	diagram: {
@@ -25,17 +23,17 @@ export default {
 			{
 				add: ['push["git push"] --> ctl["Controller : interface web, planifie les builds"]'],
 				highlight: ['push', 'ctl'],
-				note: 'Le **controller**, c’est Jenkins lui-même. Il apprend qu’il y a eu un push, décide qu’un build doit tourner, et garde l’historique. C’est la machine que tu sauvegardes.'
+				note: 'Le **controller**, c’est Jenkins lui-même. Il apprend qu’il y a eu un push, décide qu’un build doit tourner, et garde l’historique : c’est donc le controller que tu sauvegardes.'
 			},
 			{
 				add: ['ctl --> ag1["Agent : linux-01, 2 executors"]', 'ctl --> ag2["Agent : linux-02, 2 executors"]'],
 				highlight: ['ag1', 'ag2'],
-				note: 'Le travail tourne sur les **agents**. La doc Jenkins déconseille de lancer des builds sur le controller lui-même, pour la sécurité, les performances et la montée en charge. Un build qui lance `rm -rf` ne doit pas tourner là où vivent les credentials.'
+				note: 'Le travail tourne sur les **agents**. Chaque executor d’un agent fait tourner un build à la fois, donc ces deux agents lancent jusqu’à quatre builds. La doc Jenkins déconseille de lancer des builds sur le controller lui-même, pour la sécurité, les performances et la montée en charge. Un build qui lance `rm -rf` ne doit pas tourner sur la machine qui garde les credentials.'
 			},
 			{
 				add: ['jf["Jenkinsfile, dans le dépôt"]', 'jf -.->|lu à chaque build| ctl'],
 				highlight: ['jf'],
-				note: 'Avec un **Jenkinsfile**, le pipeline vit dans Git à côté du code. Modifie-le dans une branche, relis-le dans une pull request. Fini les clics dans les formulaires de job.'
+				note: 'Avec un **Jenkinsfile**, le pipeline vit dans Git à côté du code. Tu le modifies dans une branche et tu le relis dans une pull request, sans formulaire de job à remplir.'
 			},
 			{
 				add: [
@@ -46,12 +44,12 @@ export default {
 					'ag1 --> b'
 				],
 				highlight: ['b', 't', 'd'],
-				note: 'Un pipeline déclaratif est une liste de **stages**, même idée qu’au jour 21. Si Test échoue, Deliver ne tourne jamais.'
+				note: 'La syntaxe déclarative, un bloc `pipeline { }`, liste des **stages** comme au jour 21. Si Test échoue, Deliver ne tourne jamais. L’ancienne syntaxe scriptée est du Groovy brut, plus dur à lire.'
 			},
 			{
 				add: ['plug["Plugins : Git, JUnit, Credentials"]', 'plug -.-> ctl', 'class plug ext'],
 				highlight: ['plug'],
-				note: 'Les **plugins** sont la force de Jenkins et sa douleur. Il y en a plus d’un millier. Chacun que tu ajoutes est du code sur le controller que tu dois tenir à jour, et qui doit rester compatible avec les autres.'
+				note: 'Il existe plus d’un millier de plugins, et ils permettent à Jenkins de parler à presque tous les outils. Chaque plugin que tu ajoutes est du code sur le controller que tu dois tenir à jour, et qui doit rester compatible avec les autres.'
 			}
 		]
 	},
@@ -91,31 +89,31 @@ export default {
     }
 }`,
 		notes: [
-			'C’est l’application du [tutoriel Maven officiel de Jenkins](https://www.jenkins.io/doc/tutorials/build-a-java-app-with-maven/). Trois stages : build sans les tests, lancer les tests, livrer.',
-			'`label \'!windows\'` est une expression de label : tourner sur n’importe quel agent dont les labels ne contiennent pas `windows`. Les [expressions de label](https://github.com/jenkinsci/jenkins/blob/f5d0dcb8ab0ff713ec71d3bd38383fc9ff094037/core/src/main/resources/hudson/model/AbstractProject/help-label.html) de Jenkins acceptent aussi `&&` et `||`. Ça colle ici : chaque step est une commande shell `sh`.',
-			'`post { always { junit … } }` tourne quel que soit le résultat du stage. Le rapport de tests est donc enregistré **même quand les tests échouent**, c’est-à-dire exactement quand tu en as besoin.',
-			'`skipStagesAfterUnstable()` : la [référence de syntaxe](https://www.jenkins.io/doc/book/pipeline/syntax/#options) dit qu’il saute les stages dès que le statut du build est passé à **UNSTABLE**, un statut en général causé par des tests en échec. Un build avec des tests rouges n’atteint pas Deliver.'
+			'Ce Jenkinsfile vient du [tutoriel Maven officiel de Jenkins](https://www.jenkins.io/doc/tutorials/build-a-java-app-with-maven/). Il a trois stages : build sans les tests (lignes 9 à 13), lancer les tests (lignes 14 à 23), livrer (lignes 24 à 28).',
+			'La ligne 3, `label \'!windows\'`, est une expression de label : tourner sur n’importe quel agent dont les labels ne contiennent pas `windows`. Les [expressions de label](https://github.com/jenkinsci/jenkins/blob/f5d0dcb8ab0ff713ec71d3bd38383fc9ff094037/core/src/main/resources/hudson/model/AbstractProject/help-label.html) de Jenkins acceptent aussi `&&` et `||`. Cette expression convient à ce fichier, où chaque step est une commande shell `sh`.',
+			'Les lignes 18 à 22, `post { always { junit … } }`, tournent quel que soit le résultat du stage. Jenkins enregistre donc le rapport de tests **même quand les tests échouent**, le cas où tu as besoin de le lire.',
+			'La ligne 6, `skipStagesAfterUnstable()` : la [référence de syntaxe](https://www.jenkins.io/doc/book/pipeline/syntax/#options) dit qu’il saute les stages dès que le statut du build est passé à **UNSTABLE**, un statut en général causé par des tests en échec. Un build avec des tests rouges n’atteint pas Deliver.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Entièrement auto-hébergé et gratuit : il tourne sur ton réseau, même sans aucun accès à internet.',
-			'Pas lié à un seul hébergeur Git. GitHub, GitLab, Bitbucket ou un simple serveur Git, Jenkins sait construire depuis.',
-			'Un plugin pour presque tout, et des agents sur n’importe quel OS : Windows, macOS, vieilles machines Unix que la CI hébergée ne propose pas.'
+			'Jenkins construit depuis n’importe quel hébergeur Git : GitHub, GitLab, Bitbucket ou un simple serveur Git.',
+			'Les agents tournent sur n’importe quel OS, y compris Windows, macOS et de vieilles machines Unix que la CI hébergée ne propose pas.'
 		],
 		cost: [
 			'C’est toi qui fais tourner le controller : mises à jour, sauvegardes, versions de Java, disque plein de vieux logs de build.',
-			'Les plugins se cassent entre eux lors des mises à jour. Beaucoup d’équipes figent leur Jenkins, qui devient alors un risque de sécurité.',
+			'La mise à jour d’un plugin peut en casser un autre. Beaucoup d’équipes arrêtent de mettre leur Jenkins à jour, et il rate alors les correctifs de sécurité.',
 			'La configuration faite en cliquant (credentials, réglages globaux) reste hors de Git, sauf si tu fais un effort en plus.'
 		]
 	},
 	task: {
-		prompt: 'Ajoute un stage `Deploy` après `Deliver`. Il doit tourner **seulement sur la branche `main`** (c’est un pipeline multibranche), et attendre la validation d’un humain. Écris le stage, et méfie-toi d’un piège dans l’ordre où Jenkins vérifie les choses.',
+		prompt: 'Ajoute un stage `Deploy` après `Deliver`. Il doit tourner **seulement sur la branche `main`** (c’est un pipeline multibranche), et attendre la validation d’un humain. Écris le stage, et vérifie dans quel ordre Jenkins évalue les conditions.',
 		hint: 'Regarde la directive `when` avec `branch`, et la directive `input`. Laquelle Jenkins évalue-t-il en premier ?',
 		answer: [
 			'`stage(\'Deploy\') { when { beforeInput true; branch \'main\' } input { message \'Deploy to production?\' } steps { sh \'./deploy.sh\' } }`',
 			'`when { branch \'main\' }` ne marche que dans un pipeline multibranche. Sur les autres branches le stage est sauté.',
-			'Le piège : par défaut, Jenkins demande l’`input` **avant** de vérifier `when`. Sans `beforeInput true`, chaque branche de feature s’arrêterait pour attendre une validation dont elle n’a pas besoin.',
+			'L’ordre : par défaut, Jenkins demande l’`input` **avant** de vérifier `when`. Sans `beforeInput true`, chaque branche de feature s’arrêterait pour attendre une validation dont elle n’a pas besoin.',
 			'Fais-le tourner sur un agent qui a les credentials de déploiement, pas sur le controller.'
 		]
 	},
@@ -151,10 +149,13 @@ export default {
 				'Tu ne construis qu’un petit projet open source hébergé sur GitHub'
 			],
 			answer: 2,
-			why: 'Jenkins est auto-hébergé de bout en bout et fait tourner des agents n’importe où. C’est son atout. Pour zéro maintenance ou un petit projet GitHub, un service hébergé est plus simple.'
+			why: 'Jenkins est auto-hébergé de bout en bout et fait tourner des agents n’importe où, y compris sur un réseau sans accès à internet. Pour zéro maintenance ou un petit projet GitHub, un service hébergé est plus simple.'
 		}
 	],
-	takeaway: 'Jenkins, c’est un controller qui planifie et des agents qui construisent. Mets le pipeline dans un Jenkinsfile, garde les builds hors du controller, et traite chaque plugin comme du code que tu dois maintenir.',
+	recall: {
+		q: 'Un stage `Deploy` a `when { branch \'main\' }` et un `input`. Sans `beforeInput true`, que se passe-t-il sur une branche de feature ?',
+		a: 'Jenkins demande l’`input` avant de vérifier `when`, donc le build de la branche de feature s’arrête et attend une validation. Avec `beforeInput true`, le stage est sauté sur toutes les branches sauf `main`.'
+	},
 	sources: [
 		{ title: 'Doc Jenkins, syntaxe des pipelines', url: 'https://www.jenkins.io/doc/book/pipeline/syntax/' },
 		{ title: 'Doc Jenkins, utiliser un Jenkinsfile', url: 'https://www.jenkins.io/doc/book/pipeline/jenkinsfile/' },

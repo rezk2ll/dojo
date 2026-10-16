@@ -4,20 +4,18 @@ const GITLAB = 'https://github.com/gitlabhq/gitlabhq/blob/b795e7ababc193e9fe85de
 export default {
 	slug: 'gitlab-ci',
 	part: 'CI/CD',
-	title: 'GitLab CI : un fichier, tes propres runners',
+	title: 'GitLab CI : stages, runners, cache et artefacts',
 	minutes: 10,
 	hook: [
-		'Beaucoup d’entreprises font tourner leur propre GitLab, sur leurs propres serveurs. Souvent, c’est **toi** qui l’as installé. Alors quand l’équipe dit « ajoute de la CI », le pipeline tournera aussi sur des machines que tu gères.',
-		'GitLab CI lit un seul fichier à la racine du dépôt, `.gitlab-ci.yml`. Il en fait un pipeline de jobs regroupés en stages, et confie chaque job à un **runner** : un petit agent que tu installes sur un serveur, une VM ou un cluster Kubernetes.',
-		'Aujourd’hui : stages, jobs, runners, `rules`, la différence entre **cache** et **artefacts**, et les environnements.'
+		'Beaucoup d’entreprises font tourner leur propre GitLab, sur leurs propres serveurs, et c’est peut-être toi qui l’as installé. Quand l’équipe demande de la CI, le pipeline tournera aussi sur des machines que tu gères.',
+		'GitLab CI lit un seul fichier à la racine du dépôt, `.gitlab-ci.yml`. GitLab en tire un pipeline de jobs regroupés en stages, et confie chaque job à un **runner** : un petit agent que tu installes sur un serveur, une VM ou un cluster Kubernetes.',
+		'Un job garde les paquets téléchargés dans le cache, et passe les fichiers construits aux stages suivants comme artefacts. Si tu confonds les deux, tes déploiements cassent.'
 	],
 	terms: [
-		{ term: 'Job', def: 'Un bloc nommé dans `.gitlab-ci.yml` avec un `script`. La plus petite chose que GitLab exécute.' },
 		{ term: 'Runner', def: 'Le programme GitLab Runner qui prend les jobs et les exécute. Sur GitLab.com tu peux utiliser ceux hébergés par GitLab, sur ton propre GitLab tu les installes et tu les gères.' },
-		{ term: 'rules', def: 'Des conditions vérifiées à la création du pipeline. Elles décident si un job est ajouté au pipeline, et comment (par exemple `when: manual`).' },
-		{ term: 'Cache', def: 'Des fichiers qu’un job garde pour accélérer les runs suivants, comme les paquets téléchargés. Un bonus : le job doit marcher sans.' },
-		{ term: 'Artefacts', def: 'Des fichiers qu’un job produit et que GitLab stocke, comme un résultat de build ou un rapport. Les stages suivants du même pipeline les téléchargent.' },
-		{ term: 'Environnement', def: 'Une cible de déploiement nommée, comme `staging` ou `production`. GitLab note quel commit y a été déployé, et quand.' }
+		{ term: 'rules', def: 'Des conditions que GitLab vérifie quand il crée le pipeline. Elles décident si un job est ajouté au pipeline, et comment (par exemple `when: manual`).' },
+		{ term: 'Cache', def: 'Des fichiers qu’un job garde pour accélérer les runs suivants, comme les paquets téléchargés. Le job doit quand même marcher quand le cache est vide.' },
+		{ term: 'Artefacts', def: 'Des fichiers qu’un job produit et que GitLab stocke, comme un résultat de build ou un rapport. Les stages suivants du même pipeline les téléchargent.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -37,7 +35,7 @@ export default {
 					'gl --> ts'
 				],
 				highlight: ['t', 'r', 'pg'],
-				note: 'Le template Python ne met pas de `stage` sur ces jobs, donc GitLab les place dans le stage par défaut **test**. Ce sont les `rules` qui ont décidé que `pages` n’existe que sur la branche par défaut.'
+				note: 'Le template Python ne met pas de `stage` sur ces jobs, donc GitLab les place dans le stage par défaut **test**. Une règle sur `pages` n’ajoute ce job que sur la branche par défaut.'
 			},
 			{
 				add: ['rn["Runner : lance chaque job dans python:latest"]', 'ts -.->|pris par| rn', 'class rn ext'],
@@ -52,7 +50,7 @@ export default {
 					'r -->|stocke dans GitLab| ar'
 				],
 				highlight: ['ca', 'ar'],
-				note: 'Le **cache**, c’est pour ce que tu télécharges, pour aller plus vite la fois suivante. Les **artefacts**, c’est pour ce que tu construis, pour le passer aux stages suivants. Mélange les deux, et les déploiements cassent quand le cache est vide.'
+				note: 'Le cache garde ce que les jobs téléchargent, comme les paquets pip, pour que le pipeline suivant aille plus vite. Les **artefacts** gardent ce que les jobs construisent, comme `build/*`, et GitLab les passe aux stages suivants. Si un déploiement lit un résultat de build dans le cache, il casse chaque fois que le cache est vide.'
 			},
 			{
 				add: [
@@ -63,7 +61,7 @@ export default {
 					'dep --> env'
 				],
 				highlight: ['dep', 'env'],
-				note: '`deploy` est dans le stage **deploy**, il ne démarre donc que si tous les jobs du stage test sont passés. `environment: production` te donne une page avec chaque déploiement, et un moyen de faire un rollback vers un déploiement précédent.'
+				note: '`deploy` est dans le stage **deploy**, il ne démarre donc que si tous les jobs du stage test sont passés. `environment: production` nomme une cible de déploiement : GitLab note quel commit y est parti et quand, sur une page avec un bouton de rollback vers un déploiement précédent.'
 			}
 		]
 	},
@@ -112,27 +110,27 @@ deploy:
   script: echo "Define your deployment script!"
   environment: production`,
 		notes: [
-			'Il n’y a pas de liste `stages:`, donc GitLab utilise ses [valeurs par défaut](https://docs.gitlab.com/ci/yaml/#stages) : `.pre`, `build`, `test`, `deploy`, `.post`. Un job sans `stage` atterrit dans `test`. C’est pour ça que `deploy` attend les trois autres.',
-			'Le commentaire au-dessus de `PIP_CACHE_DIR` compte : les chemins de cache et d’artefacts sont [relatifs au dossier du projet](https://docs.gitlab.com/ci/caching/#how-cache-is-different-from-artifacts) et ne peuvent pas pointer en dehors. Donc on dit à pip de garder ses téléchargements dans le projet.',
-			'`run` garde `build/*` comme **artefacts**. Par défaut, les jobs des stages suivants téléchargent les artefacts des stages précédents, et ils [expirent au bout de 30 jours par défaut](https://docs.gitlab.com/ci/caching/#artifacts) (un réglage de l’instance) sauf si le job définit `expire_in`.',
-			'Les `rules` sont vérifiées dans l’ordre à la création du pipeline. Ici la seule règle correspond sur la branche par défaut. Sur une branche de feature rien ne correspond, donc le [job `pages` n’est pas ajouté](https://docs.gitlab.com/ci/yaml/#rules) du tout.',
-			'`image: python:latest` : chaque job tourne dans cette image de conteneur. Souviens-toi du jour 19 : `latest` aujourd’hui n’est pas `latest` le mois prochain. Épingle une version.'
+			'Il n’y a pas de liste `stages:`, donc GitLab utilise ses [valeurs par défaut](https://docs.gitlab.com/ci/yaml/#stages) : `.pre`, `build`, `test`, `deploy`, `.post`. Un job sans `stage` atterrit dans `test`. La ligne 37 place `deploy` dans le stage `deploy`, qui vient après, donc il attend les trois autres.',
+			'Les lignes 3 à 6 déplacent le dossier de téléchargement de pip dans le projet. Les chemins de cache et d’artefacts sont [relatifs au dossier du projet](https://docs.gitlab.com/ci/caching/#how-cache-is-different-from-artifacts) et ne peuvent pas pointer en dehors, donc les lignes 9 à 11 ne peuvent mettre en cache que `.cache/pip` à cet endroit.',
+			'Les lignes 23 à 25 gardent `build/*` de `run` comme **artefacts**. Par défaut, les jobs des stages suivants téléchargent les artefacts des stages précédents, et ils [expirent au bout de 30 jours par défaut](https://docs.gitlab.com/ci/caching/#artifacts) (un réglage de l’instance) sauf si le job définit `expire_in`.',
+			'GitLab vérifie les `rules` dans l’ordre quand il crée le pipeline. Aux lignes 33 et 34, la seule règle correspond sur la branche par défaut. Sur une branche de feature rien ne correspond, donc le [job `pages` n’est pas ajouté](https://docs.gitlab.com/ci/yaml/#rules) du tout.',
+			'La ligne 1, `image: python:latest`, fait tourner chaque job dans cette image de conteneur. Comme au jour 19, le tag `latest` pointe vers une nouvelle image Python après chaque version, donc épingle une version.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Auto-hébergé de bout en bout : GitLab, les runners et les artefacts peuvent tous rester sur ton réseau.',
 			'Les runners sont à toi, donc un job peut joindre des serveurs internes, utiliser un GPU, ou tourner sur l’OS exact où tu déploies.',
-			'Les environnements te donnent un historique de déploiement par cible, et un bouton de rollback, sans effort.'
+			'Chaque environnement a un historique de déploiement et un bouton de rollback, sans configuration en plus.'
 		],
 		cost: [
 			'C’est toi qui fais tourner les runners : installation, mises à jour, place disque pour les caches, capacité quand dix pipelines démarrent en même temps.',
-			'Un runner qui peut déployer en production est une cible. Protège-le comme un serveur de production.',
-			'Le cache est propre à chaque runner, sauf si tu mets en place un cache partagé (S3 ou équivalent). Avec plusieurs runners, les hits de cache deviennent aléatoires.'
+			'Un attaquant qui prend la main sur un runner qui déploie en production peut déployer n’importe quoi. Protège ce runner comme un serveur de production.',
+			'Chaque runner garde son propre cache, sauf si tu mets en place un cache partagé (S3 ou équivalent). Avec plusieurs runners, un job ne trouve le cache que s’il tombe sur le runner qui l’a enregistré.'
 		]
 	},
 	task: {
-		prompt: 'Modifie le template Python pour que : les stages soient explicites (`build`, `test`, `deploy`), `run` construise dans le stage `build`, et `deploy` tourne **seulement sur la branche par défaut** et **seulement quand un humain clique**. Écris les lignes que tu changes.',
+		prompt: 'Modifie le template Python pour que : les stages soient explicites (`build`, `test`, `deploy`), `run` construise dans le stage `build`, et `deploy` tourne seulement sur la branche par défaut et **seulement quand un humain clique**. Écris les lignes que tu changes.',
 		hint: 'Regarde `rules` avec `when`. Et souviens-toi que les artefacts d’un stage précédent sont téléchargés par défaut.',
 		answer: [
 			'Ajoute `stages: [build, test, deploy]` en haut, et `stage: build` sur `run`.',
@@ -151,7 +149,7 @@ deploy:
 				'Nulle part : le job de déploiement doit le recompiler depuis les sources'
 			],
 			answer: 1,
-			why: 'Le cache sert aux dépendances et peut être absent. Les artefacts sont le moyen de passer des résultats de build aux stages suivants du même pipeline.'
+			why: 'Le cache garde les dépendances, et un job peut démarrer avec un cache vide. GitLab stocke les artefacts et les télécharge pour les stages suivants du même pipeline.'
 		},
 		{
 			q: 'Ton `.gitlab-ci.yml` n’a pas de liste `stages:`, et un job n’a pas de clé `stage:`. Dans quel stage tourne le job ?',
@@ -160,7 +158,7 @@ deploy:
 			why: 'Les valeurs par défaut de GitLab sont `.pre`, `build`, `test`, `deploy`, `.post`, et un job sans `stage` est placé dans `test`.'
 		},
 		{
-			q: 'Un job a `rules: - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` et rien d’autre. Tu pushes sur une branche de feature. Que devient ce job ?',
+			q: 'Un job a `rules: - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` et rien d’autre. Tu pushes sur une branche de feature. Qu’arrive-t-il à ce job ?',
 			options: [
 				'Il tourne et échoue',
 				'Il apparaît comme sauté, en attente d’un clic manuel',
@@ -168,10 +166,13 @@ deploy:
 				'Il tourne, parce que les rules ne s’appliquent qu’aux merge requests'
 			],
 			answer: 2,
-			why: 'Si aucune règle ne correspond, le job n’est pas ajouté au pipeline du tout. C’est comme ça qu’un seul fichier sert à la fois aux branches de feature et à la branche par défaut.'
+			why: 'Si aucune règle ne correspond, le job n’est pas ajouté au pipeline du tout. Un seul fichier peut donc donner des jobs différents aux branches de feature et à la branche par défaut.'
 		}
 	],
-	takeaway: 'Un `.gitlab-ci.yml`, des jobs regroupés en stages, exécutés par des runners que tu contrôles. Mets en cache ce que tu télécharges, garde en artefacts ce que tu construis, et nomme tes environnements.',
+	recall: {
+		q: 'Un job de build produit `build/*`, et un job de déploiement d’un stage suivant en a besoin. Tu le mets dans `cache` ou dans `artifacts`, et pourquoi ?',
+		a: 'Dans `artifacts`. GitLab les stocke et les stages suivants les téléchargent par défaut. Le cache sert aux téléchargements comme `.cache/pip`, et un job peut démarrer avec un cache vide.'
+	},
 	sources: [
 		{ title: 'Doc GitLab, référence de la syntaxe YAML de CI/CD', url: 'https://docs.gitlab.com/ci/yaml/' },
 		{ title: 'Doc GitLab, le cache dans GitLab CI/CD', url: 'https://docs.gitlab.com/ci/caching/' },

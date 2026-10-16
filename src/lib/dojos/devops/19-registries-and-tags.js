@@ -4,18 +4,17 @@ const STARTER = 'https://github.com/actions/starter-workflows/blob/e3c451d60f119
 export default {
 	slug: 'registries-and-tags',
 	part: 'Containers',
-	title: 'Registries and tags: "latest" is not a version',
+	title: 'Registries, tags and digests',
 	minutes: 10,
 	hook: [
-		'You know apt repositories: a server holds packages, you pin `nginx=1.24.0-1` so every server gets the same build. A **registry** is the same idea for images.',
-		'The trap is the name. `myapp:latest` looks like a version. It is a **label someone can move**. Two servers that pulled `latest` a week apart can run different code, and the name on both says the same thing.',
-		'Today you learn the difference between a **tag** (a movable name) and a **digest** (the content\'s fingerprint), and how to deploy something you can name exactly.'
+		'You know apt repositories: a server holds packages, you pin `nginx=1.24.0-1` so every server gets the same build. A **registry** holds images the same way.',
+		'`myapp:latest` looks like a version, but anyone who can push can point `latest` at a new image. Two servers that pulled `latest` a week apart can run different code under the same name.',
+		'`latest` and `1.4.2` are tags: a push can move them to another image. A digest is a hash of the image content, and it always names the same bytes.'
 	],
 	terms: [
-		{ term: 'Registry', def: 'A server that stores and serves images: Docker Hub, GitHub Container Registry (`ghcr.io`), your cloud\'s registry, or one you host.' },
-		{ term: 'Repository', def: 'One image name in a registry, like `ghcr.io/acme/myapp`. It holds many versions of that image.' },
+		{ term: 'Registry', def: 'A server that stores and serves images: Docker Hub, GitHub Container Registry (`ghcr.io`), your cloud\'s registry, or one you host. Each image name in it, like `ghcr.io/acme/myapp`, is a repository.' },
 		{ term: 'Tag', def: 'A human name for one version, like `1.4.2` or `latest`. Tags are mutable: a push can point the same tag at a new image.' },
-		{ term: 'Digest', def: 'A `sha256:...` hash of the image content. Same digest means same bytes. It cannot be moved to other content.' },
+		{ term: 'Digest', def: 'A `sha256:...` hash of the image content. Two images with the same digest have the same bytes. A digest cannot be moved to other content.' },
 		{ term: 'Pinning', def: 'Referring to an image by an exact version, ideally by digest (`myapp@sha256:...`), so every pull gets the same image.' }
 	],
 	diagram: {
@@ -26,7 +25,7 @@ export default {
 					'ci["CI builds image"] -->|docker push| reg[("Registry: ghcr.io/acme/myapp")]'
 				],
 				highlight: ['ci', 'reg'],
-				note: 'CI builds the image and **pushes** it to a **registry**. Servers and clusters **pull** from there. No more copying tarballs with scp.'
+				note: 'CI builds the image and pushes it to a registry. Servers and clusters **pull** from there, instead of receiving tarballs over scp.'
 			},
 			{
 				add: [
@@ -36,7 +35,7 @@ export default {
 					'tl["tag latest"] -.-> dg'
 				],
 				highlight: ['dg', 't1', 'tl'],
-				note: 'The registry stores content by **digest**. Tags are just names pointing at a digest. Right now `1.4.2` and `latest` point at the same image.'
+				note: 'The registry stores content by **digest**. Each tag is a name that points at one digest. Right now `1.4.2` and `latest` point at the same image.'
 			},
 			{
 				add: [
@@ -55,7 +54,7 @@ export default {
 					'class srv ext'
 				],
 				highlight: ['srv'],
-				note: 'Pull **by digest** and you get exactly that image, forever, whatever happens to the tags. Rollback is "deploy the previous digest", with no guessing.'
+				note: 'Pull **by digest** and you get exactly that image, forever, whatever happens to the tags. To roll back, you deploy the previous digest.'
 			}
 		]
 	},
@@ -93,10 +92,10 @@ env:
 …
         run: echo "\${TAGS}" | xargs -I {} cosign sign --yes {}@\${DIGEST}`,
 		notes: [
-			'This is GitHub\'s starter workflow for publishing an image. It pushes to `ghcr.io`, GitHub\'s registry, under the repository\'s own name.',
-			'Tags come from `docker/metadata-action` with its defaults: a branch push gives a tag named after the branch, a Git tag `v1.2.3` gives `v1.2.3` **and `latest`**, a nightly run gives `nightly`. Its [README](https://github.com/docker/metadata-action/blob/96383f45573cb7f253c731d3b3ab81c87ef81934/README.md#latest-tag) shows even `v2.0.8-beta.67` gets `latest` this way. A beta becomes "latest".',
-			'The signing step signs `tag@digest`, not the tag alone. Tags move. The digest is the thing worth signing.',
-			'Look at the `uses:` lines: the workflow pins the third-party actions by full commit SHA, with the version in a comment (only GitHub\'s own `actions/checkout@v4` uses a tag). Same idea as pinning an image by digest.'
+			'GitHub ships this starter workflow for publishing an image. Lines 11 and 13 push it to `ghcr.io`, GitHub\'s registry, under the repository\'s own name.',
+			'Lines 15 to 19 take the tags from `docker/metadata-action` with its defaults: a branch push gives a tag named after the branch, a Git tag `v1.2.3` gives `v1.2.3` **and `latest`**, a nightly run gives `nightly`. Its [README](https://github.com/docker/metadata-action/blob/96383f45573cb7f253c731d3b3ab81c87ef81934/README.md#latest-tag) shows that `v2.0.8-beta.67` also gets `latest` this way, so `latest` can point at a beta.',
+			'Line 28 signs `tag@digest` for each tag. A tag can move to another image later, and the signature stays tied to the digest that was built.',
+			'Line 17 pins a third-party action by full commit SHA, with the version in a comment. The workflow does this for every third-party action (only GitHub\'s own `actions/checkout@v4` uses a tag), the same way you pin an image by digest.'
 		]
 	},
 	tradeoff: {
@@ -118,7 +117,7 @@ env:
 			'Someone pushed a new image to `latest` between pulls. Servers that pulled before and after run **different images under the same name**.',
 			'Stop deploying `latest`. CI tags each build with something unique (the Git tag or commit SHA) and records the **digest** from the push.',
 			'The deploy uses `acme/api@sha256:...` (or at least an immutable version tag), set in Git, so every server pulls the same image.',
-			'Rollback becomes: put the previous digest back and redeploy.'
+			'To roll back, put the previous digest back and redeploy.'
 		]
 	},
 	quiz: [
@@ -131,7 +130,7 @@ env:
 				'A digest only exists for images on Docker Hub, other registries use tags only'
 			],
 			answer: 1,
-			why: 'Tags are mutable pointers. A digest (`sha256:...`) is computed from the content, so pulling by digest always returns the same image.'
+			why: 'A push can point a tag at a new image. A digest (`sha256:...`) is computed from the content, so pulling by digest always returns the same image.'
 		},
 		{
 			q: 'You run `docker pull nginx` with no tag and no registry. What do you get?',
@@ -156,7 +155,10 @@ env:
 			why: 'A signature on a movable name would say nothing about what the name points to tomorrow. Signing the digest ties it to those exact bytes.'
 		}
 	],
-	takeaway: 'Tags are for humans and they move. Digests are for machines and they do not. Deploy something you can name exactly.',
+	recall: {
+		q: 'Two servers pulled `acme/api:latest` a week apart. Why can they run different code, and what reference makes them pull the same image?',
+		a: 'A push moved `latest` to a new image between the two pulls. `acme/api@sha256:...`, the digest, always names the same bytes.'
+	},
 	sources: [
 		{ title: 'Docker docs, What is a registry?', url: 'https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-registry/' },
 		{ title: 'Docker docs, docker image tag (image name format)', url: 'https://docs.docker.com/reference/cli/docker/image/tag/' },

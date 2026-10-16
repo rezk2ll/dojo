@@ -1,0 +1,149 @@
+const COOK = 'https://github.com/anthropics/claude-cookbooks/blob/b2b0aa1ff7d8980b005b225d3802969c87bedad5';
+
+/** @type {import('../../content.js').Chapter} */
+export default {
+	slug: 'cost-and-latency',
+	part: 'How models work',
+	title: 'Cost and latency',
+	minutes: 10,
+	hook: [
+		'A Claude cookbook notebook sends the SQLite b-tree source, `btree.h` and `btree.c`, to Claude Sonnet 4.6 and asks: "What is the purpose of the BtShared structure?" The first word of the answer arrives after 20.87 seconds. The full answer of 362 tokens is done at 28.32 seconds.',
+		'The same notebook sends the same question again with the source already cached. **The first word now arrives after 1.94 seconds.** The answer still takes about 6.5 more seconds to finish.'
+	],
+	terms: [
+		{ term: 'Input tokens', def: 'Every token you send in a request: system prompt, earlier turns, documents, tool definitions and the question.' },
+		{ term: 'Output tokens', def: 'Every token the model generates in its reply, thinking included. On every current Claude model, an output token costs 5 times an input token.' },
+		{ term: 'TTFT', def: 'Time to first token: the time from sending the request to receiving the first token of the reply. Your code can measure it only on a streamed response.' },
+		{ term: '`usage`', def: 'The object in every Messages API response that counts the tokens of that request, split by kind. Anthropic bills each request from these counts.' }
+	],
+	diagram: {
+		direction: 'TD',
+		steps: [
+			{
+				add: ['req["Request: 151,629 tokens of SQLite source + a 22-token question"] --> api["Messages API, streaming"]'],
+				highlight: ['req'],
+				note: 'The notebook sends one user message: the two source files, marked with `cache_control`, then the question. The question is 22 tokens. The source is 151,629 tokens, almost 7,000 times more.'
+			},
+			{
+				add: ['api -->|"20.87 s"| first["First text token arrives: TTFT"]'],
+				highlight: ['first'],
+				note: 'TTFT is how long the user stares at an empty answer box. The docs define it as "the time it takes for the model to generate the first token of the response, from when the prompt was sent". On this cold request it was 20.87 seconds.'
+			},
+			{
+				add: ['first -->|"7.45 s for 362 tokens"| done["Last token: total 28.32 s"]'],
+				highlight: ['done'],
+				note: 'After the first token, the time depends on how much the model writes. 362 output tokens took 28.32 − 20.87 = 7.45 seconds, about 49 tokens per second. On the warm run, 330 tokens took 6.46 seconds, about the same speed.'
+			},
+			{
+				add: ['done --> usage["usage: input_tokens 22, cache_creation_input_tokens 151,629, output_tokens 362"]'],
+				highlight: ['usage'],
+				note: 'The final message carries `usage`. The API reference: "Total input tokens in a request is the summation of `input_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`." Here `input_tokens` is only 22, because the source went into the cache.'
+			},
+			{
+				add: ['usage -->|"Sonnet 4.6 prices, read 2026-10-17"| bill["$0.569 cache write + $0.005 output ≈ $0.574"]', 'warm["Same request, source read from cache"] -->|"TTFT 1.94 s"| bill2["$0.0455 cache read + $0.005 output ≈ $0.051"]'],
+				highlight: ['bill', 'bill2'],
+				note: 'With the pricing page’s Sonnet 4.6 rates, a 5-minute cache write costs $3.75 per million tokens and a cache hit $0.30. The cold request costs about $0.57, almost all of it input. The warm one costs about $0.05, and its TTFT drops by 90.7%.'
+			}
+		]
+	},
+	example: {
+		title: 'misc/speculative_prompt_caching.ipynb: measuring TTFT and total time on a stream',
+		repo: 'anthropics/claude-cookbooks',
+		url: `${COOK}/misc/speculative_prompt_caching.ipynb`,
+		lang: 'python',
+		code: `    print("\\nSending request to API...")
+    start_time = time.time()
+
+    # Measure time to first token
+    first_token_time = None
+    async with client.messages.stream(
+        messages=[full_message],
+        model=MODEL,
+        **DEFAULT_CLIENT_ARGS,
+    ) as stream:
+        async for text in stream.text_stream:
+            if first_token_time is None and text.strip():
+                first_token_time = time.time() - start_time
+                print(f"\\n🕐 Time to first token: {first_token_time:.2f} seconds")
+                break
+
+        # Get the full response
+        response = await stream.get_final_message()
+
+    total_time = time.time() - start_time
+    print(f"Total response time: {total_time:.2f} seconds")
+    print_query_statistics(response, "Standard Caching")`,
+		notes: [
+			'Line 2 starts the clock just before the request. Line 6 uses `messages.stream`, so text arrives in chunks: without a stream, the first token and the last token reach your code at the same moment.',
+			'Lines 12 and 13 record TTFT at the first chunk that holds visible text, `text.strip()`. Line 15 leaves the loop, and line 18 waits for the rest of the message with `get_final_message()`.',
+			'Line 20 gives the total time, so total minus TTFT is the generation time. Measure both: a long prompt mostly raises TTFT, a long answer mostly raises the time after it.',
+			'Line 22 prints `usage` from the final message: `input_tokens`, `output_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`. These are the counts you multiply by the [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) rates.'
+		]
+	},
+	tradeoff: {
+		gain: [
+			'Reading the 151,629 tokens from the cache cut TTFT from 20.87 to 1.94 seconds and each question’s cost from about $0.57 to about $0.05.',
+			'`max_tokens` puts a hard ceiling on output tokens, which are the expensive ones: $15 per million on Sonnet 4.6 against $3 for input.',
+			'`usage` comes back on every response, so you can log real cost per request instead of estimating it from a price list.'
+		],
+		cost: [
+			'A cache write costs more than a plain input token: $3.75 against $3 per million on Sonnet 4.6. If nobody asks a second question, the cache only added cost.',
+			'The docs warn that at `max_tokens` "the response will be cut off, perhaps mid-sentence or mid-word". With `max_tokens: 50`, a 200-token answer stops after its first 50 tokens.',
+			'`usage` counts do not map one to one onto the text you see. The API reference: "`output_tokens` will be non-zero, even for an empty string response from Claude."'
+		]
+	},
+	task: {
+		prompt: 'The notebook’s cold request reports `input_tokens: 22`, `cache_creation_input_tokens: 151629`, `output_tokens: 362`. The warm request reports `input_tokens: 22`, `cache_read_input_tokens: 151629`, `output_tokens: 330`. With Claude Sonnet 4.6 prices read on 2026-10-17 ($3 input, $3.75 for a 5-minute cache write, $0.30 for a cache hit, $15 output, per million tokens), compute the cost of each request. Then say what costs most in each one.',
+		hint: 'Multiply each of the three counts by its own price, add them, and divide by 1,000,000.',
+		answer: [
+			'Cold: 22 × 3 = 66, plus 151,629 × 3.75 ≈ 568,609, plus 362 × 15 = 5,430. Total ≈ 574,105 / 1,000,000 ≈ $0.574. The cache write is 99% of it.',
+			'Warm: 22 × 3 = 66, plus 151,629 × 0.30 ≈ 45,489, plus 330 × 15 = 4,950. Total ≈ 50,505 / 1,000,000 ≈ $0.051. The cache read is still about 90% of it.',
+			'Output is a small part of both bills here because the answer is short. A 300-token prompt with a 4,000-token answer would flip it: output would be 98% of the cost at these prices.'
+		]
+	},
+	quiz: [
+		{
+			q: 'Which `usage` fields add up to the total input tokens of a request?',
+			options: [
+				'Only `input_tokens`, which already includes the cached part',
+				'`input_tokens` plus `output_tokens`, the two halves of one call',
+				'`input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`',
+				'`cache_read_input_tokens` alone, when prompt caching is on'
+			],
+			answer: 2,
+			why: 'The API reference states that total input "is the summation of `input_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`". In the notebook, `input_tokens` was 22 while 151,629 more tokens went through the cache fields.'
+		},
+		{
+			q: 'Claude Opus 5.5 thinks before each answer. Where do its thinking tokens appear in `usage`?',
+			options: [
+				'Nowhere: thinking tokens are free and not counted',
+				'Inside `output_tokens`, with a breakdown in `output_tokens_details`',
+				'Inside `input_tokens`, because the model reads its own thinking',
+				'In `cache_creation_input_tokens`, since thinking is cached'
+			],
+			answer: 1,
+			why: 'The API reference: "`output_tokens` remains the inclusive, authoritative total used for billing". `output_tokens_details.thinking_tokens` reports how many of those were reasoning. Thinking tokens are billed at the output price, $20 per million on Opus 5.5.'
+		},
+		{
+			q: 'With the cache warm, TTFT is 1.94 s and the full answer ends at 8.40 s. What would most shorten the remaining 6.46 s?',
+			options: [
+				'Caching the 22-token question as well as the source',
+				'Removing the system prompt from the request',
+				'Raising `max_tokens` from 4096 to 8192',
+				'Asking for a shorter answer, so fewer output tokens'
+			],
+			answer: 3,
+			why: 'After the first token, the time follows the number of tokens generated: about 49 to 51 tokens per second in both runs. The input is already cached, so trimming it changes little, and a higher `max_tokens` only allows a longer answer.'
+		}
+	],
+	recall: {
+		q: 'In the cookbook run on Sonnet 4.6, what were TTFT and the cost per question with the 151,629-token source cold and then cached?',
+		a: 'Cold: TTFT 20.87 s and about $0.57. Cached: TTFT 1.94 s and about $0.05. In both runs, generating about 350 output tokens took 6.5 to 7.5 s.'
+	},
+	sources: [
+		{ title: 'Claude docs, Messages API reference (usage), read 2026-10-17', url: 'https://platform.claude.com/docs/en/api/messages' },
+		{ title: 'Claude docs, Pricing, read 2026-10-17', url: 'https://platform.claude.com/docs/en/about-claude/pricing' },
+		{ title: 'Claude docs, Reducing latency, read 2026-10-17', url: 'https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-latency' },
+		{ title: 'anthropics/claude-cookbooks, Speculative prompt caching notebook', url: `${COOK}/misc/speculative_prompt_caching.ipynb` }
+	]
+};

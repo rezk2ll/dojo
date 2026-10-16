@@ -38,6 +38,9 @@ const strings = {
 		sizes: { s: 'Small', m: 'Medium', l: 'Large' },
 		cubeReview: (/** @type {number} */ n) => `${n} card${en(n)} to review`,
 		cubeHint: 'Need a hint?',
+		cubeEyes: 'Eyes',
+		eyeStyles: { pill: 'Pills', round: 'Round', square: 'Square', visor: 'Visor', heart: 'Hearts' },
+		eyesLocked: 'Finish a part in any dojo to unlock the next eyes.',
 		otherLang: 'FR',
 		toOtherLang: 'Passer en français',
 
@@ -161,6 +164,9 @@ const strings = {
 		sizes: { s: 'Petit', m: 'Moyen', l: 'Grand' },
 		cubeReview: (/** @type {number} */ n) => `${n} carte${fr(n)} à réviser`,
 		cubeHint: 'Un indice ?',
+		cubeEyes: 'Yeux',
+		eyeStyles: { pill: 'Pilules', round: 'Ronds', square: 'Carrés', visor: 'Visière', heart: 'Cœurs' },
+		eyesLocked: 'Termine une partie dans un dojo pour débloquer les yeux suivants.',
 		otherLang: 'EN',
 		toOtherLang: 'Switch to English',
 

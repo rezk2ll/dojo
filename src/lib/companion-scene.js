@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 /**
  * @typedef {import('./companion.svelte.js').Mood} Mood
  * @typedef {import('./companion.svelte.js').Cue} Cue
+ * @typedef {import('./companion.svelte.js').Eyes} Eyes
  */
 
 /** A damped spring, so every motion eases in and settles instead of snapping. */
@@ -131,6 +132,8 @@ export function createScene(canvas, { color, still, touch }) {
 	gear.visible = false;
 	body.add(gear);
 	let outfit = '';
+	/** @type {Eyes} */
+	let eyes = 'pill';
 
 	const s = {
 		yaw: spring(110, 20, REST.yaw),
@@ -318,7 +321,33 @@ export function createScene(canvas, { color, still, touch }) {
 		} else s.lid.to = 0;
 	}
 
-	/** Pill eyes for idle, arcs for happy, slanted and dim for sad. */
+	/** One eye in the chosen style, centred on the origin. `h` is how open it is, from 0 to 1. */
+	function eye(/** @type {number} */ side, /** @type {number} */ h, /** @type {number} */ sad) {
+		ctx.beginPath();
+		if (eyes === 'visor') {
+			// One bar across both eyes, so only the left one draws it.
+			if (side > 0) return;
+			const bh = 26 * h;
+			ctx.roundRect(-24, -bh / 2, 140, bh, bh / 2);
+			ctx.fill();
+			return;
+		}
+		ctx.rotate(side * -0.32 * sad);
+		if (eyes === 'round') ctx.ellipse(0, 0, 22, 22 * h, 0, 0, Math.PI * 2);
+		else if (eyes === 'square') ctx.roundRect(-20, -20 * h, 40, 40 * h, 6);
+		else if (eyes === 'heart') {
+			ctx.scale(1.5, 1.5 * Math.max(h, 0.01));
+			ctx.moveTo(0, 18);
+			ctx.bezierCurveTo(-30, -2, -18, -26, 0, -10);
+			ctx.bezierCurveTo(18, -26, 30, -2, 0, 18);
+		} else {
+			const eh = 54 * h;
+			ctx.roundRect(-15, -eh / 2, 30, eh, Math.min(30, eh) / 2);
+		}
+		ctx.fill();
+	}
+
+	/** Eyes in the chosen style for idle, arcs for happy, slanted and dim for sad. */
 	function drawFace(/** @type {number} */ now) {
 		const glow = glowColor();
 		const hex = `#${glow.getHexString()}`;
@@ -377,19 +406,17 @@ export function createScene(canvas, { color, still, touch }) {
 			const cy = FACE / 2 - 4 + s.lookY.x * 16;
 			ctx.save();
 			ctx.translate(cx, cy);
-			if (happy > 0.5) {
+			// Hearts stay hearts when happy, they just grow a little.
+			const keepsShape = eyes === 'heart';
+			if (happy > 0.5 && !keepsShape) {
 				ctx.lineWidth = 13;
 				ctx.lineCap = 'round';
 				ctx.beginPath();
 				ctx.arc(0, 12, 20, Math.PI * 1.15, Math.PI * 1.85);
 				ctx.stroke();
 			} else {
-				ctx.rotate(side * -0.32 * sad);
-				const w = 30;
-				const h = 54 * open * (1 - 0.45 * sad) * (1 - 0.45 * focus);
-				ctx.beginPath();
-				ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h) / 2);
-				ctx.fill();
+				if (happy > 0.5) ctx.scale(1.2, 1.2);
+				eye(side, open * (1 - 0.45 * sad) * (1 - 0.45 * focus), sad);
 				if (focus > 0.5) {
 					// A flat brow line: the look of someone on a roll.
 					ctx.lineWidth = 7;
@@ -543,6 +570,10 @@ export function createScene(canvas, { color, still, touch }) {
 		setOutfit(dojo) {
 			outfit = dojo;
 			gear.visible = dojo === 'devops';
+		},
+		/** @param {Eyes} next */
+		setEyes(next) {
+			eyes = next;
 		},
 		react,
 		setColor,

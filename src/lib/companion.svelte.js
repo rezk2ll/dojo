@@ -1,18 +1,43 @@
+import { chaptersIn } from './content.js';
+import { dojos } from './dojos/index.js';
+import { progressOf } from './progress.svelte.js';
+
 const KEY = 'dojo:companion';
 
 /**
  * @typedef {'idle' | 'happy' | 'sad'} Mood
  * @typedef {'s' | 'm' | 'l'} Size
  * @typedef {'glance' | 'nod' | 'done'} Cue
+ * @typedef {typeof EYES[number]} Eyes
  */
 
 /** Side of the cube's canvas in CSS pixels. */
 export const SIZES = { s: 110, m: 150, l: 200 };
 
+/** Eye styles in unlock order: the first is free, then one more per finished part, in any dojo. */
+export const EYES = /** @type {const} */ (['pill', 'round', 'square', 'visor', 'heart']);
+
+/** @param {number} partsDone */
+export const unlockedEyes = (partsDone) => EYES.slice(0, 1 + partsDone);
+
+/** Parts finished across all dojos. Reading it inside markup or `$derived` follows progress. */
+export function partsDone() {
+	return dojos.reduce((n, d) => {
+		const chapters = chaptersIn(d.id, 'en');
+		const done = progressOf(d.id).done;
+		const parts = new Set(chapters.map((c) => c.part));
+		return n + [...parts].filter((p) => chapters.every((c) => c.part !== p || done[c.slug])).length;
+	}, 0);
+}
+
+/** The saved style, or the free one when progress, replaced or imported, no longer unlocks it. */
+export const eyesInUse = () => (unlockedEyes(partsDone()).includes(companion.eyes) ? companion.eyes : EYES[0]);
+
 /** The cube in the corner. `beat` and `cueBeat` change on every reaction and cue, so the same one twice still replays. */
 export const companion = $state({
 	on: true,
 	size: /** @type {Size} */ ('s'),
+	eyes: /** @type {Eyes} */ ('pill'),
 	mood: /** @type {Mood} */ ('idle'),
 	beat: 0,
 	combo: 0,
@@ -69,17 +94,18 @@ export function initCompanion() {
 		const s = saved === '0' ? { on: false } : saved === '1' || !saved ? {} : JSON.parse(saved);
 		companion.on = s.on ?? true;
 		if (s.size in SIZES) companion.size = s.size;
+		if (EYES.includes(s.eyes)) companion.eyes = s.eyes;
 	} catch {
 		// Blocked storage: the cube keeps its defaults.
 	}
 }
 
-/** @param {Partial<Pick<typeof companion, 'on' | 'size'>>} change */
+/** @param {Partial<Pick<typeof companion, 'on' | 'size' | 'eyes'>>} change */
 export function setCompanion(change) {
 	Object.assign(companion, change);
-	const { on, size } = companion;
+	const { on, size, eyes } = companion;
 	try {
-		localStorage.setItem(KEY, JSON.stringify({ on, size }));
+		localStorage.setItem(KEY, JSON.stringify({ on, size, eyes }));
 	} catch {
 		// Blocked storage: the choice lasts for this tab only.
 	}

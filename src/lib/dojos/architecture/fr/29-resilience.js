@@ -9,16 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Black Friday, 9 h. Le service de recommandations de ta boutique en ligne est lent. Chaque appel prend 8 secondes au lieu de 80 millisecondes.',
-		'La question qui fait peur n’est pas « les recommandations sont-elles en retard ? ». C’est **« la lenteur déborde-t-elle ? »** Si la page produit et le checkout partagent un même pool de threads, le checkout attend maintenant derrière les recommandations. Une fonctionnalité lente et optionnelle devient une boutique où plus personne ne peut payer.',
-		'Le jour 15 t’a donné les timeouts et les retries : comment un appel échoue proprement. Aujourd’hui, on parle des murs entre les appels, pour qu’une panne reste dans sa propre pièce. Michael Nygard les appelle des « stability patterns ».'
+		'Les clients peuvent acheter sans recommandations, donc le retard seul coûte peu. La vraie question est de savoir **si la lenteur atteint les autres fonctionnalités**. Si la page produit et le checkout partagent un même pool de threads, le checkout attend maintenant derrière les recommandations, et plus personne ne peut payer.',
+		'Le jour 15 a traité les timeouts et les retries pour un seul appel. Les patterns de ce chapitre posent des limites entre types d’appels, pour qu’une dépendance lente ne bloque que la fonctionnalité qui l’utilise. Michael Nygard les appelle des « stability patterns ».'
 	],
 	terms: [
 		{ term: 'Bulkhead (cloison)', def: 'Des pools, des files ou des limites séparés par type de travail, pour qu’un type puisse saturer sans affamer les autres. Le nom vient des cloisons étanches dans la coque d’un navire.' },
-		{ term: 'Backpressure', def: 'Le consommateur dit au producteur « pas plus de N à la fois ». Le travail en trop est refusé ou attend en amont au lieu de s’empiler en mémoire.' },
-		{ term: 'Rate limit', def: 'Un plafond de requêtes par appelant et par fenêtre de temps. Au-delà, la réponse est un `429` rapide au lieu d’un travail lent pour tout le monde.' },
 		{ term: 'Circuit breaker', def: 'Après trop d’échecs, arrête d’appeler une dépendance pendant un moment et échoue tout de suite. Puis laisse passer quelques appels d’essai pour voir si elle s’est rétablie.' },
-		{ term: 'Dégradation gracieuse', def: 'Garde la partie qui marche encore, et dis clairement ce qui ne marche pas. La page n’affiche pas de recommandations, mais le checkout fonctionne.' },
-		{ term: 'Liveness vs readiness', def: 'Liveness : « redémarre-moi, je suis bloqué ». Readiness : « ne m’envoie pas de trafic pour l’instant ». Les confondre redémarre des pods en bonne santé.' }
+		{ term: 'Dégradation gracieuse', def: 'L’appli continue de servir ce qui marche et laisse de côté ce qui ne marche pas. La page n’affiche pas de recommandations, et le checkout fonctionne toujours.' },
+		{ term: 'Liveness vs readiness', def: 'Une probe de liveness en échec fait redémarrer le conteneur par Kubernetes. Une probe de readiness en échec coupe seulement le trafic vers le pod. Un problème de readiness testé dans la liveness redémarre des pods en bonne santé.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -31,7 +29,7 @@ export default {
 					'class pay ext'
 				],
 				highlight: ['bhR', 'bhP'],
-				note: '**Bulkhead.** Chaque dépendance a sa propre limite d’appels en cours. Dans resilience4j, la valeur par défaut est de [25 appels sans attente](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-bulkhead/src/main/java/io/github/resilience4j/bulkhead/BulkheadConfig.java#L33-L34). Les recommandations lentes remplissent leurs 25 places. Les paiements ont toujours les leurs.'
+				note: 'Chaque dépendance a son propre bulkhead, une limite d’appels en cours. Dans resilience4j, la valeur par défaut est de [25 appels sans attente](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-bulkhead/src/main/java/io/github/resilience4j/bulkhead/BulkheadConfig.java#L33-L34). Les recommandations lentes remplissent leurs 25 places, et les paiements gardent les leurs.'
 			},
 			{
 				add: [
@@ -40,12 +38,12 @@ export default {
 					'class recs ext'
 				],
 				highlight: ['cb', 'recs'],
-				note: '**Circuit breaker.** Il surveille les derniers appels. Dans resilience4j, il s’ouvre quand le taux d’échec [atteint 50 % sur les 100 derniers appels](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/CircuitBreakerConfig.java#L43-L48), et seulement après au moins 100 appels. Ouvert, il refuse les appels pendant 60 secondes par défaut, puis laisse passer 10 appels d’essai.'
+				note: 'Le circuit breaker surveille les derniers appels. Dans resilience4j, il s’ouvre quand le taux d’échec [atteint 50 % sur les 100 derniers appels](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/CircuitBreakerConfig.java#L43-L48), et seulement après au moins 100 appels. Ouvert, il refuse les appels pendant 60 secondes par défaut, puis laisse passer 10 appels d’essai.'
 			},
 			{
 				add: ['cb -.->|"ouvert : échec immédiat"| fb["page produit sans recommandations"]'],
 				highlight: ['fb'],
-				note: '**Dégradation gracieuse.** Un appel refusé revient tout de suite, pas après 8 secondes. La boutique l’intercepte et affiche la page sans le bloc de recommandations. Le client voit une page un peu plus vide, **pas une page d’erreur**.'
+				note: 'Quand le breaker est ouvert, un appel refusé revient tout de suite au lieu d’attendre 8 secondes. La boutique l’intercepte et affiche la page sans le bloc de recommandations. Le client voit une page un peu plus vide, **pas une page d’erreur**.'
 			},
 			{
 				add: [
@@ -53,12 +51,12 @@ export default {
 					'gw --> shop'
 				],
 				highlight: ['users', 'gw'],
-				note: '**Rate limits et backpressure en bordure.** Un scraper qui demande 50 pages par seconde reçoit des `429` rapides à la gateway, avant de coûter un thread à la boutique. Un proxy peut aussi repousser : quand les limites d’Envoy sur les connexions ou les requêtes en attente débordent, il échoue vite et pose le header `x-envoy-overloaded`.'
+				note: 'En bordure, un scraper qui demande 50 pages par seconde reçoit des `429` rapides du rate limit de la gateway, avant de coûter un thread à la boutique. Un proxy peut aussi repousser la charge (backpressure) : quand les limites d’Envoy sur les connexions ou les requêtes en attente débordent, il échoue vite et pose le header `x-envoy-overloaded`.'
 			},
 			{
 				add: ['probe["Probes Kubernetes"] -.->|"liveness : le processus est-il bloqué ?"| shop'],
 				highlight: ['probe'],
-				note: '**Une liveness bien pensée.** Une probe de liveness en échec redémarre le conteneur. Redémarrer la boutique ne guérit pas le service de recommandations, donc un breaker ouvert ne doit pas faire échouer la liveness. L’indicateur de santé de resilience4j signale un breaker ouvert comme [`CIRCUIT_OPEN`, pas `DOWN`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-spring-boot3/src/main/java/io/github/resilience4j/springboot3/circuitbreaker/monitoring/health/CircuitBreakersHealthIndicator.java#L85-L98), sauf si tu définis `allowHealthIndicatorToFail`.'
+				note: 'Une probe de liveness en échec redémarre le conteneur. Redémarrer la boutique ne guérit pas le service de recommandations, donc un breaker ouvert ne doit pas faire échouer la liveness. L’indicateur de santé de resilience4j signale un breaker ouvert comme [`CIRCUIT_OPEN`, pas `DOWN`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-spring-boot3/src/main/java/io/github/resilience4j/springboot3/circuitbreaker/monitoring/health/CircuitBreakersHealthIndicator.java#L85-L98), sauf si tu définis `allowHealthIndicatorToFail`.'
 			}
 		]
 	},
@@ -85,22 +83,22 @@ export default {
             return false;
         }`,
 		notes: [
-			'C’est l’état **ouvert**. Avant la fin du temps d’attente, chaque appel reçoit `false` et la dépendance n’est jamais touchée. L’appelant reçoit alors une [`CallNotPermittedException`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L757-L763) : c’est ton signal pour dégrader.',
-			'Une fois l’attente terminée, le premier appel qui arrive fait passer le breaker en **half-open** (semi-ouvert). Le half-open distribue un [nombre fixe de permis d’essai](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1116-L1124), 10 par défaut. Tout appel au-delà est refusé.',
-			'Les résultats des essais décident. [Au seuil ou au-dessus, il s’ouvre à nouveau. En dessous, il se ferme](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1188-L1195).',
-			'L’état vit dans une `AtomicReference` au sein d’un seul processus. Donc **chaque instance a son propre breaker** : avec 6 pods, il y a 6 breakers qui apprennent chacun de leur côté. Envoy dit la même chose de ses limites : elles sont « entièrement distribuées (non coordonnées) ».'
+			'Cette méthode tourne dans l’état **ouvert**. Avant la fin du temps d’attente, les lignes 15 et 16 renvoient `false`, et la dépendance n’est jamais touchée. L’appelant reçoit alors une [`CallNotPermittedException`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L757-L763), que ton code intercepte pour afficher la page dégradée.',
+			'Une fois l’attente terminée, la ligne 5 fait passer le breaker en half-open (semi-ouvert) au premier appel qui arrive. Le half-open distribue un [nombre fixe de permis d’essai](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1116-L1124), 10 par défaut, et la ligne 8 en demande un. Les appels au-delà de ces 10 sont refusés.',
+			'Les résultats des appels d’essai fixent l’état suivant. [Au seuil d’échec ou au-dessus, le breaker s’ouvre à nouveau, et en dessous, il se ferme](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1188-L1195).',
+			'L’état vit dans une `AtomicReference` au sein d’un seul processus, donc **chaque instance a son propre breaker** : avec 6 pods, il y a 6 breakers qui apprennent chacun de leur côté. La doc d’Envoy dit de ses limites qu’elles sont « entièrement distribuées (non coordonnées) ».'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Une dépendance lente ou cassée ne pénalise que la fonctionnalité qui en a besoin. Le checkout continue de marcher pendant que les recommandations se rétablissent.',
+			'Une dépendance lente ou cassée ne pénalise que la fonctionnalité qui en a besoin : le checkout continue de marcher pendant que les recommandations se rétablissent.',
 			'Les refus rapides (`429`, un breaker ouvert, un bulkhead plein) libèrent tout de suite threads et mémoire, au lieu de les retenir 8 secondes chacun.',
 			'Une dépendance cassée reçoit moins d’appels pendant sa panne, ce qui lui laisse de la place pour se rétablir.'
 		],
 		cost: [
-			'**Les bulkheads n’isolent que ce que tu sépares.** Deux bulkheads partagent toujours le même CPU, la même mémoire et la même base. Si la partie partagée est celle qui est lente, les murs n’aident pas.',
-			'**Chaque limite est un nombre à régler.** 25 en cours, c’est trop peu pour un service rapide et trop pour un service fragile. Le minimum de 100 appels du breaker veut dire qu’un endpoint à faible trafic peut échouer longtemps avant de le déclencher.',
-			'**Les breakers ajoutent de l’état et de nouveaux modes de panne.** Déclenché trop tôt, il refuse du travail qu’un service sain aurait pu faire. Chaque pod a son propre breaker, donc ils ne sont pas d’accord pendant un moment.'
+			'Un bulkhead n’isole que ce que tu sépares. Deux bulkheads partagent toujours le même CPU, la même mémoire et la même base, et si la partie partagée est la lente, les limites n’aident pas.',
+			'Chaque limite est un nombre à régler : 25 appels en cours, c’est trop peu pour un service rapide et trop pour un service fragile. Avec son minimum de 100 appels, le breaker laisse un endpoint à faible trafic échouer longtemps avant de se déclencher.',
+			'Un breaker qui se déclenche trop tôt refuse du travail qu’un service sain aurait pu faire. Chaque pod a son propre breaker, donc pendant un moment certains pods refusent des appels que d’autres envoient encore.'
 		]
 	},
 	task: {
@@ -146,10 +144,13 @@ export default {
 				'Il passe en half-open et laisse passer un nombre limité d’appels d’essai'
 			],
 			answer: 3,
-			why: 'L’état ouvert regarde l’horloge. Une fois l’attente terminée, il passe en half-open, qui distribue un nombre fixe de permis d’essai (10 par défaut). Leurs résultats décident s’il se ferme ou s’ouvre à nouveau.'
+			why: 'Dans l’état ouvert, chaque appel regarde l’horloge. Une fois l’attente terminée, il passe en half-open, qui distribue un nombre fixe de permis d’essai (10 par défaut). Leurs résultats décident s’il se ferme ou s’ouvre à nouveau.'
 		}
 	],
-	takeaway: 'Mets des murs entre les types de travail, refuse vite au lieu d’empiler, et dégrade honnêtement, pour qu’une dépendance lente reste une seule fonctionnalité lente.',
+	recall: {
+		q: 'Avec les valeurs par défaut de resilience4j, quand un circuit breaker s’ouvre-t-il, et que fait-il une fois ouvert ?',
+		a: 'Il s’ouvre quand 50 % des 100 derniers appels ont échoué, après au moins 100 appels. Il refuse les appels pendant 60 secondes, puis passe en half-open et laisse 10 appels d’essai décider s’il se ferme ou s’ouvre à nouveau.'
+	},
 	sources: [
 		{ title: 'Michael Nygard, Release It! Second Edition (Pragmatic Bookshelf)', url: 'https://pragprog.com/titles/mnee2/release-it-second-edition/' },
 		{ title: 'Martin Fowler, CircuitBreaker', url: 'https://martinfowler.com/bliki/CircuitBreaker.html' },

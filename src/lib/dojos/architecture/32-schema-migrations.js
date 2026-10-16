@@ -10,17 +10,15 @@ export default {
 	title: 'Schema and data migrations',
 	minutes: 10,
 	hook: [
-		'Your shop wants to rename a column: `orders.amount` becomes `orders.total`. In Rails that is one `rename_column`, in one migration, run by the deploy pipeline.',
-		'During a rolling deploy, old and new pods serve at the same time. Run the rename first, and **the old pods query a column that is gone**. Run it last, and **the new pods query a column that is not there yet**. One step cannot suit two versions of the code.',
-		'The fix: grow the new shape next to the old one and move over in small steps. **Expand** so both versions work, **migrate** the data and the code, then **contract** what nobody reads any more. GitLab\'s migration guide spells out each step, so that GitLab.com and self-managed servers can upgrade without downtime.'
+		'Your shop wants to rename the column `orders.amount` to `orders.total`. In Rails that is one `rename_column`, in one migration, run by the deploy pipeline.',
+		'During a rolling deploy, old and new pods serve at the same time. Run the rename first, and **the old pods query a column that is gone**. Run it last, and the new pods query a column that is not there yet. No order of deploy and migration works for both versions of the code.',
+		'GitLab\'s migration guide splits the change into three steps, **expand, migrate, contract**, so that GitLab.com and self-managed servers can upgrade without downtime. First you add the new column next to the old one, so both versions work. Then you move the data and the code. Last, you drop what no code reads any more.'
 	],
 	terms: [
-		{ term: 'Expand / contract', def: 'Also called parallel change. Add the new shape next to the old one, move readers and writers over, remove the old shape last. Three steps, often three releases.' },
+		{ term: 'Expand / contract', def: 'Also called parallel change. Add the new shape next to the old one, move readers and writers over, remove the old shape last. The three steps often ship in three releases.' },
 		{ term: 'Mixed versions', def: 'During a rolling deploy, old and new code run at the same time against one database. Every state of the schema must work for both.' },
-		{ term: 'Additive change', def: 'A new nullable column or a new table. Old code ignores it, so it can ship before the code that uses it.' },
 		{ term: 'Backfill', def: 'Filling the new shape for rows written before it existed. Inside the migration, as a background job in batches, or not at all if the code reads "empty" safely.' },
-		{ term: 'Contract', def: 'Dropping the old column or table. Safe only when no running version, and no version you may roll back to, still reads it.' },
-		{ term: 'Post-deployment migration', def: 'A migration that runs only after every server runs the new code. It is where the contract step goes.' }
+		{ term: 'Post-deployment migration', def: 'A migration that runs only after every server runs the new code. The contract step goes there.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['mig["Regular migration, before the new code"] -->|"add updated_at_timestamp, copy in batches"| users[("users table")]'],
 				highlight: ['mig', 'users'],
-				note: '**Expand and backfill.** GitLab\'s doc example renames `users.updated_at` to `updated_at_timestamp`. `rename_column_concurrently` adds the new column with the same type, then copies every existing row into it in batches. The old column is untouched.'
+				note: 'GitLab\'s doc example renames `users.updated_at` to `updated_at_timestamp`. In the expand step, `rename_column_concurrently` adds the new column with the same type. Then it backfills: it copies every existing row into the new column in batches. `updated_at` keeps its name and its data.'
 			},
 			{
 				add: ['users --> trig["Trigger: on insert or update, copy old into new"]', 'oldp["Old pods: write updated_at"] --> users'],
 				highlight: ['trig', 'oldp'],
-				note: '**Keep the copy current.** The same helper installs a database trigger. Every insert or update copies the old column into the new one. A row an old pod writes **during the rollout** still reaches the new column. The backfill cannot miss it.'
+				note: 'The same helper installs a database trigger that keeps the copy current. Every insert or update copies the old column into the new one. A row an old pod writes **during the rollout** still reaches the new column, so the backfill cannot miss it.'
 			},
 			{
 				add: ['newp["New pods: ignore_column updated_at"] --> users'],
 				highlight: ['newp'],
-				note: '**Mixed versions.** The new code marks the old column ignored. GitLab\'s guide explains why: ActiveRecord caches the table\'s columns when it boots, so a column that disappears under a running process can break it even if no code names it. An ignored column is never referenced in SQL queries.'
+				note: 'Old and new pods now run together, and the new code marks the old column ignored. GitLab\'s guide gives the reason: ActiveRecord caches the table\'s columns when it boots. A column that disappears under a running process can then break it, even if no code names it. An ignored column never appears in SQL queries.'
 			},
 			{
 				add: ['post["Post-deployment migration, after every server is updated"] -->|"drop trigger, drop updated_at"| users'],
 				highlight: ['post'],
-				note: '**Contract.** `cleanup_concurrent_column_rename` removes the trigger and the old column. It sits in `db/post_migrate`, which a zero-downtime upgrade runs **only once all servers run the new code**. A release later, the ignore rule is removed too.'
+				note: 'In the contract step, `cleanup_concurrent_column_rename` removes the trigger and the old column. It sits in `db/post_migrate`, which a zero-downtime upgrade runs **only once all servers run the new code**. One release later, the code drops the `ignore_column` rule too.'
 			},
 			{
 				add: ['bbm["Batched background migration, over several releases"] -.->|"for large tables"| users'],
 				highlight: ['bbm'],
-				note: '**When the table is big.** The doc warns that this procedure is "only appropriate for small tables", because the copy runs inside the migration. For large ones, a background job copies the data in batches, and the rename spreads over several releases.'
+				note: 'The doc warns that this procedure is "only appropriate for small tables", because the copy runs inside the migration. For large ones, a background job copies the data in batches, and the rename spreads over several releases.'
 			}
 		]
 	},
@@ -91,11 +89,11 @@ export default {
         remove_column(table, old)
       end`,
 		notes: [
-			'**Expand, then backfill.** [`create_column_from`](' + HELPERS + '#L757-L792) adds the new column with the old one\'s type, limit and scale, sets the default **after** adding it, then copies the data with `update_column_in_batches`. Only then does it add the NOT NULL constraint and copy indexes, foreign keys and check constraints. The helper refuses to run inside an open transaction.',
-			'**The trigger covers the gap.** [`UnidirectionalCopyTrigger`](' + REPO + '/lib/gitlab/database/unidirectional_copy_trigger.rb#L38-L49) runs `BEFORE INSERT OR UPDATE ... FOR EACH ROW`, and its [assignment](' + REPO + '/lib/gitlab/database/unidirectional_copy_trigger.rb#L86-L103) sets `NEW.new := NEW.old`. As its name says, it copies one way: from the old column into the new one.',
-			'**Contract has a clock.** GitLab\'s [`ignore_columns`](' + REPO + '/app/models/concerns/ignorable_columns.rb#L18-L30) raises unless you give `remove_after` (a date) and `remove_with` (a release), or opt out with `remove_never: true`, then adds the column to Rails\' own [`ignored_columns`](' + RAILS + '/activerecord/lib/active_record/model_schema.rb#L372-L379). The Rails comment gives the reason: no code "raises errors due to having a cached schema in memory at the time the schema migration is run".',
-			'**Contract runs last.** [Post-deployment migrations](' + REPO + '/doc/development/database/post_deployment_migrations.md?plain=1#L8-L12) run with the others by default. Set `SKIP_POST_DEPLOYMENT_MIGRATIONS` while you deploy, then run them again once [all servers have been updated](' + REPO + '/doc/development/database/post_deployment_migrations.md?plain=1#L44-L45).',
-			'**Dropping takes three releases.** For a plain drop, the [doc](' + DOWNTIME + '#L14-L33) spreads ignore, drop and un-ignore over releases M, M+1 and M+2, because "dropping a column is a destructive operation that can\'t be rolled back easily". And for a rename, it warns about the [state between the two migrations](' + DOWNTIME + '#L339-L340): "With Canary it is possible that the system runs in this state for a significant amount of time."'
+			'Line 20 calls [`create_column_from`](' + HELPERS + '#L757-L792). It adds the new column with the old one\'s type, limit and scale, sets the default **after** adding it, then copies the data with `update_column_in_batches`. Only then does it add the NOT NULL constraint and copy indexes, foreign keys and check constraints. Lines 14 to 16 refuse to run inside an open transaction.',
+			'Line 22 installs the trigger. [`UnidirectionalCopyTrigger`](' + REPO + '/lib/gitlab/database/unidirectional_copy_trigger.rb#L38-L49) runs `BEFORE INSERT OR UPDATE ... FOR EACH ROW` and sets `NEW.new := NEW.old`. As its name says, it copies one way: from the old column into the new one.',
+			'GitLab\'s [`ignore_columns`](' + REPO + '/app/models/concerns/ignorable_columns.rb#L18-L30) puts a date on the contract step. It raises unless you give `remove_after` (a date) and `remove_with` (a release), or opt out with `remove_never: true`, then adds the column to Rails\' own `ignored_columns`. The Rails comment gives the reason: no code "raises errors due to having a cached schema in memory at the time the schema migration is run".',
+			'Lines 25 to 32 are the contract step, and they go in a [post-deployment migration](' + REPO + '/doc/development/database/post_deployment_migrations.md?plain=1#L8-L12). Those run with the others by default. Set `SKIP_POST_DEPLOYMENT_MIGRATIONS` while you deploy, then run them again once all servers have been updated.',
+			'For a plain drop, the [doc](' + DOWNTIME + '#L14-L33) spreads ignore, drop and un-ignore over releases M, M+1 and M+2, because "dropping a column is a destructive operation that can\'t be rolled back easily". For a rename, it warns about the state between the two migrations: "With Canary it is possible that the system runs in this state for a significant amount of time."'
 		]
 	},
 	tradeoff: {
@@ -105,10 +103,10 @@ export default {
 			'Each step is small and can be checked on its own: the column exists, the copy counted its rows, nothing reads the old column.'
 		],
 		cost: [
-			'One change becomes two or three releases, and for a while the database holds the same data twice.',
-			'The contract step is easy to forget. The bliki entry warns: "If the contract phase is not executed you might end up in a worse state than you started".',
-			'A copy on a big table takes time and load. GitLab moves those to batched background migrations: one more moving part that must finish before the next step.',
-			'Triggers are hidden behavior. A write you see in the code is not the only write the database does until the cleanup runs.'
+			'A rename takes two or three releases instead of one, and for a while the database holds the same data twice.',
+			'The contract step is a separate release that someone must remember to ship. The bliki entry warns: "If the contract phase is not executed you might end up in a worse state than you started".',
+			'A copy on a big table takes time and load. GitLab moves those copies to batched background migrations, which must finish before the next step.',
+			'Until the cleanup runs, the trigger writes the new column on every insert or update, and that write appears nowhere in the application code.'
 		]
 	},
 	task: {
@@ -132,7 +130,7 @@ export default {
 				'The old code copies its values into any new column as soon as the column exists'
 			],
 			answer: 0,
-			why: 'An additive, nullable column is invisible to code that does not name it. That is what lets the expand step ship before the code, and what keeps a rollback working.'
+			why: 'An additive, nullable column is invisible to code that does not name it. So the expand step can ship before the code, and a rollback to the old code still works.'
 		},
 		{
 			q: 'GitLab ran `rename_column_concurrently :users, :updated_at, :updated_at_timestamp`. During the rollout, an old pod inserts a user and sets only `updated_at`. What does `updated_at_timestamp` hold?',
@@ -143,7 +141,7 @@ export default {
 				'The same value: the trigger copies the old column into the new one'
 			],
 			answer: 3,
-			why: 'The trigger runs before every insert and update and sets the new column from the old one. That is the point of installing it in the expand step: rows written by old code during the rollout are not lost.'
+			why: 'The trigger runs before every insert and update and sets the new column from the old one. Because the expand step installs it, rows written by old code during the rollout reach the new column.'
 		},
 		{
 			q: 'In an expand/contract change, when is it safe to drop the old column?',
@@ -157,8 +155,15 @@ export default {
 			why: 'The contract step is a one-way door (day 5). Rolling back after it means running code that reads a column that is gone. So it comes last, in a post-deployment migration, often a release after the code stopped using the column.'
 		}
 	],
-	takeaway: 'Change a schema in steps that each work for the code before and after: expand, backfill, switch, and contract only when nothing reads the old shape.',
+	recall: {
+		q: 'In GitLab\'s column rename, what does each of the two migrations do, and when does each one run?',
+		a: '`rename_column_concurrently` adds the new column, copies the rows in batches and installs a copy trigger, before the new code ships. `cleanup_concurrent_column_rename` drops the trigger and the old column in a post-deployment migration, once every server runs the new code.'
+	},
 	sources: [
+		{ title: 'GitLab, unidirectional_copy_trigger.rb (trigger assignment)', url: `${REPO}/lib/gitlab/database/unidirectional_copy_trigger.rb#L86-L103` },
+		{ title: 'Rails, active_record/model_schema.rb (ignored_columns)', url: `${RAILS}/activerecord/lib/active_record/model_schema.rb#L372-L379` },
+		{ title: 'GitLab docs source, post deployment migrations (after all servers are updated)', url: `${REPO}/doc/development/database/post_deployment_migrations.md?plain=1#L44-L45` },
+		{ title: 'GitLab docs source, avoiding downtime (state between the two migrations)', url: `${DOWNTIME}#L339-L340` },
 		{ title: 'Danilo Sato, martinfowler.com: ParallelChange', url: 'https://martinfowler.com/bliki/ParallelChange.html' },
 		{ title: 'Pramod Sadalage and Martin Fowler, Evolutionary Database Design', url: 'https://martinfowler.com/articles/evodb.html' },
 		{ title: 'GitLab docs, Avoiding downtime in migrations', url: 'https://docs.gitlab.com/development/database/avoiding_downtime_in_migrations/' },

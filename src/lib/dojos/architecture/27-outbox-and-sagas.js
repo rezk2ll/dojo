@@ -9,15 +9,13 @@ export default {
 	hook: [
 		'An online shop takes an order. The checkout code saves the order to Postgres, then publishes `OrderPlaced` so the warehouse can pack it. Two writes, to two systems.',
 		'Tonight the broker restarts at the wrong second. The save commits, the publish throws, and the code logs an error. **The order exists. The warehouse has never heard of it.**',
-		'That is the **dual-write problem**: no transaction spans a database and a broker. Today, two patterns that live with it. The **outbox** turns the two writes into one. The **saga** runs a process across services that share no transaction at all.'
+		'The checkout has hit the **dual-write problem**: no transaction spans a database and a broker. An outbox puts the order and its event in one database transaction. A saga runs a process across services that share no transaction at all.'
 	],
 	terms: [
-		{ term: 'Dual write', def: 'One change written to two systems, such as a database and a broker, with no transaction across them. A crash or an outage between the two leaves them out of step.' },
-		{ term: 'Transactional outbox', def: 'Write the outgoing message to a table, in the same database transaction as the change. Both commit, or neither does. A relay publishes it later.' },
+		{ term: 'Transactional outbox', def: 'The service writes the outgoing message to a table in the same database transaction as the change, so both commit or neither does. A relay publishes the row later.' },
 		{ term: 'Relay', def: 'The code that reads new outbox rows and publishes them. It can poll the table, or tail the database\'s log. A crash after a publish can send a row twice, so the relay gives at-least-once.' },
 		{ term: 'Saga', def: 'A process across several services, where each step is a local transaction of its own. If a later step fails, earlier steps are undone by compensating actions.' },
-		{ term: 'Compensating action', def: 'A new action that undoes the effect of an earlier one: release the stock, refund the card. Not a rollback: others may already have seen the first step.' },
-		{ term: 'Choreography vs orchestration', def: 'Choreography: each service reacts to events, and nobody holds the whole plan. Orchestration: one service sends commands, tracks the replies and decides what is next.' }
+		{ term: 'Compensating action', def: 'A new action that undoes the effect of an earlier one: release the stock, refund the card. It differs from a rollback because other services may already have seen the first step.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -25,27 +23,27 @@ export default {
 			{
 				add: ['checkout["Checkout service"] -->|"1: commit the order"| db[("Orders database")]', 'checkout -.->|"2: publish, may fail"| kafka["Kafka"]', 'class kafka ext'],
 				highlight: ['checkout', 'kafka'],
-				note: '**The dual write.** Step 1 commits. Step 2 may fail, and nothing sends it again. Swap the order and you get the opposite bug: an event about an order that the database then refuses to save.'
+				note: 'In the dual write, step 1 commits. Step 2 may fail, and nothing sends it again. Swap the order and you get the opposite bug: an event about an order that the database then refuses to save.'
 			},
 			{
 				add: ['checkout -->|"same transaction"| outbox[("outbox table")]'],
 				highlight: ['outbox'],
-				note: '**The outbox.** The checkout inserts the order and an outbox row in **one** transaction. A rollback drops both. A commit keeps both. The checkout never talks to Kafka.'
+				note: 'With an outbox, the checkout inserts the order and an outbox row in **one** transaction. A rollback drops both rows, and a commit keeps both. The checkout never talks to Kafka.'
 			},
 			{
 				add: ['dbz["Debezium: outbox event router"] -->|"tails the write-ahead log"| outbox', 'dbz -->|"topic outbox.event.order, key = order id"| kafka', 'class dbz ext'],
 				highlight: ['dbz'],
-				note: '**The relay.** Debezium reads each committed insert from the database\'s log and turns it into a Kafka message. No polling, and no second write in the checkout. If it crashes, it resumes from its last recorded position, so some messages may go out twice.'
+				note: 'Here the relay is Debezium, which reads each committed insert from the database\'s log and publishes it as a Kafka message. Nothing polls the table, and the checkout makes no second write. If it crashes, it resumes from its last recorded position, so some messages may go out twice.'
 			},
 			{
 				add: ['kafka -->|"OrderPlaced"| stock["Stock: reserve items"]', 'stock -->|"StockReserved"| pay["Payment: charge card"]'],
 				highlight: ['stock', 'pay'],
-				note: '**A saga by choreography.** Placing an order is one process across three services. Nobody runs it: each service does its local transaction and publishes the next event, through its own outbox.'
+				note: 'This saga runs by choreography: placing an order is one process across three services, and no single service runs it. Each service does its local transaction and publishes the next event, through its own outbox. With orchestration, one service would send commands, track the replies and decide what is next.'
 			},
 			{
 				add: ['pay -->|"PaymentFailed"| release["Stock: release items"]', 'release -->|"StockReleased"| cancel["Checkout: cancel the order"]'],
 				highlight: ['release', 'cancel'],
-				note: '**Undo, and the order of steps.** A failed payment triggers compensating actions: release the stock, cancel the order. The card is charged **last**, because a refund is the hardest step to undo cleanly.'
+				note: 'A failed payment triggers compensating actions: release the stock, cancel the order. The card is charged **last**, because a refund is the hardest step to undo cleanly.'
 			}
 		]
 	},
@@ -89,22 +87,22 @@ export default {
         return regexRouter.apply(newRecord);
     }`,
 		notes: [
-			'This runs on every change Debezium reads from the outbox table. **The outbox is a queue of inserts.** A delete is skipped, so the service can clean up old rows without sending anything. An update is unexpected: by [default](https://github.com/debezium/debezium/blob/8974b2bed859560cd9bacab5e2e6e85ff42a843f/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterConfigDefinition.java#L230-L237) it is dropped with a warning.',
-			'The row\'s `id` becomes the message\'s `id` header. The Debezium docs say what it is for: **"to remove duplicate messages"**. Debezium\'s FAQ is plain that after a crash, consumers may see some events more than once.',
-			'The topic comes from `route.by.field` and the message key from `table.field.event.key`. Their [defaults](https://github.com/debezium/debezium/blob/8974b2bed859560cd9bacab5e2e6e85ff42a843f/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterConfigDefinition.java#L247-L327) are the `aggregatetype` and `aggregateid` columns, and the topic becomes `outbox.event.<aggregatetype>`. Same order id, same key, same Kafka partition: **events for one order stay in order.**',
-			'What it does not do: start a transaction in your service. Your code still has to insert the outbox row in the same transaction as the change. Debezium only makes sure a committed row gets sent.'
+			'This code runs on every change Debezium reads from the outbox table, and it expects only inserts. Lines 5 to 8 skip a delete, so the service can clean up old rows without sending anything. Lines 11 to 14 handle an update, which is unexpected: by [default](https://github.com/debezium/debezium/blob/8974b2bed859560cd9bacab5e2e6e85ff42a843f/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterConfigDefinition.java#L230-L237) it is dropped with a warning.',
+			'Line 19 copies the row\'s `id` into the message\'s `id` header. The Debezium docs say it is there **"to remove duplicate messages"**. Debezium\'s FAQ warns that after a crash, consumers may see some events more than once.',
+			'Line 24 takes the topic from `route.by.field`, and line 21 takes the message key from `table.field.event.key`. Their [defaults](https://github.com/debezium/debezium/blob/8974b2bed859560cd9bacab5e2e6e85ff42a843f/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterConfigDefinition.java#L247-L327) are the `aggregatetype` and `aggregateid` columns, which gives the topic `outbox.event.<aggregatetype>`. Same order id, same key, same Kafka partition: **events for one order stay in order.**',
+			'This code does not start a transaction in your service. Your code still has to insert the outbox row in the same transaction as the change. Debezium only makes sure a committed row gets sent.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'With an outbox, a committed change always has its event stored, even if the broker is down for an hour. The relay catches up.',
+			'With an outbox, a committed change always has its event stored, even if the broker is down for an hour, and the relay sends that event once the broker is back.',
 			'Choreography keeps services apart: Checkout does not know who reserves stock or takes payment. A new service subscribes, with no change upstream.',
 			'Each saga step commits on its own, so no lock is held across services while a payment is pending.'
 		],
 		cost: [
-			'**The outbox needs the message and the change in one database.** A service that writes to a store with no shared transaction, such as a remote API, still lives with the dual write.',
-			'**The relay is a system to run, and after a crash it sends duplicates.** A polling job, or a Debezium connector with Kafka Connect, plus consumers that drop repeats by event id.',
-			'**Nobody sees the whole saga.** With choreography, "where is order 42 stuck?" has no single owner. And a compensation can fail too, leaving a half-done process and a log line.'
+			'The outbox needs the message and the change in one database. A service that writes to a store with no shared transaction, such as a remote API, still has the dual-write problem.',
+			'The relay is one more system to run: a polling job, or a Debezium connector on Kafka Connect. After a crash it sends duplicates, so consumers must drop repeats by event id.',
+			'With choreography, no service sees the whole saga, so "where is order 42 stuck?" has no single owner. A compensation can fail too, leaving a half-done process and a log line.'
 		]
 	},
 	task: {
@@ -137,7 +135,10 @@ export default {
 			why: 'Kafka keeps order within a partition, and the key picks the partition. Kafka does not dedupe by key: that is what the `id` header is for.'
 		}
 	],
-	takeaway: 'When a change must reach two systems, write the message where the change commits, let a relay send it at least once, and plan the undo for every saga step.',
+	recall: {
+		q: 'The checkout saves an order, then publishes `OrderPlaced`, and the publish fails. Why is the event lost, and what does an outbox do instead?',
+		a: 'No transaction spans Postgres and Kafka, so nothing sends the event again. An outbox writes the event row in the same transaction as the order, and a relay like Debezium publishes it at least once.'
+	},
 	sources: [
 		{ title: 'debezium/debezium, EventRouterDelegate.java', url: `${REPO}/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterDelegate.java#L96-L259` },
 		{ title: 'Debezium documentation: Outbox Event Router', url: 'https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html' },

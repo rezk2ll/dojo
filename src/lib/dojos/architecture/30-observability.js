@@ -9,13 +9,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'A customer of your online shop writes: "Checkout took ten seconds, then my payment failed." The request went through the frontend, the checkout service, then the payment service. You were not there.',
-		'You have three questions. **What happened to this one request?** Logs answer that. **Is it everyone, and since when?** Metrics answer that. **Where did the ten seconds go?** Traces answer that.',
-		'Each tool alone gives you a piece. The trick is to link them: **one trace id on every log line and every span** of a request, and the same span names in the metrics. Then you jump from a graph to a log line to its trace.'
+		'Logs answer "what happened to this one request?". Metrics answer "is it everyone, and since when?". Traces answer "where did the ten seconds go?".',
+		'To answer all three for one request, you link the tools: **one trace id on every log line and every span** of a request, and the same span names in the metrics. Then you jump from a graph to a log line to its trace.'
 	],
 	terms: [
-		{ term: 'Structured log', def: 'One event per line as fields (JSON), not a sentence. You can filter `level=error AND service.name=payment` instead of grepping prose.' },
-		{ term: 'Trace and span', def: 'A trace is the whole journey of one request. A span is one step in it, with a start, a duration, a parent and attributes.' },
-		{ term: 'Trace context', def: 'The trace id and parent span id, passed from service to service in a header (`traceparent` in the W3C standard). It ties the pieces of one request together.' },
+		{ term: 'Trace and span', def: 'A trace records the path of one request through every service. A span is one step in it, with a start, a duration, a parent and attributes.' },
 		{ term: 'RED metrics', def: 'For a service: Rate (requests per second), Errors (how many fail), Duration (how long they take).' },
 		{ term: 'SLO', def: 'A target for what users feel, over a window. "99.5% of payments succeed over 28 days." The 0.5% left is your error budget.' },
 		{ term: 'Symptom alert', def: 'Page a human when users are hurting (errors, slowness), not when a cause might hurt them later (CPU at 80%).' }
@@ -30,27 +28,27 @@ export default {
 					'co -->|"gRPC, same trace id"| pay["payment: charge span"]'
 				],
 				highlight: ['fe', 'co', 'pay'],
-				note: '**One trace across services.** This is the OpenTelemetry demo, an online shop. Checkout calls payment through a gRPC client [wrapped by `otelgrpc`](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/checkout/main.go#L476), which sends the trace context along. Payment\'s spans join the same trace.'
+				note: 'In the OpenTelemetry demo, an online shop, checkout calls payment through a gRPC client [wrapped by `otelgrpc`](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/checkout/main.go#L476), which sends the trace context (the trace id and the parent span id) along. Payment\'s spans join the same trace.'
 			},
 			{
 				add: ['pay -->|"OTLP: spans, logs, metrics"| col["OpenTelemetry Collector"]'],
 				highlight: ['col'],
-				note: '**One pipe for all three.** Every service sends its telemetry over OTLP to the Collector. The Collector can change it on the way: here it [deletes the card CVV and masks the card number](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config.yml#L216-L252) before anything is stored.'
+				note: 'Every service sends all three signals over OTLP to the Collector. The Collector can change it on the way: here it [deletes the card CVV and masks the card number](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config.yml#L216-L252) before anything is stored.'
 			},
 			{
 				add: ['col -->|"traces"| jaeger[("Jaeger")]', 'col -->|"logs"| os[("OpenSearch")]', 'class jaeger,os ext'],
 				highlight: ['jaeger', 'os'],
-				note: '**Traces and logs go to their own stores.** The demo\'s observability config [exports traces to Jaeger and logs to OpenSearch](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config-observability.yml#L64-L72). A log line carries `trace_id`, so you jump from one to the other.'
+				note: 'The demo\'s observability config [exports traces to Jaeger and logs to OpenSearch](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config-observability.yml#L64-L72). A log line carries `trace_id`, so you can jump from a log line in OpenSearch to its trace in Jaeger.'
 			},
 			{
 				add: ['col -->|"span_metrics: calls and duration"| prom[("Prometheus")]', 'class prom ext'],
 				highlight: ['prom'],
-				note: '**RED metrics from spans.** The Collector\'s `span_metrics` connector [reads the trace pipeline and feeds the metrics one](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config.yml#L254-L266). It counts calls per service, span name and status, and records their duration. Rate, errors and duration, without a line of metric code.'
+				note: 'The Collector\'s `span_metrics` connector [reads the trace pipeline and feeds the metrics one](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/otel-collector/otelcol-config.yml#L254-L266). It counts calls per service, span name and status, and records their duration. That gives rate, errors and duration (RED) without a line of metric code.'
 			},
 			{
 				add: ['prom -->|"rule: users are hurting"| oncall(["on-call human"])'],
 				highlight: ['oncall'],
-				note: '**Alerts close the loop.** The rule is yours to write: alert on the error ratio and the slow requests users feel. A metric nobody alerts on is a graph nobody looks at.'
+				note: 'You write the alert rule yourself: alert on the error ratio and on the slow requests users feel. Without an alert, someone has to be looking at the graph to notice the problem.'
 			}
 		]
 	},
@@ -105,22 +103,22 @@ module.exports.charge = async request => {
   }
 };`,
 		notes: [
-			'**All three signals in one function.** A `charge` span with business attributes, one structured log line, one counter. On failure the span records the exception and an `ERROR` status. The [gRPC handler](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/payment/index.js#L12-L32) sets the same `ERROR` status on the request\'s server span.',
-			'**The trace id is not in this code.** The [logger](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/payment/logger.js#L6-L17) is plain pino writing JSON. The Node auto-instrumentation, [loaded through `NODE_OPTIONS`](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/payment/Dockerfile#L40), patches pino to [add `trace_id` and `span_id`](https://github.com/open-telemetry/opentelemetry-js-contrib/blob/7ca98fb0e7abb9068d21fc9f6e9e5399db42750a/packages/instrumentation-pino/README.md?plain=1#L65-L94) to every line written inside a span. Nobody has to remember to add them.',
-			'**Labels stay small.** The counter is labelled by currency only, a short list. The `transactionId` goes in the log line, never in a label: one label value per transaction would make one time series per transaction.',
-			'**Telemetry leaks.** With the `emitRawPii` flag on ([off by default](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/flagd/demo.flagd.json#L86-L97)), the span carries the card number and CVV. The Collector strips them, but its own comment calls that "a fallback" and says to "prefer not collecting sensitive data in the first place".'
+			'This function emits all three signals: the `charge` span on line 8, one structured log line on line 32, and one counter on line 33. On failure, lines 37 to 39 record the exception and an `ERROR` status on the span. The [gRPC handler](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/payment/index.js#L12-L32) sets the same `ERROR` status on the request\'s server span.',
+			'This code never writes the trace id: the logger is plain pino writing JSON. The Node auto-instrumentation, loaded through `NODE_OPTIONS`, patches pino to [add `trace_id` and `span_id`](https://github.com/open-telemetry/opentelemetry-js-contrib/blob/7ca98fb0e7abb9068d21fc9f6e9e5399db42750a/packages/instrumentation-pino/README.md?plain=1#L65-L94) to every line written inside a span, so nobody has to add them by hand.',
+			'Line 33 labels the counter by currency only, a short list. The `transactionId` goes in the log line on line 32, never in a label: one label value per transaction would make one time series per transaction.',
+			'Lines 21 to 24 can leak card data. With the `emitRawPii` flag on ([off by default](https://github.com/open-telemetry/opentelemetry-demo/blob/685fc4022c8a65488735d2770a76b5e6b5c6b414/src/flagd/demo.flagd.json#L86-L97)), the span carries the card number and CVV. The Collector strips them, but its own comment calls that "a fallback" and says to "prefer not collecting sensitive data in the first place".'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'You answer "what happened?" from data instead of from a reproduction you may never get.',
-			'One trace id across logs and spans turns an hour of grepping into one click.',
+			'With one trace id across logs and spans, you open a request\'s trace from its log line in one click instead of grepping each service\'s logs.',
 			'RED metrics per service and span show "is it everyone?" at a glance, and symptom alerts wake you before the users write in.'
 		],
 		cost: [
-			'**Volume costs money.** Logs and traces grow with traffic. A common answer is to sample traces and keep logs for less time than metrics.',
-			'**Label cardinality.** A label holding a URL, a user id or a transaction id creates one time series per value. The metric store grows until it falls over.',
-			'**Alert fatigue.** Alerts on causes (CPU, one failed check) fire often and mean little. People learn to ignore pages, including the real one.'
+			'Logs and traces grow with traffic, and storing them costs money. A common answer is to sample traces and keep logs for less time than metrics.',
+			'A label holding a URL, a user id or a transaction id creates one time series per value, so the metric store grows until it falls over.',
+			'Alerts on causes (CPU, one failed check) fire often and rarely mean users are affected. People learn to ignore pages, including the real one.'
 		]
 	},
 	task: {
@@ -130,9 +128,9 @@ module.exports.charge = async request => {
 			'Availability SLI: payment server spans whose status is not `Error`, over all of them. But an expired card also counts as `Error` today, so the SLI would blame you for your customers\' cards.',
 			'Fix the signal first: tell "the caller\'s fault" from "our fault" in the code (for example a different error type or gRPC status), and add that as a dimension on the connector. Then count only your faults.',
 			'Latency SLI: share of payment server spans under 1 s, read from the duration histogram.',
-			'Target: 99.5% available and 95% under 1 s, over 28 days. Pick numbers users notice, not numbers that look good.',
-			'Page on the burn rate, not on one bad minute. The SRE workbook suggests starting with 2% of the budget spent in 1 hour or 5% in 6 hours for a page, and 10% in 3 days for a ticket.',
-			'Do not page on CPU or one pod restarting. They are causes. Look at them after the symptom alert fires.'
+			'Target: 99.5% available and 95% under 1 s, over 28 days.',
+			'Page on the burn rate, the speed at which the error budget is spent, instead of on one bad minute. The SRE workbook suggests starting with 2% of the budget spent in 1 hour or 5% in 6 hours for a page, and 10% in 3 days for a ticket.',
+			'Do not page on CPU or one pod restarting: they are causes, and you look at them after the symptom alert fires.'
 		]
 	},
 	quiz: [
@@ -145,7 +143,7 @@ module.exports.charge = async request => {
 				'Guarantee that no log line is lost between your service and the log store'
 			],
 			answer: 1,
-			why: 'The trace id is the shared key. It finds the spans of the whole journey from one log line, and the log lines from one span. It does not replay, replace metrics, or make delivery reliable.'
+			why: 'Logs and spans share the trace id, so it finds the spans of the whole journey from one log line, and the log lines from one span. It does not replay, replace metrics, or make delivery reliable.'
 		},
 		{
 			q: 'Why label a request metric by span name or route template, like `get_shipping/{shippingId}`, and not by the full URL?',
@@ -167,15 +165,20 @@ module.exports.charge = async request => {
 				'A payment pod restarted three times in the last hour after a crash'
 			],
 			answer: 0,
-			why: 'It measures what users feel. CPU, a single failed check and restarts are causes; they belong on a dashboard you open after a symptom alert fires.'
+			why: 'Users see every failed payment, so this alert fires when they are affected. CPU, a single failed check and restarts are causes; they belong on a dashboard you open after a symptom alert fires.'
 		}
 	],
-	takeaway: 'Put one trace id in every log line and span, measure rate, errors and duration per service, keep labels small, and page only when users feel it.',
+	recall: {
+		q: 'A payment failed after ten seconds. Which signal answers which question, and what links the three?',
+		a: 'Logs say what happened to the request, metrics say whether it is everyone and since when, and traces show where the ten seconds went. The trace id on every log line and span links them.'
+	},
 	sources: [
 		{ title: 'Google SRE book, Monitoring distributed systems (the four golden signals)', url: 'https://sre.google/sre-book/monitoring-distributed-systems/' },
 		{ title: 'Google SRE workbook, Alerting on SLOs', url: 'https://sre.google/workbook/alerting-on-slos/' },
 		{ title: 'OpenTelemetry, Observability primer', url: 'https://opentelemetry.io/docs/concepts/observability-primer/' },
 		{ title: 'Grafana Labs, The RED Method: how to instrument your services (Tom Wilkie)', url: 'https://grafana.com/blog/the-red-method-how-to-instrument-your-services/' },
-		{ title: 'Span Metrics Connector, README', url: `${COL}/connector/spanmetricsconnector/README.md` }
+		{ title: 'Span Metrics Connector, README', url: `${COL}/connector/spanmetricsconnector/README.md` },
+		{ title: 'OpenTelemetry demo, src/payment/logger.js (pino)', url: `${DEMO}/src/payment/logger.js#L6-L17` },
+		{ title: 'OpenTelemetry demo, src/payment/Dockerfile (auto-instrumentation through NODE_OPTIONS)', url: `${DEMO}/src/payment/Dockerfile#L40` }
 	]
 };

@@ -9,16 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Black Friday, 9 a.m. The recommendations service of your online shop is slow. Each call takes 8 seconds instead of 80 milliseconds.',
-		'The scary question is not "are recommendations late?". It is **"does the slowness leak?"** If the product page and checkout share one pool of threads, checkout now waits behind recommendations. One slow, optional feature becomes a shop nobody can pay in.',
-		'Day 15 gave you timeouts and retries: how one call fails well. Today is about the walls between calls, so a failure stays in its own room. Michael Nygard calls these "stability patterns".'
+		'Shoppers can still buy without recommendations, so the delay alone costs little. The real question is **whether the slowness spreads to other features**. If the product page and checkout share one pool of threads, checkout now waits behind recommendations, and nobody can pay.',
+		'Day 15 covered timeouts and retries for a single call. The patterns here put limits between kinds of calls, so a slow dependency only blocks the feature that uses it. Michael Nygard calls them "stability patterns".'
 	],
 	terms: [
 		{ term: 'Bulkhead', def: 'Separate pools, queues or limits per kind of work, so one kind can fill up without starving the others. Named after the walls in a ship\'s hull.' },
-		{ term: 'Backpressure', def: 'The consumer tells the producer "not more than N at a time". Extra work is refused or waits upstream instead of piling up in memory.' },
-		{ term: 'Rate limit', def: 'A cap on requests per caller per time window. Over the cap, the answer is a fast `429` instead of slow work for everyone.' },
 		{ term: 'Circuit breaker', def: 'After too many failures, stop calling a dependency for a while and fail at once. Then let a few trial calls through to see if it healed.' },
-		{ term: 'Graceful degradation', def: 'Keep the part that still works, and say clearly what does not. The page shows no recommendations, but checkout works.' },
-		{ term: 'Liveness vs readiness', def: 'Liveness: "restart me, I am stuck". Readiness: "do not send me traffic right now". Mixing them up restarts healthy pods.' }
+		{ term: 'Graceful degradation', def: 'The app keeps serving what still works and leaves out what does not. The page shows no recommendations, and checkout still works.' },
+		{ term: 'Liveness vs readiness', def: 'A failed liveness probe makes Kubernetes restart the container. A failed readiness probe only stops traffic to the pod. A readiness problem checked in the liveness probe restarts healthy pods.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -31,7 +29,7 @@ export default {
 					'class pay ext'
 				],
 				highlight: ['bhR', 'bhP'],
-				note: '**Bulkhead.** Each dependency gets its own limit on calls in flight. In resilience4j the default is [25 calls with no waiting](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-bulkhead/src/main/java/io/github/resilience4j/bulkhead/BulkheadConfig.java#L33-L34). Slow recommendations fill their own 25 slots. Payments still has its 25.'
+				note: 'Each dependency gets its own bulkhead, a limit on calls in flight. In resilience4j the default is [25 calls with no waiting](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-bulkhead/src/main/java/io/github/resilience4j/bulkhead/BulkheadConfig.java#L33-L34). Slow recommendations fill their own 25 slots, and payments still has its 25.'
 			},
 			{
 				add: [
@@ -40,12 +38,12 @@ export default {
 					'class recs ext'
 				],
 				highlight: ['cb', 'recs'],
-				note: '**Circuit breaker.** It watches the last calls. In resilience4j it opens when the failure rate [reaches 50% over the last 100 calls](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/CircuitBreakerConfig.java#L43-L48), and only after at least 100 calls. Open, it refuses calls for 60 seconds by default, then lets 10 trial calls through.'
+				note: 'The circuit breaker watches the last calls. In resilience4j it opens when the failure rate [reaches 50% over the last 100 calls](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/CircuitBreakerConfig.java#L43-L48), and only after at least 100 calls. Open, it refuses calls for 60 seconds by default, then lets 10 trial calls through.'
 			},
 			{
 				add: ['cb -.->|"open: fail at once"| fb["product page without recommendations"]'],
 				highlight: ['fb'],
-				note: '**Graceful degradation.** A refused call returns at once, not after 8 seconds. The shop catches it and renders the page without the recommendations box. The shopper sees a slightly emptier page, **not an error page**.'
+				note: 'When the breaker is open, a refused call returns at once instead of after 8 seconds. The shop catches it and renders the page without the recommendations box. The shopper sees a slightly emptier page, **not an error page**.'
 			},
 			{
 				add: [
@@ -53,12 +51,12 @@ export default {
 					'gw --> shop'
 				],
 				highlight: ['users', 'gw'],
-				note: '**Rate limits and backpressure at the edge.** A scraper hitting 50 pages a second gets fast `429`s at the gateway, before it costs a thread in the shop. A proxy can push back too: when Envoy\'s limits on connections or pending requests overflow, it fails fast and sets the `x-envoy-overloaded` header.'
+				note: 'At the edge, a scraper hitting 50 pages a second gets fast `429`s from the gateway rate limit, before it costs a thread in the shop. A proxy can push back too (backpressure): when Envoy\'s limits on connections or pending requests overflow, it fails fast and sets the `x-envoy-overloaded` header.'
 			},
 			{
 				add: ['probe["Kubernetes probes"] -.->|"liveness: is the process stuck?"| shop'],
 				highlight: ['probe'],
-				note: '**Liveness done carefully.** A failed liveness probe restarts the container. Restarting the shop does not heal the recommendations service, so an open breaker must not fail liveness. resilience4j\'s health indicator reports an open breaker as [`CIRCUIT_OPEN`, not `DOWN`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-spring-boot3/src/main/java/io/github/resilience4j/springboot3/circuitbreaker/monitoring/health/CircuitBreakersHealthIndicator.java#L85-L98), unless you set `allowHealthIndicatorToFail`.'
+				note: 'A failed liveness probe restarts the container. Restarting the shop does not heal the recommendations service, so an open breaker must not fail liveness. resilience4j\'s health indicator reports an open breaker as [`CIRCUIT_OPEN`, not `DOWN`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-spring-boot3/src/main/java/io/github/resilience4j/springboot3/circuitbreaker/monitoring/health/CircuitBreakersHealthIndicator.java#L85-L98), unless you set `allowHealthIndicatorToFail`.'
 			}
 		]
 	},
@@ -85,22 +83,22 @@ export default {
             return false;
         }`,
 		notes: [
-			'This is the **open** state. Before the wait time is over, every call gets `false` and the dependency is never touched. The caller then gets a [`CallNotPermittedException`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L757-L763): that is your cue to degrade.',
-			'Once the wait is over, the first call to arrive moves the breaker to **half-open**. Half-open hands out a [fixed number of trial permits](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1116-L1124), 10 by default. Any call beyond them is refused.',
-			'The trial results decide. [At or over the threshold, it opens again. Below it, it closes](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1188-L1195).',
-			'The state lives in an `AtomicReference` inside one process. So **each instance has its own breaker**: with 6 pods, there are 6 breakers that learn on their own. Envoy says the same of its limits: they are "fully distributed (not coordinated)".'
+			'This method runs in the **open** state. Before the wait time is over, lines 15 and 16 return `false`, and the dependency is never touched. The caller then gets a [`CallNotPermittedException`](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L757-L763), and your code catches it to show the degraded page.',
+			'Once the wait is over, line 5 moves the breaker to half-open on the first call that arrives. Half-open hands out a [fixed number of trial permits](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1116-L1124), 10 by default, and line 8 asks for one. Calls beyond those 10 are refused.',
+			'The results of the trial calls set the next state. [At or over the failure threshold, the breaker opens again, and below it, the breaker closes](https://github.com/resilience4j/resilience4j/blob/b7c0069802e373ed72dff0b817c270fbb6e966ba/resilience4j-circuitbreaker/src/main/java/io/github/resilience4j/circuitbreaker/internal/CircuitBreakerStateMachine.java#L1188-L1195).',
+			'The state lives in an `AtomicReference` inside one process, so **each instance has its own breaker**: with 6 pods, there are 6 breakers that learn on their own. Envoy\'s docs say its limits are "fully distributed (not coordinated)".'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'A slow or broken dependency hurts only the feature that needs it. Checkout keeps working while recommendations recover.',
+			'A slow or broken dependency hurts only the feature that needs it, so checkout keeps working while recommendations recover.',
 			'Fast refusals (`429`, an open breaker, a full bulkhead) free threads and memory at once, instead of holding them for 8 seconds each.',
 			'A broken dependency gets fewer calls while it is down, which gives it room to recover.'
 		],
 		cost: [
-			'**Bulkheads isolate only what you split.** Two bulkheads still share the same CPU, memory and database. If the shared part is the slow one, the walls do not help.',
-			'**Every limit is a number to tune.** 25 in flight is too low for a fast service and too high for a fragile one. The breaker\'s 100-call minimum means a low-traffic endpoint can fail for a long time before it trips.',
-			'**Breakers add state and new failure modes.** Trip too early and you refuse work a healthy service could do. Each pod has its own breaker, so they disagree for a while.'
+			'A bulkhead isolates only the pools you split: two bulkheads still share the same CPU, memory and database. If the shared part is the slow one, the limits do not help.',
+			'Every limit is a number to tune: 25 in flight is too low for a fast service and too high for a fragile one. The breaker\'s 100-call minimum means a low-traffic endpoint can fail for a long time before it trips.',
+			'A breaker that trips too early refuses work a healthy service could do. Each pod has its own breaker, so for a while some pods refuse calls that others still send.'
 		]
 	},
 	task: {
@@ -146,10 +144,13 @@ export default {
 				'It moves to half-open and lets a limited number of trial calls through'
 			],
 			answer: 3,
-			why: 'Open state checks the clock. Once the wait is over, it moves to half-open, which hands out a fixed number of trial permits (10 by default). Their results decide whether it closes or opens again.'
+			why: 'In the open state, each call checks the clock. Once the wait is over, it moves to half-open, which hands out a fixed number of trial permits (10 by default). Their results decide whether it closes or opens again.'
 		}
 	],
-	takeaway: 'Put walls between kinds of work, refuse fast instead of piling up, and degrade honestly, so one slow dependency stays one slow feature.',
+	recall: {
+		q: 'With resilience4j defaults, when does a circuit breaker open, and what does it do once it is open?',
+		a: 'It opens when 50% of the last 100 calls failed, after at least 100 calls. It refuses calls for 60 seconds, then goes half-open and lets 10 trial calls decide whether it closes or opens again.'
+	},
 	sources: [
 		{ title: 'Michael Nygard, Release It! Second Edition (Pragmatic Bookshelf)', url: 'https://pragprog.com/titles/mnee2/release-it-second-edition/' },
 		{ title: 'Martin Fowler, CircuitBreaker', url: 'https://martinfowler.com/bliki/CircuitBreaker.html' },

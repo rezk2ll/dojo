@@ -11,15 +11,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Alice brings her cat Leo to a vet clinic. The front desk finds Alice, picks Leo from her pets, and books a visit for tomorrow: "yearly vaccine".',
-		'A small feature, yet some things must **always** be true. A visit belongs to a pet. That pet belongs to Alice. A new visit is in the future. Where do those rules live? Spread across controllers, one gets forgotten on the path nobody tested.',
-		'Days 20 and 21 drew the borders between contexts. Today is the inside of one. Eric Evans named the parts: **value objects**, **entities**, **aggregates**, **repositories**, and later **domain events**. We read them in Spring PetClinic, the classic Spring sample app.'
+		'Some rules must **always** hold for this booking. A visit belongs to a pet, that pet belongs to Alice, and a new visit is in the future. If each controller checks these rules itself, one controller that forgets a check lets a bad visit in.',
+		'Days 20 and 21 drew the borders between contexts. For the inside of one context, Eric Evans named the parts: value objects, entities, **aggregates**, repositories, and later domain events. Spring PetClinic, the classic Spring sample app, has most of them.'
 	],
 	terms: [
-		{ term: 'Value object', def: 'Defined only by its value. Immutable, compared by content, checks itself when built. Two dates that both say 2026-03-14 are the same date.' },
-		{ term: 'Entity', def: 'Has an identity that lasts while its attributes change. Leo stays the same pet when his name is corrected or his birth date fixed.' },
-		{ term: 'Aggregate', def: 'A cluster of objects changed as one unit, through one **root**. Its **invariants**, the rules that must always hold, are checked inside it.' },
-		{ term: 'Repository', def: 'Looks like a collection of aggregates: add, find, remove whole ones. The database stays behind it.' },
-		{ term: 'Domain event', def: 'A fact the domain cares about, in the past tense: "a visit was booked". Others react to it without the aggregate knowing them.' }
+		{ term: 'Value object', def: 'An object defined only by its value. It is immutable, compared by content, and checks itself when built. Two dates that both say 2026-03-14 are the same date.' },
+		{ term: 'Entity', def: 'An object with an identity that lasts while its attributes change. Leo stays the same pet when his name is corrected or his birth date fixed.' },
+		{ term: 'Aggregate', def: 'A cluster of objects changed as one unit, through one **root**. Its invariants, the rules that must always hold, are checked inside it.' },
+		{ term: 'Repository', def: 'An interface that looks like a collection of aggregates: add, find, remove whole ones. The database code sits behind it.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -27,27 +26,27 @@ export default {
 			{
 				add: ['date["LocalDate: 2026-03-14"]', 'addr["address, city, telephone: three Strings"]'],
 				highlight: ['date', 'addr'],
-				note: '**Value objects, one used and one missing.** Birth dates and visit dates are `java.time.LocalDate`: immutable, equal by content. The owner\'s address, city and telephone are three plain strings. Nothing groups them or checks them as one value.'
+				note: 'PetClinic uses one value object and misses another. Birth dates and visit dates are `java.time.LocalDate`: immutable, equal by content. The owner\'s address, city and telephone are three plain strings, and nothing groups them or checks them as one value.'
 			},
 			{
 				add: ['owner["Owner (root): id, name, pets"]', 'pet["Pet: id, name, birthDate, type"]', 'visit["Visit: id, date, description"]', 'owner --> pet', 'pet --> visit', 'pet --> date', 'owner --> addr'],
 				highlight: ['owner', 'pet', 'visit'],
-				note: '**Entities.** All three extend `BaseEntity`, which holds an `id`. An object without an id `isNew`. Leo is still Leo after an edit, because his id stays.'
+				note: '`Owner`, `Pet` and `Visit` are entities: all three extend `BaseEntity`, which holds an `id`. An object without an id `isNew`. Leo is still Leo after an edit, because his id stays.'
 			},
 			{
 				add: ['add["owner.addVisit(petId, visit)"] -->|"finds the pet, asserts it exists"| owner'],
 				highlight: ['add', 'owner'],
-				note: '**Aggregate root.** `Owner` holds its pets, each pet holds its visits, and the mapping cascades every change down from the owner. To add a visit you call the root with a pet id. It refuses a pet that is not one of this owner\'s.'
+				note: '`Owner` is the aggregate root. It holds its pets, each pet holds its visits, and the mapping cascades every change down from the owner. To add a visit you call the root with a pet id, and it refuses a pet that is not one of this owner\'s.'
 			},
 			{
 				add: ['repo["OwnerRepository"] -->|"findById, save: whole owners"| owner', 'ctl["VisitController"] -->|"load, addVisit, save"| repo'],
 				highlight: ['repo', 'ctl'],
-				note: '**Repository.** There is an `OwnerRepository`, and no repository for pets or visits. The visit controller loads the owner, adds the visit through it, and saves the owner. The whole cluster goes in and out together.'
+				note: 'PetClinic has an `OwnerRepository`, and no repository for pets or visits. The visit controller loads the owner, adds the visit through it, and saves the owner. The owner, its pets and their visits are loaded and saved together.'
 			},
 			{
 				add: ['agg["Spring Data AbstractAggregateRoot: registerEvent"]', 'agg -.->|"option: VisitBooked, published on save"| repo', 'class agg ext'],
 				highlight: ['agg'],
-				note: '**Domain event, not used here.** PetClinic publishes no events. Spring Data offers a base class for roots: `registerEvent` keeps an event inside the aggregate, and the repository publishes it on `save`. A reminder email could listen without `Owner` knowing.'
+				note: 'A domain event is a past-tense fact like "a visit was booked", and PetClinic publishes none. Spring Data offers a base class for roots: `registerEvent` keeps an event inside the aggregate, and the repository publishes it on `save`. A reminder email could then listen without `Owner` knowing.'
 			}
 		]
 	},
@@ -77,22 +76,22 @@ export default {
 		pet.addVisit(visit);
 	}`,
 		notes: [
-			'`cascade = CascadeType.ALL` is the aggregate boundary in JPA terms: save or delete the owner, and its pets go with it. [`Pet`](' + OWNER + '/Pet.java#L56-L83) does the same for its visits.',
-			'Where the boundary leaks: `getPets()` returns the live list, so any caller can add a pet without `addPet`. And the [visit controller](' + OWNER + '/VisitController.java#L63-L112) calls `pet.addVisit` directly while it builds the form, before it calls `owner.addVisit` on submit.',
-			'Where an invariant leaks: "a new visit is in the future" is checked in the controller, `!visit.getDate().isAfter(LocalDate.now())`, not in `Visit`. The [`Visit` constructor](' + OWNER + '/Visit.java#L50-L52) defaults to tomorrow, but its setter takes any date. Another entry point could book a visit last year.',
-			'A value object up close: [`LocalDate`](' + JDK + '/time/LocalDate.java#L131-L146) is documented as "value-based", equal instances are "interchangeable", and the class is "immutable and thread-safe". The domain event base class is [`AbstractAggregateRoot`](' + DATA + '/src/main/java/org/springframework/data/domain/AbstractAggregateRoot.java#L37-L71).'
+			'Line 1 draws the aggregate boundary in JPA: with `cascade = CascadeType.ALL`, saving or deleting the owner saves or deletes its pets too. [`Pet`](' + OWNER + '/Pet.java#L56-L83) does the same for its visits.',
+			'Lines 6 to 8 leak the boundary: `getPets()` returns the live list, so any caller can add a pet without `addPet`. The [visit controller](' + OWNER + '/VisitController.java#L63-L112) also calls `pet.addVisit` directly while it builds the form, before it calls `owner.addVisit` on submit.',
+			'The rule "a new visit is in the future" lives in the controller, `!visit.getDate().isAfter(LocalDate.now())`, and `Visit` does not check it. The [`Visit` constructor](' + OWNER + '/Visit.java#L50-L52) defaults to tomorrow, but its setter takes any date. Another entry point could book a visit last year.',
+			'[`LocalDate`](' + JDK + '/time/LocalDate.java#L131-L146) is documented as "value-based": equal instances are "interchangeable", and the class is "immutable and thread-safe". The domain event base class is Spring Data\'s `AbstractAggregateRoot`.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Values check themselves once. A `LocalDate` you receive is a real date, so the code that uses it does not parse or check it again.',
-			'One root per cluster. Callers load and save a whole `Owner`, so the rule "this pet is yours" has one place to live.',
-			'The repository hides storage. `OwnerRepository` is only an interface that extends `JpaRepository`, and the controllers never see SQL.'
+			'A `LocalDate` checks itself when it is built, so the code that receives one does not parse or check it again.',
+			'Callers load and save a whole `Owner`, so the rule "this pet is yours" lives in one method, `Owner.addVisit`.',
+			'`OwnerRepository` is only an interface that extends `JpaRepository`, and the controllers never see SQL.'
 		],
 		cost: [
-			'A rule in the root only guards the paths that go through the root. A getter that returns the live list, or a controller check, lets the rule leak.',
+			'A rule in the root only guards the paths that go through the root. A getter that returns the live list, or a check in a controller, lets other paths skip the rule.',
 			'A rule that spans two aggregates, like "a vet is never double-booked" across many owners, cannot be enforced inside one.',
-			'Loading the whole cluster has a price: PetClinic fetches pets and visits eagerly with every owner.'
+			'Each time PetClinic loads an owner, it also fetches all its pets and their visits, eagerly (`FetchType.EAGER` on line 1).'
 		]
 	},
 	task: {
@@ -100,8 +99,8 @@ export default {
 		hint: 'Ask which aggregate holds the data the rule needs. One vet\'s visits are spread over many owners.',
 		answer: [
 			'Not in `Owner`: the rule needs every visit of the vet, and those sit in other owners\' aggregates. Vernon\'s rule: model true invariants inside one consistency boundary, and use eventual consistency between aggregates.',
-			'Option 1, a small new aggregate: a vet booking keyed by vet and time slot, inserted under a unique index in the same transaction as the visit. The second booking fails. Cost: a new table, the visit now references the booking by id, and one transaction now writes two aggregates. That bends the rule above, on purpose, for an invariant that must never break.',
-			'Option 2, accept the race and repair: detect overlapping visits afterwards and call the later client to move. Cost: a rare but visible bad experience.',
+			'Option 1, a small new aggregate: a vet booking keyed by vet and time slot, inserted under a unique index in the same transaction as the visit. The second booking for the same slot fails on the index. Cost: a new table, the visit now references the booking by id, and one transaction now writes two aggregates. You break Vernon\'s rule on purpose, for an invariant that must never break.',
+			'Option 2, accept the race and repair: detect overlapping visits afterwards and call the later client to move. Cost: now and then, a client gets a call to change an appointment.',
 			'Worth asking first: how often do two desks book the same vet at the same minute? If almost never, option 2 may be enough.'
 		]
 	},
@@ -115,7 +114,7 @@ export default {
 				'Different, unless both were loaded with the same database id'
 			],
 			answer: 2,
-			why: 'Value objects have no identity. Same content, same value. The JDK documents `LocalDate` as value-based: equal instances are interchangeable.'
+			why: 'A value object has no identity, so two objects with the same content are equal. The JDK documents `LocalDate` as value-based: equal instances are interchangeable.'
 		},
 		{
 			q: 'Why can the `Owner` aggregate not enforce "a vet never has two visits at the same time"?',
@@ -137,15 +136,19 @@ export default {
 				'Pets and visits are stored in a different database than owners'
 			],
 			answer: 0,
-			why: 'Repositories exist per aggregate, not per table. Pets and visits are entities inside the owner\'s cluster, so they travel with it.'
+			why: 'Each aggregate gets one repository, even when it spans several tables. Pets and visits are entities inside the owner\'s cluster, so they are saved with the owner.'
 		}
 	],
-	takeaway: 'Name the values, give what lasts an identity, and draw a boundary around what must be true together. Inside it, enforce. Across it, check and repair.',
+	recall: {
+		q: 'In PetClinic, which class is the aggregate root, and how does a new visit get in?',
+		a: '`Owner` is the root. The controller loads the owner from `OwnerRepository`, calls `owner.addVisit(petId, visit)`, which refuses a pet that is not this owner\'s, and saves the owner. Pets and visits have no repository of their own.'
+	},
 	sources: [
 		{ title: 'Evans, DDD Reference: Entities, Value Objects, Aggregates, Repositories, Domain Events', url: 'https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf' },
 		{ title: 'Vaughn Vernon, Effective Aggregate Design', url: 'https://www.dddcommunity.org/library/vernon_2011/' },
 		{ title: 'Martin Fowler, ValueObject', url: 'https://martinfowler.com/bliki/ValueObject.html' },
 		{ title: 'Martin Fowler, DDD_Aggregate', url: 'https://martinfowler.com/bliki/DDD_Aggregate.html' },
-		{ title: 'Spring PetClinic, Owner.java', url: `${OWNER}/Owner.java#L67-L186` }
+		{ title: 'Spring PetClinic, Owner.java', url: `${OWNER}/Owner.java#L67-L186` },
+		{ title: 'Spring Data, AbstractAggregateRoot.java', url: `${DATA}/src/main/java/org/springframework/data/domain/AbstractAggregateRoot.java#L37-L71` }
 	]
 };

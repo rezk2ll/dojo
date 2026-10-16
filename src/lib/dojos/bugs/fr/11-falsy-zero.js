@@ -50,10 +50,10 @@ export default {
      return setTimeout(resolveIfNotStale, explicitTimeout)
    }`,
 		notes: [
-			'**`if` pose la mauvaise question.** Le type dit `number | null`. `null` veut dire « pas de durée donnée ». Le test devrait demander « est-ce null ? », mais `if (explicitTimeout)` demande « est-ce truthy ? ». 0 est falsy, donc une durée de 0 est traitée comme une absence de durée.',
-			'**Ce qui se passe avec 0.** `normalizeDuration(0)` renvoie `[0, 0]`, donc `explicitTimeout` vaut 0. Le `if` est sauté, et le code passe à `getTransitionInfo`. Si l’élément a une transition CSS de 300 ms, Vue l’attend, et l’animation joue comme si `duration` n’avait jamais été donné.',
-			'**Le correctif.** `explicitTimeout != null` n’est faux que pour `null` et `undefined`. Une durée de 0 prend maintenant la branche du minuteur : `setTimeout(resolveIfNotStale, 0)` se résout presque tout de suite, et la durée CSS n’est jamais lue.',
-			'**Les autres valeurs marchaient.** `:duration="500"` ou `{ enter: 200, leave: 400 }` donnaient des nombres non nuls, donc truthy. Seul 0 tombait dans la mauvaise branche.'
+			'La ligne 14 teste `if (explicitTimeout)`. Le type est `number | null`, et `null` veut dire « pas de durée donnée ». Ce `if` vérifie que la valeur est truthy, au lieu de vérifier qu’elle n’est pas `null`. 0 est falsy, donc Vue traite une durée de 0 comme une durée absente.',
+			'`normalizeDuration(0)` renvoie `[0, 0]`, donc `explicitTimeout` vaut 0. La ligne 14 saute le minuteur, et la ligne 18 appelle `getTransitionInfo`. Si l’élément a une transition CSS de 300 ms, Vue l’attend, et l’animation joue comme sans `duration`.',
+			'La ligne 14 teste maintenant `explicitTimeout != null`, qui n’est faux que pour `null` et `undefined`. Avec 0, Vue prend le minuteur de la ligne 15 : `setTimeout(resolveIfNotStale, 0)` se résout presque aussitôt, et Vue ne lit jamais la durée CSS.',
+			'`:duration="500"` ou `{ enter: 200, leave: 400 }` donnaient des nombres non nuls, donc truthy, et passaient toujours par le minuteur. Seul 0 partait dans la branche CSS.'
 		]
 	},
 	quiz: [
@@ -76,7 +76,10 @@ export default {
 			why: '`!= null` n’est faux que pour null et undefined. Les trois autres traitent tous 0 comme une absence de valeur.'
 		}
 	],
-	takeaway: 'Quand 0 est une valeur valable pour un réglage, teste « pas réglé » avec `!= null` ou `??`, pas avec `if (x)` ou `x || défaut`. Ajoute un test qui passe 0 exprès.',
+	recall: {
+		q: 'Pourquoi `<Transition :duration="0">` attendait-il quand même la transition CSS ?',
+		a: '`if (explicitTimeout)` traite 0 comme falsy : Vue sautait le minuteur et lisait la durée CSS avec `getTransitionInfo`. Le correctif teste `explicitTimeout != null`, qui laisse passer 0.'
+	},
 	sources: [
 		{ title: 'vue, pull request #11967', url: `${VUE}/pull/11967` }
 	]

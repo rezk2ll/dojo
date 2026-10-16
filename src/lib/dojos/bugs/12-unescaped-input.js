@@ -42,10 +42,10 @@ func (b *tocBuilder) indent(n int) {
 +		b.s.WriteString("<a href=\\"#" + template.HTMLEscapeString(h.ID) + "\\">" + h.Title + "</a>")
  	}`,
 		notes: [
-			'**The ID goes in raw.** Line 5 glues `h.ID` between `href="#` and `">` with `+`. Nothing in between changes a quote or a `<`. The commit message says it: "Explicit heading IDs (e.g. `## Foo {id="..."}`) were written unescaped into the ToC href, allowing attribute breakout."',
-			'**What the browser reads.** With the ID from the hook, line 5 writes `<a href="#x"><img src=x onerror=alert(1)><a class="">Intro</a>`. The first `"` closes `href`. The `>` closes the link. Then comes an `<img>` whose source `x` fails to load, so `onerror` runs.',
-			'**Why the heading was safe.** The `<h2>` is written by a different renderer that escapes its attributes, and the fix does not touch it. Only this function builds its HTML by joining strings, so only the ToC let the quote through.',
-			'**The fix.** `template.HTMLEscapeString(h.ID)` turns the same ID into `x&#34;&gt;&lt;img src=x onerror=alert(1)&gt;&lt;a class=&#34;`. The test added with it also checks that `a&b<c>` becomes `a&amp;b&lt;c&gt;` and that the page contains no `<img src=x`.'
+			'Line 5 joins `h.ID` between `href="#` and `">` with `+`. No code on that line changes a quote or a `<`. The commit message: "Explicit heading IDs (e.g. `## Foo {id="..."}`) were written unescaped into the ToC href, allowing attribute breakout."',
+			'With the ID from the hook, line 5 writes `<a href="#x"><img src=x onerror=alert(1)><a class="">Intro</a>`. The first `"` closes `href`, and the `>` closes the link. The browser then reads an `<img>` whose source `x` fails to load, so `onerror` runs.',
+			'A different renderer writes the `<h2>`, and it escapes its attributes. The fix does not touch that renderer. Only `writeHeading` builds its HTML by joining strings, so only the ToC let the quote through.',
+			'Line 5 now passes the ID through `template.HTMLEscapeString(h.ID)`, which writes it as `x&#34;&gt;&lt;img src=x onerror=alert(1)&gt;&lt;a class=&#34;`. The test added with the fix checks that `a&b<c>` comes out as `a&amp;b&lt;c&gt;` and that the page contains no `<img src=x`.'
 		]
 	},
 	quiz: [
@@ -83,7 +83,10 @@ func (b *tocBuilder) indent(n int) {
 			why: 'Only characters that mean something in HTML show whether the value is escaped. The quote matters most inside an attribute.'
 		}
 	],
-	takeaway: 'When code builds HTML by joining strings, pass every value an author or user controls through an escaping function. Inside an attribute, the `"` is the character that breaks out.',
+	recall: {
+		q: 'The same heading ID was safe in the `<h2>` and ran `onerror` in the ToC. Why?',
+		a: 'Line 5 of `writeHeading` joined the raw `h.ID` into `href="#..."`, so its `"` closed the attribute. The heading renderer escaped the ID. The fix wraps it in `template.HTMLEscapeString`.'
+	},
 	sources: [
 		{ title: 'The fix commit, with its test', url: `${HUGO}/commit/671fbf2c11ef721996dc3fcb7dd6dd0d8d2ac8df` }
 	]

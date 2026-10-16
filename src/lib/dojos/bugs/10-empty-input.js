@@ -39,10 +39,10 @@ export default {
              except TypeError:
                  return None`,
 		notes: [
-			'**An empty list reaches `max()`.** When `items()` returns nothing, the list comprehension builds `[]`. `max([])` raises ValueError. The `except` only catches TypeError, so the error leaves the method and the index view returns a 500.',
-			'**The trigger is the data, not the code.** A section with `lastmod` defined as a method and zero items is enough, for example a blog section with no published posts yet. The same sitemap works again as soon as one item exists.',
-			'**The fix.** `default=None` makes `max()` return `None` for an empty list. `None` is what the method already returns when it cannot compute a date, and the index view treats it as "no date for this section".',
-			'**How it was found.** Michal Čihař reported it in [ticket #34088](https://code.djangoproject.com/ticket/34088): "When sitemap contains not items, but supports returning lastmod for an item, it fails with a `ValueError`". The commit says it is a "Bug in 480191244d12fefbf95854b2b117c71ffe44749a", the change that added `lastmod` to the sitemap index.'
+			'When `items()` returns nothing, the list comprehension on line 6 builds `[]`, and `max([])` raises ValueError. Line 7 only catches TypeError, so the error leaves the method and the index view returns a 500.',
+			'The crash needs no code change, only data: a section with `lastmod` defined as a method and zero items, for example a blog section with no published posts yet. The same sitemap works again as soon as one item exists.',
+			'The fix passes `default=None` on line 6, so `max()` returns `None` for an empty list. The method already returns `None` when it cannot compute a date, and the index view treats it as "no date for this section".',
+			'Michal Čihař reported it in [ticket #34088](https://code.djangoproject.com/ticket/34088): "When sitemap contains not items, but supports returning lastmod for an item, it fails with a `ValueError`". The commit says it is a "Bug in 480191244d12fefbf95854b2b117c71ffe44749a", the change that added `lastmod` to the sitemap index.'
 		]
 	},
 	quiz: [
@@ -66,7 +66,7 @@ export default {
 				'Checking `hasattr(self, "items")` first'
 			],
 			answer: 0,
-			why: 'This is what the ticket proposed. A generator still gives `max()` nothing to compare, and `sorted([])[-1]` raises IndexError instead.'
+			why: 'Ticket #34088 proposed this change. A generator still gives `max()` nothing to compare, and `sorted([])[-1]` raises IndexError instead.'
 		},
 		{
 			q: 'You call `max()`, `min()` or `[0]` on data from a query. Which test do you add first?',
@@ -80,7 +80,10 @@ export default {
 			why: 'An empty result is the input where these calls have no answer. One row and many rows both give `max()` something to return.'
 		}
 	],
-	takeaway: 'Every `max()`, `min()` or `[0]` on a query result needs an answer for zero rows. Pass `default=` or check for emptiness, and add a test with an empty queryset.',
+	recall: {
+		q: 'Why did Django 4.1\'s `/sitemap.xml` return a 500 for a section with no items, and what one argument fixed it?',
+		a: '`max([])` raised ValueError, and the `except` only caught TypeError. The fix passes `default=None` to `max()`.'
+	},
 	sources: [
 		{ title: 'Django ticket #34088', url: 'https://code.djangoproject.com/ticket/34088' },
 		{ title: 'The fix commit', url: `${DJANGO}/commit/5eab4d1924613a5506e517f157054b4852ae7dc2` }

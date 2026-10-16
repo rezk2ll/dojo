@@ -4,7 +4,7 @@ const RAILS = 'https://github.com/rails/rails';
 export default {
 	slug: 'regex-backtracking',
 	part: 'Les entrées',
-	title: 'Un e-mail trop court',
+	title: 'Le backtracking d’une regex sur un e-mail trop court',
 	minutes: 10,
 	hook: [
 		'`String#truncate_words` est arrivée avec Rails 4.2. Elle garde les N premiers mots d’un texte et ajoute `...`. Un utilisateur l’appelle sur le corps d’un e-mail reçu, avec 30 comme limite, et **la console Rails se fige**. Avec 20, elle répond tout de suite.',
@@ -37,10 +37,10 @@ end`,
 +    if self =~ /\\A((?>.+?#{sep}){#{words_count - 1}}.+?)#{sep}.*/m
        $1 + (options[:omission] || '...')`,
 		notes: [
-			'**Un morceau peut contenir n’importe quoi.** Pour `truncate_words(30)`, la regex vaut `\\A((?:.+?\\s+){29}.+?)\\s+.*`. Chacun des 29 morceaux, c’est `.+?` puis des blancs. Avec le flag `/m`, `.` accepte n’importe quel caractère, espaces et retours à la ligne compris. Un morceau peut donc être un mot, trois mots, ou un seul espace pris dans une suite comme `"\\n    "`.',
-			'**Où ça casse.** Le texte a 23 mots et la regex veut 29 morceaux, puis encore un mot et un séparateur. Aucun découpage ne marche. Le moteur ne le sait qu’après avoir essayé les découpages : chaque `.+?` paresseux grandit d’un caractère à la fois, et chaque suite d’espaces ajoute des endroits où couper. Avec 20 comme limite, le tout premier découpage correspond déjà, donc l’appel répond tout de suite.',
-			'**Le correctif.** `(?>.+?#{sep})` rend chaque morceau atomique. Le `.+?` paresseux s’arrête au premier blanc, `\\s+` prend tous les blancs qui suivent, et le moteur ne rouvre plus le morceau. Chaque morceau devient un mot et les espaces qui le suivent, donc un texte trop court échoue en un seul passage.',
-			'**Comment ça s’est vu.** Issue [#19070](' + RAILS + '/issues/19070) : "When you cut and paste the following into rails console with Rails 4.2. It hangs..." L’auteur analysait des e-mails entrants : "The hanging is causing 504s to happen eventually". La pull request ajoute un test qui enveloppe l’appel dans `Timeout.timeout(10)`.'
+			'Pour `truncate_words(30)`, la ligne 4 construit `\\A((?:.+?\\s+){29}.+?)\\s+.*`. Chacun des 29 morceaux, c’est `.+?` puis des blancs. Avec le flag `/m`, `.` accepte n’importe quel caractère, espaces et retours à la ligne compris. Un morceau peut donc prendre un mot, trois mots, ou un seul espace pris dans une suite comme `"\\n    "`.',
+			'Le texte a 23 mots, et la regex veut 29 morceaux, puis encore un mot et un séparateur : aucun découpage ne peut marcher. Le moteur ne l’apprend qu’après avoir essayé les découpages. Chaque `.+?` paresseux grandit d’un caractère à la fois, et chaque suite d’espaces ajoute des endroits où couper. Avec 20 comme limite, le premier découpage correspond déjà, et l’appel répond tout de suite.',
+			'La ligne 4 met maintenant chaque morceau dans un groupe atomique : `(?>.+?#{sep})`. Le `.+?` paresseux s’arrête au premier blanc, `\\s+` prend tous les blancs qui suivent, et le moteur ne rouvre plus le morceau. Un morceau contient alors un mot et les espaces qui le suivent, et un texte trop court échoue en un seul passage.',
+			'Issue [#19070](' + RAILS + '/issues/19070) : "When you cut and paste the following into rails console with Rails 4.2. It hangs..." L’auteur analysait des e-mails entrants : "The hanging is causing 504s to happen eventually". La pull request ajoute un test qui enveloppe l’appel dans `Timeout.timeout(10)`.'
 		]
 	},
 	quiz: [
@@ -73,7 +73,10 @@ end`,
 			why: 'Une regex qui correspond peut s’arrêter au premier succès. Une regex qui échoue doit d’abord essayer chaque découpage, et les suites d’espaces lui en donnent plus.'
 		}
 	],
-	takeaway: 'Quand un groupe répété peut aussi absorber son propre séparateur, un texte qui ne correspond pas peut prendre un temps énorme. Teste la regex sur une entrée qui échoue, et passe par un groupe atomique ou un simple `split`.',
+	recall: {
+		q: 'Pourquoi `truncate_words(30)` figeait-il la console sur un e-mail de 23 mots, alors que `truncate_words(20)` répondait tout de suite ?',
+		a: 'Avec 30, la regex ne peut pas correspondre, et chaque morceau `.+?` pouvait aussi avaler des espaces et des mots : le moteur essayait chaque découpage avant d’échouer. Avec 20, le premier découpage correspondait. Le correctif met chaque morceau dans un groupe atomique, `(?>.+?#{sep})`.'
+	},
 	sources: [
 		{ title: 'rails, issue #19070', url: `${RAILS}/issues/19070` },
 		{ title: 'rails, pull request #19076', url: `${RAILS}/pull/19076` }

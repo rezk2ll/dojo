@@ -66,10 +66,10 @@ export default {
 +    {
          addReply(c,shared.outofrangeerr);`,
 		notes: [
-			'**`atoi` has no error value.** The only check on the target is `selectDb`, which rejects numbers outside 0 to 15. A string that is not a number never reaches that check as an error: `atoi("qwefklqfklsdbsdjhqwef")` returns 0, and 0 is a valid database.',
-			'**Where it breaks.** The client is on database 1 and sends `MOVE mykey notanumber`. `atoi` gives 0, `selectDb(c, 0)` succeeds, `dst` is database 0, and the key moves there with the reply 1. On database 0 the same command gets "source and destination objects are the same", which is just as confusing. `atoi` also accepts junk after digits: `"3abc"` becomes 3.',
-			'**The fix.** `getLongLongFromObject` parses with `strtoll` and returns `REDIS_ERR` unless the whole string is a number (`eptr[0] != \'\\0\'` catches trailing junk). The new range check `dbid < INT_MIN || dbid > INT_MAX` keeps a huge value from being cut down to some other `int` when it is passed to `selectDb`. Any failure now replies "ERR index out of range".',
-			'**How it was found.** Issue #1428: "Move command uses `atoi()` to convert the second argument to a number, which returns `0` in case of error." The commit adds a test that sends `move mykey notanumber` and expects the error.'
+			'Line 14 is the only check on the target: `selectDb` rejects numbers outside 0 to 15. `atoi` has no error value, so `selectDb` never sees that the string was not a number. `atoi("qwefklqfklsdbsdjhqwef")` returns 0, and 0 is a valid database.',
+			'The client is on database 1 and sends `MOVE mykey notanumber`. On line 14 `atoi` gives 0 and `selectDb(c, 0)` succeeds, so `dst` is database 0 and the key moves there with the reply 1. From database 0, the same command gets "source and destination objects are the same" from line 24. `atoi` also accepts junk after digits: `atoi("3abc")` returns 3.',
+			'The fix replaces line 14. `getLongLongFromObject` parses with `strtoll` and returns `REDIS_ERR` unless the whole string is a number (`eptr[0] != \'\\0\'` catches trailing junk). The range check `dbid < INT_MIN || dbid > INT_MAX` stops a huge value from being cut down to some other `int` when it is passed to `selectDb`. Any failure now replies "ERR index out of range".',
+			'Issue #1428: "Move command uses `atoi()` to convert the second argument to a number, which returns `0` in case of error." The commit adds a test that sends `move mykey notanumber` and expects the error.'
 		]
 	},
 	quiz: [
@@ -107,7 +107,10 @@ export default {
 			why: '`strtol` stops at the a and returns 12 with no error. Only `end` tells you that characters were left over.'
 		}
 	],
-	takeaway: 'When a number comes from user input, parse it with a function that reports failure, and check that it consumed the whole string. A parser that returns 0 on garbage turns a typo into a valid value.',
+	recall: {
+		q: 'Why did `MOVE key qwefklqfklsdbsdjhqwef` move the key to database 0?',
+		a: '`atoi` returns 0 for a string with no digits and reports no error, and `selectDb` accepts 0. The fix parses with `getLongLongFromObject`, which returns `REDIS_ERR` unless the whole string is a number.'
+	},
 	sources: [
 		{ title: 'redis issue #1428', url: `${REDIS}/issues/1428` },
 		{ title: 'redis commit 498ad74', url: `${REDIS}/commit/498ad7482b2eb4ebc6f4c7458fe6a35f244adaf6` }

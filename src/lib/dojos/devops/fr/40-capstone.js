@@ -7,12 +7,12 @@ export default {
 	title: 'Projet final : du git push à l’alerte',
 	minutes: 10,
 	hook: [
-		'Il y a quarante jours, tu déployais en ssh et à la main. Aujourd’hui, tu câbles toute la chaîne pour une petite appli web : **un git push finit par tourner dans Kubernetes**, et si ça casse, quelqu’un est appelé.',
-		'Pas de nouvel outil aujourd’hui. Seulement des choix, et les raisons derrière.'
+		'Il y a quarante jours, tu déployais en ssh et à la main. Dans ce kata, tu câbles toute la chaîne pour une petite appli web : **un git push finit par tourner dans Kubernetes**, et si ça casse, quelqu’un est appelé.',
+		'Chaque outil de la chaîne vient d’un chapitre précédent. Pour chaque maillon, tu notes le choix que tu fais et pourquoi.'
 	],
 	terms: [
 		{ term: 'Repo de l’appli', def: 'Contient le code, le Dockerfile et le workflow CI. Un push ici construit une image.' },
-		{ term: 'Repo de config', def: 'Contient les values Helm par environnement. Argo CD le surveille. Un commit ici, c’est un déploiement.' },
+		{ term: 'Repo de config', def: 'Contient les values Helm par environnement. Argo CD le surveille, et chaque commit ici déclenche un déploiement.' },
 		{ term: 'Tag immuable', def: 'Un tag d’image qui ne bouge jamais, comme `sha-ad132f5`. Contrairement à `main` ou `latest`, il désigne toujours la même image.' },
 		{ term: 'Promotion', def: 'Faire passer la même image de staging à la production en changeant une valeur dans Git, jamais en la reconstruisant.' }
 	],
@@ -26,14 +26,14 @@ export default {
 					'class reg ext'
 				],
 				highlight: ['push', 'ci', 'reg'],
-				note: 'La CI lance les tests, construit l’image une seule fois et la pousse avec un **tag immuable** tiré du commit. Fail fast : un test rouge n’atteint jamais la registry.'
+				note: 'La CI lance les tests, construit l’image une seule fois et la pousse avec un **tag immuable** tiré du commit. Si un test échoue, la CI s’arrête avant le build, et rien n’arrive dans la registry.'
 			},
 			{
 				add: [
 					'ci -->|"commit du nouveau tag"| cfg[("Repo de config : values Helm")]'
 				],
 				highlight: ['cfg'],
-				note: 'La CI **ne déploie pas**. Elle commite le nouveau tag dans le fichier de values de staging, dans le repo de config. Ce commit est la demande de déploiement, relue et annulable.'
+				note: 'La CI **ne déploie pas**. Elle commite le nouveau tag dans le fichier de values de staging, dans le repo de config. Ce commit demande le déploiement : un collègue peut le relire, et `git revert` l’annule.'
 			},
 			{
 				add: [
@@ -57,7 +57,7 @@ export default {
 					'class oncall ext'
 				],
 				highlight: ['prom', 'oncall'],
-				note: 'Prometheus surveille les **symptômes**. Si la nouvelle version brûle l’error budget, l’astreinte est appelée et fait un rollback avec `git revert` sur le repo de config. Argo CD fait le reste.'
+				note: 'Prometheus surveille les **symptômes**. Si la nouvelle version brûle l’error budget, l’astreinte est appelée et fait un rollback avec `git revert` sur le repo de config. Argo CD remet alors l’ancien tag dans le cluster.'
 			}
 		]
 	},
@@ -103,34 +103,34 @@ env:
           cache-from: type=gha
           cache-to: type=gha,mode=max`,
 		notes: [
-			'Le modèle officiel de GitHub pour « construire une image et la pousser dans une registry ». `$default-branch` et `$cron-daily` sont des variables que GitHub remplit quand tu choisis le modèle.',
-			'`push` vaut false sur les pull requests : une PR construit l’image pour prouver que le build passe, mais ne la publie jamais.',
-			'Sans entrée `tags`, metadata-action utilise ses [tags par défaut](https://github.com/docker/metadata-action/blob/96383f45573cb7f253c731d3b3ab81c87ef81934/README.md#L415-L423) : un push sur `main` reçoit le tag `main`, qui **bouge** à chaque push. Pour du GitOps, ajoute `tags: type=sha` pour obtenir un tag immuable `sha-ad132f5`.',
-			'Chaque action tierce est épinglée sur un **SHA de commit complet**, pour la même raison que tu épingles les digests d’images : un tag sur le repo de quelqu’un d’autre peut être déplacé.'
+			'Voici le modèle officiel de GitHub pour « construire une image et la pousser dans une registry ». Aux lignes 3 et 5, `$cron-daily` et `$default-branch` sont des variables que GitHub remplit quand tu choisis le modèle.',
+			'La ligne 32 met `push` à false sur les pull requests : une PR construit l’image pour vérifier que le build passe, et ne la publie jamais.',
+			'La ligne 33 prend ses tags dans metadata-action (ligne 21). Sans entrée `tags`, metadata-action utilise ses [tags par défaut](https://github.com/docker/metadata-action/blob/96383f45573cb7f253c731d3b3ab81c87ef81934/README.md#L415-L423) : un push sur `main` reçoit le tag `main`, qui **bouge** à chaque push. Pour du GitOps, ajoute `tags: type=sha` pour obtenir un tag immuable `sha-ad132f5`.',
+			'Les lignes 21 et 29 épinglent chaque action tierce sur un **SHA de commit complet**, pour la même raison que tu épingles les digests d’images : un tag sur le repo de quelqu’un d’autre peut être déplacé.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Chaque déploiement est un commit dans le repo de config : qui, quoi, quand, et un rollback en une ligne.',
 			'L’image est construite une fois puis promue, donc la production fait tourner exactement les octets que staging a testés.',
-			'La CI ne détient jamais d’accès au cluster, et la personne appelée a un premier geste clair : revert.'
+			'La CI ne détient jamais d’accès au cluster, et la première action de la personne appelée est un `git revert`.'
 		],
 		cost: [
-			'Deux repos et un bot qui commite dans l’un d’eux. Plus de pièces mobiles qu’un `helm upgrade` depuis la CI.',
-			'Un déploiement prend maintenant un run CI plus une sync Argo CD. Des minutes, pas des secondes.',
-			'L’alerte ne vaut que le SLO qui est derrière. Choisis le chiffre avec la personne qui porte le produit.'
+			'Deux repos et un bot qui commite dans l’un d’eux remplacent une seule étape `helm upgrade` dans la CI.',
+			'Un déploiement prend maintenant un run CI plus une sync Argo CD, soit plusieurs minutes.',
+			'L’alerte appelle selon l’objectif de SLO que tu choisis, donc un mauvais objectif appelle trop souvent ou trop tard. Choisis le chiffre avec la personne qui porte le produit.'
 		]
 	},
 	task: {
 		prompt: 'Le kata. Prends une petite appli web (n’importe quel langage, un port HTTP, une route `/healthz`) et livre-la de bout en bout. 1. Dockerfile. 2. Une CI qui teste, construit et pousse une image. 3. Un chart Helm. 4. Une Application Argo CD. 5. Une alerte. Note chaque choix que tu fais, et pourquoi.',
 		hint: 'Descends la chaîne et vérifie chaque maillon avant le suivant : l’image tourne-t-elle en local, le chart se rend-il avec `helm template`, Argo CD affiche-t-il Synced, l’alerte sonne-t-elle quand tu casses l’appli exprès ?',
 		answer: [
-			'**Image** : Dockerfile multi-stage, petite image de base, utilisateur non root, un `.dockerignore`. Taguée `sha-<commit>` dans la registry, jamais seulement `latest`.',
-			'**CI** : sur les pull requests, lance les tests et construis sans pousser. Sur `main`, construis, pousse, puis commite le nouveau tag dans `values-staging.yaml` du repo de config.',
-			'**Chart** : Deployment à 2 replicas, requests et limits, readiness probe sur `/healthz`, un Service et un Ingress. Un PodDisruptionBudget pour que les drains de nœuds gardent un pod debout.',
-			'**GitOps** : une Application Argo CD par environnement, sync automatique, prune et self-heal activés. La promotion en production est une pull request qui recopie le tag.',
-			'**Alerte** : appelle quand le taux de 5xx brûle l’error budget sur une fenêtre longue et une courte, avec un `runbook_url` dont la première étape est « revert du dernier commit de config ».',
-			'**Casse-la exprès** : déploie une version qui répond 500, regarde l’alerte sonner, fais le rollback avec `git revert`, et écris un court postmortem sans reproche de ton propre exercice.'
+			'Image : Dockerfile multi-stage, petite image de base, utilisateur non root, un `.dockerignore`. Taguée `sha-<commit>` dans la registry, jamais seulement `latest`.',
+			'CI : sur les pull requests, lance les tests et construis sans pousser. Sur `main`, construis, pousse, puis commite le nouveau tag dans `values-staging.yaml` du repo de config.',
+			'Chart : Deployment à 2 replicas, requests et limits, readiness probe sur `/healthz`, un Service et un Ingress. Un PodDisruptionBudget pour que les drains de nœuds gardent un pod debout.',
+			'GitOps : une Application Argo CD par environnement, sync automatique, prune et self-heal activés. La promotion en production est une pull request qui recopie le tag.',
+			'Alerte : appelle quand le taux de 5xx brûle l’error budget sur une fenêtre longue et une courte, avec un `runbook_url` dont la première étape est « revert du dernier commit de config ».',
+			'Casse-la exprès : déploie une version qui répond 500, regarde l’alerte sonner, fais le rollback avec `git revert`, et écris un court postmortem sans reproche de ton propre exercice.'
 		]
 	},
 	quiz: [
@@ -143,7 +143,7 @@ env:
 				'Parce que Kubernetes ne sait pas tirer des tags nommés comme une branche'
 			],
 			answer: 1,
-			why: 'Un tag de branche pointe vers une nouvelle image à chaque push, donc le même fichier de values peut vouloir dire deux déploiements différents. Un tag immuable fait de Git un vrai registre de ce qui tourne.'
+			why: 'Un tag de branche pointe vers une nouvelle image à chaque push, donc le même fichier de values peut vouloir dire deux déploiements différents. Avec un tag immuable, le fichier de values dans Git désigne exactement l’image qui tourne.'
 		},
 		{
 			q: 'La nouvelle version est en ligne et l’alerte d’error budget sonne. Avec le montage de ce kata, quel est le rollback sûr le plus rapide ?',
@@ -165,10 +165,13 @@ env:
 				'Pousser l’image à nouveau avec le tag `prod` et laisser la production la tirer'
 			],
 			answer: 1,
-			why: 'On construit une fois, on promeut la même image. Une reconstruction peut tirer d’autres dépendances, et la production ferait tourner des octets que personne n’a testés.'
+			why: 'La promotion recopie le tag de l’image que staging a testée. Une reconstruction peut tirer d’autres dépendances, et la production ferait tourner des octets que personne n’a testés.'
 		}
 	],
-	takeaway: 'Un push construit une image immuable, un commit dans Git la déploie, Argo CD l’applique, et une alerte sur les symptômes dit à un humain quand faire un revert. Chaque étape est un choix que tu sais expliquer.',
+	recall: {
+		q: 'Dans cette chaîne, que commite la CI après un push sur `main`, et comment l’astreinte annule-t-elle une mauvaise release ?',
+		a: 'La CI commite le tag d’image immuable, comme `sha-ad132f5`, dans le fichier de values de staging du repo de config, et Argo CD le synchronise. Pour annuler, l’astreinte lance `git revert` sur ce commit.'
+	},
 	sources: [
 		{ title: 'Doc GitHub, Publishing Docker images', url: 'https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images' },
 		{ title: 'Doc Helm', url: 'https://helm.sh/docs/' },

@@ -9,14 +9,13 @@ export default {
 	hook: [
 		'Sur un serveur Linux partagé, tu ne donnais jamais root à tout le monde. Tu créais des groupes, tu y mettais les gens, et tu écrivais un fichier `sudoers` qui disait qui peut redémarrer quel service.',
 		'Un cluster Kubernetes partagé par trois équipes a besoin de la même chose. Sans ça, le stagiaire de l’équipe A peut supprimer la base de l’équipe B avec un seul `kubectl delete`.',
-		'Kubernetes coupe le problème en deux. Les **namespaces** disent où vivent les choses. **RBAC** dit qui peut faire quoi, et où. Ajoute un **ResourceQuota** et une équipe ne peut plus manger tout le CPU.'
+		'Kubernetes coupe le travail en deux. Les namespaces disent où vivent les ressources, et **RBAC** dit qui peut faire quoi dans chaque namespace. Un ResourceQuota plafonne ce qu’un namespace consomme au total, pour qu’une équipe ne prenne pas tout le CPU.'
 	],
 	terms: [
 		{ term: 'Namespace', def: 'Un dossier nommé pour des ressources, à l’intérieur d’un cluster. Les noms doivent être uniques dans un namespace, pas entre namespaces. Les nœuds et les PersistentVolumes sont globaux au cluster, dans aucun namespace.' },
 		{ term: 'Role / ClusterRole', def: 'Une liste de verbes autorisés (`get`, `list`, `create`, `delete`...) sur des ressources. Un Role vit dans un namespace. Un ClusterRole vaut pour tout le cluster.' },
 		{ term: 'RoleBinding / ClusterRoleBinding', def: 'Donne un Role à des sujets : utilisateurs, groupes ou service accounts. Un RoleBinding donne des droits dans son propre namespace, même quand il pointe vers un ClusterRole.' },
-		{ term: 'Service account', def: 'Une identité pour un programme, pas pour une personne. Chaque namespace en a un nommé `default`, et un pod qui n’en nomme aucun tourne avec celui-là.' },
-		{ term: 'ResourceQuota', def: 'Un plafond sur ce qu’un namespace peut consommer au total : CPU, mémoire, nombre d’objets.' }
+		{ term: 'Service account', def: 'Une identité pour un programme, pas pour une personne. Chaque namespace en a un nommé `default`, et un pod qui n’en nomme aucun tourne avec celui-là.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -43,7 +42,7 @@ export default {
 					'class alice ext'
 				],
 				highlight: ['role', 'rb', 'alice'],
-				note: 'Le Role dit **quoi**. Le RoleBinding dit **qui**. Alice peut maintenant travailler dans `team-a`. RBAC est **purement additif** : il n’y a pas de règle de refus, donc dans `team-b` elle ne peut rien faire du tout.'
+				note: 'Le Role liste les verbes autorisés, et le RoleBinding nomme qui les reçoit. Alice peut maintenant travailler dans `team-a`. RBAC **ne fait qu’accorder des droits** et n’a pas de règle de refus, donc dans `team-b` elle ne peut rien faire du tout.'
 			},
 			{
 				add: [
@@ -87,21 +86,21 @@ roleRef:
   name: pod-reader # this must match the name of the Role or ClusterRole you wish to bind to
   apiGroup: rbac.authorization.k8s.io`,
 		notes: [
-			'Le Role visé tient en [trois lignes de règles](https://github.com/kubernetes/website/blob/2f85f2802e59eb2128543dbfbf114ad641db4be0/content/en/examples/access/simple-role.yaml#L1-L9) : `pods`, avec les verbes `get`, `watch` et `list`. Lecture seule.',
-			'C’est `metadata.namespace: default` qui limite Jane à un namespace. Le même binding dans `team-a` lui donnerait la lecture là-bas à la place.',
-			'`subjects` est une liste. Ajoute une entrée `kind: Group` et tu gères les gens comme tes groupes Unix, en dehors du cluster.',
-			'`roleRef` **ne peut pas être modifié** après création. Pour pointer vers un autre rôle, tu supprimes le binding et tu en crées un nouveau.'
+			'La ligne 16 nomme le Role `pod-reader`. Ce Role tient en [trois lignes de règles](https://github.com/kubernetes/website/blob/2f85f2802e59eb2128543dbfbf114ad641db4be0/content/en/examples/access/simple-role.yaml#L1-L9) : `pods`, avec les verbes `get`, `watch` et `list`, donc Jane peut seulement lire.',
+			'La ligne 7, `namespace: default`, limite Jane à un namespace. Le même binding dans `team-a` lui donnerait la lecture là-bas à la place.',
+			'Les lignes 8 à 12 contiennent `subjects`, une liste. Ajoute une entrée `kind: Group` et tu gères les gens comme tes groupes Unix, en dehors du cluster.',
+			'Les lignes 13 à 17 contiennent `roleRef`, que tu **ne peux pas modifier** après création. Pour pointer vers un autre rôle, tu supprimes le binding et tu en crées un nouveau.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Un cluster pour plusieurs équipes : moins de control planes à mettre à jour et à payer.',
-			'Le moindre privilège, écrit en YAML dans Git : tu peux relire qui a reçu quel droit dans une pull request.',
-			'Les quotas empêchent un Deployment qui s’emballe d’affamer toutes les autres équipes.'
+			'Les Roles et les bindings sont du YAML dans Git, donc tu relis qui a reçu quel droit dans une pull request.',
+			'Un ResourceQuota empêche un Deployment qui s’emballe de prendre le CPU et la mémoire dont les autres équipes ont besoin.'
 		],
 		cost: [
-			'Les namespaces n’isolent pas le réseau. Par défaut, chaque pod peut joindre tous les autres, tant que tu n’ajoutes pas de NetworkPolicies.',
-			'Les règles RBAC s’empilent. Sans convention de nommage, plus personne ne sait pourquoi un binding existe.',
+			'Par défaut, chaque pod peut joindre tous les autres, dans n’importe quel namespace, tant que tu n’ajoutes pas de NetworkPolicies.',
+			'Chaque équipe ajoute des bindings, et sans convention de nommage plus personne ne sait pourquoi tel binding existe.',
 			'Les équipes partagent toujours les nœuds et le noyau. Pour des locataires non fiables, des clusters séparés sont souvent plus sûrs.'
 		]
 	},
@@ -137,7 +136,7 @@ roleRef:
 				'Tout, sauf si une règle de refus dans `team-b` la bloque'
 			],
 			answer: 2,
-			why: 'Les permissions RBAC sont purement additives. Un RoleBinding n’accorde que dans son propre namespace, et RBAC n’a pas de règles de refus.'
+			why: 'RBAC ne fait qu’accorder des droits. Un RoleBinding n’accorde que dans son propre namespace, et RBAC n’a pas de règles de refus.'
 		},
 		{
 			q: 'Un namespace a un ResourceQuota sur `requests.cpu`. On soumet un pod sans aucune request CPU, et aucun LimitRange ne fixe de valeur par défaut. Que se passe-t-il ?',
@@ -151,7 +150,10 @@ roleRef:
 			why: 'Avec un quota CPU actif, les pods doivent déclarer des requests ou des limits pour que le quota puisse les compter. Un LimitRange peut remplir des valeurs par défaut pour les équipes qui oublient.'
 		}
 	],
-	takeaway: 'Les namespaces donnent un espace à chaque équipe. Les Roles et bindings RBAC décident qui peut agir là, les service accounts donnent aux pipelines leur propre identité, et les quotas gardent le partage équitable.',
+	recall: {
+		q: 'Alice a un RoleBinding dans `team-a`, et rien d’autre. Que peut-elle faire dans `team-b`, et pourquoi ?',
+		a: 'Rien. Un RoleBinding n’accorde des droits que dans son propre namespace, et RBAC n’a pas de règle de refus : sans binding dans `team-b`, elle n’y a aucun droit.'
+	},
 	sources: [
 		{ title: 'Doc Kubernetes, Using RBAC authorization', url: 'https://kubernetes.io/docs/reference/access-authn-authz/rbac/' },
 		{ title: 'Doc Kubernetes, Namespaces', url: 'https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/' },

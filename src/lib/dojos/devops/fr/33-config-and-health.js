@@ -8,15 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Sur une VM, tu avais `/etc/myapp/app.conf`, un mot de passe dans `/etc/myapp/secret`, et un check Nagios qui te réveillait quand `/health` ne répondait plus. Le noyau décidait qui avait de la RAM quand la machine était pleine.',
-		'Kubernetes a une place pour chacun. La config va dans une **ConfigMap**. Les mots de passe dans un **Secret**. Les health checks deviennent des **probes**, et le kubelet agit dessus tout seul.',
-		'Et la RAM et le CPU ne sont plus au premier arrivé. Chaque conteneur dit ce dont il a **besoin** (requests) et le maximum qu’il peut **prendre** (limits). Mal réglés, ton Pod ne démarre jamais, ou se fait tuer à l’heure de pointe.'
+		'Kubernetes a une place pour chacun. La config va dans une ConfigMap, et les mots de passe dans un Secret. Tu écris tes health checks sous forme de **probes**, et le kubelet agit dessus tout seul.',
+		'Chaque conteneur déclare aussi le CPU et la RAM dont il a **besoin** (requests) et le maximum qu’il peut prendre (limits). Avec de mauvaises valeurs, ton Pod ne démarre jamais, ou se fait tuer à l’heure de pointe.'
 	],
 	terms: [
-		{ term: 'ConfigMap', def: 'Un objet qui contient des réglages en clair, en clés et valeurs. Monté en fichiers ou passé en variables d’environnement. Pas pour les secrets, et 1 MiB au plus.' },
+		{ term: 'ConfigMap', def: 'Un objet qui contient des réglages en clair, sous forme de clés et de valeurs. Monté en fichiers ou passé en variables d’environnement. Pas pour les secrets, et 1 MiB au plus.' },
 		{ term: 'Secret', def: 'Comme une ConfigMap, pour les valeurs sensibles. Par défaut stocké **non chiffré** dans etcd. Les valeurs de `data` sont en base64, ce qui ne cache rien.' },
 		{ term: 'Probe', def: 'Un test que le kubelet lance sur un conteneur : un HTTP GET, une connexion TCP, un appel gRPC ou une commande.' },
-		{ term: 'Request', def: 'Le CPU et la mémoire que le scheduler réserve pour un conteneur quand il choisit un node.' },
-		{ term: 'Limit', def: 'Le maximum qu’un conteneur peut utiliser. Au-delà de la limite CPU, il est bridé (throttling). Au-delà de la limite mémoire, il peut être tué par l’OOM killer.' }
+		{ term: 'Request et limit', def: 'La request est le CPU et la mémoire que le scheduler réserve pour un conteneur. La limit est le maximum qu’il peut utiliser : au-delà de la limite CPU il est bridé (throttling), au-delà de la limite mémoire l’OOM killer peut le tuer.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -32,7 +31,7 @@ export default {
 					'sec -->|"env DB_PASSWORD"| c'
 				],
 				highlight: ['cm', 'sec'],
-				note: 'Même image dans chaque environnement, **ConfigMap** et **Secret** différents. Montée en fichiers (sans `subPath`), une mise à jour de ConfigMap arrive dans le Pod après un court délai. En variables d’environnement, il faut redémarrer le Pod.'
+				note: 'La même image tourne dans chaque environnement, avec une ConfigMap et un Secret propres à chacun. Montée en fichiers (sans `subPath`), une mise à jour de ConfigMap arrive dans le Pod après un court délai. En variables d’environnement, il faut redémarrer le Pod.'
 			},
 			{
 				add: [
@@ -49,7 +48,7 @@ export default {
 					'kl --> rst'
 				],
 				highlight: ['rst'],
-				note: 'La **liveness** répond à « est-il bloqué ? ». Échoue `failureThreshold` fois de suite (3 par défaut) et le kubelet **redémarre** le conteneur. Bien pour les deadlocks. Dangereux si le test dépend d’une base de données : une base lente, et tous les Pods redémarrent.'
+				note: 'La **liveness probe** vérifie si le conteneur est bloqué. Après `failureThreshold` échecs de suite (3 par défaut), le kubelet redémarre le conteneur. Elle attrape les deadlocks. Si le test dépend d’une base de données, une base lente fait redémarrer tous les Pods.'
 			},
 			{
 				add: [
@@ -58,7 +57,7 @@ export default {
 					'c -.->|"prêt ou pas"| svc'
 				],
 				highlight: ['svc'],
-				note: 'La **readiness** répond à « peut-il recevoir du trafic maintenant ? ». Quand elle échoue, le conteneur continue de tourner, mais le Pod est marqué pas prêt et le Service ne lui envoie plus de trafic. Pas de redémarrage. Il revient quand la probe repasse.'
+				note: 'La **readiness probe** vérifie si le conteneur peut recevoir du trafic maintenant. Quand elle échoue, le conteneur continue de tourner, mais le Pod est marqué pas prêt et le Service ne lui envoie plus de trafic. Le kubelet ne redémarre rien, et le trafic revient quand la probe repasse.'
 			},
 			{
 				add: [
@@ -66,7 +65,7 @@ export default {
 					'sch -->|"le node tient les requests ?"| c'
 				],
 				highlight: ['sch'],
-				note: 'Le scheduler ne place un Pod que là où la **somme des requests** tient encore sur le node, quelle que soit la consommation réelle. Les requests décident où tu tournes. Les limits décident quand tu es bridé ou tué.'
+				note: 'Le scheduler ne place un Pod que là où la **somme des requests** tient encore sur le node, quelle que soit la consommation réelle. Les requests décident sur quel node atterrit le Pod. Les limits décident quand le noyau bride le conteneur ou le tue.'
 			}
 		]
 	},
@@ -98,21 +97,21 @@ export default {
           initialDelaySeconds: 15
           periodSeconds: 20`,
 		notes: [
-			'`100m`, c’est 100 millicpu, un dixième de cœur. Le scheduler réserve ça. Le conteneur peut monter jusqu’à `200m`, puis le noyau le bride.',
-			'Request et limit mémoire sont **identiques** : `100Mi`. Le conteneur ne peut pas emprunter de RAM au-delà de sa réservation, donc une fuite fait tuer **ce** conteneur au lieu de manger la mémoire de ses voisins.',
-			'La readiness démarre après 5 secondes et teste toutes les 10. La liveness attend 15 secondes et teste toutes les 20. Ce délai plus long laisse l’appli démarrer avant qu’un échec puisse la redémarrer.',
+			'La ligne 3, `100m`, vaut 100 millicpu, un dixième de cœur, et le scheduler réserve cette quantité. La ligne 6 laisse le conteneur monter jusqu’à `200m`, puis le noyau le bride.',
+			'Les lignes 4 et 7 fixent la request et la limit mémoire à la même valeur, `100Mi`. Le conteneur ne peut pas emprunter de RAM au-delà de sa réservation, donc une fuite fait tuer **ce** conteneur au lieu de manger la mémoire de ses voisins.',
+			'La readiness (lignes 11 à 16) démarre après 5 secondes et teste toutes les 10. La liveness (lignes 17 à 22) attend 15 secondes et teste toutes les 20. Ce délai plus long laisse l’appli démarrer avant qu’un échec puisse la redémarrer.',
 			'Les Secrets arrivent dans un conteneur de la même façon que les valeurs en clair. L’[exemple vLLM](https://github.com/kubernetes/examples/blob/d6b8cd27eacb51e651a1aa6f7c190a28713eff6e/AI/vllm-deployment/vllm-deployment.yaml#L50-L54) lit un token avec `secretKeyRef`, donc la valeur n’est jamais dans le fichier du Deployment.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'La config est séparée de l’image : une image, plusieurs environnements.',
+			'La même image tourne dans chaque environnement, et chaque environnement a sa ConfigMap et son Secret.',
 			'Le kubelet redémarre les conteneurs bloqués et sort du Service ceux qui ne sont pas prêts, tout seul, sans astreinte.',
-			'Les requests permettent au scheduler de remplir les nodes sans risque. Les limits empêchent un conteneur bruyant d’affamer ses voisins.'
+			'Le scheduler place les Pods selon leurs requests, donc les requests d’un node ne dépassent jamais ce qu’il a. Les limits empêchent un conteneur de prendre le CPU et la mémoire de ses voisins.'
 		],
 		cost: [
-			'Les Secrets ne sont pas secrets par défaut. Il te faut quand même le chiffrement au repos pour etcd et des droits d’accès serrés, ou un coffre à secrets externe.',
-			'Une mauvaise liveness probe provoque les pannes qu’elle devait éviter : des redémarrages sous charge aggravent la situation.',
+			'etcd stocke les Secrets non chiffrés par défaut. Il te faut quand même le chiffrement au repos pour etcd et des droits d’accès serrés, ou un coffre à secrets externe.',
+			'Une liveness probe qui dépend de la base fait redémarrer tous les Pods quand la base ralentit, et ces redémarrages ajoutent de la charge.',
 			'Des limits trop basses donnent du throttling et des OOM kills. Des requests trop hautes gaspillent des nodes. Tu dois mesurer la consommation réelle.'
 		]
 	},
@@ -136,7 +135,7 @@ export default {
 				'Il déplace le Pod sur un node en meilleure santé et relance la probe là-bas'
 			],
 			answer: 1,
-			why: 'La readiness contrôle le trafic, pas la vie. Tant que la readiness probe échoue, le Service n’envoie aucun trafic au Pod, jusqu’à ce qu’elle repasse. Redémarrer, c’est ce que fait une liveness probe en échec.'
+			why: 'Tant que la readiness probe échoue, le Service n’envoie aucun trafic au Pod, et le conteneur continue de tourner. C’est une liveness probe en échec qui fait redémarrer un conteneur par le kubelet.'
 		},
 		{
 			q: 'Un conteneur essaie d’utiliser plus de mémoire que sa limite mémoire. Que peut-il se passer ?',
@@ -147,7 +146,7 @@ export default {
 				'Rien, les limits ne servent qu’au scheduling'
 			],
 			answer: 2,
-			why: 'Les limites mémoire sont appliquées par des OOM kills. Le bridage, c’est pour les limites CPU. Le scheduling utilise les requests, pas les limits.'
+			why: 'Le noyau fait respecter une limite mémoire par un OOM kill. Le bridage concerne les limites CPU. Le scheduler ne regarde que les requests.'
 		},
 		{
 			q: 'Pourquoi un Secret Kubernetes n’est-il pas sûr juste parce que ses valeurs sont en base64 ?',
@@ -161,7 +160,10 @@ export default {
 			why: 'Quiconque peut lire le Secret, ou lire etcd, obtient la valeur. Ce qui le protège, c’est le chiffrement au repos et les droits d’accès (RBAC).'
 		}
 	],
-	takeaway: 'Config et secrets vivent hors de l’image. Les probes disent au kubelet quand redémarrer et quand arrêter d’envoyer du trafic. Les requests disent où un Pod tient, les limits quand il est bridé ou tué.',
+	recall: {
+		q: 'Une readiness probe échoue. Une liveness probe échoue. Que fait Kubernetes dans chaque cas ?',
+		a: 'Readiness : le Pod est marqué pas prêt et le Service ne lui envoie plus de trafic, sans redémarrage. Liveness : après 3 échecs de suite par défaut, le kubelet redémarre le conteneur.'
+	},
 	sources: [
 		{ title: 'Doc Kubernetes, ConfigMaps', url: 'https://kubernetes.io/docs/concepts/configuration/configmap/' },
 		{ title: 'Doc Kubernetes, Secrets', url: 'https://kubernetes.io/docs/concepts/configuration/secret/' },

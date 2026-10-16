@@ -8,15 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'On a VM you had `/etc/myapp/app.conf`, a password in `/etc/myapp/secret`, and a Nagios check that paged you when `/health` stopped answering. The kernel decided who got RAM when the box was full.',
-		'Kubernetes has a place for each of these. Config goes in a **ConfigMap**. Passwords go in a **Secret**. Health checks become **probes**, and the kubelet acts on them by itself.',
-		'And RAM and CPU are no longer first come, first served. Each container says what it **needs** (requests) and the most it may **take** (limits). Get these wrong and your Pod never starts, or gets killed at the busiest hour.'
+		'Kubernetes has a place for each of these. Config goes in a ConfigMap, and passwords go in a Secret. You write health checks as **probes**, and the kubelet acts on them by itself.',
+		'Each container also declares the CPU and RAM it **needs** (requests) and the most it may take (limits). With wrong values, your Pod never starts, or gets killed at the busiest hour.'
 	],
 	terms: [
 		{ term: 'ConfigMap', def: 'An object holding plain settings as keys and values. Mounted as files or passed as environment variables. Not for secrets, and at most 1 MiB.' },
 		{ term: 'Secret', def: 'Like a ConfigMap, for sensitive values. By default stored **unencrypted** in etcd. Values in `data` are base64, which hides nothing.' },
 		{ term: 'Probe', def: 'A check the kubelet runs on a container: an HTTP GET, a TCP connect, a gRPC call or a command.' },
-		{ term: 'Request', def: 'The CPU and memory the scheduler reserves for a container when it picks a node.' },
-		{ term: 'Limit', def: 'The most a container may use. Over the CPU limit, it is throttled. Over the memory limit, it may be OOM killed.' }
+		{ term: 'Request and limit', def: 'The request is the CPU and memory the scheduler reserves for a container. The limit is the most it may use: over the CPU limit it is throttled, over the memory limit it may be OOM killed.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -32,7 +31,7 @@ export default {
 					'sec -->|"env DB_PASSWORD"| c'
 				],
 				highlight: ['cm', 'sec'],
-				note: 'Same image in every environment, different **ConfigMap** and **Secret**. Mounted as files (without `subPath`), a ConfigMap update reaches the Pod after a short delay. As environment variables, it needs a Pod restart.'
+				note: 'The same image runs in every environment, with a different ConfigMap and Secret in each. Mounted as files (without `subPath`), a ConfigMap update reaches the Pod after a short delay. As environment variables, it needs a Pod restart.'
 			},
 			{
 				add: [
@@ -49,7 +48,7 @@ export default {
 					'kl --> rst'
 				],
 				highlight: ['rst'],
-				note: '**Liveness** answers "is it stuck?". Fail it `failureThreshold` times in a row (3 by default) and the kubelet **restarts** the container. Good for deadlocks. Dangerous if the check depends on a database: one slow database restarts every Pod.'
+				note: 'The **liveness probe** checks whether the container is stuck. After `failureThreshold` failures in a row (3 by default), the kubelet restarts the container. It catches deadlocks. If the check depends on a database, one slow database restarts every Pod.'
 			},
 			{
 				add: [
@@ -58,7 +57,7 @@ export default {
 					'c -.->|"ready or not"| svc'
 				],
 				highlight: ['svc'],
-				note: '**Readiness** answers "can it take traffic now?". When it fails, the container keeps running, but the Pod is marked not ready and the Service stops sending it traffic. No restart. It comes back when the probe passes again.'
+				note: 'The **readiness probe** checks whether the container can take traffic now. When it fails, the container keeps running, but the Pod is marked not ready and the Service stops sending it traffic. There is no restart, and traffic comes back when the probe passes again.'
 			},
 			{
 				add: [
@@ -66,7 +65,7 @@ export default {
 					'sch -->|"node fits the requests?"| c'
 				],
 				highlight: ['sch'],
-				note: 'The scheduler only places a Pod where the **sum of requests** still fits the node, whatever the real usage is. Requests decide where you run. Limits decide when you get throttled or killed.'
+				note: 'The scheduler only places a Pod where the **sum of requests** still fits the node, whatever the real usage is. Requests decide which node the Pod lands on. Limits decide when the kernel throttles the container or kills it.'
 			}
 		]
 	},
@@ -98,21 +97,21 @@ export default {
           initialDelaySeconds: 15
           periodSeconds: 20`,
 		notes: [
-			'`100m` is 100 millicpu, a tenth of a core. The scheduler reserves that much. The container may burst to `200m`, then the kernel throttles it.',
-			'Memory request and limit are the **same**: `100Mi`. The container cannot borrow RAM beyond what was reserved, so a leak gets **this** container OOM killed instead of eating its neighbours\' memory.',
-			'Readiness starts after 5 seconds and checks every 10. Liveness waits 15 seconds and checks every 20. The longer liveness delay gives the app time to boot before a failure can restart it.',
+			'Line 3, `100m`, is 100 millicpu, a tenth of a core, and the scheduler reserves that much. Line 6 lets the container burst to `200m`, then the kernel throttles it.',
+			'Lines 4 and 7 set the memory request and limit to the same `100Mi`. The container cannot borrow RAM beyond what was reserved, so a leak gets **this** container OOM killed instead of eating its neighbours\' memory.',
+			'Readiness (lines 11 to 16) starts after 5 seconds and checks every 10. Liveness (lines 17 to 22) waits 15 seconds and checks every 20. The longer liveness delay gives the app time to boot before a failure can restart it.',
 			'Secrets reach a container the same way as plain values. The [vLLM example](https://github.com/kubernetes/examples/blob/d6b8cd27eacb51e651a1aa6f7c190a28713eff6e/AI/vllm-deployment/vllm-deployment.yaml#L50-L54) reads a token with `secretKeyRef`, so the value never sits in the Deployment file.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Config is separate from the image: one image, many environments.',
+			'The same image runs in every environment, and each environment gets its own ConfigMap and Secret.',
 			'The kubelet restarts stuck containers and takes unready ones out of the Service by itself, without a page.',
-			'Requests let the scheduler pack nodes safely. Limits stop one noisy container from starving its neighbours.'
+			'The scheduler places Pods by their requests, so the requests on a node never add up to more than the node has. Limits stop one container from taking the CPU and memory of its neighbours.'
 		],
 		cost: [
-			'Secrets are not secret by default. You still need encryption at rest for etcd and tight access rules, or an external secret store.',
-			'A bad liveness probe causes the outages it was meant to prevent: restarts under load make things worse.',
+			'etcd stores Secrets unencrypted by default. You still need encryption at rest for etcd and tight access rules, or an external secret store.',
+			'A liveness probe that depends on the database restarts every Pod when the database is slow, and the restarts add load.',
 			'Limits set too low cause throttling and OOM kills. Requests set too high waste nodes. You have to measure real usage.'
 		]
 	},
@@ -136,7 +135,7 @@ export default {
 				'It moves the Pod to a healthier node and retries the probe there'
 			],
 			answer: 1,
-			why: 'Readiness controls traffic, not life. While the readiness probe fails, the Service sends the Pod no traffic, until it passes again. Restarting is what a failing liveness probe does.'
+			why: 'While the readiness probe fails, the Service sends the Pod no traffic, and the container keeps running. A failing liveness probe is what makes the kubelet restart a container.'
 		},
 		{
 			q: 'A container tries to use more memory than its memory limit. What can happen?',
@@ -147,7 +146,7 @@ export default {
 				'Nothing, limits are only used for scheduling'
 			],
 			answer: 2,
-			why: 'Memory limits are enforced with OOM kills. Throttling is how CPU limits work. Scheduling uses requests, not limits.'
+			why: 'The kernel enforces a memory limit with an OOM kill. Throttling is how CPU limits work. The scheduler only looks at requests.'
 		},
 		{
 			q: 'Why is a Kubernetes Secret not safe just because its values are base64?',
@@ -161,7 +160,10 @@ export default {
 			why: 'Anyone who can read the Secret, or read etcd, gets the value. Encryption at rest and access rules (RBAC) are what protect it.'
 		}
 	],
-	takeaway: 'Config and secrets live outside the image. Probes tell the kubelet when to restart and when to stop sending traffic. Requests say where a Pod fits, limits say when it gets throttled or killed.',
+	recall: {
+		q: 'A readiness probe fails. A liveness probe fails. What does Kubernetes do in each case?',
+		a: 'Readiness: the Pod is marked not ready and the Service stops sending it traffic, with no restart. Liveness: after 3 failures in a row by default, the kubelet restarts the container.'
+	},
 	sources: [
 		{ title: 'Kubernetes docs, ConfigMaps', url: 'https://kubernetes.io/docs/concepts/configuration/configmap/' },
 		{ title: 'Kubernetes docs, Secrets', url: 'https://kubernetes.io/docs/concepts/configuration/secret/' },

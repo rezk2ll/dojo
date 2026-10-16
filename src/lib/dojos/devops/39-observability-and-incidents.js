@@ -8,11 +8,10 @@ export default {
 	minutes: 10,
 	hook: [
 		'You have had the 3 a.m. page that said "disk 81% on db-02". You got up, looked, and the site was fine. The next week the site was down for an hour and **nothing paged** at all.',
-		'That is alerting on **causes**. There are a thousand causes and most of them hurt nobody. Users feel only a few **symptoms**: errors, slowness, nothing loading.',
-		'Today: the three kinds of signals you collect, how Prometheus turns them into alerts on symptoms, and what happens after the page, from on-call to the **blameless postmortem**.'
+		'The disk alert watched a **cause**. A system has a thousand possible causes of trouble, and most of them hurt nobody. Users feel only a few symptoms: errors, slowness, pages that do not load.',
+		'Prometheus collects metrics and turns them into alerts on those symptoms. After the page, the on-call engineer limits the damage, and the team writes a blameless postmortem.'
 	],
 	terms: [
-		{ term: 'Metrics, logs, traces', def: 'Metrics are numbers over time (requests per second). Logs are records of events. A trace follows one request through every service it touches.' },
 		{ term: 'Four golden signals', def: 'From the Google SRE book: latency, traffic, errors, saturation. If you can only measure four things on a user-facing system, measure these.' },
 		{ term: 'Symptom vs cause', def: 'The symptom is what is broken for users ("HTTP 500s"). The cause is why ("database refuses connections"). Page on symptoms, use dashboards to find causes.' },
 		{ term: 'SLO and error budget', def: 'An SLO is a target, like 99% of requests succeed and are fast. The error budget is what is left: 1% may fail. The **burn rate** says how fast you spend it.' },
@@ -28,7 +27,7 @@ export default {
 					'prom -->|"scrapes"| app'
 				],
 				highlight: ['app', 'prom'],
-				note: 'Prometheus **pulls**: at a fixed interval (one minute by default) it fetches `/metrics` from each target and stores the numbers. Logs and traces go to their own stores, but alerts are usually built on metrics.'
+				note: 'Prometheus **pulls** metrics, numbers over time like requests per second. At a fixed interval (one minute by default) it fetches `/metrics` from each target and stores the numbers. Logs (records of events) and traces (one request followed through every service) go to their own stores. Most alert rules query the metrics in Prometheus.'
 			},
 			{
 				add: [
@@ -36,7 +35,7 @@ export default {
 					'prom --> rule'
 				],
 				highlight: ['rule'],
-				note: 'An alerting rule is a PromQL query plus a `for` duration. While the condition is true but the time has not passed, the alert is **pending**. Then it **fires**. The `for` filters out short blips.'
+				note: 'An alerting rule is a PromQL query plus a `for` duration. While the condition is true but the time has not passed, the alert is pending. Once the condition has held for the whole `for` duration, the alert **fires**. A blip shorter than the `for` duration never pages anyone.'
 			},
 			{
 				add: [
@@ -58,7 +57,7 @@ export default {
 					'pm -.->|"action items"| rule'
 				],
 				highlight: ['fix', 'pm'],
-				note: 'First stop the bleeding (roll back, scale up), then find the cause. Afterwards, write the **postmortem**: timeline, impact, contributing causes, action items. Often one action item is a better alert.'
+				note: 'First limit the damage for users (roll back, scale up), then find the cause. Afterwards, write the **postmortem**: timeline, impact, contributing causes, action items. One of the action items often changes an alert rule.'
 			}
 		]
 	},
@@ -96,22 +95,22 @@ export default {
         severity: critical
         short: 30m`,
 		notes: [
-			'This alert watches the Kubernetes API server the way a user feels it. `burnrate1h` is a [recording rule](https://github.com/prometheus-operator/kube-prometheus/blob/f81c076ab8f542c457840cd4c62656b8d6b4f43a/manifests/kubernetesControlPlane-prometheusRule.yaml#L1146-L1172): requests that were **too slow or failed with a 5xx**, divided by all requests. A pure symptom.',
-			'`0.01000` is the error budget of a [99% target](https://github.com/kubernetes-monitoring/kubernetes-mixin/blob/f57ebcd21d8fb67fe9708b7f6d1d30aed26b2be4/config.libsonnet#L18-L21). `14.40` is the burn rate: spending the budget 14.4 times faster than allowed. The SRE workbook says that rate over one hour eats **2% of a 30-day budget**.',
-			'Two windows joined by `and`: the long one (1h) proves it is serious, the short one (5m) proves it is **still happening**. The workbook suggests a short window of 1/12 of the long one, and 5m is 1/12 of 1h.',
-			'Every alert carries a `runbook_url`. The person paged at 3 a.m. gets a link to what to check first, not just a name.'
+			'Line 7 reads `burnrate1h`, a [recording rule](https://github.com/prometheus-operator/kube-prometheus/blob/f81c076ab8f542c457840cd4c62656b8d6b4f43a/manifests/kubernetesControlPlane-prometheusRule.yaml#L1146-L1172): requests that were **too slow or failed with a 5xx**, divided by all requests. So the alert measures a symptom that clients of the Kubernetes API server feel.',
+			'On line 7, `0.01000` is the error budget of a [99% target](https://github.com/kubernetes-monitoring/kubernetes-mixin/blob/f57ebcd21d8fb67fe9708b7f6d1d30aed26b2be4/config.libsonnet#L18-L21). `14.40` is the burn rate: spending the budget 14.4 times faster than allowed. The SRE workbook says that rate over one hour uses **2% of a 30-day budget**.',
+			'Lines 7 to 9 join two windows with `and`. The long one (1h) shows the error rate has lasted long enough to matter, and the short one (5m) shows it is **still happening**. The workbook suggests a short window of 1/12 of the long one, and 5m is 1/12 of 1h.',
+			'Lines 4 and 18 give each alert a `runbook_url`. The person paged at 3 a.m. gets a link to what to check first, along with the alert name.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Fewer, better pages: each one means users are hurting right now.',
+			'On-call gets fewer pages, and each page means users see errors or slowness right now.',
 			'Burn-rate alerts catch a slow leak and a sudden outage with the same rule set.',
-			'Blameless postmortems make people report what really happened, so the same incident does not come back.'
+			'In a blameless postmortem people report what they really did, so the action items address the real causes.'
 		],
 		cost: [
-			'You must define an SLO first, and agree on it with the product owner. That is a conversation, not a config file.',
-			'Cause metrics (disk, CPU) still matter. They move to dashboards and tickets, which someone has to read.',
-			'Metrics, logs and traces are three systems to run, store and pay for. Cardinality (too many label values) can blow up Prometheus.'
+			'Before you write the alert rules, you must agree on an SLO with the product owner.',
+			'Disk and CPU metrics move to dashboards and tickets, and someone still has to read them.',
+			'Metrics, logs and traces need three systems to run, store and pay for. Too many label values (high cardinality) can overload Prometheus.'
 		]
 	},
 	task: {
@@ -120,7 +119,7 @@ export default {
 		answer: [
 			'Keep paging on the **symptom**: the error ratio. Better, define an SLO (say 99.5% of checkouts succeed in under 1 s) and page on burn rate over two windows.',
 			'Add a **latency** symptom: slow checkouts hurt users as much as failed ones.',
-			'CPU and pod restarts become **dashboard panels** or low-priority tickets, not pages. They help find the cause once you are paged.',
+			'Move CPU and pod restarts to **dashboard panels** or low-priority tickets, with no page. They help find the cause once you are paged.',
 			'Disk at 85% is a real future problem: alert on "disk full in 4 hours" as a ticket, not on a fixed percentage at night.',
 			'Each remaining alert gets a summary, a severity and a `runbook_url`. After the next incident, the postmortem checks whether the alert fired early enough.'
 		]
@@ -160,7 +159,10 @@ export default {
 			why: 'Blame makes people hide what they did, and then the real causes stay hidden. The SRE book defines blameless as finding causes without indicting anyone.'
 		}
 	],
-	takeaway: 'Collect metrics, logs and traces, but page only on symptoms users feel, ideally as an SLO burn rate. After every incident, write a blameless postmortem and turn its lessons into action items.',
+	recall: {
+		q: 'Which alerts should page the on-call engineer, and how does `KubeAPIErrorBudgetBurn` decide to fire?',
+		a: 'Only alerts on symptoms users feel, like errors and latency. `KubeAPIErrorBudgetBurn` fires when the error budget of a 99% target burns 14.4 times too fast over both 1 hour and 5 minutes, for 2 minutes.'
+	},
 	sources: [
 		{ title: 'Google SRE book, Monitoring distributed systems', url: 'https://sre.google/sre-book/monitoring-distributed-systems/' },
 		{ title: 'Google SRE workbook, Alerting on SLOs', url: 'https://sre.google/workbook/alerting-on-slos/' },

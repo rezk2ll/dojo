@@ -33,6 +33,7 @@ const DODGE = 140;
 // A tap on a touch screen is a short visit, not a pointer that stays.
 const TOUCH_STAYS = 2500;
 const SLEEP_AFTER = 120_000;
+const GROUND = -0.82;
 const FACE = 256;
 
 /**
@@ -68,7 +69,7 @@ export function createScene(canvas, { color, still, touch }) {
 
 	const ground = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: 0.12 }));
 	ground.rotation.x = -Math.PI / 2;
-	ground.position.y = -0.82;
+	ground.position.y = GROUND;
 	ground.receiveShadow = true;
 	scene.add(ground);
 
@@ -135,8 +136,10 @@ export function createScene(canvas, { color, still, touch }) {
 	let spot = SPOTS[0];
 	/** @type {{ mood: Mood, at: number } | undefined} */
 	let reaction;
-	/** @type {{ name: Cue, at: number } | undefined} */
+	/** @type {{ name: Cue, at: number, dropped?: boolean } | undefined} */
 	let cued;
+	/** @type {{ mesh: THREE.Mesh, v: number, at: number } | undefined} */
+	let drop;
 	let read = { until: 0, dir: 0 };
 	let turns = 0;
 	let nextBlink = performance.now() + 2500;
@@ -174,6 +177,7 @@ export function createScene(canvas, { color, still, touch }) {
 	function cue(name) {
 		wake();
 		cued = { name, at: performance.now() };
+		if (name === 'done') turns += 1;
 	}
 
 	/** Moves out of the pointer's way, and back home once the pointer leaves. Returns the pointer relative to the cube. */
@@ -246,6 +250,19 @@ export function createScene(canvas, { color, still, touch }) {
 			s.yaw.to -= 0.25;
 		}
 		if (cued?.name === 'nod' && c < 1.1) s.pitch.to += Math.sin(c * 11.5) * 0.22 * (1 - c / 1.1);
+		if (cued?.name === 'done' && c < 1.6) {
+			// A victory loop around its spot, then a little cube drops by the ring.
+			const a = (Math.min(c, 1.4) / 1.4) * Math.PI * 2;
+			// Home sits in the bottom right corner, so the loop swings left, where there is room.
+			s.ox.to += -(1 - Math.cos(a)) * 55 * scale;
+			s.oy.to += -Math.sin(a) * 40 * scale;
+			s.happy.to = 1;
+			s.glow.to = 1.8;
+		}
+		if (cued?.name === 'done' && c >= 1.4 && !cued.dropped) {
+			cued.dropped = true;
+			dropCube(now);
+		}
 		if (reaction?.mood === 'happy' && t < 2.2) {
 			s.happy.to = 1;
 			s.glow.to = 1.8;
@@ -347,6 +364,43 @@ export function createScene(canvas, { color, still, touch }) {
 		faceTexture.needsUpdate = true;
 	}
 
+	function dropCube(/** @type {number} */ now) {
+		if (drop) removeDrop();
+		const mesh = new THREE.Mesh(
+			new RoundedBoxGeometry(0.2, 0.2, 0.2, 3, 0.03),
+			new THREE.MeshPhysicalMaterial({ color: tint, roughness: 0.4, clearcoat: 0.6, transparent: true })
+		);
+		mesh.castShadow = true;
+		mesh.position.set(0.58, still ? GROUND + 0.1 : 1.1, 0.25);
+		mesh.rotation.y = 0.6;
+		scene.add(mesh);
+		drop = { mesh, v: 0, at: now };
+	}
+
+	function removeDrop() {
+		if (!drop) return;
+		scene.remove(drop.mesh);
+		drop.mesh.geometry.dispose();
+		/** @type {THREE.Material} */ (drop.mesh.material).dispose();
+		drop = undefined;
+	}
+
+	/** Falls, bounces twice, rests a few seconds and fades. */
+	function moveDrop(/** @type {number} */ now, /** @type {number} */ dt) {
+		if (!drop) return;
+		const { mesh } = drop;
+		const floor = GROUND + 0.1;
+		drop.v -= 9 * dt;
+		mesh.position.y += drop.v * dt;
+		if (mesh.position.y < floor) {
+			mesh.position.y = floor;
+			drop.v = Math.abs(drop.v) > 0.6 ? -drop.v * 0.35 : 0;
+		}
+		const age = (now - drop.at) / 1000;
+		/** @type {THREE.MeshPhysicalMaterial} */ (mesh.material).opacity = Math.max(0, Math.min(1, 7 - age));
+		if (age > 7) removeDrop();
+	}
+
 	let last = performance.now();
 	let frame = 0;
 	function tick(/** @type {number} */ now) {
@@ -357,6 +411,7 @@ export function createScene(canvas, { color, still, touch }) {
 		perform(now);
 		for (let left = dt; left > 0; left -= 1 / 240) for (const sp of springs) sp.step(Math.min(left, 1 / 240));
 		if (still) for (const sp of springs) sp.x = sp.to;
+		moveDrop(now, dt);
 
 		const hover = still ? 0 : Math.sin(now / 1100) * 0.04 * (1 - Math.max(0, s.sleep.x));
 		root.position.y = s.y.x + hover;

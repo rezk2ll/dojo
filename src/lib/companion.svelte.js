@@ -3,7 +3,7 @@ const KEY = 'dojo:companion';
 /**
  * @typedef {'idle' | 'happy' | 'sad'} Mood
  * @typedef {'s' | 'm' | 'l'} Size
- * @typedef {'glance' | 'nod'} Cue
+ * @typedef {'glance' | 'nod' | 'done'} Cue
  */
 
 /** Side of the cube's canvas in CSS pixels. */

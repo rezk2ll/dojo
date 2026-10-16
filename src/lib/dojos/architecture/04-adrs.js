@@ -1,0 +1,132 @@
+const BACKSTAGE = 'https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283';
+const ADRS = `${BACKSTAGE}/docs/architecture-decisions`;
+
+/** @type {import('../../content.js').Chapter} */
+export default {
+	slug: 'adrs',
+	part: 'Thinking like an architect',
+	title: 'Write the decision down, with its why',
+	minutes: 10,
+	hook: [
+		'Backstage is an open-source developer portal made of many plugins. Picture a newcomer who opens one plugin that imports `node-fetch`, then another that calls the built-in `fetch`. Which one is right? If the answer lives only in a review thread, they will guess, and the codebase drifts further.',
+		'That is the second law in action: **why is more important than how**. The code shows how. Only a written decision keeps why.',
+		'The tool is tiny: an **Architecture Decision Record**. One page, one decision. Backstage keeps them in `docs/architecture-decisions`, numbered, next to the code. Two of them answer the newcomer, and show how a decision changes without losing its history.'
+	],
+	terms: [
+		{ term: 'ADR', def: 'Architecture Decision Record. A short file: Title, Status, Context, Decision, Consequences (Michael Nygard, 2011).' },
+		{ term: 'Context', def: 'The forces at play, written neutrally. What is true, what is pushing on the decision.' },
+		{ term: 'Consequences', def: 'Everything that follows from the decision, the good **and** the bad. If there is no bad, look again (first law).' },
+		{ term: 'Alternatives considered', def: 'The options you said no to, each with its reason. It stops the next person from proposing them again.' },
+		{ term: 'Superseded', def: 'A newer ADR replaced this one. You never edit an accepted ADR to change the decision, you write a new one and link them.' },
+		{ term: 'Y-statement', def: 'A one-sentence ADR: "In the context of…, facing…, we decided for… and neglected…, to achieve…, accepting…"' }
+	],
+	diagram: {
+		direction: 'LR',
+		steps: [
+			{
+				add: ['draft["Proposed: a pull request, no number yet"]'],
+				highlight: ['draft'],
+				note: 'An ADR starts as **Proposed**: a question with a suggested answer, open for review. In Backstage it is a pull request from the template, and the guide says "Do not assign an ADR number" until feedback is in.'
+			},
+			{
+				add: ['draft -->|agreed| accepted["Accepted: ADR013, Dec 2021"]', 'draft -->|not this| rejected["Rejected"]'],
+				highlight: ['accepted', 'rejected'],
+				note: 'It ends **Accepted** or **Rejected**. ADR013 was written in December 2021: backend packages should use the `node-fetch` package.'
+			},
+			{
+				add: ['accepted -->|context changed| superseded["ADR013 marked superseded"]', 'adr14["ADR014, Nov 2024: native fetch"] -.->|replaces| superseded'],
+				highlight: ['superseded', 'adr14'],
+				note: 'Backstage raised its minimum to Node.js 20, where the built-in `fetch` works without a flag. Backstage did not rewrite ADR013. It wrote **ADR014**, and ADR013 now opens with "This ADR has been superseded by ADR014 and no longer applies." Both stay readable.'
+			},
+			{
+				add: ['inplace["First commit: edit ADR013 in place"] -.->|same pull request| adr14'],
+				highlight: ['inplace'],
+				note: 'The pull of editing in place is real. In the pull request that made ADR014, the first commit rewrote ADR013\'s Decision directly. A later commit in the same pull request moved the change into a new record. The project rule won: "Records are never deleted but can be marked as superseded."'
+			}
+		]
+	},
+	example: {
+		title: 'docs/architecture-decisions/adr014-use-fetch.md (excerpt)',
+		repo: 'backstage/backstage',
+		url: `${ADRS}/adr014-use-fetch.md?plain=1#L7-L79`,
+		lang: 'md',
+		code: `## Context
+
+Until now we have been recommending the use of \`node-fetch\` in Node.js contexts
+through [ADR013](./adr013-use-node-fetch.md). Since then, Backstage has had its
+minimum requirements upgraded to Node.js 20 or newer. The Node.js platform has
+established a stable, reliable \`undici\` based native \`fetch\` in these versions.
+Additionally, there are [some issues](https://github.com/backstage/backstage/issues/24590)
+with using third party libraries that only appeared in newer versions of
+Node.js.
+
+## Decision
+
+All code that is executed in Node.js (including backend and CLIs) should use the
+native \`fetch\` for HTTP data fetching, and \`typeof fetch\` as the TypeScript type
+in code where a \`fetch\` implementation can be injected or is referred to.
+…
+## Consequences
+
+We will gradually transition away from third party \`fetch\` replacement packages
+such as \`node-fetch\` and others on the Node.js platform.
+…`,
+		notes: [
+			'**Context** says what changed since the last decision, without arguing: a new Node.js minimum, a stable native `fetch`, known issues with the old libraries. A changed context is what makes a new ADR legitimate.',
+			'**Decision** is full sentences in active voice, as the [template](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr000-template.md?plain=1#L9-L22) asks. The template comes from Nygard\'s 2011 blog post and says "All consequences should be listed here", the negative ones too.',
+			'**Consequences** does that. Its last paragraph warns that `msw` 1.x [does not intercept native fetch properly](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr014-use-fetch.md?plain=1#L79), so some tests will fail and need rewriting. That is the cost, said out loud.',
+			'What is missing: an **Alternatives considered** section. ADR013 names `axios` and `got` as packages to move away from, but neither record says why they lost. A newcomer who asks "why not `axios`?" still has to go and ask.'
+		]
+	},
+	tradeoff: {
+		gain: [
+			'The why survives people leaving, and reviewers argue with the reasoning, not with you.',
+			'Writing the consequences forces you to find the downside before shipping, like broken `msw` tests.',
+			'A superseded ADR keeps the history: a reader sees what was decided in 2021, what changed, and what holds now.'
+		],
+		cost: [
+			'It takes time you would rather spend coding.',
+			'A decision on paper is not a decision in code. Nearly two years after ADR014, the [Kubernetes backend plugin](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/plugins/kubernetes-backend/src/service/KubernetesConnection.ts#L24) still imports `node-fetch`. The record says "gradually", and gradually is slow.',
+			'Writing one for every small choice buries the important ones. Keep them for expensive-to-change decisions.'
+		]
+	},
+	task: {
+		prompt: 'Write ADR014 as a **Y-statement** (one sentence). Everything you need is in the excerpt and the diagram.',
+		hint: 'In the context of… (which code), facing… (what changed), we decided for… and neglected… (the old option), to achieve… (the gain), accepting… (the cost).',
+		answer: [
+			'**In the context of** Backstage code that runs in Node.js and makes HTTP calls,',
+			'**facing** a Node.js 20 minimum with a built-in native `fetch`, and issues with third party libraries on newer Node.js versions,',
+			'**we decided for** the native `fetch` everywhere in Node.js **and neglected** keeping `node-fetch` as ADR013 asked,',
+			'**to achieve** one `fetch` with no extra package to keep up to date,',
+			'**accepting** that tests built on `msw` 1.x may stop catching traffic and need a rewrite for `msw` 2.x.'
+		]
+	},
+	quiz: [
+		{
+			q: 'A year after an ADR is accepted, the team changes the decision. What happens to the old ADR?',
+			options: ['Edit its Decision section to match the new choice', 'Write a new ADR, and mark the old one "superseded by" it', 'Delete it, the code is the truth', 'Add a comment in the code that used it'],
+			answer: 1,
+			why: 'Accepted ADRs are a history. You supersede them, so readers see both what was decided and why it changed. Backstage\'s ADR013 opens with a note pointing to ADR014.'
+		},
+		{
+			q: 'ADR014 warns that `msw` 1.x tests may fail with native fetch. Why does that line belong under Consequences?',
+			options: ['It is a bug report that belongs in the issue tracker instead', 'It belongs in Context, because it is a fact', 'It is the implementation plan for the migration', 'Consequences hold the good and the bad that follow from the decision, and this is a price paid'],
+			answer: 3,
+			why: 'If Consequences has no downside, the first law says you have not found it yet. Naming it also tells every plugin author what to expect.'
+		},
+		{
+			q: 'In Backstage, when does a new ADR get its number?',
+			options: ['As soon as the file is created', 'Only when it is superseded', 'Near the end of review, after the community has given feedback on the pull request', 'Never, ADRs are named by date'],
+			answer: 2,
+			why: 'The guide says to copy the template without assigning a number, gather feedback on the pull request, and "Eventually, assign a number". A number marks a decision that was actually made.'
+		}
+	],
+	takeaway: 'One decision, one page: context, decision, consequences. When the context changes, write a new record and supersede the old one.',
+	sources: [
+		{ title: 'Backstage ADR014, Proper use of HTTP fetching libraries', url: `${ADRS}/adr014-use-fetch.md` },
+		{ title: 'Backstage ADR013 (superseded), the node-fetch decision', url: `${ADRS}/adr013-use-node-fetch.md` },
+		{ title: 'Backstage, ADR overview: creating and superseding', url: `${ADRS}/index.md?plain=1#L12-L37` },
+		{ title: 'Michael Nygard, Documenting Architecture Decisions (2011)', url: 'https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions' },
+		{ title: 'adr.github.io, ADR templates including the Y-statement', url: 'https://adr.github.io/adr-templates/' }
+	]
+};

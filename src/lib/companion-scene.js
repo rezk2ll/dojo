@@ -27,14 +27,16 @@ const SPOTS = [
 	[-230, -220]
 ];
 const DODGE = 140;
+// A tap on a touch screen is a short visit, not a pointer that stays.
+const TOUCH_STAYS = 2500;
 const FACE = 256;
 
 /**
  * Draws the companion into `canvas` and animates it until `dispose` is called.
  * @param {HTMLCanvasElement} canvas
- * @param {{ color: string, still: boolean }} options
+ * @param {{ color: string, still: boolean, touch: boolean }} options
  */
-export function createScene(canvas, { color, still }) {
+export function createScene(canvas, { color, still, touch }) {
 	const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 	renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 	renderer.toneMapping = THREE.NeutralToneMapping;
@@ -132,13 +134,18 @@ export function createScene(canvas, { color, still }) {
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
 
-	/** @param {number} x @param {number} y Pointer position in the viewport, in pixels. */
+	/** @param {number} x @param {number} y Mouse position in the viewport, in pixels. */
 	function look(x, y) {
+		if (!touch) pointer = { x, y, at: performance.now() };
+	}
+
+	/** @param {number} x @param {number} y A tap on a touch screen, in viewport pixels. */
+	function poke(x, y) {
 		pointer = { x, y, at: performance.now() };
 	}
 
 	/** Moves out of the pointer's way, and back home once the pointer leaves. Returns the pointer relative to the cube. */
-	function dodge() {
+	function dodge(/** @type {number} */ now) {
 		// offsetLeft ignores the translate, so this stays the home corner while it moves.
 		const hx = canvas.offsetLeft + canvas.offsetWidth / 2;
 		const hy = canvas.offsetTop + canvas.offsetHeight / 2;
@@ -148,7 +155,8 @@ export function createScene(canvas, { color, still }) {
 			const [x, y] = place(p);
 			return Math.hypot(pointer.x - hx - x, pointer.y - hy - y);
 		};
-		if (from(spot) < DODGE * scale) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
+		if (touch && now - pointer.at > TOUCH_STAYS) spot = SPOTS[0];
+		else if (from(spot) < DODGE * scale) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
 		else if (spot !== SPOTS[0] && from(SPOTS[0]) > (DODGE + 40) * scale) spot = SPOTS[0];
 		[s.ox.to, s.oy.to] = place(spot);
 		return { x: pointer.x - hx - s.ox.x, y: pointer.y - hy - s.oy.x };
@@ -169,7 +177,7 @@ export function createScene(canvas, { color, still }) {
 	}
 
 	function aim(/** @type {number} */ now) {
-		const p = dodge();
+		const p = dodge(now);
 		const d = Math.hypot(p.x, p.y) || 1;
 		const reach = Math.min(1, d / 500);
 		let dx = (p.x / d) * reach;
@@ -315,6 +323,7 @@ export function createScene(canvas, { color, still }) {
 
 	return {
 		look,
+		poke,
 		react,
 		setColor,
 		resize,

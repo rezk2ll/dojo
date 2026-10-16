@@ -70,6 +70,25 @@ export const dojos = [
 			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
 			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
 		}
+	},
+	{
+		id: 'bugs',
+		name: 'Spot the Bug Dojo',
+		hue: 350,
+		chroma: 0.1,
+		hex: { top: '#dfa3bf', left: '#9f5d7d', right: '#c67ea0' },
+		description: {
+			en: 'Real bugs from open-source projects, as the code was before the fix. Find the line, then read the fix.',
+			fr: 'De vrais bugs de projets open source, dans le code d’avant le correctif. Trouve la ligne, puis lis le correctif.'
+		},
+		heroTitle: {
+			en: 'Find the bug before you read the fix.',
+			fr: 'Trouve le bug avant de lire le correctif.'
+		},
+		heroText: {
+			en: 'One real bug a day, from a real fix commit. Questions come back later so they stick.',
+			fr: 'Un vrai bug par jour, tiré d’un vrai commit de correctif. Les questions reviennent plus tard pour que ça reste.'
+		}
 	}
 ];
 

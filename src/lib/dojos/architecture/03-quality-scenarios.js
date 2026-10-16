@@ -6,18 +6,17 @@ const RAILS = 'https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf
 export default {
 	slug: 'quality-scenarios',
 	part: 'Thinking like an architect',
-	title: '"Secure" is not a requirement. A scenario is.',
+	title: 'Quality scenarios: making "secure" testable',
 	minutes: 10,
 	hook: [
-		'Yesterday you picked three characteristics. Today\'s problem: "the system must be secure" cannot be tested, cannot be argued with, and cannot tell you when you are done.',
-		'Take a Mastodon server. Someone gets a list of leaked passwords and tries them, one after another, on the login form. One of them will work for some user who reused it somewhere else.',
-		'"Protect accounts from password guessing" is a wish. A **quality attribute scenario** turns it into one sentence with six parts, ending in a number you can test. Mastodon ships the mechanism, and its config holds the numbers.'
+		'Yesterday you picked three characteristics, like security. Nobody can test "the system must be secure", and nobody can say when it is done.',
+		'Take a Mastodon server. Someone gets a list of leaked passwords and tries them one after another on the login form. One of them will work for a user who reused it on another site.',
+		'A **quality attribute scenario** describes that attack in one sentence with six parts, and the last part is a number QA can check. Mastodon ships the mechanism, and its config holds the numbers.'
 	],
 	terms: [
-		{ term: 'Scenario', def: 'A short, testable story: who does what to which part, in which situation, what the system must do, and how you measure it.' },
-		{ term: 'Stimulus', def: 'The event that hits the system: a burst of logins, a crash, a traffic spike, an attack.' },
-		{ term: 'Response measure', def: 'The number that says pass or fail. Without it, it is still a wish.' },
-		{ term: 'Rate limit', def: 'A cap on how much one caller can do in a time window. Here: login attempts per IP address and per account.' },
+		{ term: 'Scenario', def: 'One testable sentence: who does what to which part, in which situation, what the system must do, and how you measure it.' },
+		{ term: 'Stimulus', def: 'The event that reaches the system: a burst of logins, a crash, a traffic spike.' },
+		{ term: 'Response measure', def: 'The number that decides pass or fail, like "at most 25 attempts per IP in 5 minutes".' },
 		{ term: 'Fail open, fail closed', def: 'What a check does when it cannot run. Fail open lets the request through. Fail closed refuses it.' }
 	],
 	diagram: {
@@ -26,27 +25,27 @@ export default {
 			{
 				add: ['source["Source: attacker with leaked passwords"] -->|sends| stimulus["Stimulus: 1000 logins in 5 minutes"]'],
 				highlight: ['source', 'stimulus'],
-				note: '**Who** acts, and **what** they do. Not "a bad actor", but a script trying real passwords, one login at a time.'
+				note: 'The source and the stimulus say who acts and what they do. Here the source is a script, and the stimulus is 1000 logins with leaked passwords, sent one at a time.'
 			},
 			{
 				add: ['stimulus -->|hits| artifact["Artifact: login throttles in Rack::Attack"]'],
 				highlight: ['artifact'],
-				note: '**Which part** of the system is hit. Not "the server", but the Rack::Attack middleware that sees every `POST /auth/sign_in` before Rails checks the password.'
+				note: 'The artifact is the part of the system that gets hit. Here it is the Rack::Attack middleware, which sees every `POST /auth/sign_in` before Rails checks the password.'
 			},
 			{
 				add: ['env["Environment: normal load, Redis up"] -.->|while| artifact', 'class env ext'],
 				highlight: ['env'],
-				note: '**In which situation.** The counters live in Redis, through the Rails cache. Normal load? During a deploy? With Redis down? The same stimulus can need a different answer in each.'
+				note: 'The environment is the state of the system when the stimulus arrives. The counters live in Redis, through the Rails cache. Normal load, a deploy and Redis down can each need a different answer to the same attack.'
 			},
 			{
 				add: ['artifact -->|must| response["Response: 429 Too Many Requests"]'],
 				highlight: ['response'],
-				note: '**What must happen.** Attempts under the limit reach the password check as usual. The rest get a `429` with `X-RateLimit-Reset`, so honest clients know when to retry.'
+				note: 'The response says what must happen. Attempts under the limit reach the password check as usual. The others get a `429` with an `X-RateLimit-Reset` header, so honest clients know when to retry.'
 			},
 			{
 				add: ['response -->|tested by| measure["Measure: at most 25 per IP per 5 minute window reach the password check"]'],
 				highlight: ['measure'],
-				note: '**How you check.** Mastodon\'s limit is 25 per IP per 5 minutes, counted in fixed windows, so a burst that spans a window boundary gets 25 in each. QA can send 1000 from one IP and count per window. Now you argue about the number, not the adjective.'
+				note: 'The measure says how you check. Mastodon allows 25 attempts per IP per 5 minutes, counted in fixed windows, so a burst that spans a window boundary gets 25 in each. QA can send 1000 logins from one IP and count how many reach the password check in each window.'
 			}
 		]
 	},
@@ -77,33 +76,33 @@ export default {
     [429, headers, [{ error: I18n.t('errors.429') }.to_json]]
   end`,
 		notes: [
-			'The **measure** is data, not logic: `limit: 25, period: 5.minutes`. Change the number and the scenario\'s pass line moves with it.',
-			'The **response** is the responder: a `429` and three headers that say the limit, what is left, and when the window resets.',
-			'Two throttles, because a second scenario found a second stimulus. An attacker who spreads the guesses for one account over many IPs slips under the per-IP limit, so the per-account limit (25 an hour) catches them. And [`throttleable_remote_ip`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/config/initializers/rack_attack.rb#L20-L30) counts a whole IPv6 `/64` as one address, so rotating addresses inside one network does not help either.',
-			'The **environment** hides in the store. Mastodon\'s production cache is Redis. If Redis is down, the Rails cache [swallows the error and returns `nil`](https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf7174b81d8cb/activesupport/lib/active_support/cache/redis_cache_store.rb#L490-L503), and Rack::Attack [treats `nil` as a count of 1](https://github.com/rack/rack-attack/blob/65f1ead3bc648b1e972fd8df0078949f056699d9/lib/rack/attack/cache.rb#L76-L89). Every attempt looks like the first. That is "fail open". Whether you want it is a scenario question.'
+			'Lines 1 to 3 hold the measure as data: `limit: 25, period: 5.minutes`. Change the number and the pass line of the scenario changes with it.',
+			'Lines 9 to 21 are the response: a `429` and three headers that give the limit, the attempts left, and the time the window resets.',
+			'Lines 5 to 7 add a second throttle for a second stimulus. An attacker who spreads guesses for one account over many IPs stays under the per-IP limit, so a limit of 25 per hour per account catches them. [`throttleable_remote_ip`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/config/initializers/rack_attack.rb#L20-L30) also counts a whole IPv6 `/64` as one address, so rotating addresses inside one network does not help.',
+			'The environment shows up in the cache store. If Redis is down, the Rails cache [swallows the error and returns `nil`](https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf7174b81d8cb/activesupport/lib/active_support/cache/redis_cache_store.rb#L490-L503), and Rack::Attack counts `nil` as 1 (`Cache#do_count`, in the sources). Every attempt then looks like the first one, so the throttle fails open.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Vague words become tests. "Protect accounts" turns into "at most 25 guesses per IP per 5 minute window reach the password check".',
-			'Disagreements get concrete: people argue about 25 or 100 attempts, not about "secure enough".',
-			'Scenarios make good acceptance tests and good review checklists. They also find missing cases, like an attacker with a thousand IP addresses.'
+			'QA can test the goal: send 1000 logins from one IP and check that at most 25 per 5 minute window reach the password check.',
+			'The team argues about a number, 25 or 100 attempts, instead of about "secure enough".',
+			'Writing a second scenario found a second attacker, one account guessed from many IPs, and Mastodon has a throttle for it.'
 		],
 		cost: [
-			'Writing them takes real thought, and they force you to discover what you don\'t know (what happens to the limits when Redis is down?).',
-			'Too many scenarios is noise. Write them for your top three characteristics first.',
-			'A number can be wrong. Set the limit too low and a whole office behind one IP address gets locked out.'
+			'Each scenario takes thought, and it shows what you do not know yet, like what the throttle does when Redis is down.',
+			'Each scenario needs a test and an owner. Start with your top three characteristics.',
+			'With a limit set too low, a whole office behind one IP address gets locked out.'
 		]
 	},
 	task: {
 		prompt: 'Write the scenario for the same attacker, but **Redis is down**. Then pick what the login throttle should do: fail open (today\'s behavior), fail closed, or fall back to a counter in each app process\'s memory.',
 		hint: 'Each choice protects a different characteristic. Ask who suffers during the outage: the attacker, or every honest user who wants to log in.',
 		answer: [
-			'**Source:** attacker with leaked passwords. **Stimulus:** 1000 logins in 5 minutes. **Artifact:** the login throttles. **Environment:** Redis unreachable for 10 minutes.',
-			'**Fail open** (what the code does today): logins keep working for everyone, and the attacker gets 10 minutes with no limit. Availability wins, security loses.',
-			'**Fail closed:** refuse every login while the counter is unreachable. The attacker is stopped, and so is every honest user. Security wins, availability loses.',
-			'**Local fallback:** each process counts in its own memory. Limits still apply, but they multiply by the number of processes, and a restart resets them. A middle answer, with more code to own.',
-			'**Response and measure**, for example: "logins keep working; at most 25 × (number of web processes) attempts per IP per 5 minutes reach the password check while Redis is down." Yours may differ. What matters is that it has a number.'
+			'Source: an attacker with leaked passwords. Stimulus: 1000 logins in 5 minutes. Artifact: the login throttles. Environment: Redis unreachable for 10 minutes.',
+			'Fail open, what the code does today: logins keep working for everyone, and the attacker gets 10 minutes with no limit.',
+			'Fail closed: every login is refused while the counter is unreachable. The attacker is stopped, and so is every honest user.',
+			'Local fallback: each process counts in its own memory. The limit still applies, but it is multiplied by the number of processes, and a restart resets it. You also have more code to maintain.',
+			'A possible response and measure: "logins keep working; at most 25 × (number of web processes) attempts per IP per 5 minutes reach the password check while Redis is down." Your numbers may differ, but the measure must be a number.'
 		]
 	},
 	quiz: [
@@ -116,7 +115,7 @@ export default {
 				'Adding a cache in front of the database so most reads are quick'
 			],
 			answer: 2,
-			why: 'The measure is the pass or fail line. Without it nobody can tell if the design meets the need.'
+			why: 'With a measure, a load test passes or fails: p95 under 300 ms at 200 requests per second either holds or it does not. Without one, nobody can tell if the design meets the need.'
 		},
 		{
 			q: 'In a quality scenario, the **environment** describes…',
@@ -138,10 +137,13 @@ export default {
 				'Every attempt is counted as the first in its window, so nothing is throttled'
 			],
 			answer: 3,
-			why: 'The Rails Redis cache returns `nil` on connection errors, and Rack::Attack reads `nil` as a count of 1. The check fails open. A scenario with "Redis down" as its environment is how you decide if that is what you want.'
+			why: 'The Rails Redis cache returns `nil` on connection errors, and Rack::Attack reads `nil` as a count of 1. No attempt is throttled while Redis is down.'
 		}
 	],
-	takeaway: 'If it has no number, it is a wish. Source, stimulus, artifact, environment, response, measure.',
+	recall: {
+		q: 'Which part of a quality scenario makes it testable, and what is it for Mastodon\'s login throttle?',
+		a: 'The response measure. For Mastodon it is at most 25 login attempts per IP per 5 minute window reaching the password check.'
+	},
 	sources: [
 		{ title: 'Mastodon, config/initializers/rack_attack.rb', url: `${MASTODON}/config/initializers/rack_attack.rb#L148-L172` },
 		{ title: 'Mastodon docs, API rate limits', url: 'https://docs.joinmastodon.org/api/rate-limits/' },

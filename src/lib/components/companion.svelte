@@ -1,11 +1,11 @@
 <script>
 	import { onMount, untrack } from 'svelte';
-	import { companion, react } from '#lib/companion.svelte.js';
+	import { companion, react, SIZES } from '#lib/companion.svelte.js';
 
 	/** @type {{ color: string }} */
 	let { color } = $props();
 
-	const SIZE = 150;
+	let size = $derived(SIZES[companion.size]);
 
 	/** @type {HTMLCanvasElement | undefined} */
 	let canvas = $state();
@@ -21,7 +21,6 @@
 		import('#lib/companion-scene.js').then(({ createScene }) => {
 			if (gone || !canvas) return;
 			view = createScene(canvas, { color: untrack(() => color), still: matchMedia('(prefers-reduced-motion: reduce)').matches });
-			view.resize(SIZE, SIZE);
 		});
 		addEventListener('pointermove', follow, { passive: true });
 		document.documentElement.addEventListener('pointerleave', leave);
@@ -34,6 +33,7 @@
 	});
 
 	$effect(() => view?.setColor(color));
+	$effect(() => view?.resize(size));
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));
@@ -43,7 +43,7 @@
 <canvas
 	bind:this={canvas}
 	class="fixed right-1 bottom-16 z-40 cursor-pointer"
-	style="width: {SIZE}px; height: {SIZE}px"
+	style="width: {size}px; height: {size}px"
 	aria-hidden="true"
 	onclick={() => react(true)}
 ></canvas>

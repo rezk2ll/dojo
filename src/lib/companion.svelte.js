@@ -1,9 +1,15 @@
 const KEY = 'dojo:companion';
 
-/** @typedef {'idle' | 'happy' | 'sad'} Mood */
+/**
+ * @typedef {'idle' | 'happy' | 'sad'} Mood
+ * @typedef {'s' | 'm' | 'l'} Size
+ */
+
+/** Side of the cube's canvas in CSS pixels. */
+export const SIZES = { s: 110, m: 150, l: 200 };
 
 /** The cube in the corner. `beat` changes on every reaction, so the same mood twice still replays. */
-export const companion = $state({ on: true, mood: /** @type {Mood} */ ('idle'), beat: 0 });
+export const companion = $state({ on: true, size: /** @type {Size} */ ('s'), mood: /** @type {Mood} */ ('idle'), beat: 0 });
 
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let calm;
@@ -18,16 +24,22 @@ export function react(correct) {
 
 export function initCompanion() {
 	try {
-		companion.on = localStorage.getItem(KEY) !== '0';
+		const saved = localStorage.getItem(KEY);
+		// The first version stored only "0" or "1".
+		const s = saved === '0' ? { on: false } : saved === '1' || !saved ? {} : JSON.parse(saved);
+		companion.on = s.on ?? true;
+		if (s.size in SIZES) companion.size = s.size;
 	} catch {
-		// Blocked storage: the cube stays.
+		// Blocked storage: the cube keeps its defaults.
 	}
 }
 
-export function toggleCompanion() {
-	companion.on = !companion.on;
+/** @param {Partial<Pick<typeof companion, 'on' | 'size'>>} change */
+export function setCompanion(change) {
+	Object.assign(companion, change);
+	const { on, size } = companion;
 	try {
-		localStorage.setItem(KEY, companion.on ? '1' : '0');
+		localStorage.setItem(KEY, JSON.stringify({ on, size }));
 	} catch {
 		// Blocked storage: the choice lasts for this tab only.
 	}

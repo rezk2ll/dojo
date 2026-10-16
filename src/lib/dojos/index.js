@@ -184,6 +184,25 @@ export const dojos = [
 			en: 'Each chapter shows how one attack works, then how a real open-source project defends against it.',
 			fr: 'Chaque chapitre montre comment marche une attaque, puis comment un vrai projet open source s’en protège.'
 		}
+	},
+	{
+		id: 'networking',
+		name: 'Networking Dojo',
+		hue: 170,
+		chroma: 0.1,
+		hex: { top: '#82c8b0', left: '#2c876c', right: '#4eac8e' },
+		description: {
+			en: 'What happens between your app and the next one: IP, TCP, DNS, HTTP, TLS and load balancers, one 10-minute chapter a day.',
+			fr: 'Ce qui se passe entre ton app et la suivante : IP, TCP, DNS, HTTP, TLS et load balancers, un chapitre de 10 minutes par jour.'
+		},
+		heroTitle: {
+			en: 'Follow one request across the network.',
+			fr: 'Suis une requête à travers le réseau.'
+		},
+		heroText: {
+			en: 'One chapter a day, with real packet captures, real config from open-source projects and the RFC that defines the behaviour.',
+			fr: 'Un chapitre par jour, avec de vraies captures de paquets, de la vraie config de projets open source et la RFC qui définit le comportement.'
+		}
 	}
 ];
 

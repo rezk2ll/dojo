@@ -7,19 +7,18 @@ const DDL = `${PG}/doc/src/sgml/ddl.sgml`;
 export default {
 	slug: 'mvcc',
 	part: 'Many at once',
-	title: 'Readers do not block writers',
+	title: 'MVCC: row versions and snapshots',
 	minutes: 10,
 	hook: [
 		'At 10 in the morning, finance runs a report: `SELECT sum(total) FROM orders`, twenty minutes over a big table. The shop keeps taking orders the whole time. **No checkout waits for the report, and the report does not wait for checkouts.**',
-		'And the total is still right. It does not count half of an order that was being written, or an order that came in at minute twelve. **It sees the table as it was when it started.**',
-		'PostgreSQL does this with versions, not locks. Every UPDATE writes a new row version (day 16), and each version records which transaction created it and which one replaced it. **Each query holds a snapshot** that says which of those transactions count. The docs sum it up: "reading never blocks writing and writing never blocks reading".'
+		'The report\'s total does not count half of an order that was being written, or an order that came in at minute twelve. **It sees the table as it was when it started.**',
+		'PostgreSQL keeps several versions of each row instead of locking rows for the report. Every UPDATE writes a new row version (day 16), and each version records which transaction created it and which one replaced it. **Each query holds a snapshot** that says which of those transactions count. The docs: "reading never blocks writing and writing never blocks reading".'
 	],
 	terms: [
 		{ term: 'MVCC', def: 'Multiversion concurrency control. The database keeps several versions of a row, and each transaction reads the one that matches its snapshot.' },
 		{ term: 'xmin', def: 'A hidden column on every row version: the ID of the transaction that inserted it. You can select it: `SELECT xmin, xmax, * FROM orders`.' },
 		{ term: 'xmax', def: 'The ID of the transaction that deleted or replaced this version, or zero. A nonzero xmax on a visible row usually means that transaction has not committed, or rolled back.' },
-		{ term: 'Snapshot', def: 'Three things: xmin (every older transaction is finished), xmax (every transaction from here on is invisible), and the list of transactions still running in between.' },
-		{ term: 'Visible', def: 'A row version is visible to a snapshot if its inserter counts as committed for that snapshot, and its deleter does not.' }
+		{ term: 'Snapshot', def: 'Three things: xmin (every older transaction is finished), xmax (every transaction from here on is invisible), and the list of transactions still running in between.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -27,27 +26,27 @@ export default {
 			{
 				add: ['t100["Tx 100: INSERT order 7, committed"] --> v1["Version A: xmin 100, xmax 0"]'],
 				highlight: ['t100', 'v1'],
-				note: '**Every version is stamped.** Transaction 100 inserts order 7 and commits. The row version records `xmin = 100`. Its `xmax` is zero: nobody has deleted or replaced it.'
+				note: 'Transaction 100 inserts order 7 and commits. The row version records `xmin = 100`. Its `xmax` is zero: nobody has deleted or replaced it.'
 			},
 			{
 				add: ['t105["Tx 105: UPDATE order 7, still open"] -->|"sets xmax 105"| v1', 't105 --> v2["Version B: xmin 105, xmax 0"]'],
 				highlight: ['t105', 'v2'],
-				note: '**An update is a delete plus an insert.** Transaction 105 changes order 7 and has not committed yet. It stamps `xmax = 105` on version A and writes version B with `xmin = 105`. Both versions are on disk now.'
+				note: 'An UPDATE is a delete plus an insert. Transaction 105 changes order 7 and has not committed yet. It stamps `xmax = 105` on version A and writes version B with `xmin = 105`, so both versions are on disk.'
 			},
 			{
 				add: ['snap["Report snapshot 103:106:105"] -.->|"105 still running: sees A"| v1', 'snap -.->|"skips B"| v2'],
 				highlight: ['snap'],
-				note: '**The report decides by its snapshot.** Written as `xmin:xmax:running`, it says: every XID below 103 is finished, every XID from 106 is invisible, and 105 was still running. So version A\'s deleter does not count yet: A is visible. B\'s inserter does not count: B is skipped. **Nobody waited.**'
+				note: 'The report\'s snapshot is written `xmin:xmax:running`: every XID below 103 is finished, every XID from 106 is invisible, and 105 was still running. So the deleter of version A does not count yet, and A is visible. The inserter of B does not count either, so B is skipped. **Neither the report nor transaction 105 waited.**'
 			},
 			{
 				add: ['t105 --> commit["Tx 105 commits"]', 'later["Query started after the commit"] -.->|"sees B"| v2'],
 				highlight: ['commit', 'later'],
-				note: '**A commit does not change old snapshots.** After 105 commits, a new query takes a new snapshot where 105 is finished, and sees B. The report that started earlier keeps seeing A to the end, because its snapshot still lists 105 as running.'
+				note: 'After 105 commits, a new query takes a new snapshot where 105 is finished, and sees B. The report that started earlier keeps seeing A to the end, because its snapshot still lists 105 as running.'
 			},
 			{
 				add: ['v1 -.->|"dead once no snapshot needs it"| vac["VACUUM"]'],
 				highlight: ['vac'],
-				note: '**The price.** Version A stays on disk as long as some snapshot might need it. When none can, it is dead and VACUUM removes it (day 16). This is why a twenty-minute report, or a transaction left open, keeps old versions alive.'
+				note: 'Version A stays on disk as long as some snapshot might need it. When none can, it is dead and VACUUM removes it (day 16). So a twenty-minute report, or a transaction left open, keeps old versions on disk for as long as it runs.'
 			}
 		]
 	},
@@ -109,23 +108,23 @@ export default {
 
 	return false;`,
 		notes: [
-			'**What a snapshot holds.** In [`snapshot.h`](' + SNAP + '#L148-L165): "An MVCC snapshot can never see the effects of XIDs >= xmax. It can see the effects of all older XIDs except those listed in the snapshot." The list is `xip`, the transactions in progress when the snapshot was taken. Its [definition](' + SNAP + '#L33-L46) adds that the snapshot sees "previous commands of this transaction" too: your own writes are always yours.',
-			'**First question: does the inserter count?** If `xmin` is in the snapshot\'s running list, the version is invisible. If it committed, the code records that in the row header with `SetHintBits`, so the next reader skips the lookup. If neither, "it must have aborted or crashed" and the version is invisible. Setting a hint bit [marks the page dirty](' + VIS + '#L6-L11), which is why a plain SELECT can cause writes.',
-			'**Committed, but maybe not for us.** Even with the committed hint bit set, a version whose `xmin` is in this snapshot\'s list is skipped: ["treat as still in progress"](' + VIS + '#L1076-L1082), says the comment. A frozen row (day 16) skips that test: it is old enough to be visible to everyone.',
-			'**Second question: does the deleter count?** No `xmax`, or an `xmax` that only locked the row: visible. An `xmax` in the snapshot\'s running list, or one that aborted: still visible. Only a deleter that committed before the snapshot hides the version. The [docs on system columns](' + DDL + '#L1525-L1531) say the same about a nonzero `xmax` on a visible row.'
+			'The rules for a snapshot are in [`snapshot.h`](' + SNAP + '#L148-L165): "An MVCC snapshot can never see the effects of XIDs >= xmax. It can see the effects of all older XIDs except those listed in the snapshot." The list is `xip`, the transactions in progress when the snapshot was taken. The struct definition adds that the snapshot also sees "previous commands of this transaction", so a transaction always sees its own writes.',
+			'Lines 5 to 22 check whether the inserter counts: if `xmin` is in the snapshot\'s running list (line 10), the version is invisible. If it committed, line 13 records that in the row header with `SetHintBits`, so the next reader skips the lookup. Otherwise "it must have aborted or crashed" (line 17), and the version is invisible. Setting a hint bit [marks the page dirty](' + VIS + '#L6-L11), so a plain SELECT can cause writes.',
+			'Lines 23 to 29 cover a version whose `xmin` already has the committed hint bit. If that `xmin` is in this snapshot\'s list, the version is still skipped: "treat as still in progress", says the comment on line 28. A frozen row (day 16) skips that test, because it is old enough to be visible to everyone.',
+			'Lines 33 to 52 check whether the deleter counts. No `xmax`, or an `xmax` that only locked the row (lines 33 to 37): visible. An `xmax` in the snapshot\'s running list, or one that aborted (lines 39 to 47): still visible. Only a deleter that committed before the snapshot hides the version (line 52), and the [docs on system columns](' + DDL + '#L1525-L1531) say the same about a nonzero `xmax` on a visible row.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Reads never wait for writes and writes never wait for reads. A long report and a busy checkout run side by side.',
+			'A twenty-minute report and the checkouts run side by side, and neither waits for the other.',
 			'Each query sees one consistent state of the database, without taking a single lock to get it.',
-			'Rolling back is cheap: the aborted transaction\'s versions are simply never visible, and VACUUM clears them later.'
+			'Rolling back is cheap: the aborted transaction\'s versions are never visible, and VACUUM clears them later.'
 		],
 		cost: [
 			'Every UPDATE writes a whole new row version, and the old one stays until VACUUM removes it (day 16).',
-			'A long query or an idle open transaction keeps old versions alive for the whole database, so tables bloat.',
+			'A long query or an idle open transaction keeps old versions alive for the whole database, so tables grow.',
 			'Checking visibility costs work on every row read, and setting hint bits can turn a read into a write to disk.',
-			'Writers still block writers: two transactions updating the same row take turns. That is locks (day 20).'
+			'Two transactions that update the same row still take turns: the second waits for the first to finish (row locks, day 20).'
 		]
 	},
 	task: {
@@ -174,11 +173,15 @@ export default {
 			why: 'A committed delete that counts for your snapshot would hide the row. A visible row with a nonzero xmax means the deleter is still running, rolled back, or only took a row lock.'
 		}
 	],
-	takeaway: 'Each row version carries who made it (xmin) and who replaced it (xmax). A snapshot decides which of them count, so readers and writers never wait for each other, and old versions linger until no snapshot needs them.',
+	recall: {
+		q: 'A twenty-minute report sums `orders` while checkouts update rows. How does it get a consistent total without making them wait?',
+		a: 'Each row version records xmin (its inserter) and xmax (its deleter). The report\'s snapshot says which XIDs count, so it reads the versions committed when it started, while checkouts write new versions.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Concurrency Control: Introduction', url: 'https://www.postgresql.org/docs/18/mvcc-intro.html' },
 		{ title: 'PostgreSQL docs, System Columns', url: 'https://www.postgresql.org/docs/18/ddl-system-columns.html' },
 		{ title: 'PostgreSQL docs, Transaction ID and Snapshot Information Functions', url: 'https://www.postgresql.org/docs/18/functions-info.html#FUNCTIONS-PG-SNAPSHOT' },
-		{ title: 'PostgreSQL source, heapam_visibility.c', url: `${VIS}` }
+		{ title: 'PostgreSQL source, heapam_visibility.c', url: `${VIS}` },
+		{ title: 'PostgreSQL source, snapshot.h (SnapshotData definition)', url: `${SNAP}#L33-L46` }
 	]
 };

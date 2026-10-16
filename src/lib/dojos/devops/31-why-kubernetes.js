@@ -129,17 +129,17 @@ export default {
 		{
 			q: 'In Kubernetes, what does a controller do?',
 			options: [
-				'It runs containers directly on the node',
-				'It watches objects and acts to bring the current state closer to the desired state',
-				'It stores the cluster data on disk',
-				'It picks which node a new Pod runs on'
+				'It runs the containers of each Pod directly on the node it manages',
+				'It watches objects and acts to move the current state toward the desired state',
+				'It stores the cluster data on disk so the state survives restarts',
+				'It picks which node a new Pod runs on, based on free resources'
 			],
 			answer: 1,
 			why: 'A controller is a control loop: compare desired and current state, then act. Running containers is the kubelet\'s job, storing data is etcd\'s, and choosing nodes is the scheduler\'s.'
 		},
 		{
 			q: 'Which component chooses the node for a Pod that has none yet?',
-			options: ['kubelet', 'kube-proxy', 'kube-scheduler', 'etcd'],
+			options: ['kubelet', 'kube-controller-manager', 'kube-scheduler', 'etcd'],
 			answer: 2,
 			why: 'The scheduler looks for Pods not yet bound to a node and assigns each one to a suitable node. The kubelet on that node then starts it.'
 		},

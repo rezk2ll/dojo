@@ -119,10 +119,10 @@ You might also consider changing your \`.git/config\` file via
 		{
 			q: '`main` has not moved since you created `feature`. You run `git merge feature` on `main`. What happens?',
 			options: [
-				'Git writes a merge commit with two parents',
+				'Git writes a merge commit with two parents, `main` and `feature`',
 				'Git fast-forwards: it moves `main` to the tip of `feature`, no new commit',
-				'Git rebases `feature` onto `main`',
-				'Git reports a conflict'
+				'Git rebases `feature` onto `main`, then moves `main` to the result',
+				'Git stops with a conflict, since `feature` changed files that `main` also has'
 			],
 			answer: 1,
 			why: 'When the tip of `feature` is directly ahead of `main`, there is nothing to combine. Git just moves the pointer forward.'

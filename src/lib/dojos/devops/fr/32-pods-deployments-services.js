@@ -127,7 +127,7 @@ spec:
 			q: 'Comment un Service décide-t-il quels Pods reçoivent son trafic ?',
 			options: [
 				'Il envoie à tous les Pods créés par le Deployment du même nom',
-				'Il utilise un label selector et envoie aux Pods correspondants qui sont prêts',
+				'Avec un label selector, vers les Pods correspondants et prêts',
 				'Tu listes les IP des Pods dans le spec du Service',
 				'Il demande au scheduler quels Pods sont sur quel node'
 			],
@@ -138,9 +138,9 @@ spec:
 			q: 'Tu changes l’image du conteneur dans un Deployment. Que se passe-t-il ?',
 			options: [
 				'Les Pods existants sont modifiés sur place avec la nouvelle image',
-				'Rien tant que tu ne supprimes pas les Pods à la main',
-				'Le Deployment crée un nouveau ReplicaSet et le fait grandir pendant qu’il réduit l’ancien',
-				'Le Service est recréé avec une nouvelle IP'
+				'Rien ne se passe tant que tu ne supprimes pas les Pods à la main',
+				'Un nouveau ReplicaSet grandit pendant que l’ancien est réduit',
+				'Le Service est recréé avec une nouvelle IP pour les nouveaux Pods'
 			],
 			answer: 2,
 			why: 'Changer le template de Pod déclenche un rollout : un nouveau ReplicaSet pour le nouveau template, l’ancien réduit. L’ancien ReplicaSet est gardé, et c’est ce qui rend le rollback possible.'

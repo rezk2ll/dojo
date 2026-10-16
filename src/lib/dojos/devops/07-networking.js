@@ -112,10 +112,10 @@ server {
 		{
 			q: '`curl https://example.com` fails with "Connection refused". Which layer failed?',
 			options: [
-				'DNS: the name did not resolve',
+				'DNS: the name did not resolve to any address',
 				'TCP: nothing accepted the connection on that port',
-				'TLS: the certificate is expired',
-				'HTTP: the page returned 404'
+				'TLS: the server certificate expired and was rejected',
+				'HTTP: the server answered with a 404 for that page'
 			],
 			answer: 1,
 			why: 'Refused means the name resolved and a packet reached the host, but no program listens on that port (or a firewall rejected it). A DNS failure says "Could not resolve host" instead.'
@@ -124,9 +124,9 @@ server {
 			q: '`dig example.com +short` shows the new IP, but `curl` on your laptop still reaches the old server. Most likely cause?',
 			options: [
 				'An `/etc/hosts` entry, which `curl` uses and `dig` ignores',
-				'`dig` is faster than `curl`',
-				'The TLS session is cached for a week',
-				'Port 443 is closed on the new server'
+				'`dig` uses a faster DNS server than the one `curl` asks',
+				'The TLS session is cached for a week, so `curl` keeps the old host',
+				'Port 443 is closed on the new server, so `curl` falls back to the old one'
 			],
 			answer: 0,
 			why: '`dig` asks a DNS server directly. Programs like `curl` go through the system resolver, which also reads `/etc/hosts`. Compare with `getent hosts example.com`.'
@@ -134,10 +134,10 @@ server {
 		{
 			q: 'Why does nginx need SNI to choose a certificate, instead of the HTTP Host header?',
 			options: [
-				'The Host header only exists in HTTP/1.0',
+				'The Host header only exists in HTTP/1.0, not in HTTP/2',
 				'The TLS handshake happens before any HTTP is sent',
-				'SNI is faster to parse',
-				'The Host header is removed by DNS'
+				'SNI is faster to parse than the full set of HTTP headers',
+				'The Host header is removed by DNS before the request arrives'
 			],
 			answer: 1,
 			why: 'The certificate is part of the TLS handshake, and HTTP only starts once TLS is set up. SNI puts the name inside the handshake itself.'

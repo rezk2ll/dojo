@@ -124,10 +124,10 @@ export default {
 		{
 			q: 'Le cache de tokens de Kubernetes utilise `singleflight`. Quel problème ça résout ?',
 			options: [
-				'Il ne garde qu’une entrée par utilisateur, quel que soit le token utilisé',
-				'Il garantit qu’un token n’est vérifié qu’une fois dans sa vie',
+				'Il ne garde qu’une seule entrée de cache par utilisateur, quel que soit le token envoyé avec la requête',
+				'Il garantit que chaque token n’est vérifié qu’une seule fois dans sa vie, puis accepté pour toujours',
 				'Quand plusieurs requêtes avec le même token font un miss en même temps, un seul appel au webhook est fait',
-				'Il répartit les entrées sur 32 parts pour réduire la contention sur les verrous'
+				'Il répartit les entrées sur 32 parts pour que les requêtes concurrentes ne se battent pas pour un verrou'
 			],
 			answer: 2,
 			why: 'C’est du request coalescing. Les 32 parts, c’est le cache découpé, une autre chose. Un token est quand même revérifié après chaque TTL.'
@@ -135,10 +135,10 @@ export default {
 		{
 			q: 'Une vue Rails met en cache un produit avec `cache_key_with_version`. Le prix du produit change. Pourquoi la page affiche-t-elle le nouveau prix sans que personne ait supprimé l’ancienne entrée ?',
 			options: [
-				'Rails supprime tous les fragments à chaque déploiement',
+				'Rails vide tous les fragments en cache d’un modèle dès qu’une de ses lignes est enregistrée',
 				'Enregistrer change `updated_at`, qui fait partie de la clé, donc la lecture suivante cherche une nouvelle clé',
-				'Le stockage de cache vérifie la base avant chaque lecture',
-				'Les caches de fragments ont un TTL d’une requête'
+				'Le stockage de cache compare l’entrée avec la ligne en base avant chaque lecture',
+				'Les caches de fragments ne vivent que le temps d’une requête, donc chaque page est recalculée'
 			],
 			answer: 1,
 			why: 'La clé contient la version. L’ancienne entrée n’est plus jamais lue et finit simplement par expirer. C’est l’écriture du propriétaire lui-même qui a fait l’invalidation.'

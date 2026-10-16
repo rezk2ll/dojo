@@ -98,13 +98,13 @@ export default {
 	quiz: [
 		{
 			q: 'Which is true of an asynchronous job, compared with a synchronous call?',
-			options: ['The caller gets an answer before the work is done, and errors must reach someone by another path', 'The caller always gets the final result in the response', 'It is always faster from start to end', 'It cannot fail, because the queue keeps the job'],
+			options: ['The caller gets an answer before the work is done, and errors must reach someone by another path', 'The caller always gets the final result in the response, just a little later than usual', 'It is always faster from start to end, because the work runs in the background', 'It cannot fail, because the queue keeps the job until a worker finishes it'],
 			answer: 0,
 			why: 'Async moves the work after the answer. The caller is free sooner, but errors no longer come back in the response, so you must decide where they land.'
 		},
 		{
 			q: 'Why does Mastodon queue one delivery job per inbox instead of one job that loops over every inbox?',
-			options: ['Redis cannot store a job with many inboxes', 'So the posts arrive in order', 'So a failing server is retried on its own, without replaying or blocking delivery to the others', 'Because HTTP signatures only work in separate jobs'],
+			options: ['Redis cannot store a single job that carries a long list of inboxes', 'So the posts arrive at every server in the order they were written', 'So a failing server is retried alone, without replaying or blocking delivery to the others', 'Because HTTP signatures only work when each signed request runs in its own job'],
 			answer: 2,
 			why: 'A job is retried as a whole. With one inbox per job, one dead server only retries its own delivery, and many workers can deliver in parallel.'
 		},

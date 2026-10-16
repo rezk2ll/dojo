@@ -109,22 +109,32 @@ export default {
 	quiz: [
 		{
 			q: 'What turns "the system must be fast" into something testable?',
-			options: ['Saying it in an ADR', 'Choosing a faster language', 'A response measure, like "p95 under 300 ms at 200 requests per second"', 'Adding a cache'],
+			options: [
+				'Writing it down as a requirement in an ADR that the whole team signs',
+				'Rewriting the hot path in a faster language, like Go or Rust',
+				'A response measure, like "p95 under 300 ms at 200 requests per second"',
+				'Adding a cache in front of the database so most reads are quick'
+			],
 			answer: 2,
 			why: 'The measure is the pass or fail line. Without it nobody can tell if the design meets the need.'
 		},
 		{
 			q: 'In a quality scenario, the **environment** describes…',
-			options: ['The situation the system is in when the stimulus arrives: normal load, a deploy, Redis down', 'The programming language', 'The cloud provider', 'The team that owns the service'],
+			options: [
+				'The state the system is in when the stimulus arrives: normal load, a deploy, Redis down',
+				'The language and framework the service is written in, like Ruby on Rails',
+				'The stage the scenario is tested in, like staging or production',
+				'The team that owns the service and answers the pages when it breaks'
+			],
 			answer: 0,
 			why: 'The same burst of logins needs one answer when Redis is up and a different one when it is down.'
 		},
 		{
 			q: 'Mastodon counts login attempts in Redis through the Rails cache. Redis goes down. What happens to the login throttle?',
 			options: [
-				'Every login is refused with a 429 until Redis is back',
-				'Mastodon switches to counting in PostgreSQL',
-				'The server crashes at the next login',
+				'Every login is refused with a 429 until the Redis connection is back',
+				'Mastodon switches to counting attempts in PostgreSQL until Redis comes back',
+				'The throttle raises an error, so the next login fails with a 500',
 				'Every attempt is counted as the first in its window, so nothing is throttled'
 			],
 			answer: 3,

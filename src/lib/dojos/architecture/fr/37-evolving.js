@@ -115,7 +115,7 @@ export default {
 	quiz: [
 		{
 			q: 'Dans une migration en strangler fig, qu’est-ce que le **seam** ?',
-			options: ['Le jour où tu bascules tous les utilisateurs de l’ancien système vers le nouveau', 'La suite de tests qui compare l’ancien et le nouveau système', 'L’endroit unique qui décide, par requête ou par donnée, si c’est l’ancien ou le nouveau code qui s’en occupe', 'La base de données que les deux systèmes partagent'],
+			options: ['Le jour où tu bascules tous les utilisateurs de l’ancien système vers le nouveau, d’un coup', 'La suite de tests qui compare l’ancien et le nouveau système sur les mêmes requêtes', 'L’endroit unique qui décide, par requête ou par donnée, si l’ancien ou le nouveau code s’en occupe', 'La base de données que les deux systèmes partagent, pour voir toujours les mêmes données'],
 			answer: 2,
 			why: 'Sans seam, tu ne peux pas déplacer un morceau à la fois. Avec un seam, déplacer une route ou une colonne est un changement petit et réversible.'
 		},
@@ -127,7 +127,7 @@ export default {
 		},
 		{
 			q: 'Qu’est-ce que le trigger de `rename_column_concurrently`, du point de vue de l’architecture ?',
-			options: ['De l’architecture transitoire : du code qui fait marcher l’ancien et le nouveau côte à côte, supprimé une fois le déplacement terminé', 'Une partie permanente du schéma', 'Un contrôle de sécurité sur les écritures', 'Un cache pour la nouvelle colonne'],
+			options: ['De l’architecture transitoire : elle fait marcher l’ancien et le nouveau côte à côte jusqu’à la fin du déplacement', 'Une partie permanente du schéma, qui garde les deux noms de colonne valides pour toujours', 'Un contrôle de sécurité qui bloque les écritures sur l’ancienne colonne pendant le renommage', 'Un cache qui sert les valeurs de la nouvelle colonne pendant que la copie par lots tourne'],
 			answer: 0,
 			why: 'Il ne vit qu’entre les deux migrations. `cleanup_concurrent_column_rename` le retire en même temps que l’ancienne colonne.'
 		}

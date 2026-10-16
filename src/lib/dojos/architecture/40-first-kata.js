@@ -78,13 +78,13 @@ export default {
 		},
 		{
 			q: 'The brief says "one small home server" **and** "hosted for 10,000 families". Which earlier idea fits best?',
-			options: ['One microservice per feature', 'A stateless app that runs as one copy on one box, or as many copies behind a load balancer', 'One shared database for every family', 'A different codebase for each deployment'],
+			options: ['One microservice per feature, so each part scales on its own in the hosted service', 'A stateless app that runs as one copy on one box, or as many copies behind a load balancer', 'One shared database for every family, so the hosted service stays simple to run', 'A different codebase for each deployment, one tuned for the home and one for hosting'],
 			answer: 1,
 			why: 'Keep the state in the database and storage, not in the app. Then the same code runs as one copy at home or as many copies in the hosted service. The other options either break isolation or double the work.'
 		},
 		{
 			q: 'You do not know whether videos are in scope. What do the rules say?',
-			options: ['Assume no and say nothing', 'Design for 8K video to be safe', 'Drop the upload requirement', 'Ask the moderator, and if you assume, state the assumption clearly when you present'],
+			options: ['Assume no, leave videos out of the design, and keep that choice to yourself', 'Design for 8K video to be safe, since over-building is never marked down', 'Drop the upload requirement, since the brief does not say which files count', 'Ask the moderator, and if you still assume, state it clearly when you present'],
 			answer: 3,
 			why: '"When in doubt, ask." The Moderator speaks for the customer. If you still have to assume, say so when you present: never asking and getting burned by a bad assumption earns a thumbs down.'
 		}

@@ -113,17 +113,17 @@ class InterestsViewModel @AssistedInject constructor(
 		},
 		{
 			q: 'Qu’est-ce qu’une couche **ouverte** ?',
-			options: ['Une couche que la couche du dessus peut sauter, pour appeler directement celle du dessous', 'Une couche dont le code est open source', 'Une couche qui n’a pas d’interfaces', 'Une couche que n’importe quelle autre couche, au-dessus ou en dessous, peut importer'],
+			options: ['Une couche que la couche du dessus peut sauter, pour appeler directement celle du dessous', 'Une couche dont le code est open source, donc que toute équipe peut modifier', 'Une couche qui n’a pas d’interfaces, donc qu’on appelle par ses classes directement', 'Une couche que n’importe quelle autre couche, au-dessus ou en dessous, peut importer'],
 			answer: 0,
 			why: 'Une couche ouverte peut être contournée. Dans Now in Android, le domaine est ouvert : les lectures passent par des use cases, les écritures appellent directement les repositories. Une couche fermée forcerait chaque appel à passer par elle.'
 		},
 		{
 			q: 'Le `core/domain` de Now in Android déclare `api(projects.core.data)`. Qu’est-ce que ça provoque ?',
 			options: [
-				'Le module de données peut maintenant importer des use cases',
+				'Le module de données peut maintenant importer directement les use cases du module domaine',
 				'Les modules qui dépendent du domaine peuvent aussi importer des classes de données, comme les repositories',
-				'Le module domaine est compilé dans le module de données',
-				'Rien de visible : `api` et `implementation` se comportent pareil'
+				'Le module domaine est compilé dans le module de données et livré avec lui',
+				'Rien de visible : `api` et `implementation` se comportent pareil à la compilation'
 			],
 			answer: 1,
 			why: 'Avec `api`, une dépendance est transmise aux consommateurs. C’est pour ça qu’un module feature qui ne déclare que `core.domain` peut importer `UserDataRepository`. Avec `implementation`, cet import ne compilerait pas.'

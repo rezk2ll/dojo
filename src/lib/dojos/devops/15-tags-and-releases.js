@@ -140,10 +140,10 @@ jobs:
 		{
 			q: 'Which kind of Git tag should mark a release, and why?',
 			options: [
-				'A lightweight tag, because it is smaller and faster',
-				'A branch called `release`, because it can move with each fix',
-				'An annotated tag, because it records who tagged, when and why, and `git describe` uses it by default',
-				'No tag, because the commit hash is enough'
+				'A lightweight tag, because it is smaller, faster, and `git describe` uses it',
+				'A branch called `release`, because it can move forward with each new fix',
+				'An annotated tag: it records who, when and why, and `git describe` uses it by default',
+				'No tag, because the commit hash already identifies the release exactly'
 			],
 			answer: 2,
 			why: 'The git-tag docs say annotated tags are meant for release and lightweight tags for private or temporary labels. Some commands like `git describe` ignore lightweight tags by default.'
@@ -152,9 +152,9 @@ jobs:
 			q: 'You ran `git tag -a v1.5.0 -m "Release 1.5.0"`, then `git push`. The tag is not on GitHub. Why?',
 			options: [
 				'`git push` does not send tags by default, so run `git push origin v1.5.0`',
-				'Annotated tags cannot be pushed',
-				'GitHub only accepts tags made in its web interface',
-				'The tag must be signed before it can be pushed'
+				'Annotated tags cannot be pushed, only lightweight ones can',
+				'GitHub only accepts tags made in its web interface or its API',
+				'The tag must be signed with `-s` before it can be pushed'
 			],
 			answer: 0,
 			why: 'Tags are pushed explicitly, by name, with `--tags`, or with `--follow-tags` for annotated tags reachable from the pushed commits.'

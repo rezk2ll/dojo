@@ -146,10 +146,10 @@ resource "aws_instance" "app_server" {
 		{
 			q: 'Comment Terraform sait-il qu’il doit créer le VPC avant l’instance dans l’exemple ?',
 			options: [
-				'Les blocs s’exécutent de haut en bas du fichier',
+				'Les blocs s’exécutent de haut en bas du fichier, donc le module VPC passe en premier',
 				'L’instance référence `module.vpc.private_subnets[0]`, ce qui crée une dépendance',
-				'Les resources sont créées par ordre alphabétique',
-				'Il faut toujours ajouter `depends_on = [module.vpc]`'
+				'Les resources sont créées par ordre alphabétique de leur nom de bloc',
+				'Il faut toujours ajouter `depends_on = [module.vpc]` au bloc de l’instance'
 			],
 			answer: 1,
 			why: 'Terraform construit un graphe de dépendances à partir des références entre blocs. `depends_on` ne sert qu’aux dépendances cachées qu’il ne peut pas voir.'

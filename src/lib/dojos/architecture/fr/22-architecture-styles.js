@@ -110,13 +110,13 @@ after_initialize do
 		},
 		{
 			q: 'Qu’est-ce qui fait du système de plugins de Discourse un microkernel ?',
-			options: ['Il stocke chaque plugin dans sa propre base', 'Une appli cœur charge des plugins qui ajoutent des hooks, des réglages et des extensions', 'Chaque plugin tourne comme un service à part et communique en gRPC', 'Il envoie chaque événement à Sidekiq'],
+			options: ['Il stocke chaque plugin dans sa propre base, séparée de celle du cœur', 'Une appli cœur charge des plugins qui ajoutent des hooks, des réglages et des extensions', 'Chaque plugin tourne comme un service à part et communique avec le cœur en gRPC', 'Il envoie chaque événement à Sidekiq pour que les plugins le traitent'],
 			answer: 1,
 			why: 'Microkernel veut dire un cœur plus des plugins. Chaque `plugin.rb` déclare ce qu’il ajoute via l’API de plugin. Les plugins tournent dans le même processus Rails.'
 		},
 		{
 			q: '`DiscourseEvent` garde ses handlers en mémoire et les appelle en ligne, après l’enregistrement du post. Quel est le compromis ?',
-			options: ['Bon marché et simple, mais un handler lent retarde l’appelant et rien ne le rejoue après un crash', 'Il lui faut un broker séparé pour tourner, ce qui ajoute une unité déployable', 'Les handlers s’exécutent avant la transaction, donc ils peuvent annuler le post', 'Il n’y a aucun inconvénient, puisque chaque processus enregistre les mêmes handlers'],
+			options: ['Bon marché et simple, mais un handler lent retarde l’appelant et rien ne le rejoue après un crash', 'Il lui faut un processus broker séparé pour tourner, ce qui ajoute une unité déployable', 'Les handlers s’exécutent avant le commit de la transaction, donc ils peuvent annuler le post', 'Il n’y a pas vraiment d’inconvénient, puisque chaque processus enregistre les mêmes handlers au démarrage'],
 			answer: 0,
 			why: 'Les événements dans le processus ne coûtent rien à mettre en place. Ils n’apportent aussi ni durabilité ni isolation : le handler s’exécute dans l’appelant, et un crash le perd. Le travail qui doit survivre part dans un job Sidekiq.'
 		}

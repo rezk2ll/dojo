@@ -139,10 +139,10 @@ module.exports.charge = async request => {
 		{
 			q: 'Every log line your service writes inside a span carries `trace_id` and `span_id`. What does that let you do?',
 			options: [
-				'Replay the request exactly as it was sent',
-				'Jump from an error log line to the full trace of that request, across every service it touched',
-				'Drop your metrics, since logs now hold the same data',
-				'Guarantee that no log line is lost on the way to the log store'
+				'Replay the request exactly as it was sent, with the same headers and body',
+				'Jump from an error log line to the full trace of that request, across every service',
+				'Drop your metrics, since the logs now hold the same numbers with more detail',
+				'Guarantee that no log line is lost between your service and the log store'
 			],
 			answer: 1,
 			why: 'The trace id is the shared key. It finds the spans of the whole journey from one log line, and the log lines from one span. It does not replay, replace metrics, or make delivery reliable.'
@@ -162,12 +162,12 @@ module.exports.charge = async request => {
 			q: 'Which alert follows "alert on symptoms"?',
 			options: [
 				'More than 2% of payments failed with a server error over the last hour',
-				'CPU above 80% for 5 minutes',
-				'One health check failed once',
-				'A pod restarted'
+				'CPU above 80% on the payment servers for 5 minutes in a row',
+				'The health check of one payment pod failed once in the last hour',
+				'A payment pod restarted three times in the last hour after a crash'
 			],
 			answer: 0,
-			why: 'It measures what users feel. CPU, a single failed check and a restart are causes; they belong on a dashboard you open after a symptom alert fires.'
+			why: 'It measures what users feel. CPU, a single failed check and restarts are causes; they belong on a dashboard you open after a symptom alert fires.'
 		}
 	],
 	takeaway: 'Put one trace id in every log line and span, measure rate, errors and duration per service, keep labels small, and page only when users feel it.',

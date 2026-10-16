@@ -131,9 +131,9 @@ export default {
 			q: 'Each week you run a cleanup script by hand. It saves time compared with typing the commands. Is your time running it still toil?',
 			options: [
 				'Yes: the hands-on time a human spends running a script is still toil',
-				'No: once there is a script, the task is automated',
-				'No: only tasks longer than an hour count as toil',
-				'Only if the script fails'
+				'No: once there is a script, the task counts as automated work',
+				'No: only tasks that take longer than an hour a week count as toil',
+				'Only if the script fails and you have to finish the steps by hand'
 			],
 			answer: 0,
 			why: 'The SRE book is explicit: running a script may be faster than doing the steps, but the hands-on time is still toil. Full automation removes the human from the loop.'
@@ -141,10 +141,10 @@ export default {
 		{
 			q: 'The SRE workbook names one option you should consider first for a toil-intensive task. Which one?',
 			options: [
-				'Design a complete system that removes all toil at once',
+				'Design a complete system that removes all of the team\'s toil at once',
 				'Reject the toil: weigh the cost of doing it against the cost of not doing it',
-				'Give it to the newest team member',
-				'Do it faster by skipping the checks'
+				'Give it to the newest team member, so seniors keep time for engineering',
+				'Do it faster by skipping the checks that never seem to catch anything'
 			],
 			answer: 1,
 			why: 'The workbook says rejecting a toil-intensive task should be the first option you consider. It also warns against trying to design the perfect system, and recommends starting small.'

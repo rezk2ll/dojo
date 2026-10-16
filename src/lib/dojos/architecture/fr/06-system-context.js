@@ -104,7 +104,7 @@ end`,
 	quiz: [
 		{
 			q: 'Sur un diagramme de **contexte du système**, où va la base PostgreSQL de ton propre système ?',
-			options: ['À côté du système, comme boîte externe', 'À côté du reste de l’infrastructure, dans une colonne séparée', 'Nulle part : elle est dans la boîte du système, montrée au niveau des conteneurs', 'Seulement si d’autres systèmes la lisent aussi'],
+			options: ['À côté du système, comme boîte externe', 'À côté du reste de l’infrastructure, dans une colonne séparée', 'Nulle part : elle est dans la boîte du système', 'Seulement si d’autres systèmes la lisent aussi'],
 			answer: 2,
 			why: 'Le niveau 1 traite ton système comme une seule boîte. Ce qui tourne dedans (ses bases, ses files, ses propres processus) relève du niveau 2.'
 		},

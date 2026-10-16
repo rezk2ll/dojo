@@ -151,10 +151,10 @@ export default {
 		{
 			q: 'Qu’est-ce qui rend un postmortem sans reproche ?',
 			options: [
-				'Il est écrit de façon anonyme',
-				'Il saute la chronologie pour qu’aucun nom n’apparaisse',
-				'Il cherche les causes contributives sans accuser personne ni aucune équipe, en partant du principe que chacun a agi de bonne foi',
-				'Il n’est partagé qu’avec l’équipe qui a causé l’incident'
+				'Il est écrit de façon anonyme, pour qu’on ne sache pas qui a écrit chaque partie',
+				'Il saute la chronologie pour qu’aucun nom n’apparaisse et que personne ne soit visé',
+				'Il cherche les causes contributives sans accuser personne ni aucune équipe, en supposant la bonne foi',
+				'Il n’est partagé qu’avec l’équipe qui a causé l’incident, jamais avec toute l’entreprise'
 			],
 			answer: 2,
 			why: 'Le reproche pousse les gens à cacher ce qu’ils ont fait, et les vraies causes restent cachées. Le livre SRE définit le sans-reproche comme trouver les causes sans mettre personne en accusation.'

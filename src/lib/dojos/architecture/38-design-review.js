@@ -99,19 +99,19 @@ By preserving the old state without immediate health checks, there is a delay in
 	quiz: [
 		{
 			q: 'Which comment is an **architecture** review comment?',
-			options: ['Rename the feature gate to something shorter', 'Fix the typo "kublet" in the folder name', 'Add a table of contents', 'If the API server is down when the kubelet restarts, which status does a pod get?'],
+			options: ['Rename the feature gate to something shorter, it is hard to type in flags', 'Fix the typo "kublet" in the folder name before this gets merged', 'Add a table of contents so reviewers can jump to each section', 'If the API server is down when the kubelet restarts, which status does a pod get?'],
 			answer: 3,
 			why: 'It names a failure mode with a user-visible effect (traffic to the wrong pods, or a not-Ready storm). The others are style: worth fixing, cheap to change later.'
 		},
 		{
 			q: 'Why phrase review points as questions?',
-			options: ['Only to be polite', 'The author often has context you lack. A question gets the answer or exposes the gap, without a fight', 'Questions do not need an answer', 'The KEP template requires it'],
+			options: ['Only to be polite, since the author decides what changes in the end anyway', 'The author may have context you lack. A question gets it or exposes the gap, without a fight', 'Questions do not need an answer, so the author can skip the minor ones', 'The KEP template requires every review point to be written as a question'],
 			answer: 1,
 			why: 'You might be wrong. A question costs nothing if you are, and still surfaces the problem if you are right.'
 		},
 		{
 			q: 'In KEP-4781, which part is the most **one-way**?',
-			options: ['Changing the default readiness behavior that traffic routing depends on, once the opt-out gate is removed', 'The 10-second clock skew tolerance in the kubelet', 'The list of e2e test cases', 'The unit test coverage numbers'],
+			options: ['Changing default readiness behavior that routing depends on, once the opt-out gate is removed', 'The 10-second clock skew tolerance in the kubelet, since nodes depend on it', 'The list of e2e test cases, since the CI jobs are built around each of them', 'The unit test coverage numbers, since they are reported in the KEP itself'],
 			answer: 0,
 			why: 'Other components and users build on how readiness behaves. Once the old behavior cannot be switched back on, changing it again means a new proposal and a new migration. The others are internal and cheap to change.'
 		}

@@ -108,8 +108,8 @@ HAVING max(bug) is True
 			options: [
 				'The time from a commit in version control to that change running in production',
 				'The time from opening a ticket to starting code review',
-				'The time it takes to recover from an outage',
-				'How long the deploy script runs'
+				'The time it takes to restore service after a deployment causes an outage',
+				'How long the deploy pipeline runs, from the first build step to the last'
 			],
 			answer: 0,
 			why: 'It starts at the commit and ends at production. It shows how long finished work waits before users get it.'
@@ -118,9 +118,9 @@ HAVING max(bug) is True
 			q: 'In 2023 DORA replaced "time to restore service" (MTTR) with "failed deployment recovery time". What changed?',
 			options: [
 				'It now measures the time to detect a failure instead of the time to fix it',
-				'It is now counted only for the database tier',
-				'It only counts recovery from failures caused by a change to production, not external events like a data center outage',
-				'It was dropped from DORA\'s metrics entirely'
+				'It is now counted only for the database tier, where most production failures start',
+				'It only counts recovery from failures caused by a change to production, not outside events',
+				'It was dropped from DORA\'s metrics entirely and replaced by change failure rate'
 			],
 			answer: 2,
 			why: 'The old metric mixed failures caused by a deployment with failures from outside. The new one focuses on recovering from a change that went wrong, like the other delivery metrics.'

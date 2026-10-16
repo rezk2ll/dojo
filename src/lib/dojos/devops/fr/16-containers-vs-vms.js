@@ -142,10 +142,10 @@ services:
 		{
 			q: 'Tu lances trois conteneurs depuis la même image et chacun écrit un fichier de log. Qu’arrive-t-il à l’image ?',
 			options: [
-				'Elle grossit de trois fichiers de log',
-				'Rien : chaque conteneur écrit dans sa propre couche inscriptible, au dessus de l’image en lecture seule',
-				'Le deuxième conteneur échoue parce que l’image est verrouillée',
-				'L’image est copiée trois fois sur le disque'
+				'Elle grossit de trois fichiers de log, un écrit par chaque conteneur',
+				'Rien, chaque conteneur écrit dans sa propre couche inscriptible au dessus de l’image',
+				'Le deuxième conteneur échoue parce que le premier a verrouillé l’image',
+				'L’image est copiée trois fois sur le disque, une copie par conteneur'
 			],
 			answer: 1,
 			why: 'Les images sont en lecture seule. Chaque conteneur reçoit une fine couche inscriptible, donc l’image reste la même et elle est partagée par les trois.'

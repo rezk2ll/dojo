@@ -120,10 +120,10 @@ roleRef:
 		{
 			q: 'What is the difference between a Role and a RoleBinding?',
 			options: [
-				'A Role is for users, a RoleBinding is for service accounts',
+				'A Role is for human users, while a RoleBinding is the same list of rights for service accounts',
 				'A Role lists allowed actions on resources. A RoleBinding gives that Role to users, groups or service accounts',
-				'A Role is cluster-wide, a RoleBinding is per namespace',
-				'They are two names for the same object'
+				'A Role is cluster-wide, while a RoleBinding is a copy of that Role limited to one namespace',
+				'They are two names for the same object, kept apart only for older clients of the API'
 			],
 			answer: 1,
 			why: 'The Role says what may be done. The binding says who gets it. The cluster-wide versions are ClusterRole and ClusterRoleBinding.'
@@ -131,10 +131,10 @@ roleRef:
 		{
 			q: 'Alice has a RoleBinding in `team-a`. Nothing else mentions her. What can she do in `team-b`?',
 			options: [
-				'Read everything, because reading is allowed by default',
-				'The same as in `team-a`, because roles follow the user',
+				'Read everything, because RBAC allows reading in every namespace by default',
+				'The same as in `team-a`, because a RoleBinding follows the user everywhere',
 				'Nothing, because RBAC only grants and there are no other grants for her there',
-				'Everything, unless a deny rule blocks her'
+				'Everything, unless a deny rule in `team-b` blocks her'
 			],
 			answer: 2,
 			why: 'RBAC permissions are purely additive. A RoleBinding grants only inside its own namespace, and RBAC has no deny rules to reason about.'
@@ -142,10 +142,10 @@ roleRef:
 		{
 			q: 'A namespace has a ResourceQuota on `requests.cpu`. A pod without any CPU request is submitted and no LimitRange sets a default. What happens?',
 			options: [
-				'The pod runs with unlimited CPU',
+				'The pod runs with unlimited CPU, since the quota only counts pods that set a request',
 				'The pod may be rejected, because the quota needs every pod to set CPU requests or limits',
-				'The quota is ignored for that pod',
-				'Kubernetes moves the pod to the default namespace'
+				'The quota is ignored for that pod, because there is no request to count',
+				'Kubernetes moves the pod to the default namespace, where no quota applies'
 			],
 			answer: 1,
 			why: 'With a CPU quota on, pods must state requests or limits so the quota can count them. A LimitRange can fill in defaults for teams that forget.'

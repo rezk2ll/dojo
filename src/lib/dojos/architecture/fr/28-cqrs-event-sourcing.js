@@ -117,9 +117,9 @@ export default {
 		{
 			q: 'Dans un système en event sourcing, d’où vient l’état courant d’un agrégat quand une commande arrive ?',
 			options: [
-				'D’une colonne de statut écrasée à chaque changement',
+				'D’une colonne de statut sur la ligne de l’agrégat, écrasée à chaque changement',
 				'Du replay des événements de son stream dans l’ordre, en partant éventuellement d’un snapshot',
-				'De la table du modèle de lecture qui sert les écrans',
+				'De la table du modèle de lecture qui sert les écrans, puisqu’elle est toujours à jour',
 				'Du client, qui envoie l’état complet avec chaque commande'
 			],
 			answer: 1,
@@ -128,9 +128,9 @@ export default {
 		{
 			q: 'Mastodon enregistre les posts dans sa base et garde le fil d’accueil de chaque utilisateur comme une liste d’ids de posts dans Redis, reconstruite depuis la base au besoin. Aucun événement n’est stocké. Est-ce du CQRS ?',
 			options: [
-				'Non : CQRS exige l’event sourcing',
-				'Non : CQRS exige que le côté lecture ait sa propre copie de chaque champ',
-				'Seulement si le fil tourne dans un service séparé',
+				'Non : CQRS exige l’event sourcing, et ici aucun événement n’est stocké',
+				'Non : CQRS exige que le côté lecture garde sa propre copie complète de chaque champ du post',
+				'Seulement si le fil tourne dans un service séparé avec sa propre base',
 				'Oui : des modèles séparés pour écrire et lire, c’est toute l’idée ; un event store n’est qu’une option'
 			],
 			answer: 3,
@@ -139,10 +139,10 @@ export default {
 		{
 			q: 'Deux requêtes chargent la commande 1042 en version 7, et toutes deux essaient d’ajouter un événement. Le store utilise la concurrence optimiste. Que se passe-t-il ?',
 			options: [
-				'Le premier ajout devient l’événement 8 ; le second est refusé parce que le stream n’est plus en version 7, donc il recharge et décide à nouveau',
-				'Les deux sont stockés comme événement 8, et le replay garde le plus récent',
+				'Le premier ajout devient l’événement 8 ; le second reçoit un conflit, donc il recharge et décide à nouveau',
+				'Les deux sont stockés comme événement 8, et le replay garde celui écrit en dernier',
 				'La seconde requête attend sur un verrou que la première soit commitée, puis ajoute',
-				'Les deux sont stockés, en 8 et 9, sans qu’aucun écrivain ne voie l’autre'
+				'Les deux sont stockés, en événements 8 et 9, et aucun écrivain ne s’aperçoit de l’autre'
 			],
 			answer: 0,
 			why: 'Chaque ajout indique la version attendue. Un seul écrivain peut faire passer la version 7 à 8. L’autre reçoit un conflit et réessaie sur un historique frais, donc aucune décision n’est prise sur un état périmé et aucun verrou n’est tenu.'

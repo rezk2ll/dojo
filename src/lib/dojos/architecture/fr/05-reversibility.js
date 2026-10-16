@@ -92,10 +92,10 @@ export default {
 		{
 			q: 'Pourquoi Discourse ne permet-il de supprimer définitivement qu’un message déjà soft-deleted ?',
 			options: [
-				'La base de données ne peut pas supprimer une ligne visible',
-				'Les messages soft-deleted prennent plus de place, donc on les nettoie en premier',
-				'Les messages visibles sont en lecture seule pour les admins',
-				'Pour qu’aucun message ne soit perdu en une seule étape : une étape peu coûteuse et réversible doit précéder l’étape irréversible'
+				'La base de données ne peut pas supprimer une ligne visible, donc le soft delete la cache d’abord',
+				'Les messages soft-deleted prennent plus de place, donc Discourse les nettoie avant tout le reste',
+				'Les messages visibles sont en lecture seule pour les admins, seul un message caché peut être retiré',
+				'Pour qu’aucun message ne soit perdu en une étape : une étape réversible passe avant l’étape irréversible'
 			],
 			answer: 3,
 			why: 'La garde `return false if !post.deleted_at` place une porte à double sens (le soft delete) devant la porte à sens unique (la destruction). Une erreur à la première étape peut encore être rattrapée.'
@@ -103,10 +103,10 @@ export default {
 		{
 			q: 'Un admin Discourse a fait le soft delete d’un message il y a 2 minutes et essaie maintenant de le supprimer définitivement. Que se passe-t-il ?',
 			options: [
-				'C’est refusé : il doit attendre que 5 minutes soient passées, ou un autre admin doit le faire',
-				'Ça marche, les admins peuvent toujours détruire des messages',
-				'Le message est restauré à la place',
-				'Discourse met la destruction en file d’attente pour 30 jours'
+				'Refusé : il doit attendre que 5 minutes soient passées, ou un autre admin doit le faire',
+				'Ça marche, les admins peuvent toujours détruire un message déjà soft-deleted',
+				'Le message est restauré à la place, car un soft delete de moins de 5 minutes est annulé',
+				'Discourse met la destruction en file et ne la lance vraiment qu’après 30 jours'
 			],
 			answer: 0,
 			why: '`PERMANENT_DELETE_TIMER` vaut 5 minutes et s’applique quand c’est le même admin qui a supprimé le message. La règle offre une pause, ou un deuxième regard, avant la porte à sens unique.'

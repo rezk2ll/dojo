@@ -117,9 +117,9 @@ export default {
 		{
 			q: 'In an event-sourced system, where does an aggregate\'s current state come from when a command arrives?',
 			options: [
-				'A status column overwritten on every change',
+				'A status column on the aggregate\'s row, overwritten on every change',
 				'Replaying the events of its stream in order, possibly starting from a snapshot',
-				'The read model table that serves the screens',
+				'The read model table that serves the screens, since it always holds the latest state',
 				'The client, which sends the full state with each command'
 			],
 			answer: 1,
@@ -128,9 +128,9 @@ export default {
 		{
 			q: 'Mastodon saves posts in its database and keeps each user\'s home feed as a list of post ids in Redis, rebuilt from the database when needed. No events are stored. Is that CQRS?',
 			options: [
-				'No: CQRS requires event sourcing',
-				'No: CQRS requires the read side to have its own copy of every field',
-				'Only if the feed runs in a separate service',
+				'No: CQRS requires event sourcing, and here no events are stored at all',
+				'No: CQRS requires the read side to keep its own full copy of every field in the post',
+				'Only if the feed runs in a separate service with its own database',
 				'Yes: separate models for writing and reading are the whole idea; an event store is one option'
 			],
 			answer: 3,
@@ -139,10 +139,10 @@ export default {
 		{
 			q: 'Two requests load order 1042 at version 7, and both try to append an event. The store uses optimistic concurrency. What happens?',
 			options: [
-				'The first append becomes event 8; the second is refused because the stream is no longer at version 7, so it reloads and decides again',
-				'Both are stored as event 8, and replay keeps the later one',
+				'The first append becomes event 8; the second gets a conflict, so it reloads and decides again',
+				'Both are stored as event 8, and replay keeps whichever one was written later',
 				'The second request waits on a lock until the first one commits, then appends',
-				'Both are stored, as 8 and 9, without either writer seeing the other'
+				'Both are stored, as events 8 and 9, and neither writer finds out about the other'
 			],
 			answer: 0,
 			why: 'Each append states the version it expects. Only one writer can turn version 7 into 8. The other gets a conflict and retries on fresh history, so no decision is made on stale state and no lock is held.'

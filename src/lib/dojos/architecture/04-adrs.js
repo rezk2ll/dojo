@@ -110,13 +110,13 @@ such as \`node-fetch\` and others on the Node.js platform.
 		},
 		{
 			q: 'ADR014 warns that `msw` 1.x tests may fail with native fetch. Why does that line belong under Consequences?',
-			options: ['It is a bug report that belongs in the issue tracker instead', 'It belongs in Context, because it is a fact', 'It is the implementation plan for the migration', 'Consequences hold the good and the bad that follow from the decision, and this is a price paid'],
+			options: ['It is a bug in `msw` 1.x, so it belongs in the issue tracker, not in the ADR', 'It belongs in Context, because it describes a fact that was true before the decision', 'It belongs in the Decision, since it is part of the plan for moving to native fetch', 'Consequences hold the good and the bad that follow from the decision, and this is a price paid'],
 			answer: 3,
 			why: 'If Consequences has no downside, the first law says you have not found it yet. Naming it also tells every plugin author what to expect.'
 		},
 		{
 			q: 'In Backstage, when does a new ADR get its number?',
-			options: ['As soon as the file is created', 'Only when it is superseded', 'Near the end of review, after the community has given feedback on the pull request', 'Never, ADRs are named by date'],
+			options: ['As soon as the file is created from the template, before any review', 'Only when it is superseded, so the replacement can point back to it', 'Near the end of review, once the pull request has gathered feedback', 'Never, ADRs are named by date so two pull requests cannot collide'],
 			answer: 2,
 			why: 'The guide says to copy the template without assigning a number, gather feedback on the pull request, and "Eventually, assign a number". A number marks a decision that was actually made.'
 		}

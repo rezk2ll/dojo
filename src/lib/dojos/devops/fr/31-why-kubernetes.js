@@ -129,17 +129,17 @@ export default {
 		{
 			q: 'Dans Kubernetes, que fait un contrôleur ?',
 			options: [
-				'Il fait tourner les conteneurs directement sur le node',
+				'Il fait tourner les conteneurs de chaque Pod directement sur son node',
 				'Il surveille des objets et agit pour rapprocher l’état actuel de l’état désiré',
-				'Il stocke les données du cluster sur disque',
-				'Il choisit sur quel node tourne un nouveau Pod'
+				'Il stocke les données du cluster sur disque pour survivre aux redémarrages',
+				'Il choisit sur quel node tourne un nouveau Pod, selon les ressources libres'
 			],
 			answer: 1,
 			why: 'Un contrôleur est une boucle de contrôle : comparer état désiré et état actuel, puis agir. Faire tourner les conteneurs, c’est le kubelet. Stocker les données, c’est etcd. Choisir les nodes, c’est le scheduler.'
 		},
 		{
 			q: 'Quel composant choisit le node d’un Pod qui n’en a pas encore ?',
-			options: ['kubelet', 'kube-proxy', 'kube-scheduler', 'etcd'],
+			options: ['kubelet', 'kube-controller-manager', 'kube-scheduler', 'etcd'],
 			answer: 2,
 			why: 'Le scheduler cherche les Pods pas encore liés à un node et attribue à chacun un node adapté. Le kubelet de ce node le démarre ensuite.'
 		},

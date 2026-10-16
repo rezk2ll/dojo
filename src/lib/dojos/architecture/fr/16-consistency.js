@@ -94,13 +94,13 @@ export default {
 	quiz: [
 		{
 			q: 'Un service écrit une ligne dans sa base, puis publie un événement vers un broker. Qu’est-ce qui peut mal tourner qu’aucun `try/catch` dans ce code ne peut corriger ?',
-			options: ['Le broker rejette le format du message', 'L’écriture en base est lente', 'Le processus meurt après l’écriture en base et avant la publication : les données existent, l’événement n’existera jamais', 'Le broker publie l’événement deux fois'],
+			options: ['Le broker rejette le format du message et renvoie une erreur au service', 'L’écriture en base est lente, donc la publication expire après le commit', 'Le processus meurt après l’écriture et avant la publication, donc l’événement ne part jamais', 'Le broker publie l’événement deux fois, et les consommateurs voient un doublon'],
 			answer: 2,
 			why: 'La gestion d’erreurs ne tourne que si le processus est vivant. Un crash entre deux écritures les laisse dépareillées. Seule une outbox (une seule écriture) ou une réconciliation plus tard comble ce trou.'
 		},
 		{
 			q: 'L’IndexingScheduler de Mastodon importe un lot d’ids, puis les retire du set Redis. Pourquoi dans cet ordre ?',
-			options: ['S’il crashe entre les deux, les ids sont toujours en file et sont réimportés, ce qui est sans danger', 'Redis refuse de retirer des ids pas encore importés', 'Retirer d’abord rendrait l’import plus rapide', 'Elasticsearch a besoin que les ids restent dans Redis pendant qu’il les indexe'],
+			options: ['S’il crashe entre les deux, les ids restent en file et sont réimportés, ce qui est sans danger', 'Redis refuse de retirer des ids du set tant qu’ils n’ont pas été importés', 'Retirer d’abord bloquerait l’import jusqu’à ce que Redis confirme la suppression', 'Elasticsearch a besoin que les ids restent dans Redis pendant qu’il indexe le lot'],
 			answer: 0,
 			why: 'Retirer d’abord perdrait les ids en cas de crash, et ces posts n’atteindraient jamais la recherche. Importer d’abord ne peut causer qu’une répétition, et une répétition renvoie les mêmes données.'
 		},

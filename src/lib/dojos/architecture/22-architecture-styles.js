@@ -110,13 +110,13 @@ after_initialize do
 		},
 		{
 			q: 'What makes Discourse\'s plug-in system a microkernel?',
-			options: ['It stores every plug-in in its own database', 'A core app loads plug-ins that add hooks, settings and extensions', 'Each plug-in runs as its own service and talks over gRPC', 'It sends every event to Sidekiq'],
+			options: ['It stores every plug-in in its own database, apart from the core one', 'A core app loads plug-ins that add hooks, settings and extensions', 'Each plug-in runs as its own service and talks to the core over gRPC', 'It sends every event to Sidekiq so the plug-ins can process it'],
 			answer: 1,
 			why: 'Microkernel means core plus plug-ins. Each `plugin.rb` registers what it adds through the plug-in API. The plug-ins run inside the same Rails process.'
 		},
 		{
 			q: '`DiscourseEvent` keeps its handlers in memory and calls them inline, after the post is saved. What is the trade-off?',
-			options: ['Cheap and simple, but a slow handler delays the caller and nothing replays it after a crash', 'It needs a separate broker to run, which adds a deployable', 'Handlers run before the transaction, so they can roll back the post', 'There is no downside, since every process registers the same handlers'],
+			options: ['Cheap and simple, but a slow handler delays the caller and nothing replays it after a crash', 'It needs a separate broker process to run, which adds a deployable to operate', 'Handlers run before the transaction commits, so they can roll back the post', 'There is no real downside, since every process registers the same handlers at boot'],
 			answer: 0,
 			why: 'In-process events cost nothing to set up. They also give no durability and no isolation: the handler runs inside the caller, and a crash loses it. Work that must survive goes to a Sidekiq job.'
 		}

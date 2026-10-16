@@ -114,10 +114,10 @@ spec:
 		{
 			q: 'What does `kubectl drain` do to a node before it evicts any pods?',
 			options: [
-				'It reboots the node',
+				'It reboots the node so the pods restart cleanly elsewhere',
 				'It marks the node unschedulable (cordon), so no new pods land on it',
-				'It deletes the node from the cluster',
-				'It upgrades the kubelet on the node'
+				'It deletes the node from the cluster so the scheduler forgets it',
+				'It upgrades the kubelet on the node to match the control plane'
 			],
 			answer: 1,
 			why: 'Drain first cordons the node, then evicts its pods. When you are done, `kubectl uncordon` makes the node schedulable again.'
@@ -125,10 +125,10 @@ spec:
 		{
 			q: 'An app has 3 replicas and a PDB with `minAvailable: 2`. You drain two nodes in parallel, each holding one of its pods. What happens?',
 			options: [
-				'Both pods are evicted at once and the app runs on one pod',
-				'Both drains fail immediately with an error',
+				'Both pods are evicted at once and the app runs on one pod for a while',
+				'Both drains fail immediately with an error about the PDB',
 				'One pod is evicted. The other eviction waits until a replacement pod is healthy',
-				'The PDB is ignored during a drain'
+				'The PDB is ignored during a drain, so both pods go at once'
 			],
 			answer: 2,
 			why: 'Only replicas minus minAvailable (here 1) may be unavailable at a time. The Eviction API refuses the second eviction until the app is back to three healthy pods.'

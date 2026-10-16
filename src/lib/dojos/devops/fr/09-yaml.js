@@ -125,9 +125,9 @@ x-airflow-common:
 			q: 'Pourquoi `country: NO` peut-il devenir `false` en YAML ?',
 			options: [
 				'Les parseurs YAML 1.1 lisent `NO`, `no` et `off` sans guillemets comme des booléens',
-				'Toute valeur de deux lettres devient un booléen',
-				'Les codes pays sont des mots réservés en YAML',
-				'Les valeurs en majuscules sont toujours des booléens'
+				'Toute valeur de deux lettres devient un booléen si elle n’a pas de guillemets',
+				'Les codes pays sont des mots réservés en YAML, comme `null` et `true`',
+				'Les valeurs en majuscules sont toujours des booléens, dans toutes les versions de YAML'
 			],
 			answer: 0,
 			why: 'Le type booléen de YAML 1.1 inclut `yes`, `no`, `on` et `off`, dans plusieurs casses. YAML 1.2 ne garde que `true` et `false`, mais beaucoup d’outils suivent encore 1.1. Mets des guillemets : `\'NO\'`.'
@@ -141,10 +141,10 @@ x-airflow-common:
 		{
 			q: 'Un fichier Compose a `x-common: &common` avec un mapping `environment`, et un service utilise `<<: *common`. Que reçoit le service ?',
 			options: [
-				'Rien, Compose ignore tout ce qui commence par `x-`',
+				'Rien, Compose ignore tout ce qui commence par `x-`, ancres comprises',
 				'Toutes les clés du bloc ancré, plus les clés que le service écrit à côté de `<<`',
-				'Seulement la première clé du bloc ancré',
-				'Une copie du fichier Compose entier'
+				'Seulement les clés ancrées, et les clés que le service écrit à côté de `<<` sont ignorées',
+				'Une copie de chaque clé de premier niveau du fichier Compose, sous le service'
 			],
 			answer: 1,
 			why: 'Compose ignore la clé `x-` elle-même, mais l’ancre fonctionne quand même. La clé de fusion copie les clés du mapping, et les clés écrites dans le service s’ajoutent par-dessus.'

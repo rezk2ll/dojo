@@ -130,9 +130,9 @@ spec:
 		{
 			q: 'Dans Helm, qu’est-ce qu’une release ?',
 			options: [
-				'Un chart packagé envoyé dans un repository',
+				'Un chart packagé envoyé dans un repository, avec son propre numéro de version',
 				'Une installation d’un chart dans un cluster, avec son propre nom et son historique de révisions',
-				'Un tag Git sur les sources du chart',
+				'Un tag Git sur les sources du chart, posé quand sa version augmente',
 				'Le fichier `values.yaml` d’un chart'
 			],
 			answer: 1,

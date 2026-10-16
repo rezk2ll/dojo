@@ -118,10 +118,10 @@ export default {
 		{
 			q: 'An order stores the price of each item. Why is it right that this copy does not follow later price changes?',
 			options: [
-				'Checkout cannot reach the catalog after the order',
-				'The order records what the customer agreed to pay. That is a fact of the sale, owned by the order',
-				'Price changes are too rare to matter',
-				'The catalog forbids other services from storing prices'
+				'Checkout loses its connection to the catalog once the order is placed',
+				'It records what the customer agreed to pay, a fact of the sale the order owns',
+				'Price changes are too rare to be worth syncing into old orders',
+				'The catalog forbids other services from storing any of its prices'
 			],
 			answer: 1,
 			why: 'Some copies are snapshots on purpose. The price at checkout is a new fact, and the order owns it. The catalog still owns the current price.'

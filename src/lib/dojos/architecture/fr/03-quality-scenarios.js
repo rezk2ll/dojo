@@ -109,13 +109,23 @@ export default {
 	quiz: [
 		{
 			q: 'Qu’est-ce qui transforme « le système doit être rapide » en quelque chose de testable ?',
-			options: ['L’écrire dans un ADR', 'Choisir un langage plus rapide', 'Une mesure de réponse, comme « p95 sous 300 ms à 200 requêtes par seconde »', 'Ajouter un cache'],
+			options: [
+				'L’écrire comme exigence dans un ADR que toute l’équipe valide',
+				'Réécrire le chemin critique dans un langage plus rapide, comme Go ou Rust',
+				'Une mesure de réponse, comme « p95 sous 300 ms à 200 requêtes par seconde »',
+				'Ajouter un cache devant la base pour que la plupart des lectures soient rapides'
+			],
 			answer: 2,
 			why: 'La mesure, c’est la ligne entre réussi et raté. Sans elle, personne ne peut dire si la conception répond au besoin.'
 		},
 		{
 			q: 'Dans un scénario de qualité, l’**environnement** décrit…',
-			options: ['La situation dans laquelle se trouve le système quand le stimulus arrive : charge normale, déploiement, Redis en panne', 'Le langage de programmation', 'Le fournisseur cloud', 'L’équipe qui possède le service'],
+			options: [
+				'L’état du système quand le stimulus arrive : charge normale, déploiement, Redis en panne',
+				'Le langage et le framework dans lesquels le service est écrit, comme Ruby on Rails',
+				'L’étape où le scénario est testé, comme la préprod ou la prod',
+				'L’équipe qui possède le service et qui reçoit les alertes quand il casse'
+			],
 			answer: 0,
 			why: 'La même rafale de connexions demande une réponse quand Redis marche, et une autre quand il est en panne.'
 		},
@@ -123,8 +133,8 @@ export default {
 			q: 'Mastodon compte les tentatives de connexion dans Redis via le cache Rails. Redis tombe. Que devient la limite de connexion ?',
 			options: [
 				'Toutes les connexions sont refusées avec un 429 jusqu’au retour de Redis',
-				'Mastodon se met à compter dans PostgreSQL',
-				'Le serveur plante à la connexion suivante',
+				'Mastodon se met à compter les tentatives dans PostgreSQL en attendant le retour de Redis',
+				'La limite lève une erreur, donc la connexion suivante échoue avec un 500',
 				'Chaque tentative est comptée comme la première de sa fenêtre, donc rien n’est limité'
 			],
 			answer: 3,

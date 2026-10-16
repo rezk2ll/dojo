@@ -124,10 +124,10 @@ export default {
 		{
 			q: 'Dans le modèle C4, qu’est-ce qui fait de quelque chose un conteneur ?',
 			options: [
-				'Il est empaqueté comme une image Docker',
-				'Il doit tourner (ou stocker des données) pour que le système marche, comme un processus ou un stockage à part',
-				'Il a son propre dépôt Git',
-				'Il expose une API REST'
+				'Il est empaqueté comme une image Docker, qu’on peut démarrer et arrêter toute seule',
+				'Il doit tourner (ou garder des données) pour que le système marche, en processus ou stockage à part',
+				'Il vit dans son propre dépôt Git, et une seule équipe le construit et le publie',
+				'Il expose une API REST que les autres parties du système appellent en HTTPS'
 			],
 			answer: 1,
 			why: 'Simon Brown définit un conteneur comme quelque chose qui doit tourner pour que le système marche. Une base de données sans API et une appli navigateur sans image Docker sont toutes deux des conteneurs.'
@@ -135,10 +135,10 @@ export default {
 		{
 			q: 'Sidekiq est arrêté, mais `web` continue de tourner. Un utilisateur publie un post. Que se passe-t-il ?',
 			options: [
-				'L’API refuse le post avec une erreur',
-				'Le post est enregistré et renvoyé, mais les fils et les autres serveurs ne le reçoivent qu’une fois Sidekiq relancé',
-				'Le processus web exécute les jobs lui-même à la place',
-				'Le post est perdu au redémarrage de Sidekiq'
+				'L’API refuse le post avec une erreur, car aucun worker ne peut prendre ses jobs',
+				'Le post est enregistré, mais les fils et les autres serveurs ne le reçoivent qu’une fois Sidekiq relancé',
+				'Le processus web voit que Sidekiq est arrêté et exécute lui-même les jobs de livraison',
+				'Le post est enregistré, mais ses jobs en file sont perdus au redémarrage de Sidekiq'
 			],
 			answer: 1,
 			why: 'La requête enregistre le post et se contente de **mettre en file** les jobs de livraison dans Redis. Rien ne les exécute tant qu’un processus Sidekiq ne les prend pas. Des conteneurs séparés tombent séparément, et celui-ci tombe en silence.'

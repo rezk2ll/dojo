@@ -145,10 +145,10 @@ deploy:
 		{
 			q: 'Dans GitLab CI, un job compile un binaire qu’un job de déploiement, dans un stage suivant, doit utiliser. Où doit aller le binaire ?',
 			options: [
-				'Dans `cache`, parce que c’est plus rapide',
-				'Dans `artifacts`, parce qu’ils sont stockés dans GitLab et passés aux stages suivants',
-				'Dans une variable CI/CD',
-				'Nulle part : le job de déploiement doit le recompiler'
+				'Dans `cache`, parce que c’est plus rapide et partagé avec les stages suivants',
+				'Dans `artifacts`, que GitLab stocke et passe aux stages suivants',
+				'Dans une variable CI/CD, définie par le job de build pour le déploiement',
+				'Nulle part : le job de déploiement doit le recompiler depuis les sources'
 			],
 			answer: 1,
 			why: 'Le cache sert aux dépendances et peut être absent. Les artefacts sont le moyen de passer des résultats de build aux stages suivants du même pipeline.'

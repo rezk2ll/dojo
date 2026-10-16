@@ -130,10 +130,10 @@ export default {
 		{
 			q: 'A container fails its readiness probe. What does Kubernetes do?',
 			options: [
-				'It restarts the container',
+				'It restarts the container and keeps sending it traffic while it starts',
 				'It stops sending Service traffic to the Pod and keeps the container running',
-				'It deletes the Pod and the ReplicaSet creates a new one',
-				'It moves the Pod to another node'
+				'It deletes the Pod and the ReplicaSet creates a new one in its place',
+				'It moves the Pod to a healthier node and retries the probe there'
 			],
 			answer: 1,
 			why: 'Readiness controls traffic, not life. While the readiness probe fails, the Service sends the Pod no traffic, until it passes again. Restarting is what a failing liveness probe does.'
@@ -152,10 +152,10 @@ export default {
 		{
 			q: 'Why is a Kubernetes Secret not safe just because its values are base64?',
 			options: [
-				'base64 is an encoding, not encryption, and Secrets are stored unencrypted in etcd by default',
-				'Because Secrets are printed in the Pod logs',
-				'Because base64 strings are limited to 1 MiB',
-				'It is safe: base64 in Kubernetes uses a cluster key'
+				'base64 is an encoding, not encryption, and etcd stores Secrets unencrypted by default',
+				'Because Secrets are printed in plain text in the Pod logs at every container start',
+				'Because base64 strings are capped at 1 MiB, so long keys get cut and stored in clear',
+				'It is safe: base64 in Kubernetes is keyed with a cluster secret, so only the API can decode it'
 			],
 			answer: 0,
 			why: 'Anyone who can read the Secret, or read etcd, gets the value. Encryption at rest and access rules (RBAC) are what protect it.'

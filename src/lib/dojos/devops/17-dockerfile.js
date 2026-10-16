@@ -120,10 +120,10 @@ CMD [ "node", "src/index.js" ]`,
 		{
 			q: 'Why do you copy `package.json` and install dependencies before copying the rest of the source?',
 			options: [
-				'Because `npm ci` cannot see files copied later',
-				'So a source change does not invalidate the dependency install layer, which then comes from cache',
-				'Because Docker requires dependency files to be copied first',
-				'To make the final image smaller'
+				'Because `npm ci` cannot see files that are copied after it in the Dockerfile',
+				'So a source change does not invalidate the dependency install layer, which stays cached',
+				'Because Docker requires dependency manifests to be copied before any other file',
+				'To make the final image smaller, since `node_modules` then lands in its own layer'
 			],
 			answer: 1,
 			why: 'When a layer is invalidated, every layer after it is rebuilt. Putting the rarely changed install before the often changed source keeps the slow step cached.'
@@ -137,10 +137,10 @@ CMD [ "node", "src/index.js" ]`,
 		{
 			q: 'Your Dockerfile has `RUN apt-get update` and, on the next line, `RUN apt-get install -y curl`. You add `nginx` to the install line. What can go wrong?',
 			options: [
-				'The build fails because the package list is locked',
+				'The build fails because apt holds a lock on the package list from the previous layer',
 				'The `apt-get update` layer comes from cache, so the install can use an old package list',
-				'Both lines always rerun, so the build is slow',
-				'Nothing: Docker reruns `apt-get update` when packages change'
+				'Both lines always rerun because `RUN` is never cached, so the build is slow',
+				'Nothing: Docker sees the install line changed and reruns `apt-get update` too'
 			],
 			answer: 1,
 			why: 'The builder compares only the `RUN` command text. The update line did not change, so it is a cache hit. Docker recommends `apt-get update && apt-get install` in one `RUN`.'

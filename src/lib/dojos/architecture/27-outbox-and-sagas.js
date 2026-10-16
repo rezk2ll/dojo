@@ -120,19 +120,19 @@ export default {
 	quiz: [
 		{
 			q: 'What makes a transactional outbox reliable?',
-			options: ['The broker stores the message until the database confirms the commit', 'The relay publishes each message exactly once', 'The message is written to a table in the same database transaction as the change it describes', 'The service retries the publish in memory until it succeeds'],
+			options: ['The broker holds the message in a pending state until the database confirms the commit', 'The relay publishes each message exactly once, so consumers never see a repeat', 'The message is written to a table in the same database transaction as the change it describes', 'The service retries the publish from memory with backoff until the broker accepts it'],
 			answer: 2,
 			why: 'Change and message commit together, or neither does. Then the message can be sent later, as often as needed. The broker never joins the transaction, and the relay gives at-least-once, not exactly-once.'
 		},
 		{
 			q: 'A relay publishes an outbox row, then crashes before it records how far it got. What happens next?',
-			options: ['When the relay restarts, it publishes the row again, and the consumer must drop the repeat by its event id', 'The row is lost, because the progress was never recorded', 'The broker notices the duplicate and drops it', 'The database rolls back the publish'],
+			options: ['On restart the relay publishes the row again, and the consumer drops the repeat by its event id', 'The row is lost, because the crash wiped the progress the relay kept in memory', 'The broker notices the duplicate by its key and drops it before consumers see it', 'The database rolls back the transaction, so the order change is undone too'],
 			answer: 0,
 			why: 'The publish is outside the database, so nothing can undo it. The relay resumes from its last recorded point, so the row goes out again: at-least-once. A stable event id lets the consumer spot the repeat.'
 		},
 		{
 			q: 'Debezium\'s outbox event router uses the `aggregateid` column as the Kafka message key by default. Why does that matter?',
-			options: ['It encrypts the message for that aggregate', 'Kafka drops any second message with the same key', 'It makes the router skip deletes for that aggregate', 'Messages with the same key go to the same partition, so events for one order stay in order'],
+			options: ['It encrypts the message with a key that belongs to that aggregate', 'Kafka drops any later message with the same key, so each event arrives once', 'It makes the router skip delete events for that aggregate, so rows are kept', 'Messages with the same key go to the same partition, so events for one order stay in order'],
 			answer: 3,
 			why: 'Kafka keeps order within a partition, and the key picks the partition. Kafka does not dedupe by key: that is what the `id` header is for.'
 		}

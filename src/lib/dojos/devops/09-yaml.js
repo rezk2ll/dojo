@@ -125,9 +125,9 @@ x-airflow-common:
 			q: 'Why can `country: NO` turn into `false` in YAML?',
 			options: [
 				'YAML 1.1 parsers read plain `NO`, `no` and `off` as booleans',
-				'Any two-letter value becomes a boolean',
-				'Country codes are reserved words in YAML',
-				'Uppercase values are always booleans'
+				'Any two-letter value becomes a boolean unless it is quoted',
+				'Country codes are reserved words in YAML, like `null` and `true`',
+				'Uppercase values are always booleans in every YAML version'
 			],
 			answer: 0,
 			why: 'The YAML 1.1 boolean type includes `yes`, `no`, `on` and `off`, in several cases. YAML 1.2 only keeps `true` and `false`, but many tools still follow 1.1. Quote it: `\'NO\'`.'
@@ -141,10 +141,10 @@ x-airflow-common:
 		{
 			q: 'A Compose file has `x-common: &common` with an `environment` mapping, and a service uses `<<: *common`. What does the service get?',
 			options: [
-				'Nothing, Compose ignores everything that starts with `x-`',
+				'Nothing, Compose ignores everything that starts with `x-`, anchors included',
 				'All keys of the anchored block, plus any keys the service writes next to `<<`',
-				'Only the first key of the anchored block',
-				'A copy of the whole Compose file'
+				'Only the anchored keys, and the keys the service writes next to `<<` are ignored',
+				'A copy of every top-level key of the Compose file, nested under the service'
 			],
 			answer: 1,
 			why: 'Compose ignores the `x-` key itself, but the anchor still works. The merge key copies the mapping\'s keys, and keys written in the service are added on top.'

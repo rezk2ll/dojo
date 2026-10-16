@@ -78,13 +78,13 @@ export default {
 		},
 		{
 			q: 'L’énoncé dit « un petit serveur domestique » **et** « hébergé pour 10 000 familles ». Quelle idée vue plus tôt convient le mieux ?',
-			options: ['Un microservice par fonctionnalité', 'Une appli stateless qui tourne en une seule copie sur un boîtier, ou en plusieurs copies derrière un load balancer', 'Une seule base partagée pour toutes les familles', 'Une base de code différente pour chaque déploiement'],
+			options: ['Un microservice par fonctionnalité, pour que chaque partie passe à l’échelle seule dans le service hébergé', 'Une appli stateless qui tourne en une seule copie sur un boîtier, ou en plusieurs copies derrière un load balancer', 'Une seule base partagée pour toutes les familles, pour que le service hébergé reste simple à exploiter', 'Une base de code différente pour chaque déploiement, une pour la maison et une pour l’hébergement'],
 			answer: 1,
 			why: 'Garde l’état dans la base et le stockage, pas dans l’appli. Le même code tourne alors en une copie à la maison ou en plusieurs copies dans le service hébergé. Les autres options cassent l’isolation ou doublent le travail.'
 		},
 		{
 			q: 'Tu ne sais pas si les vidéos sont concernées. Que disent les règles ?',
-			options: ['Supposer que non et ne rien dire', 'Concevoir pour de la vidéo 8K, par sécurité', 'Laisser tomber l’exigence d’envoi', 'Demander au modérateur, et si tu fais une hypothèse, l’énoncer clairement en présentant'],
+			options: ['Supposer que non, laisser les vidéos hors du design et garder ce choix pour toi', 'Concevoir pour de la vidéo 8K, par sécurité, car voir trop grand n’est jamais pénalisé', 'Laisser tomber l’exigence d’envoi, puisque l’énoncé ne dit pas quels fichiers comptent', 'Demander au modérateur, et si tu fais une hypothèse, l’énoncer clairement en présentant'],
 			answer: 3,
 			why: '« Dans le doute, demande. » Le modérateur parle au nom du client. Si tu dois quand même faire une hypothèse, dis-le en présentant : ne jamais demander et te brûler sur une mauvaise hypothèse vaut un pouce vers le bas.'
 		}

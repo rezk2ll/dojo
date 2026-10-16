@@ -108,8 +108,8 @@ HAVING max(bug) is True
 			options: [
 				'Le temps entre un commit dans le gestionnaire de versions et ce changement en prod',
 				'Le temps entre l’ouverture d’un ticket et le début de la revue de code',
-				'Le temps pour se remettre d’une panne',
-				'La durée d’exécution du script de déploiement'
+				'Le temps pour rétablir le service après qu’un déploiement a causé une panne',
+				'La durée du pipeline de déploiement, de la première étape de build à la dernière'
 			],
 			answer: 0,
 			why: 'Il commence au commit et finit en prod. Il montre combien de temps du travail fini attend avant d’arriver aux utilisateurs.'
@@ -118,9 +118,9 @@ HAVING max(bug) is True
 			q: 'En 2023, DORA a remplacé « time to restore service » (MTTR) par « failed deployment recovery time ». Qu’est-ce qui a changé ?',
 			options: [
 				'Elle mesure maintenant le temps pour détecter une panne au lieu du temps pour la corriger',
-				'Elle n’est plus comptée que pour la couche base de données',
-				'Elle ne compte que le rétablissement après des pannes causées par un changement en prod, pas des événements extérieurs comme une panne de datacenter',
-				'Elle a été retirée des métriques DORA'
+				'Elle n’est plus comptée que pour la couche base de données, où démarrent la plupart des pannes',
+				'Elle ne compte que le rétablissement après une panne causée par un changement en prod, pas par l’extérieur',
+				'Elle a été retirée des métriques DORA et remplacée par le change failure rate'
 			],
 			answer: 2,
 			why: 'L’ancienne métrique mélangeait les pannes causées par un déploiement et les pannes venues de l’extérieur. La nouvelle se concentre sur le rétablissement après un changement raté, comme les autres métriques de livraison.'

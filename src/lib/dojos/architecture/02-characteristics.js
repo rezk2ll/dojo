@@ -97,13 +97,13 @@ export default {
 	quiz: [
 		{
 			q: 'Which of these is an architecture **characteristic**, not a feature?',
-			options: ['Agents can merge two support tickets', 'Search returns results in under 200 ms across 10 million tickets', 'Customers get an email when their ticket closes', 'Users can attach files to a ticket'],
+			options: ['Agents can merge two duplicate support tickets into a single one', 'Search returns results in under 200 ms across 10 million tickets', 'Customers get an email with a summary when their ticket is closed', 'Users can attach screenshots and log files to a ticket'],
 			answer: 1,
 			why: 'A latency target says nothing about what the app does, it constrains how it is built (indexes, caching, sharding). The others are features.'
 		},
 		{
 			q: 'Why keep the list of driving characteristics short?',
-			options: ['Because documents should be short', 'Because only three exist', 'Because managers cannot read more', 'Because each one costs design effort and they often conflict with each other'],
+			options: ['Because a design document should fit on a single page', 'Because the standard catalog only defines three characteristics', 'Because managers cannot follow more than a few at once', 'Because each one costs design effort and they often conflict'],
 			answer: 3,
 			why: 'Supporting a characteristic costs complexity, and they trade against each other: in Kafka, TLS for security turns off the zero-copy path built for throughput.'
 		},
@@ -111,9 +111,9 @@ export default {
 			q: 'A Kafka consumer connects over TLS. What happens to the zero-copy path when the broker sends it log data?',
 			options: [
 				'It is not used: the broker reads the file into a buffer so the data can be encrypted',
-				'It still works, because the kernel encrypts the page cache',
-				'The broker refuses TLS for consumers',
-				'The consumer decrypts the file on the broker\'s disk'
+				'It still works, because the kernel encrypts the page cache before sendfile reads it',
+				'The broker refuses TLS for consumers and only allows it between brokers',
+				'The consumer decrypts the file directly on the broker\'s disk, so no copy is made'
 			],
 			answer: 0,
 			why: 'Zero-copy sends file bytes straight from the page cache to the socket. TLS needs to encrypt them first, in user space. The design doc says "sendfile is not used when SSL is enabled."'

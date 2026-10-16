@@ -123,10 +123,10 @@ export default {
 		{
 			q: 'Which sentence best describes DevOps?',
 			options: [
-				'A job title for the person who maintains the CI server',
+				'A job title for the engineer who maintains the CI server and the deploy scripts',
 				'A way of working where dev and ops share ownership of delivering and running the service',
-				'A set of tools such as Docker, Jenkins and Kubernetes',
-				'A team placed between developers and operations to handle deployments'
+				'A set of tools such as Docker, Jenkins and Kubernetes that a team adopts together',
+				'A team placed between developers and operations to handle every deployment'
 			],
 			answer: 1,
 			why: 'DevOps is culture, practices and tools together, aimed at removing the wall between dev and ops. A title, a tool set or an extra team in the middle misses the point.'
@@ -140,10 +140,10 @@ export default {
 		{
 			q: 'According to the Google SRE book, why are the goals of a classic dev team and a classic ops team in tension?',
 			options: [
-				'Because ops teams use a different operating system',
-				'Because developers never write tests',
+				'Because ops teams run a different operating system than the one devs build on',
+				'Because developers rarely write tests, so ops must catch every bug in production',
 				'Because most outages are caused by some kind of change, and devs are paid to make changes',
-				'Because ops teams are larger than dev teams'
+				'Because ops teams are larger than dev teams, so they win every priority call'
 			],
 			answer: 2,
 			why: 'Devs want to launch features, ops want the service not to break. Since change is the main cause of outages, each side\'s goal works against the other\'s.'

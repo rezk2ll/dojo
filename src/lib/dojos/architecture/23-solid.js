@@ -102,13 +102,13 @@ export default {
 		},
 		{
 			q: 'Which change really lowers the number of reasons Mastodon\'s `Account` has to change?',
-			options: ['Move more of its methods into new `Account::` concern modules', 'Give suspensions their own model and table, used by a service, so `Account` no longer holds that state', 'Rename it to `UserAccount`', 'Add comments that group its methods by feature'],
+			options: ['Move more of its methods into new `Account::` concern modules, one per feature', 'Give suspensions their own model and table, so `Account` no longer holds that state', 'Rename it to `UserAccount` so the name says what the class is really for', 'Add comments that group its methods by feature, so each team finds its part'],
 			answer: 1,
 			why: 'Concerns are mixed into the same class and share its columns, so a suspension change still touches `Account`. Moving the state and the behavior out removes that reason to change.'
 		},
 		{
 			q: 'Which of these is the open/closed principle at work?',
-			options: ['A list implementation whose mutators all throw', 'A 607-line model with 16 mixed-in modules', '`BufferedInputStream` adds buffering by wrapping any `InputStream`, without editing the file or socket streams', 'A constructor with 28 parameters'],
+			options: ['A list implementation whose mutators all throw, so callers can never change it', 'A 607-line model split into 16 mixed-in modules, so each feature has its own file', '`BufferedInputStream` adds buffering by wrapping any `InputStream`, without editing it', 'A constructor with 28 parameters, so every behavior can be set from outside'],
 			answer: 2,
 			why: 'The wrapper adds behavior with new code and leaves the working streams closed to change. The other three are symptoms of the other principles being bent or broken.'
 		}

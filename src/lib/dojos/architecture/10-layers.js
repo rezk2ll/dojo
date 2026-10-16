@@ -113,17 +113,17 @@ class InterestsViewModel @AssistedInject constructor(
 		},
 		{
 			q: 'What is an **open** layer?',
-			options: ['A layer that the layer above it may skip, calling the layer below directly', 'A layer whose code is open source', 'A layer that has no interfaces', 'A layer that any other layer, above or below, may import'],
+			options: ['A layer that the layer above it may skip, calling the layer below directly', 'A layer whose code is open source, so any team may change it', 'A layer that has no interfaces, so callers use its classes directly', 'A layer that any other layer, above or below it, may import freely'],
 			answer: 0,
 			why: 'An open layer can be bypassed. In Now in Android, the domain is open: reads go through use cases, writes call repositories directly. A closed layer would force every call through it.'
 		},
 		{
 			q: 'Now in Android\'s `core/domain` declares `api(projects.core.data)`. What does that cause?',
 			options: [
-				'The data module can now import use cases',
+				'The data module can now import the domain module\'s use cases directly',
 				'Modules that depend on the domain can also import data classes, such as repositories',
-				'The domain module is compiled into the data module',
-				'Nothing visible: `api` and `implementation` behave the same'
+				'The domain module is compiled into the data module and shipped with it',
+				'Nothing visible: `api` and `implementation` behave the same at build time'
 			],
 			answer: 1,
 			why: 'With `api`, a dependency is passed on to consumers. That is why a feature module that only declares `core.domain` can import `UserDataRepository`. With `implementation`, that import would not compile.'

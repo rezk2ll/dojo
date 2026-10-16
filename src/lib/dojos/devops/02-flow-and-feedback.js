@@ -126,9 +126,9 @@ export default {
 			q: 'Why does shipping in small batches make failures easier to fix?',
 			options: [
 				'Fewer changes go out at once, so you know which change to look at and can roll back just that one',
-				'Small batches never cause failures',
-				'Small batches can skip testing',
-				'Small batches need fewer servers'
+				'Small batches never cause failures, because each change is too small to break anything',
+				'Small batches can skip the slow test suite, so the fix reaches production sooner',
+				'Small batches need fewer servers, so there are fewer places for a failure to hide'
 			],
 			answer: 0,
 			why: 'One change per deploy means one suspect per incident. Thirty changes per deploy means thirty suspects.'
@@ -136,10 +136,10 @@ export default {
 		{
 			q: 'Your team has reached its WIP limit in the "In progress" column and two people have nothing to pick up. What does DORA recommend?',
 			options: [
-				'Raise the WIP limit so they can start new work',
+				'Raise the WIP limit so they can start new work from the backlog',
 				'Give each idle person two tasks to work on in parallel',
 				'Keep the limit and have them help unblock the stuck part of the value stream',
-				'Track their new work in a separate, hidden column'
+				'Track their new work in a separate, hidden column so the limit holds'
 			],
 			answer: 2,
 			why: 'The limit exists to expose bottlenecks. Raising it, splitting people or hiding work all bury the problem the limit just revealed.'

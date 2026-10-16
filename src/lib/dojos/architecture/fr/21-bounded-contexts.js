@@ -132,10 +132,10 @@ export default {
 		{
 			q: 'Dans ActivityStreams, `summary` est « a natural language summarization of the object ». Mastodon l’affiche comme un avertissement de contenu. Qu’est-ce que ça montre ?',
 			options: [
-				'Mastodon enfreint la spec ActivityPub',
-				'Le même mot peut avoir des sens différents dans deux bounded contexts, et c’est la traduction à la frontière qui décide lequel s’applique',
-				'ActivityStreams devrait renommer le champ',
-				'Les avertissements de contenu font partie du vocabulaire du W3C'
+				'Mastodon enfreint la spec ActivityPub et devrait ranger l’avertissement dans un champ à lui',
+				'Un même mot peut avoir des sens différents dans deux contextes, et la traduction à la frontière choisit le sens',
+				'ActivityStreams devrait renommer le champ, car un nom pour deux sens est un bug de la spec',
+				'Les avertissements de contenu font partie du vocabulaire du W3C, et `summary` est le champ prévu pour eux'
 			],
 			answer: 1,
 			why: 'Chaque contexte donne au mot son propre sens. Le parser de Mastodon traduit `summary` en `spoiler_text` exprès, et sa doc le dit. Une context map rend ce choix visible.'

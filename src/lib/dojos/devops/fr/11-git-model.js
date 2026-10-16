@@ -110,9 +110,9 @@ crash.*.log
 		{
 			q: 'Que stocke un commit Git ?',
 			options: [
-				'Seulement les lignes qui ont changé depuis le commit précédent',
+				'Seulement les lignes qui ont changé depuis le commit précédent, avec l’auteur et le message',
 				'Un snapshot du projet entier, plus l’auteur, le message et un lien vers son commit parent',
-				'Une copie du working tree, fichiers ignorés compris',
+				'Une copie du working tree, fichiers ignorés compris, plus un lien vers le parent',
 				'La différence entre l’index et le working tree'
 			],
 			answer: 1,
@@ -121,10 +121,10 @@ crash.*.log
 		{
 			q: 'Tu as lancé `git add app.conf` mais pas `git commit`. Où est la nouvelle version de `app.conf` ?',
 			options: [
-				'Seulement dans le working tree',
-				'Dans un nouveau commit sur `main`',
+				'Seulement dans le working tree, tant que tu n’as pas fait `git commit`',
+				'Dans un nouveau commit sur `main`, pas encore poussé sur le remote',
 				'Dans le working tree et dans l’index, pas encore dans un commit',
-				'Sur le serveur distant'
+				'Sur le serveur distant, en attente du prochain `git pull`'
 			],
 			answer: 2,
 			why: '`git add` stage le fichier dans l’index. Il n’arrive dans le dépôt qu’avec `git commit`, et sur le remote qu’avec `git push`.'

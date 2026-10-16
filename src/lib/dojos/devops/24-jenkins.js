@@ -123,9 +123,9 @@ export default {
 		{
 			q: 'In Jenkins, what is the difference between the controller and an agent?',
 			options: [
-				'The controller runs the builds, agents only store the logs',
-				'The controller is Jenkins itself (UI, config, scheduling). Agents are the machines that run the build steps',
-				'The controller is the Jenkinsfile, agents are plugins',
+				'The controller runs the builds, and agents only store the logs and artifacts',
+				'The controller is Jenkins itself (UI, config, scheduling). Agents run the build steps',
+				'The controller is the Jenkinsfile, and agents are the plugins it loads',
 				'There is no difference, they are two names for the same server'
 			],
 			answer: 1,
@@ -145,10 +145,10 @@ export default {
 		{
 			q: 'Which situation is the strongest reason to pick Jenkins over a hosted CI service?',
 			options: [
-				'You want zero servers to maintain',
-				'You want the pipeline in a YAML file',
-				'Builds must run on your own network with no internet access, on agents you control',
-				'You only build one small open-source project on GitHub'
+				'You want zero servers to maintain and no agents to patch',
+				'You want the whole pipeline defined in a YAML file in the repo',
+				'Builds must run on your own offline network, on agents you control',
+				'You only build one small open-source project hosted on GitHub'
 			],
 			answer: 2,
 			why: 'Jenkins is self-hosted end to end and runs agents anywhere. That is its edge. For zero maintenance or a small GitHub project, a hosted service is simpler.'

@@ -137,10 +137,10 @@ env:
 		{
 			q: 'In a GitOps pipeline, why should CI tag images with the commit SHA rather than only with `main` or `latest`?',
 			options: [
-				'Because registries reject the tag `latest`',
-				'Because a SHA tag never moves, so the config repo always names one exact image, and a rollback brings back that exact image',
-				'Because SHA tags make images smaller',
-				'Because Kubernetes cannot pull branch-named tags'
+				'Because registries reject the tag `latest` on pushes from CI',
+				'Because a SHA tag never moves, so config names one exact image to roll back to',
+				'Because SHA tags let the registry store smaller, deduplicated images',
+				'Because Kubernetes cannot pull tags that are named after a branch'
 			],
 			answer: 1,
 			why: 'A branch tag points at a new image after every push, so the same values file can mean two different deploys. An immutable tag makes Git a true record of what runs.'
@@ -148,10 +148,10 @@ env:
 		{
 			q: 'The new version is live and the error-budget alert fires. With the setup from this kata, what is the fastest safe rollback?',
 			options: [
-				'`kubectl rollout undo` on the Deployment',
-				'`git revert` the tag commit in the config repo and let Argo CD sync',
-				'Rebuild the old version from source and push it',
-				'Delete the pods so Kubernetes restarts them'
+				'`kubectl rollout undo` on the Deployment, then watch the pods',
+				'`git revert` the tag commit in the config repo, let Argo CD sync',
+				'Rebuild the old version from source and push it to the registry',
+				'Delete the pods so Kubernetes restarts them from a clean state'
 			],
 			answer: 1,
 			why: 'With self-heal on, a `kubectl` rollback is undone, because Git still names the bad tag. Reverting the commit changes the desired state, and Argo CD applies it.'
@@ -160,9 +160,9 @@ env:
 			q: 'Staging passed. How should the same release reach production?',
 			options: [
 				'Rebuild the image from the same commit with production settings',
-				'Change the image tag in the production values to the one staging ran, through a pull request',
-				'Copy the running pods from the staging cluster',
-				'Push the image again with the tag `prod`'
+				'Set the production values to the image tag staging ran, through a pull request',
+				'Copy the running pods from the staging cluster into production',
+				'Push the image again with the tag `prod` and let production pull it'
 			],
 			answer: 1,
 			why: 'Build once, promote the same image. A rebuild can pull different dependencies, so production would run bytes nobody tested.'

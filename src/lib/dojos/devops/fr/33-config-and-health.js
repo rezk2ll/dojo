@@ -130,10 +130,10 @@ export default {
 		{
 			q: 'Un conteneur échoue à sa readiness probe. Que fait Kubernetes ?',
 			options: [
-				'Il redémarre le conteneur',
+				'Il redémarre le conteneur et continue de lui envoyer du trafic pendant le démarrage',
 				'Il arrête d’envoyer le trafic du Service au Pod et laisse tourner le conteneur',
-				'Il supprime le Pod et le ReplicaSet en crée un nouveau',
-				'Il déplace le Pod sur un autre node'
+				'Il supprime le Pod et le ReplicaSet en crée un nouveau à sa place',
+				'Il déplace le Pod sur un node en meilleure santé et relance la probe là-bas'
 			],
 			answer: 1,
 			why: 'La readiness contrôle le trafic, pas la vie. Tant que la readiness probe échoue, le Service n’envoie aucun trafic au Pod, jusqu’à ce qu’elle repasse. Redémarrer, c’est ce que fait une liveness probe en échec.'
@@ -153,9 +153,9 @@ export default {
 			q: 'Pourquoi un Secret Kubernetes n’est-il pas sûr juste parce que ses valeurs sont en base64 ?',
 			options: [
 				'base64 est un encodage, pas un chiffrement, et les Secrets sont stockés non chiffrés dans etcd par défaut',
-				'Parce que les Secrets sont affichés dans les logs du Pod',
-				'Parce que les chaînes base64 sont limitées à 1 MiB',
-				'Il est sûr : le base64 de Kubernetes utilise une clé du cluster'
+				'Parce que les Secrets sont affichés en clair dans les logs du Pod à chaque démarrage',
+				'Parce que les chaînes base64 sont limitées à 1 MiB, donc les longues clés sont coupées et stockées en clair',
+				'Il est sûr : le base64 de Kubernetes utilise une clé du cluster, que seule l’API peut lire'
 			],
 			answer: 0,
 			why: 'Quiconque peut lire le Secret, ou lire etcd, obtient la valeur. Ce qui le protège, c’est le chiffrement au repos et les droits d’accès (RBAC).'

@@ -94,13 +94,13 @@ export default {
 	quiz: [
 		{
 			q: 'A service writes a row to its database, then publishes an event to a broker. What can go wrong that no `try/catch` in that code can fix?',
-			options: ['The broker rejects the message format', 'The database write is slow', 'The process dies after the database write and before the publish: the data exists, the event never will', 'The event is published twice by the broker'],
+			options: ['The broker rejects the message format and returns an error to the service', 'The database write is slow, so the publish times out after the commit', 'The process dies after the write and before the publish, so no event is ever sent', 'The broker publishes the event twice, so consumers see a duplicate'],
 			answer: 2,
 			why: 'Error handling only runs if the process is alive. A crash between two writes leaves them split. Only an outbox (one write) or a later reconciliation closes that gap.'
 		},
 		{
 			q: 'Mastodon\'s IndexingScheduler imports a batch of ids, then removes them from the Redis set. Why in that order?',
-			options: ['If it crashes in between, the ids are still queued and get imported again, which is harmless', 'Redis refuses to remove ids that were not imported yet', 'Removing first would make the import faster', 'Elasticsearch needs the ids to stay in Redis while it indexes them'],
+			options: ['If it crashes in between, the ids stay queued and are imported again, which is harmless', 'Redis refuses to remove ids from the set until they have been imported', 'Removing first would block the import until Redis confirms the delete', 'Elasticsearch needs the ids to stay in Redis while it indexes the batch'],
 			answer: 0,
 			why: 'Removing first would lose the ids on a crash, and those posts would never reach search. Importing first can only cause a repeat, and a repeat sends the same data again.'
 		},

@@ -99,7 +99,7 @@ export default {
 	quiz: [
 		{
 			q: 'In a multi-tenant system, what is a noisy neighbour?',
-			options: ['A tenant who can read another tenant\'s data', 'A tenant whose load slows the others down, because they share compute, workers or a database', 'A tenant who sends too many support tickets', 'A server placed next to another in the same rack'],
+			options: ['A tenant who can read another tenant\'s data because a query forgot the tenant filter', 'A tenant whose load slows the others down, because they share compute, workers or a database', 'A tenant who sends so many support tickets that the team has no time left for the others', 'A server placed next to another in the same rack, so a hardware fault takes both down'],
 			answer: 1,
 			why: 'Data leaks are an isolation problem. A noisy neighbour is a performance problem, caused by whatever the tenants still share.'
 		},
@@ -111,7 +111,7 @@ export default {
 		},
 		{
 			q: 'Why does `Jobs.enqueue` add `current_site_id` to every job by default?',
-			options: ['For logging only', 'Because Sidekiq refuses jobs without it', 'To pick a faster queue for big sites', 'So the shared worker connects to the right site\'s database, instead of running the job on every site'],
+			options: ['For logging only, so each job line in the logs shows which site it came from', 'Because Sidekiq refuses to enqueue a job that has no site id in its payload', 'To route jobs from big sites to a faster queue with more workers behind it', 'So the shared worker runs the job in that site\'s database, not on every site'],
 			answer: 3,
 			why: 'Workers serve all sites. Without the site id, `perform` loops over `all_dbs`. With it, the job runs inside that one site\'s connection.'
 		}

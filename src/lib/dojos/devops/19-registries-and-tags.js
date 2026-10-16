@@ -125,10 +125,10 @@ env:
 		{
 			q: 'What is the difference between an image tag and an image digest?',
 			options: [
-				'A tag is a hash of the content, a digest is a human name',
+				'A tag is a hash of the content, a digest is a human name you can move to a new build',
 				'A tag is a movable name, a digest is a hash of the content that always means the same image',
-				'They are the same thing with two names',
-				'A digest only exists for images on Docker Hub'
+				'They are the same thing with two names, one short and one long',
+				'A digest only exists for images on Docker Hub, other registries use tags only'
 			],
 			answer: 1,
 			why: 'Tags are mutable pointers. A digest (`sha256:...`) is computed from the content, so pulling by digest always returns the same image.'
@@ -147,10 +147,10 @@ env:
 		{
 			q: 'Why does the GitHub starter workflow sign `tag@digest` instead of just the tag?',
 			options: [
-				'Because cosign cannot read tags',
+				'Because cosign cannot read tags, so it needs the digest to find the image',
 				'Because tags can be moved to other content, the digest identifies the exact image that was built',
-				'Because digests are shorter',
-				'To avoid pushing the tag twice'
+				'Because digests are shorter to store in the signature than full tag names',
+				'To avoid pushing the tag twice when the workflow runs on both push and release'
 			],
 			answer: 1,
 			why: 'A signature on a movable name would say nothing about what the name points to tomorrow. Signing the digest ties it to those exact bytes.'

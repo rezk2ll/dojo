@@ -112,10 +112,10 @@ server {
 		{
 			q: '`curl https://example.com` échoue avec « Connection refused ». Quelle couche a lâché ?',
 			options: [
-				'DNS : le nom ne s’est pas résolu',
+				'DNS : le nom ne s’est résolu vers aucune adresse',
 				'TCP : rien n’a accepté la connexion sur ce port',
-				'TLS : le certificat a expiré',
-				'HTTP : la page a renvoyé 404'
+				'TLS : le certificat du serveur a expiré et a été rejeté',
+				'HTTP : le serveur a répondu 404 pour cette page'
 			],
 			answer: 1,
 			why: 'Refused veut dire que le nom s’est résolu et qu’un paquet a atteint la machine, mais qu’aucun programme n’écoute sur ce port (ou qu’un pare-feu l’a rejeté). Un échec DNS affiche plutôt « Could not resolve host ».'
@@ -124,9 +124,9 @@ server {
 			q: '`dig example.com +short` affiche la nouvelle IP, mais `curl` sur ton portable atteint toujours l’ancien serveur. La cause la plus probable ?',
 			options: [
 				'Une entrée dans `/etc/hosts`, que `curl` utilise et que `dig` ignore',
-				'`dig` est plus rapide que `curl`',
-				'La session TLS est en cache pour une semaine',
-				'Le port 443 est fermé sur le nouveau serveur'
+				'`dig` interroge un serveur DNS plus rapide que celui de `curl`',
+				'La session TLS est en cache pour une semaine, donc `curl` garde l’ancien hôte',
+				'Le port 443 est fermé sur le nouveau serveur, donc `curl` se rabat sur l’ancien'
 			],
 			answer: 0,
 			why: '`dig` interroge directement un serveur DNS. Les programmes comme `curl` passent par le résolveur du système, qui lit aussi `/etc/hosts`. Compare avec `getent hosts example.com`.'
@@ -134,10 +134,10 @@ server {
 		{
 			q: 'Pourquoi nginx a-t-il besoin du SNI pour choisir un certificat, au lieu de l’en-tête HTTP Host ?',
 			options: [
-				'L’en-tête Host n’existe qu’en HTTP/1.0',
+				'L’en-tête Host n’existe qu’en HTTP/1.0, pas en HTTP/2',
 				'Le handshake TLS a lieu avant l’envoi du moindre octet HTTP',
-				'Le SNI est plus rapide à analyser',
-				'Le DNS supprime l’en-tête Host'
+				'Le SNI est plus rapide à analyser que tous les en-têtes HTTP',
+				'Le DNS supprime l’en-tête Host avant que la requête arrive'
 			],
 			answer: 1,
 			why: 'Le certificat fait partie du handshake TLS, et HTTP ne démarre qu’une fois TLS en place. Le SNI met le nom à l’intérieur du handshake lui-même.'

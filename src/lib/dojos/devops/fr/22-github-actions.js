@@ -146,10 +146,10 @@ jobs:
 		{
 			q: 'Quelqu’un ouvre une pull request depuis un fork de ton dépôt. Ton workflow tourne sur `pull_request` et lit `secrets.DEPLOY_KEY`. Que reçoit le job ?',
 			options: [
-				'La vraie clé, parce que le fichier de workflow est à toi',
-				'La clé, mais masquée dans les logs',
-				'Aucune valeur : les secrets autres que `GITHUB_TOKEN` ne sont pas transmis aux workflows lancés depuis un fork',
-				'Une erreur qui fait échouer le workflow avant qu’il démarre'
+				'La vraie clé, parce que c’est le fichier de workflow de ton dépôt qui tourne',
+				'La vraie clé, mais GitHub la masque en *** partout où elle apparaît dans les logs',
+				'Aucune valeur : les secrets autres que `GITHUB_TOKEN` ne sont pas transmis aux runs d’un fork',
+				'Une erreur qui fait échouer le workflow avant même sa première étape'
 			],
 			answer: 2,
 			why: 'GitHub n’envoie pas tes secrets à un run lancé depuis un dépôt forké. Sinon n’importe qui pourrait ouvrir une pull request qui les affiche.'

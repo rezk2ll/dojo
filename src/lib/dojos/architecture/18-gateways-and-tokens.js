@@ -124,9 +124,9 @@ export default {
 		{
 			q: 'Envoy\'s JWT filter is configured without `audiences`. What does it accept?',
 			options: [
-				'No token at all, until audiences are set',
-				'Only tokens without an `aud` claim',
-				'Only tokens whose audience is the gateway\'s own name',
+				'No token at all, the filter rejects every request until audiences are set',
+				'Only tokens without an `aud` claim, since there is nothing to compare it to',
+				'Only tokens whose audience is the gateway\'s own name, which Envoy fills in',
 				'Any token with a valid signature and issuer, whatever service it was meant for'
 			],
 			answer: 3,

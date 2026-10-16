@@ -125,10 +125,10 @@ env:
 		{
 			q: 'Quelle est la différence entre un tag d’image et un digest d’image ?',
 			options: [
-				'Un tag est un hash du contenu, un digest est un nom lisible',
+				'Un tag est un hash du contenu, un digest est un nom lisible qu’on peut déplacer vers un autre build',
 				'Un tag est un nom qui peut bouger, un digest est un hash du contenu qui désigne toujours la même image',
-				'C’est la même chose sous deux noms',
-				'Un digest n’existe que pour les images sur Docker Hub'
+				'C’est la même chose sous deux noms, l’un court et l’autre long',
+				'Un digest n’existe que pour les images sur Docker Hub, les autres registres n’ont que des tags'
 			],
 			answer: 1,
 			why: 'Les tags sont des pointeurs modifiables. Un digest (`sha256:...`) est calculé à partir du contenu, donc tirer par digest renvoie toujours la même image.'
@@ -147,10 +147,10 @@ env:
 		{
 			q: 'Pourquoi le workflow de démarrage GitHub signe-t-il `tag@digest` plutôt que le tag seul ?',
 			options: [
-				'Parce que cosign ne sait pas lire les tags',
-				'Parce qu’un tag peut être déplacé vers un autre contenu, alors que le digest désigne exactement l’image construite',
-				'Parce que les digests sont plus courts',
-				'Pour éviter de pousser le tag deux fois'
+				'Parce que cosign ne sait pas lire les tags, il lui faut le digest pour trouver l’image',
+				'Parce qu’un tag peut pointer vers un autre contenu, alors que le digest désigne exactement l’image construite',
+				'Parce que les digests sont plus courts à stocker dans la signature que les noms de tag',
+				'Pour éviter de pousser le tag deux fois quand le workflow tourne sur un push et une release'
 			],
 			answer: 1,
 			why: 'Une signature sur un nom qui bouge ne dirait rien de ce vers quoi ce nom pointera demain. Signer le digest la lie à ces octets précis.'

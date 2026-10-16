@@ -149,7 +149,7 @@ export default {
 			q: 'Dans un changement expand/contract, quand peut-on supprimer l’ancienne colonne sans danger ?',
 			options: [
 				'Dès que le backfill a copié chaque ligne existante dans la nouvelle',
-				'Quand aucune version en cours, ni aucune version vers laquelle tu pourrais revenir, ne l’utilise',
+				'Quand plus aucune version en cours ou de rollback ne l’utilise',
 				'Dès que la nouvelle release tourne sur au moins un pod en production',
 				'Dans la même migration que l’étape expand, pour garder un schéma propre'
 			],

@@ -109,10 +109,10 @@ export default {
 		{
 			q: 'Two `LocalDate` objects are created separately, and both hold 2026-03-14. How do they compare?',
 			options: [
-				'Different, because each was created separately',
-				'Equal only if they belong to the same pet',
-				'Equal: a value object is defined by its content, and `equals` compares the date',
-				'Different, unless they share a database id'
+				'Different, because each one is a separate object in memory',
+				'Equal only if both belong to the same pet or the same visit',
+				'Equal, because a value object is compared by its content',
+				'Different, unless both were loaded with the same database id'
 			],
 			answer: 2,
 			why: 'Value objects have no identity. Same content, same value. The JDK documents `LocalDate` as value-based: equal instances are interchangeable.'
@@ -120,10 +120,10 @@ export default {
 		{
 			q: 'Why can the `Owner` aggregate not enforce "a vet never has two visits at the same time"?',
 			options: [
-				'JPA entities cannot hold rules',
+				'JPA entities cannot hold business rules, only mapped fields',
 				'The rule needs visits from many owners, which live outside this aggregate',
-				'Only value objects can hold invariants',
-				'The database has no transactions'
+				'Only value objects can hold invariants, never entities or roots',
+				'The database cannot run the check inside a single transaction'
 			],
 			answer: 1,
 			why: 'An aggregate can only guarantee rules over the data it holds. One vet\'s visits are spread across many owners, so a check inside one owner sees only a few of them.'
@@ -131,10 +131,10 @@ export default {
 		{
 			q: 'PetClinic has an `OwnerRepository` but no repository for pets or visits. What does that say?',
 			options: [
-				'Owner is the aggregate root: pets and visits are loaded and saved through it',
-				'Pets and visits are value objects',
-				'The project forgot two repositories',
-				'Pets are stored in a different database'
+				'Owner is the aggregate root, so pets and visits are saved through it',
+				'Pets and visits are value objects, so they need no repository',
+				'The project forgot two repositories that it should still add',
+				'Pets and visits are stored in a different database than owners'
 			],
 			answer: 0,
 			why: 'Repositories exist per aggregate, not per table. Pets and visits are entities inside the owner\'s cluster, so they travel with it.'

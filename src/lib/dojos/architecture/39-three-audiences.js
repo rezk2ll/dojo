@@ -106,7 +106,7 @@ drwho:
 	quiz: [
 		{
 			q: 'A director asks: "Can one customer ever see another customer\'s data?" Which answer fits the floor?',
-			options: ['It depends on PostgreSQL internals', 'We follow industry best practices', 'No: each customer\'s data sits in a separate database, so a query for one site never touches another\'s tables. The price is more databases to operate.', 'Walk through the connection lookup by host name and the migration task'],
+			options: ['It depends on how PostgreSQL isolates rows and schemas internally', 'We follow industry best practices, so the risk is fully covered', 'No, each customer has a separate database. The cost: more databases to run', 'Walk through the connection lookup by host name and the migration task'],
 			answer: 2,
 			why: 'A direct answer, the reason in plain words, and one honest cost. The mechanism is true but useless at that altitude, and "best practices" says nothing.'
 		},
@@ -118,7 +118,7 @@ drwho:
 		},
 		{
 			q: 'Between the developer, PM and director versions, what should change?',
-			options: ['The detail and the consequence each audience acts on, while the facts stay identical', 'The facts', 'Only the length', 'The decision itself'],
+			options: ['The detail and the consequence each audience acts on, never the facts', 'The facts, simplified a little more on each floor going up', 'Only the length, with the same detail packed into fewer lines', 'The decision itself, adjusted to what each audience wants to hear'],
 			answer: 0,
 			why: 'Altitude changes the words and the detail. If the facts change between floors, you have three decisions, and one day they will meet in the same meeting.'
 		}

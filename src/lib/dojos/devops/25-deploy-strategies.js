@@ -112,10 +112,10 @@ spec:
 		{
 			q: 'What is the main difference between a blue-green deploy and a canary release?',
 			options: [
-				'Blue-green is for databases, canary is for web servers',
-				'Blue-green switches all traffic at once from the old environment to the new one. Canary sends a small share of real users to the new version first, then increases it',
-				'Canary has downtime, blue-green does not',
-				'Blue-green runs only one version at a time, canary runs three'
+				'Blue-green is for database changes, which need two copies. Canary is only for stateless web servers',
+				'Blue-green moves all traffic to the new version at once. Canary sends a small share of users first, then more',
+				'Canary stops the old version while the new one starts, so it has downtime. Blue-green has none',
+				'Blue-green runs one version at a time. Canary runs three at once: old, new and a test copy'
 			],
 			answer: 1,
 			why: 'Both keep the old version running. Blue-green flips everyone at once, with an instant flip back. Canary exposes a few users first, so a bad release hurts only that share.'
@@ -123,10 +123,10 @@ spec:
 		{
 			q: 'Kubernetes (day 31) runs several copies of your app. You ship a new version there and choose no strategy. What does Kubernetes do?',
 			options: [
-				'Recreate: kill all old copies, then start new ones',
-				'Blue-green: start a full copy, then switch',
-				'Rolling update: replace copies progressively, with at most 25% down and at most 25% extra by default',
-				'Nothing until you approve the change'
+				'Recreate: kill all old copies first, then start the new ones once they are gone',
+				'Blue-green: start a full set of new copies, then switch all traffic at once',
+				'Rolling update: replace copies progressively, by default at most 25% down and 25% extra',
+				'Nothing: the new version waits until you approve the change with `kubectl`'
 			],
 			answer: 2,
 			why: 'Rolling update is the default strategy, and both limits (`maxUnavailable` and `maxSurge`) default to 25%. `Recreate` must be asked for.'
@@ -135,9 +135,9 @@ spec:
 			q: 'A new checkout page is deployed to production, but hidden behind a feature flag that is off. What is true?',
 			options: [
 				'The code is deployed but not released: users see it only when the flag is turned on',
-				'The code is not deployed until the flag is turned on',
-				'Turning the flag on triggers a new deploy',
-				'Feature flags only work with blue-green deploys'
+				'The code is not deployed yet, the pipeline waits until the flag is turned on',
+				'Turning the flag on triggers a new deploy of the checkout page to production',
+				'Nothing is live yet, since feature flags only work with blue-green deploys'
 			],
 			answer: 0,
 			why: 'A flag separates deploy (the code is on the servers) from release (users get the feature). You can turn it on, or back off, without touching the pipeline.'

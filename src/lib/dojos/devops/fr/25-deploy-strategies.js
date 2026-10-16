@@ -112,10 +112,10 @@ spec:
 		{
 			q: 'Quelle est la différence principale entre un déploiement blue-green et un canary ?',
 			options: [
-				'Blue-green est pour les bases de données, canary pour les serveurs web',
-				'Blue-green bascule tout le trafic d’un coup de l’ancien environnement vers le nouveau. Canary envoie d’abord une petite part des vrais utilisateurs vers la nouvelle version, puis augmente',
-				'Canary a une coupure, blue-green non',
-				'Blue-green ne fait tourner qu’une version à la fois, canary en fait tourner trois'
+				'Blue-green est pour les changements de base de données, qui demandent deux copies. Canary ne sert qu’aux serveurs web stateless',
+				'Blue-green bascule tout le trafic d’un coup vers la nouvelle version. Canary envoie d’abord une petite part des utilisateurs, puis plus',
+				'Canary arrête l’ancienne version pendant que la nouvelle démarre, donc il a une coupure. Blue-green non',
+				'Blue-green ne fait tourner qu’une version à la fois. Canary en fait tourner trois : l’ancienne, la nouvelle et une copie de test'
 			],
 			answer: 1,
 			why: 'Les deux gardent l’ancienne version en marche. Blue-green bascule tout le monde d’un coup, avec un retour instantané. Canary expose d’abord quelques utilisateurs, donc une mauvaise version ne touche que cette part.'
@@ -123,10 +123,10 @@ spec:
 		{
 			q: 'Kubernetes (jour 31) fait tourner plusieurs copies de ton application. Tu y livres une nouvelle version sans choisir de stratégie. Que fait Kubernetes ?',
 			options: [
-				'Recreate : tuer toutes les anciennes copies, puis démarrer les nouvelles',
-				'Blue-green : démarrer une copie complète, puis basculer',
-				'Rolling update : remplacer les copies progressivement, avec au plus 25 % arrêtées et au plus 25 % en plus par défaut',
-				'Rien tant que tu n’as pas validé le changement'
+				'Recreate : tuer d’abord toutes les anciennes copies, puis démarrer les nouvelles une fois parties',
+				'Blue-green : démarrer un jeu complet de nouvelles copies, puis basculer tout le trafic d’un coup',
+				'Rolling update : remplacer les copies progressivement, par défaut au plus 25 % arrêtées et 25 % en plus',
+				'Rien : la nouvelle version attend que tu valides toi-même le changement avec `kubectl`'
 			],
 			answer: 2,
 			why: 'Le rolling update est la stratégie par défaut, et les deux limites (`maxUnavailable` et `maxSurge`) valent 25 % par défaut. `Recreate` doit être demandé.'
@@ -135,9 +135,9 @@ spec:
 			q: 'Une nouvelle page de paiement est déployée en production, mais cachée derrière un feature flag éteint. Qu’est-ce qui est vrai ?',
 			options: [
 				'Le code est déployé mais pas mis en service : les utilisateurs ne le voient que quand le flag est allumé',
-				'Le code n’est pas déployé tant que le flag n’est pas allumé',
-				'Allumer le flag déclenche un nouveau déploiement',
-				'Les feature flags ne marchent qu’avec des déploiements blue-green'
+				'Le code n’est pas encore déployé, le pipeline attend que quelqu’un allume le flag en production',
+				'Allumer le flag déclenche un nouveau déploiement de la page de paiement en production',
+				'Rien n’est en ligne, car les feature flags ne marchent qu’avec des déploiements blue-green'
 			],
 			answer: 0,
 			why: 'Un flag sépare le déploiement (le code est sur les serveurs) de la mise en service (les utilisateurs ont la fonctionnalité). Tu peux l’allumer, ou l’éteindre, sans toucher au pipeline.'

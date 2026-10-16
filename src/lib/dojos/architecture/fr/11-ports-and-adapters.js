@@ -109,13 +109,13 @@ export default {
 		},
 		{
 			q: 'Une appli Rails stocke les envois sur disque en tests et sur S3 en production, avec le même code de modèle. Où ce choix est-il fait ?',
-			options: ['Dans chaque modèle, avec un `if Rails.env.production?`', 'Dans `Blob`, qui regarde quelles gems sont installées', 'Dans le `config.active_storage.service` de chaque environnement, qui nomme une entrée de `storage.yml`', 'Dans le SDK S3, qui se rabat sur le disque quand aucun bucket n’est défini'],
+			options: ['Dans chaque modèle, avec un `if Rails.env.production?` autour de chaque `has_one_attached`', 'Dans `Blob`, qui regarde quelles gems de stockage sont installées et prend la première', 'Dans le `config.active_storage.service` de chaque environnement, qui nomme une entrée de `storage.yml`', 'Dans le SDK S3, qui se rabat sur le disque local quand aucun bucket n’est défini dans l’env'],
 			answer: 2,
 			why: 'L’environnement nomme un service, `storage.yml` associe ce nom à un adaptateur, et le configurator le construit. Les modèles ne voient jamais le choix.'
 		},
 		{
 			q: '`MirrorService` implémente `Service` et enveloppe un stockage principal et des miroirs. Qu’est-ce que ce design apporte ?',
-			options: ['Des téléchargements plus rapides, puisqu’il lit sur tous les miroirs à la fois', 'Des envois atomiques sur tous les stockages', 'Plus besoin de fichier `storage.yml`', 'La copie des envois vers un second stockage avec n’importe quels adaptateurs, sans les modifier ni modifier ceux qui les appellent'],
+			options: ['Des téléchargements plus rapides, puisqu’il lit chaque fichier sur tous les miroirs à la fois et garde le premier', 'Des envois atomiques, donc un fichier arrive dans tous les stockages ou dans aucun', 'Plus besoin de fichier `storage.yml`, puisque les miroirs sont définis dans le code', 'La copie des envois vers un second stockage avec n’importe quels adaptateurs, sans toucher à eux ni à leurs appelants'],
 			answer: 3,
 			why: 'Un décorateur ajoute un comportement derrière la même interface. Les téléchargements vont toujours vers le stockage principal, et le guide prévient que le miroir n’est pas atomique.'
 		}

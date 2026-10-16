@@ -139,9 +139,9 @@ jobs:
 			q: 'Dans sa note de 2020, dans quel cas l’auteur de GitFlow dit-il qu’il reste adapté ?',
 			options: [
 				'Un logiciel versionné explicitement, ou avec plusieurs versions maintenues dans la nature',
-				'Une appli web déployée plusieurs fois par jour',
-				'Toute équipe qui héberge son code sur GitHub',
-				'Une équipe sans tests automatiques'
+				'Une appli web déployée plusieurs fois par jour, où chaque release a sa propre branche',
+				'Toute équipe qui héberge son code sur GitHub et relit les changements en pull request',
+				'Une équipe sans tests automatiques, qui a besoin de longues phases de release manuelles'
 			],
 			answer: 0,
 			why: 'Pour les applis web en livraison continue, il conseille un flow plus simple. GitFlow est pour les logiciels versionnés explicitement, ou quand tu maintiens plusieurs versions à la fois.'

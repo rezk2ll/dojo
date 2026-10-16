@@ -137,9 +137,9 @@ env:
 		{
 			q: 'Dans une pipeline GitOps, pourquoi la CI doit-elle taguer les images avec le SHA du commit plutôt que seulement avec `main` ou `latest` ?',
 			options: [
-				'Parce que les registries refusent le tag `latest`',
-				'Parce qu’un tag SHA ne bouge jamais, donc le repo de config désigne toujours une image précise, et un rollback ramène exactement cette image',
-				'Parce que les tags SHA rendent les images plus petites',
+				'Parce que les registries refusent le tag `latest` poussé par la CI',
+				'Parce qu’un tag SHA ne bouge jamais, donc la config désigne une image précise à restaurer',
+				'Parce que les tags SHA laissent le registry stocker des images plus petites',
 				'Parce que Kubernetes ne sait pas tirer des tags nommés comme une branche'
 			],
 			answer: 1,
@@ -148,10 +148,10 @@ env:
 		{
 			q: 'La nouvelle version est en ligne et l’alerte d’error budget sonne. Avec le montage de ce kata, quel est le rollback sûr le plus rapide ?',
 			options: [
-				'`kubectl rollout undo` sur le Deployment',
-				'`git revert` du commit de tag dans le repo de config, et laisser Argo CD synchroniser',
+				'`kubectl rollout undo` sur le Deployment, puis surveiller les pods',
+				'`git revert` du commit de tag dans le repo de config, Argo CD synchronise',
 				'Reconstruire l’ancienne version depuis les sources et la pousser',
-				'Supprimer les pods pour que Kubernetes les redémarre'
+				'Supprimer les pods pour que Kubernetes les redémarre dans un état propre'
 			],
 			answer: 1,
 			why: 'Avec le self-heal actif, un rollback via `kubectl` est annulé, parce que Git désigne toujours le mauvais tag. Annuler le commit change l’état voulu, et Argo CD l’applique.'
@@ -160,9 +160,9 @@ env:
 			q: 'Staging est validé. Comment la même release doit-elle arriver en production ?',
 			options: [
 				'Reconstruire l’image depuis le même commit avec les réglages de production',
-				'Changer le tag d’image dans les values de production pour celui qu’a fait tourner staging, via une pull request',
-				'Copier les pods qui tournent depuis le cluster de staging',
-				'Pousser l’image à nouveau avec le tag `prod`'
+				'Mettre dans les values de production le tag qu’a fait tourner staging, via une pull request',
+				'Copier les pods qui tournent du cluster de staging vers la production',
+				'Pousser l’image à nouveau avec le tag `prod` et laisser la production la tirer'
 			],
 			answer: 1,
 			why: 'On construit une fois, on promeut la même image. Une reconstruction peut tirer d’autres dépendances, et la production ferait tourner des octets que personne n’a testés.'

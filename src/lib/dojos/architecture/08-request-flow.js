@@ -146,9 +146,9 @@ export default {
 			q: 'Resolving a mentioned remote account fails with a connection error. What does Mastodon do with the post?',
 			options: [
 				'It publishes the post, with the mention left as plain text',
-				'It answers 502 and does not save the post',
-				'It retries the mention forever before saving',
-				'It saves the post as a draft'
+				'It answers 502 to the client and does not save the post',
+				'It retries the mention forever before it saves the post',
+				'It saves the post as a draft until the mention resolves'
 			],
 			answer: 0,
 			why: 'The `rescue` sets `mentioned_account = nil`, and the code then keeps the original text for that mention. The user gets their post, maybe after a wait, and no error.'

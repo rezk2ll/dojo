@@ -123,10 +123,10 @@ exit $res`,
 		{
 			q: 'Que change `set -o pipefail` ?',
 			options: [
-				'Bash arrête le pipeline dès qu’une commande échoue',
-				'Le pipeline renvoie le code de la commande la plus à droite qui a échoué, et pas seulement celui de la dernière commande',
-				'Bash affiche chaque commande du pipeline avant de la lancer',
-				'Chaque commande du pipeline tourne dans son propre sous-shell'
+				'Bash arrête tout le pipeline dès qu’une de ses commandes échoue',
+				'Il renvoie le code de la commande la plus à droite en échec, pas seulement de la dernière',
+				'Bash affiche chaque commande du pipeline sur stderr avant de la lancer',
+				'Chaque commande du pipeline tourne dans son propre sous-shell, l’une après l’autre'
 			],
 			answer: 1,
 			why: 'Sans pipefail, `a | b` renvoie le code de `b`, donc un échec de `a` passe inaperçu. Avec pipefail, toute commande en échec se voit dans le résultat.'

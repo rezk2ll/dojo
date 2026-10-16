@@ -104,19 +104,19 @@ such as \`node-fetch\` and others on the Node.js platform.
 	quiz: [
 		{
 			q: 'Un an après l’acceptation d’un ADR, l’équipe change la décision. Que devient l’ancien ADR ?',
-			options: ['On modifie sa section Décision pour coller au nouveau choix', 'On écrit un nouvel ADR, et on marque l’ancien comme « remplacé par » celui-ci', 'On le supprime, le code fait foi', 'On ajoute un commentaire dans le code qui l’utilisait'],
+			options: ['On modifie sa section Décision pour coller au nouveau choix', 'On écrit un nouvel ADR et on marque l’ancien « remplacé »', 'On le supprime, le code fait foi', 'On ajoute un commentaire dans le code qui l’utilisait'],
 			answer: 1,
 			why: 'Les ADR acceptés forment un historique. Tu les remplaces, pour que les lecteurs voient à la fois ce qui a été décidé et pourquoi ça a changé. L’ADR013 de Backstage commence par une note qui renvoie vers ADR014.'
 		},
 		{
 			q: 'ADR014 prévient que les tests `msw` 1.x peuvent échouer avec le fetch natif. Pourquoi cette ligne a-t-elle sa place dans les Conséquences ?',
-			options: ['C’est un rapport de bug qui devrait plutôt aller dans le gestionnaire de tickets', 'Elle a sa place dans le Contexte, parce que c’est un fait', 'C’est le plan de mise en œuvre de la migration', 'Les Conséquences contiennent le bon et le mauvais qui découlent de la décision, et ceci est un prix à payer'],
+			options: ['C’est un bug de `msw` 1.x, donc sa place est dans le gestionnaire de tickets, pas dans l’ADR', 'Elle a sa place dans le Contexte, parce qu’elle décrit un fait vrai avant la décision', 'Elle a sa place dans la Décision, puisqu’elle fait partie du plan de passage au fetch natif', 'Les Conséquences contiennent le bon et le mauvais qui découlent de la décision, et ceci est un prix à payer'],
 			answer: 3,
 			why: 'Si les Conséquences n’ont aucun inconvénient, la première loi dit que tu ne l’as pas encore trouvé. Le nommer dit aussi à chaque auteur de plugin à quoi s’attendre.'
 		},
 		{
 			q: 'Chez Backstage, quand un nouvel ADR reçoit-il son numéro ?',
-			options: ['Dès que le fichier est créé', 'Seulement quand il est remplacé', 'Vers la fin de la revue, une fois que la communauté a donné ses retours sur la pull request', 'Jamais, les ADR sont nommés par date'],
+			options: ['Dès que le fichier est créé à partir du template, avant toute revue', 'Seulement quand il est remplacé, pour que le nouveau puisse renvoyer vers lui', 'Vers la fin de la revue, une fois que la pull request a recueilli des retours', 'Jamais, les ADR sont nommés par date pour que deux pull requests n’entrent pas en conflit'],
 			answer: 2,
 			why: 'Le guide dit de copier le template sans attribuer de numéro, de recueillir les retours sur la pull request, et « au bout du compte, d’attribuer un numéro ». Un numéro marque une décision réellement prise.'
 		}

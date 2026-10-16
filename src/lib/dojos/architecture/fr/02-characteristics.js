@@ -97,23 +97,23 @@ export default {
 	quiz: [
 		{
 			q: 'Laquelle de ces propositions est une **caractéristique** d’architecture, et pas une fonctionnalité ?',
-			options: ['Les agents peuvent fusionner deux tickets de support', 'La recherche renvoie des résultats en moins de 200 ms sur 10 millions de tickets', 'Les clients reçoivent un e-mail quand leur ticket est fermé', 'Les utilisateurs peuvent joindre des fichiers à un ticket'],
+			options: ['Les agents peuvent fusionner deux tickets de support en double en un seul', 'La recherche renvoie des résultats en moins de 200 ms sur 10 millions de tickets', 'Les clients reçoivent un e-mail avec un résumé quand leur ticket est fermé', 'Les utilisateurs peuvent joindre des captures et des fichiers de log à un ticket'],
 			answer: 1,
 			why: 'Un objectif de latence ne dit rien de ce que fait l’appli, il contraint la façon dont elle est construite (index, cache, sharding). Les autres sont des fonctionnalités.'
 		},
 		{
 			q: 'Pourquoi garder courte la liste des caractéristiques déterminantes ?',
-			options: ['Parce que les documents doivent être courts', 'Parce qu’il n’en existe que trois', 'Parce que les managers ne savent pas en lire plus', 'Parce que chacune coûte un effort de conception et qu’elles entrent souvent en conflit'],
+			options: ['Parce qu’un document de conception doit tenir sur une seule page', 'Parce que le catalogue standard ne définit que trois caractéristiques', 'Parce que les managers ne savent pas en suivre plus de quelques-unes à la fois', 'Parce que chacune coûte un effort de conception et qu’elles entrent souvent en conflit'],
 			answer: 3,
 			why: 'Tenir une caractéristique coûte de la complexité, et elles se font concurrence : dans Kafka, TLS pour la sécurité désactive le chemin zero-copy construit pour le débit.'
 		},
 		{
 			q: 'Un consumer Kafka se connecte en TLS. Que devient le chemin zero-copy quand le broker lui envoie des données du log ?',
 			options: [
-				'Il n’est pas utilisé : le broker lit le fichier dans un buffer pour que les données puissent être chiffrées',
-				'Il marche toujours, parce que le noyau chiffre le page cache',
-				'Le broker refuse TLS pour les consumers',
-				'Le consumer déchiffre le fichier sur le disque du broker'
+				'Il n’est pas utilisé : le broker lit le fichier dans un buffer pour pouvoir chiffrer les données',
+				'Il marche toujours, parce que le noyau chiffre le page cache avant que sendfile le lise',
+				'Le broker refuse TLS pour les consumers et ne l’accepte qu’entre brokers',
+				'Le consumer déchiffre le fichier directement sur le disque du broker, donc aucune copie n’est faite'
 			],
 			answer: 0,
 			why: 'Le zero-copy envoie les octets du fichier directement du page cache au socket. TLS doit d’abord les chiffrer, en espace utilisateur. La doc de conception dit : « sendfile n’est pas utilisé quand SSL est activé. »'

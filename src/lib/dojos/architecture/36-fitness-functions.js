@@ -105,13 +105,13 @@ export default {
 		},
 		{
 			q: 'A Java file in Kafka\'s `common` package imports a class that no rule in `import-control.xml` mentions. What does Checkstyle do?',
-			options: ['Allows it, because nothing forbids it', 'Logs a warning but lets the build pass', 'Refuses it: with no matching rule, an import is disallowed by default', 'Skips the file'],
+			options: ['Allows it, because no rule in the file forbids that import', 'Logs a warning for the unknown import but lets the build pass', 'Refuses it: with no matching rule, an import is disallowed by default', 'Skips the file, since only imports named in a rule are checked'],
 			answer: 2,
 			why: 'Checkstyle\'s default for ImportControl is "disallowed". The file is an allowlist: every dependency must be named somewhere.'
 		},
 		{
 			q: 'A load test takes 20 minutes. Where does it belong?',
-			options: ['On every commit, blocking merge', 'Nowhere, it is too slow to be useful', 'Only after a customer reports slowness', 'Triggered on a schedule or before a release, while cheap structural checks run on every PR'],
+			options: ['On every commit, blocking the merge until the full load test has passed', 'Nowhere, a 20 minute test is too slow to tell the team anything useful', 'Only after a customer reports slowness, so the test targets a real problem', 'On a schedule or before a release, while cheap structural checks run on every PR'],
 			answer: 3,
 			why: 'Match the trigger to the cost. Fast static checks guard every change. Slow dynamic ones run on a schedule or a release gate, and someone must own the result.'
 		}

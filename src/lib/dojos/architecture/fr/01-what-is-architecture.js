@@ -88,19 +88,19 @@ CACHES = {
 	quiz: [
 		{
 			q: 'Pourquoi une appli web shared-nothing peut-elle tourner en plusieurs copies identiques derrière un seul load balancer ?',
-			options: ['Parce que chaque utilisateur a son propre serveur', 'Parce que le load balancer copie la mémoire entre les processus applicatifs', 'Parce que le processus applicatif ne garde aucun état entre les requêtes, tout vit dans des stockages partagés comme la base de données', 'Parce que le runtime du langage est rapide'],
+			options: ['Parce que le load balancer envoie toujours chaque utilisateur vers la même copie, qui ne voit que lui', 'Parce que le load balancer copie la mémoire de session entre les processus applicatifs après chaque requête', 'Parce que le processus ne garde aucun état entre les requêtes, tout vit dans des stockages partagés comme la base de données', 'Parce que chaque copie garde ses sessions en mémoire et les synchronise avec les autres en arrière-plan'],
 			answer: 2,
 			why: 'Des processus stateless sont interchangeables. N’importe quelle copie peut répondre à n’importe quelle requête, donc tu ajoutes des copies pour passer à l’échelle.'
 		},
 		{
 			q: 'Qu’est-ce qui fait d’une décision une décision d’**architecture** ?',
-			options: ['Elle est coûteuse à changer plus tard et d’autres décisions en dépendent', 'Elle concerne la stack technique', 'Elle a été prise par quelqu’un de senior', 'Elle est écrite dans un ADR'],
+			options: ['Elle est coûteuse à changer plus tard et d’autres décisions en dépendent', 'Elle concerne la stack technique, comme le langage ou le framework', 'Elle a été prise par quelqu’un de senior, comme l’architecte principal', 'Elle est écrite dans un ADR et validée par toute l’équipe'],
 			answer: 0,
 			why: 'Choisir une bibliothèque peut relever de l’architecture, ou pas. Le critère, c’est le coût d’un changement d’avis plus tard.'
 		},
 		{
 			q: 'Une appli Django tourne en deux processus avec le réglage `CACHES` par défaut. Le processus 1 met une page en cache. La requête suivante pour cette page arrive au processus 2. Que se passe-t-il ?',
-			options: ['Le processus 2 lit la page dans la mémoire du processus 1', 'Django copie le cache dans la base de données', 'La requête échoue avec une erreur', 'Le processus 2 rate le cache, parce que chaque processus a son propre cache privé en mémoire locale'],
+			options: ['Le processus 2 lit la page dans la mémoire du processus 1, car ils partagent un cache', 'Django enregistre le cache dans la base de données, donc le processus 2 le lit là', 'La requête échoue avec une erreur, car le processus 1 verrouille l’entrée de cache', 'Le processus 2 rate le cache, parce que chaque processus a son propre cache en mémoire locale'],
 			answer: 3,
 			why: 'Le `LocMemCache` par défaut est propre à chaque processus. Il garde de l’état dans le processus applicatif, exactement ce que le shared-nothing interdit. Pointe `CACHES` vers un serveur partagé avant de lancer une deuxième copie.'
 		}

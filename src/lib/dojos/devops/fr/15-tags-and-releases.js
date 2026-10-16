@@ -140,10 +140,10 @@ jobs:
 		{
 			q: 'Quel type de tag Git doit marquer une release, et pourquoi ?',
 			options: [
-				'Un tag léger, parce qu’il est plus petit et plus rapide',
-				'Une branche `release`, parce qu’elle peut avancer à chaque correctif',
-				'Un tag annoté, parce qu’il enregistre qui a tagué, quand et pourquoi, et que `git describe` l’utilise par défaut',
-				'Pas de tag, le hash du commit suffit'
+				'Un tag léger, parce qu’il est plus petit, plus rapide, et que `git describe` l’utilise',
+				'Une branche `release`, parce qu’elle peut avancer à chaque nouveau correctif',
+				'Un tag annoté : il enregistre qui, quand et pourquoi, et `git describe` l’utilise par défaut',
+				'Pas de tag, parce que le hash du commit identifie déjà la release exactement'
 			],
 			answer: 2,
 			why: 'La doc de git-tag dit que les tags annotés sont faits pour les releases, et les tags légers pour des étiquettes privées ou temporaires. Certaines commandes comme `git describe` ignorent les tags légers par défaut.'
@@ -152,9 +152,9 @@ jobs:
 			q: 'Tu as lancé `git tag -a v1.5.0 -m "Release 1.5.0"`, puis `git push`. Le tag n’est pas sur GitHub. Pourquoi ?',
 			options: [
 				'`git push` n’envoie pas les tags par défaut, donc lance `git push origin v1.5.0`',
-				'Les tags annotés ne peuvent pas être poussés',
-				'GitHub n’accepte que les tags créés dans son interface web',
-				'Le tag doit être signé avant de pouvoir être poussé'
+				'Les tags annotés ne peuvent pas être poussés, seuls les légers le peuvent',
+				'GitHub n’accepte que les tags créés dans son interface web ou son API',
+				'Le tag doit être signé avec `-s` avant de pouvoir être poussé'
 			],
 			answer: 0,
 			why: 'Les tags se poussent explicitement : par leur nom, avec `--tags`, ou avec `--follow-tags` pour les tags annotés atteignables depuis les commits poussés.'

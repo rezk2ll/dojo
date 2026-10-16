@@ -99,7 +99,7 @@ export default {
 	quiz: [
 		{
 			q: 'Dans un système multi-tenant, qu’est-ce qu’un noisy neighbour ?',
-			options: ['Un tenant qui peut lire les données d’un autre tenant', 'Un tenant dont la charge ralentit les autres, parce qu’ils partagent du calcul, des workers ou une base de données', 'Un tenant qui ouvre trop de tickets de support', 'Un serveur placé à côté d’un autre dans la même baie'],
+			options: ['Un tenant qui peut lire les données d’un autre tenant parce qu’une requête a oublié le filtre de tenant', 'Un tenant dont la charge ralentit les autres, parce qu’ils partagent du calcul, des workers ou une base de données', 'Un tenant qui ouvre tant de tickets de support que l’équipe n’a plus de temps pour les autres', 'Un serveur placé à côté d’un autre dans la même baie, si bien qu’une panne matérielle touche les deux'],
 			answer: 1,
 			why: 'Une fuite de données est un problème d’isolation. Un noisy neighbour est un problème de performance, causé par tout ce que les tenants partagent encore.'
 		},
@@ -111,7 +111,7 @@ export default {
 		},
 		{
 			q: 'Pourquoi `Jobs.enqueue` ajoute-t-il `current_site_id` à chaque job par défaut ?',
-			options: ['Uniquement pour les logs', 'Parce que Sidekiq refuse les jobs qui ne l’ont pas', 'Pour choisir une file plus rapide pour les gros sites', 'Pour que le worker partagé se connecte à la base du bon site, au lieu de lancer le job sur tous les sites'],
+			options: ['Uniquement pour les logs, pour que chaque ligne de job indique de quel site elle vient', 'Parce que Sidekiq refuse de mettre en file un job sans identifiant de site dans son payload', 'Pour envoyer les jobs des gros sites vers une file plus rapide, avec plus de workers derrière', 'Pour que le worker partagé lance le job dans la base de ce site, pas sur tous les sites'],
 			answer: 3,
 			why: 'Les workers servent tous les sites. Sans l’identifiant du site, `perform` boucle sur `all_dbs`. Avec, le job tourne dans la connexion de ce seul site.'
 		}

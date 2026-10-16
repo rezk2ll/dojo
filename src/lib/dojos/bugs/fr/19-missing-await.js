@@ -4,11 +4,11 @@ const HA = 'https://github.com/home-assistant/core';
 export default {
 	slug: 'missing-await',
 	part: 'L’état et le temps',
-	title: 'Des tâches d’arrêt que personne n’attendait',
+	title: 'Un await manquant devant asyncio.gather',
 	minutes: 10,
 	hook: [
 		'Un utilisateur de Home Assistant écrit une automatisation qui tourne à l’arrêt de Home Assistant. Elle bascule un interrupteur virtuel. Le ticket dit : "Although the automation definitely runs, the action of toggling an `input_boolean` helper does not persist after a HA restart." (l’automatisation tourne bien, mais l’état basculé est perdu au redémarrage).',
-		'L’arrêt se fait par étapes. L’étape 1 lance les tâches d’arrêt enregistrées et doit leur laisser jusqu’à 20 secondes (`STOPPING_STAGE_SHUTDOWN_TIMEOUT`) pour finir. L’étape 2 arrête ensuite les intégrations. Aucune erreur ni aucun avertissement n’apparaît dans le journal.'
+		'L’arrêt se fait en deux étapes. L’étape 1 lance les tâches d’arrêt enregistrées et doit leur laisser jusqu’à 20 secondes (`STOPPING_STAGE_SHUTDOWN_TIMEOUT`) pour finir. L’étape 2 arrête ensuite les intégrations. Aucune erreur ni aucun avertissement n’apparaît dans le journal.'
 	],
 	terms: [
 		{ term: 'Coroutine', def: 'Une fonction définie avec `async def`. L’appeler ne l’exécute pas jusqu’au bout ; il faut l’`await` ou la planifier.' },
@@ -44,11 +44,11 @@ except asyncio.TimeoutError:
 +                    await asyncio.gather(*tasks, return_exceptions=True)
          except asyncio.TimeoutError:`,
 		notes: [
-			'**Le résultat de gather est jeté.** `asyncio.gather(...)` renvoie un future tout de suite. Sans `await`, rien ne l’attend. Le bloc `async with` se termine un instant après le lancement des tâches, et `async_stop` passe à l’étape 2 pendant qu’elles tournent encore.',
-			'**Le délai ne se déclenche jamais.** Le bloc accorde 20 secondes, mais aucune ligne à l’intérieur ne fait de pause. Le message "Timed out waiting for shutdown jobs to complete" ne peut donc jamais s’afficher, même quand une tâche est lente. Le seul signe, c’est le résultat manquant, ici l’état de l’`input_boolean` qui n’est pas gardé.',
-			'**Aucun avertissement de Python.** Une coroutine jamais attendue fait afficher à Python "coroutine ... was never awaited". `gather` renvoie un future, pas une coroutine, et les tâches qu’il contient sont déjà planifiées. Rien n’est laissé de côté d’une façon que Python signale.',
-			'**Le correctif.** `await asyncio.gather(...)` met `async_stop` en pause jusqu’à ce que toutes les tâches soient finies ou que les 20 secondes soient écoulées. `return_exceptions=True` évite qu’une tâche en échec interrompe l’attente des autres.',
-			'**Comment ça s’est vu.** Un utilisateur a ouvert le [ticket #106606](' + HA + '/issues/106606), "Home Assistant shutdown trigger still not working", sur la version 2024.1.0b1. La pull request du correctif renvoie à ce ticket.'
+			'La ligne 11 appelle `asyncio.gather(...)`, qui renvoie un future tout de suite. Sans `await`, rien ne l’attend. Le bloc `async with` de la ligne 3 se termine un instant après le lancement des tâches, et `async_stop` passe à l’étape 2 pendant qu’elles tournent encore.',
+			'Le bloc accorde 20 secondes, mais aucune ligne à l’intérieur ne fait de pause. La ligne 13 n’écrit donc jamais "Timed out waiting for shutdown jobs to complete", même quand une tâche est lente. Le seul signe, c’est le résultat manquant, ici l’état de l’`input_boolean` qui n’est pas gardé.',
+			'Python affiche "coroutine ... was never awaited" quand une coroutine n’est jamais attendue. Ici `gather` renvoie un future, et les tâches qu’il contient sont déjà planifiées. Python ne trouve aucun objet coroutine abandonné à signaler.',
+			'Avec le correctif, `await asyncio.gather(...)` met `async_stop` en pause jusqu’à ce que toutes les tâches soient finies ou que les 20 secondes soient écoulées. `return_exceptions=True` évite qu’une tâche en échec interrompe l’attente des autres.',
+			'Un utilisateur a ouvert le [ticket #106606](' + HA + '/issues/106606), "Home Assistant shutdown trigger still not working", sur la version 2024.1.0b1. La pull request du correctif renvoie à ce ticket.'
 		]
 	},
 	quiz: [
@@ -81,7 +81,10 @@ except asyncio.TimeoutError:
 			why: 'Le bug ne se voit que si une tâche prend du temps. Une tâche qui dort un peu puis lève un drapeau, vérifié au début de l’étape 2, échoue sans le await et passe avec le correctif.'
 		}
 	],
-	takeaway: 'Chaque appel qui renvoie un future ou une promesse a besoin d’un `await`, ou d’une raison claire de s’en passer. Un délai autour d’un code qui ne fait jamais de pause ne sert à rien : vérifie que quelque chose à l’intérieur attend vraiment.',
+	recall: {
+		q: 'L’étape 1 entoure les tâches d’arrêt d’un délai de 20 secondes. Pourquoi l’étape 2 a-t-elle commencé avant la fin des tâches, sans avertissement de délai ?',
+		a: 'La ligne 11 appelait `asyncio.gather(...)` sans `await`, et rien dans le bloc ne faisait de pause. Le correctif ajoute `await` : `async_stop` attend maintenant les tâches jusqu’à 20 secondes.'
+	},
 	sources: [
 		{ title: 'home-assistant, pull request #106632', url: `${HA}/pull/106632` },
 		{ title: 'Ticket #106606 : le déclencheur d’arrêt ne marche toujours pas', url: `${HA}/issues/106606` }

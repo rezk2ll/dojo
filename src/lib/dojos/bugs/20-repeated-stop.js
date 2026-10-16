@@ -5,7 +5,7 @@ const CRI = 'https://github.com/kubernetes/cri-api/blob/c20fa40/pkg/apis/runtime
 export default {
 	slug: 'repeated-stop',
 	part: 'State and time',
-	title: 'Stop, remove, stop again',
+	title: 'An idempotent StopContainer in containerd',
 	minutes: 10,
 	hook: [
 		'Kubernetes talks to containerd through the CRI, a gRPC API. Its definition says `StopContainer` "is idempotent, and must not return an error if the container has already been stopped." A caller that lost the answer to a stop can send it again.',
@@ -57,10 +57,10 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 +		return &runtime.StopContainerResponse{}, nil
  	}`,
 		notes: [
-			'**Every lookup error is an error.** Line 6 catches any error from `containerStore.Get` and line 7 returns it. One of those errors means the ID is unknown, which is what a removed container looks like. For a repeated stop, that is the expected state, not a failure.',
-			'**The sequence that fails.** Send `StopContainer` for a container: it stops. Send `RemoveContainer`: it is gone from the store. Send `StopContainer` again with the same ID: line 7 returns "an error occurred when try to find container ...: not found". The CRI says this call must succeed.',
-			'**Half of it was already idempotent.** A second stop on a container that is stopped but not removed already worked. `stopContainer` starts with "Return without error if container is not running" and returns nil. Only the lookup above it had no such case.',
-			'**The fix.** A not-found error now returns an empty `StopContainerResponse` with no error. Any other error from the store is still returned. The commit says: "Similar to container removal, the stop of a container should be a noop if the container has not been found." `RemoveContainer` already handled not-found this way.'
+			'Line 6 catches any error from `containerStore.Get` on line 5, and line 7 returns it. One of those errors means the ID is unknown, which is the state of a removed container. The CRI expects a repeated stop on that container to succeed.',
+			'Send `StopContainer` for a container: it stops. Send `RemoveContainer`: it is gone from the store. Send `StopContainer` again with the same ID: line 7 returns "an error occurred when try to find container ...: not found", where the CRI says the call must succeed.',
+			'A second stop on a container that is stopped and still in the store already worked. `stopContainer`, called on line 10, starts with "Return without error if container is not running" and returns nil. Only the lookup on line 5 had no such case.',
+			'With the fix, a not-found error returns an empty `StopContainerResponse` with no error. Any other error from the store is still returned. The commit says: "Similar to container removal, the stop of a container should be a noop if the container has not been found." `RemoveContainer` already handled not-found this way.'
 		]
 	},
 	quiz: [
@@ -76,7 +76,7 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 			why: 'The removed container is no longer in `containerStore`, so `Get` returns a not-found error and line 7 sends it back to the caller.'
 		},
 		{
-			q: 'Why did a second stop on a stopped, not yet removed container already succeed?',
+			q: 'Why did a second stop already succeed when the container was stopped but still in the store?',
 			options: [
 				'`containerStore.Get` caches the answer of the first call',
 				'The NRI plugin swallows the error and only logs it',
@@ -98,7 +98,10 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 			why: 'The bug only appears on the second call, once the object is gone. A single call, or calls that all see the container, never reach the not-found branch.'
 		}
 	],
-	takeaway: 'When an API says a call can be repeated, read every early return in its handler. "Already done" and "already gone" must return success, and only other errors go back to the caller.',
+	recall: {
+		q: 'You stop a container, remove it, then stop it again. What did the third call return before the fix, and what does it return now?',
+		a: 'Before, line 7 returned the "not found" error from `containerStore.Get`. Now the code checks `errdefs.IsNotFound(err)` and returns an empty `StopContainerResponse` with no error.'
+	},
 	sources: [
 		{ title: 'containerd pull request #10521', url: `${CTRD}/pull/10521` },
 		{ title: 'cri-tools pull request #1536, the idempotence tests', url: 'https://github.com/kubernetes-sigs/cri-tools/pull/1536' },

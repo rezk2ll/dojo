@@ -5,7 +5,7 @@ const PARENT = '012b371cde3157a8dd46535839fbcda6c2bed1a0';
 export default {
 	slug: 'missing-timeout',
 	part: 'L’état et le temps',
-	title: 'Un fetch qui n’est jamais obligé de répondre',
+	title: 'Un fetch sans timeout',
 	minutes: 10,
 	hook: [
 		'L’extension navigateur React DevTools lit les source maps pour relier le code des composants à tes fichiers. Quand elle ne trouve pas un fichier parmi ce que la page a déjà chargé, le panneau DevTools demande à un content script de la page d’aller le chercher.',
@@ -66,10 +66,10 @@ chrome.runtime.onMessage.addListener(message => {
      response => {
        if (response.ok) {`,
 		notes: [
-			'**`fetch` n’a pas de timeout à lui.** L’appel ne passe que `cache: \'force-cache\'`. Si le serveur accepte la connexion et n’envoie jamais de réponse, la promesse reste en attente. Ni le handler de succès ni `error => reject(null)` ne s’exécutent, donc aucun message ne repart vers le panneau.',
-			'**Le panneau n’attend que ce message.** Côté panneau, `fetchFileWithCaching` renvoie `new Promise((resolve, reject) => ...)` et ne la règle que depuis un listener `onMessage` qui guette les deux types de réponse ([fetchFileWithCaching.js](' + REACT + '/blob/' + PARENT + '/packages/react-devtools-extensions/src/main/fetchFileWithCaching.js#L81-L109)). Un fetch qui ne finit jamais laisse cette promesse en attente elle aussi, et le listener reste enregistré.',
-			'**Le correctif.** `AbortSignal.timeout(60000)` se déclenche au bout de 60 secondes. Le fetch est alors rejeté avec une `TimeoutError`, la branche `error => reject(null)` s’exécute, et le panneau reçoit `fetch-file-with-cache-error`. Le signal couvre aussi la lecture du corps : une réponse qui cale à mi-chemin fait rejeter `response.text()` vers le `.catch`.',
-			'**Ce que dit le commit.** "this adds a timeout of 60 seconds to all fetch requests initiated by fileFetcher content script." La même pull request empêche aussi le panneau d’envoyer deux fois la même URL pendant qu’une requête est en cours.'
+			'`fetch` n’a pas de timeout à lui, et la ligne 14 ne passe que `cache: \'force-cache\'`. Si le serveur accepte la connexion sans jamais répondre, la promesse reste en attente. Ni le handler de succès de la ligne 15 ni `error => reject(null)` à la ligne 25 ne s’exécutent : aucun message ne repart vers le panneau.',
+			'Côté panneau, `fetchFileWithCaching` renvoie `new Promise((resolve, reject) => ...)` et ne la règle que depuis un listener `onMessage` qui guette les deux types de réponse ([fetchFileWithCaching.js](' + REACT + '/blob/' + PARENT + '/packages/react-devtools-extensions/src/main/fetchFileWithCaching.js#L81-L109)). Un fetch qui ne finit jamais laisse cette promesse en attente elle aussi, et le listener reste enregistré.',
+			'Le correctif ajoute `signal: AbortSignal.timeout(60000)` à la ligne 14, qui se déclenche au bout de 60 secondes. Le fetch est alors rejeté avec une `TimeoutError`, la ligne 25 s’exécute, et le panneau reçoit `fetch-file-with-cache-error`. Le signal couvre aussi la lecture du corps : si la réponse cale à mi-chemin, `response.text()` est rejeté vers le `.catch` de la ligne 20.',
+			'Le message du commit : "this adds a timeout of 60 seconds to all fetch requests initiated by fileFetcher content script." La même pull request empêche aussi le panneau d’envoyer deux fois la même URL pendant qu’une requête est en cours.'
 		]
 	},
 	quiz: [
@@ -107,7 +107,10 @@ chrome.runtime.onMessage.addListener(message => {
 			why: 'Un 404 et un échec DNS sont rejetés vite et marchaient déjà. Seul un serveur muet montre que le timeout se déclenche et qu’un message revient quand même.'
 		}
 	],
-	takeaway: 'Pour chaque appel réseau, cherche ce qui l’arrête si l’autre côté ne répond jamais. Avec `fetch`, c’est un `signal`, par exemple `AbortSignal.timeout(ms)`. Teste-le avec un serveur qui accepte la requête et reste muet.',
+	recall: {
+		q: 'Le serveur accepte la connexion et ne répond jamais. Qu’envoie le content script corrigé au panneau, et quand ?',
+		a: '`fetch-file-with-cache-error`, au bout de 60 secondes. `AbortSignal.timeout(60000)` fait rejeter le fetch, et le handler `error => reject(null)` déjà présent envoie le message d’erreur.'
+	},
 	sources: [
 		{ title: 'react, pull request #34566', url: `${REACT}/pull/34566` },
 		{ title: 'MDN : AbortSignal.timeout()', url: 'https://developer.mozilla.org/fr/docs/Web/API/AbortSignal/timeout_static' }

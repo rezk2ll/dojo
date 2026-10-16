@@ -4,7 +4,7 @@ const MOBY = 'https://github.com/moby/moby';
 export default {
 	slug: 'loop-closure',
 	part: 'State and time',
-	title: 'The wrong container deleted',
+	title: 'A loop variable captured by a goroutine',
 	minutes: 10,
 	hook: [
 		'When the Docker daemon starts, it loads every container from disk into a map keyed by container ID. Then it registers each one in its own goroutine, with a semaphore that limits how many run at once. A container that fails to register must be **removed from the map**, so the later steps of the start skip it.',
@@ -50,10 +50,10 @@ export default {
  				mapLock.Unlock()
  				return`,
 		notes: [
-			'**`c` is copied, `id` is shared.** The goroutine takes `c` as a parameter, so each one gets the container of its own turn. `id` is not a parameter. The function literal reads the one `id` variable of the loop, and the loop keeps writing a new key into it.',
-			'**What gets deleted.** Each goroutine first waits on `sem.Acquire`, so it can run long after the loop has moved on. Say container A fails `registerName` after the loop is done. `id` now holds the last key the loop visited, say C. The code deletes C, a container that registered fine, and A stays in the map with a name that failed to register.',
-			'**The fix.** The map is filled with `containers[container.ID] = container`, so `c.ID` is the key of this container. `delete(containers, c.ID)` uses the parameter, which belongs to this goroutine. The commit makes the same change on the second `delete` and drops `id` from the `for` line.',
-			'**How it was found.** No user reported it. The commit message quotes `go vet`: "daemon/daemon.go:273: loop variable id captured by func literal". Since Go 1.22 each turn of a `for` loop gets new variables, but code built with an older Go, as here in January 2019, shares them.'
+			'Line 3 takes `c` as a parameter, so each goroutine gets a copy of the container of its own turn. `id` is not a parameter. Lines 11 and 18 read the one `id` variable of the loop, and the loop keeps writing a new key into it.',
+			'Each goroutine first waits on `sem.Acquire` at line 5, so it can run long after the loop has moved on. Say container A fails `registerName` after the loop is done. `id` now holds the last key the loop visited, say C. Line 11 deletes C, a container that registered fine, and A stays in the map with a name that failed to register.',
+			'The map is filled with `containers[container.ID] = container`, so `c.ID` is the key of this container. The fix writes `delete(containers, c.ID)`, which reads the parameter of this goroutine. The commit makes the same change on line 18 and drops `id` from the `for` line.',
+			'No user reported the bug. The commit message quotes `go vet`: "daemon/daemon.go:273: loop variable id captured by func literal". Since Go 1.22 each turn of a `for` loop gets new variables, but code built with an older Go, as here in January 2019, shares them.'
 		]
 	},
 	quiz: [
@@ -72,7 +72,7 @@ export default {
 				'The mutex protects `c`, but not `id`'
 			],
 			answer: 0,
-			why: 'Arguments are evaluated when `go func(...)(c)` runs, on that turn of the loop. A captured variable is read later, when the goroutine gets to that line.'
+			why: 'Go evaluates the arguments when `go func(...)(c)` runs, on that turn of the loop. A captured variable is read later, when the goroutine gets to that line.'
 		},
 		{
 			q: 'Which check finds this bug without running the daemon?',
@@ -86,7 +86,10 @@ export default {
 			why: 'The commit message quotes `go vet` itself: "loop variable id captured by func literal". The race detector only sees code that runs, and a start with no errors never reaches the `delete` lines.'
 		}
 	],
-	takeaway: 'When a goroutine or callback started inside a loop uses a loop variable, pass the value as an argument or read it from the item itself, as `c.ID` does here. Run `go vet` on code built with Go older than 1.22.',
+	recall: {
+		q: 'A goroutine started in a `for id, c := range` loop fails and calls `delete(containers, id)` after the loop has ended. Which key does it delete, and what did the fix use instead?',
+		a: 'It deletes the last key the loop visited, because before Go 1.22 `id` is one variable for the whole loop. The fix uses `c.ID`, read from the parameter of that goroutine.'
+	},
 	sources: [
 		{ title: 'moby pull request #38497', url: `${MOBY}/pull/38497` },
 		{ title: 'Go 1.22 release notes, loop variables', url: 'https://go.dev/doc/go1.22#language' }

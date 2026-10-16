@@ -5,7 +5,7 @@ const CRI = 'https://github.com/kubernetes/cri-api/blob/c20fa40/pkg/apis/runtime
 export default {
 	slug: 'repeated-stop',
 	part: 'L’état et le temps',
-	title: 'Arrêter, supprimer, arrêter encore',
+	title: 'Un StopContainer idempotent dans containerd',
 	minutes: 10,
 	hook: [
 		'Kubernetes parle à containerd par la CRI, une API gRPC. Sa définition dit que `StopContainer` "is idempotent, and must not return an error if the container has already been stopped." (l’appel est idempotent et ne doit pas renvoyer d’erreur si le conteneur est déjà arrêté). Un appelant qui a perdu la réponse à un arrêt peut le renvoyer.',
@@ -57,10 +57,10 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 +		return &runtime.StopContainerResponse{}, nil
  	}`,
 		notes: [
-			'**Toute erreur de recherche est une erreur.** La ligne 6 attrape n’importe quelle erreur de `containerStore.Get` et la ligne 7 la renvoie. L’une de ces erreurs veut dire que l’ID est inconnu, et c’est l’état d’un conteneur supprimé. Pour un arrêt répété, c’est l’état attendu, pas un échec.',
-			'**La séquence qui échoue.** Envoie `StopContainer` pour un conteneur : il s’arrête. Envoie `RemoveContainer` : il disparaît du store. Renvoie `StopContainer` avec le même ID : la ligne 7 renvoie "an error occurred when try to find container ...: not found". La CRI dit que cet appel doit réussir.',
-			'**La moitié était déjà idempotente.** Un deuxième arrêt sur un conteneur arrêté mais pas supprimé marchait déjà. `stopContainer` commence par "Return without error if container is not running" et renvoie nil. Seule la recherche au-dessus n’avait pas ce cas.',
-			'**Le correctif.** Une erreur « introuvable » renvoie maintenant un `StopContainerResponse` vide, sans erreur. Toute autre erreur du store est toujours renvoyée. Le commit dit : "Similar to container removal, the stop of a container should be a noop if the container has not been found." `RemoveContainer` gérait déjà le cas « introuvable » de cette façon.'
+			'La ligne 6 attrape n’importe quelle erreur de `containerStore.Get` (ligne 5), et la ligne 7 la renvoie. L’une de ces erreurs veut dire que l’ID est inconnu, et c’est l’état d’un conteneur supprimé. La CRI veut qu’un arrêt répété sur ce conteneur réussisse.',
+			'Envoie `StopContainer` pour un conteneur : il s’arrête. Envoie `RemoveContainer` : il disparaît du store. Renvoie `StopContainer` avec le même ID : la ligne 7 répond "an error occurred when try to find container ...: not found", alors que la CRI exige un succès.',
+			'Un deuxième arrêt sur un conteneur arrêté et encore dans le store marchait déjà. `stopContainer`, appelée ligne 10, commence par "Return without error if container is not running" et renvoie nil. Seule la recherche de la ligne 5 n’avait pas ce cas.',
+			'Avec le correctif, une erreur « introuvable » renvoie un `StopContainerResponse` vide, sans erreur. Toute autre erreur du store est toujours renvoyée. Le commit dit : "Similar to container removal, the stop of a container should be a noop if the container has not been found." `RemoveContainer` gérait déjà le cas « introuvable » de cette façon.'
 		]
 	},
 	quiz: [
@@ -76,7 +76,7 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 			why: 'Le conteneur supprimé n’est plus dans `containerStore`, donc `Get` renvoie une erreur « introuvable » et la ligne 7 la renvoie à l’appelant.'
 		},
 		{
-			q: 'Pourquoi un deuxième arrêt sur un conteneur arrêté, pas encore supprimé, réussissait-il déjà ?',
+			q: 'Pourquoi un deuxième arrêt réussissait-il déjà quand le conteneur était arrêté mais encore dans le store ?',
 			options: [
 				'`containerStore.Get` garde en cache la réponse du premier appel',
 				'Le plugin NRI avale l’erreur et se contente de la logger',
@@ -98,7 +98,10 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 			why: 'Le bug n’apparaît qu’au deuxième appel, une fois l’objet disparu. Un seul appel, ou des appels qui voient tous le conteneur, n’atteignent jamais la branche « introuvable ».'
 		}
 	],
-	takeaway: 'Quand une API dit qu’un appel peut être répété, relis chaque retour anticipé de son handler. « Déjà fait » et « déjà disparu » doivent renvoyer un succès, et seules les autres erreurs remontent à l’appelant.',
+	recall: {
+		q: 'Tu arrêtes un conteneur, tu le supprimes, puis tu l’arrêtes encore. Que renvoyait le troisième appel avant le correctif, et que renvoie-t-il maintenant ?',
+		a: 'Avant, la ligne 7 renvoyait l’erreur « not found » de `containerStore.Get`. Maintenant le code teste `errdefs.IsNotFound(err)` et renvoie un `StopContainerResponse` vide, sans erreur.'
+	},
 	sources: [
 		{ title: 'containerd, pull request #10521', url: `${CTRD}/pull/10521` },
 		{ title: 'cri-tools, pull request #1536, les tests d’idempotence', url: 'https://github.com/kubernetes-sigs/cri-tools/pull/1536' },

@@ -4,7 +4,7 @@ const RAILS = 'https://github.com/rails/rails';
 export default {
 	slug: 'cache-key',
 	part: 'L’état et le temps',
-	title: 'Deux contrôleurs, un seul compteur',
+	title: 'Une clé de rate limit sans le contrôleur',
 	minutes: 10,
 	hook: [
 		'Un contrôleur Rails peut limiter la fréquence des appels d’un client : `rate_limit to: 10, within: 5.minutes`. Les compteurs vivent dans le cache Rails. Un contrôleur qui a plusieurs limites donne un `name:` à chacune, une option ajoutée quelques jours avant ce correctif.',
@@ -51,10 +51,10 @@ private
 +        count = store.increment(cache_key, 1, expires_in: within)
          if count && count > to`,
 		notes: [
-			'**La clé ne contient que le nom.** Le compteur est rangé sous `"rate-limit:#{name}:#{ip}"`. Avec le nom par défaut, `controller_path`, la clé change d’un contrôleur à l’autre. Avec `name: "long-term"`, la clé vaut `rate-limit:long-term:203.0.113.5` dans chaque contrôleur qui choisit ce nom.',
-			'**Les chiffres.** Les deux contrôleurs ont `to: 10` et le même nom. Depuis 203.0.113.5, 6 requêtes au premier et 5 au second appellent toutes `store.increment` sur une seule clé, qui renvoie 1 jusqu’à 11. À la 11e, `count > to` donne `11 > 10`, et le client reçoit 429 d’un contrôleur qui n’en a compté que 5 à lui.',
-			'**Le correctif.** La clé est construite à partir de ses morceaux : `["rate-limit", controller_path, name, ...].compact.join(":")`. `controller_path` est maintenant lu dans le contrôleur qui traite la requête, donc deux contrôleurs ne partagent jamais une clé. Le nom par défaut devient `nil`, et `compact` le retire : `rate-limit:sessions:203.0.113.5`.',
-			'**Comment ça s’est vu.** L’auteur de l’option `name:` l’a remarqué après le merge. La [pull request](' + RAILS + '/pull/52961) dit : "So if someone uses `name: "long-term"` rate limiter in `FooController` and `name: "long-term"` in `BarController`, they both will share the same key." (les deux contrôleurs partagent la même clé).'
+			'La ligne 12 range le compteur sous `"rate-limit:#{name}:#{ip}"` : la clé ne contient que le nom et l’IP. Avec le nom par défaut de la ligne 5, `controller_path`, chaque contrôleur a sa clé. Avec `name: "long-term"`, tous les contrôleurs qui choisissent ce nom écrivent sous `rate-limit:long-term:203.0.113.5`.',
+			'Les deux contrôleurs ont `to: 10` et le même nom. Depuis 203.0.113.5, 6 requêtes au premier et 5 au second appellent toutes `store.increment` sur une seule clé, qui renvoie 1 jusqu’à 11. À la 11e, la ligne 13 compare `11 > 10`, et le client reçoit 429 d’un contrôleur qui n’a compté que 5 de ses requêtes.',
+			'Le correctif assemble la clé morceau par morceau : `["rate-limit", controller_path, name, ...].compact.join(":")`. Le contrôleur qui traite la requête fournit maintenant `controller_path`, donc deux contrôleurs ne partagent jamais une clé. Le nom par défaut vaut maintenant `nil`, et `compact` le retire : `rate-limit:sessions:203.0.113.5`.',
+			'L’auteur de l’option `name:` a remarqué le bug après le merge. La [pull request](' + RAILS + '/pull/52961) dit : "So if someone uses `name: "long-term"` rate limiter in `FooController` and `name: "long-term"` in `BarController`, they both will share the same key." (les deux contrôleurs partagent la même clé).'
 		]
 	},
 	quiz: [
@@ -87,7 +87,10 @@ private
 			why: 'Si deux appelants qui devraient avoir des valeurs séparées construisent la même clé, chacun lit et modifie la valeur de l’autre. Ici, le contrôleur manquait dans la clé.'
 		}
 	],
-	takeaway: 'Liste ce qui rend une valeur en cache différente, ici le contrôleur, le nom de la limite et le client, et mets chacun dans la clé. Un nom choisi par l’appelant n’est pas unique tant que le code ne le rend pas unique.',
+	recall: {
+		q: 'Quel morceau manquait dans la clé de rate limit, et qu’ont partagé deux contrôleurs avec le même `name:` ?',
+		a: 'La clé n’avait pas le chemin du contrôleur. Les deux construisaient `rate-limit:long-term:<ip>`, donc ils comptaient dans un seul compteur, et un client recevait 429 après 11 requêtes réparties entre eux.'
+	},
 	sources: [
 		{ title: 'rails, pull request #52961', url: `${RAILS}/pull/52961` },
 		{ title: 'rails, pull request #52960, qui a ajouté name:', url: `${RAILS}/pull/52960` }

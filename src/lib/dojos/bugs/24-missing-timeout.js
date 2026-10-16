@@ -5,7 +5,7 @@ const PARENT = '012b371cde3157a8dd46535839fbcda6c2bed1a0';
 export default {
 	slug: 'missing-timeout',
 	part: 'State and time',
-	title: 'A fetch that never has to answer',
+	title: 'A fetch with no timeout',
 	minutes: 10,
 	hook: [
 		'The React DevTools browser extension reads source maps to map component code back to your files. When it cannot find a file among what the page already loaded, the DevTools panel asks a content script in the page to fetch it.',
@@ -66,10 +66,10 @@ chrome.runtime.onMessage.addListener(message => {
      response => {
        if (response.ok) {`,
 		notes: [
-			'**`fetch` has no timeout of its own.** The call passes only `cache: \'force-cache\'`. If the server accepts the connection and never sends a response, the promise stays pending. Neither the success handler nor `error => reject(null)` runs, so no message goes back to the panel.',
-			'**The panel waits on that message alone.** On the panel side, `fetchFileWithCaching` returns `new Promise((resolve, reject) => ...)` and settles it only from an `onMessage` listener that looks for the two reply types ([fetchFileWithCaching.js](' + REACT + '/blob/' + PARENT + '/packages/react-devtools-extensions/src/main/fetchFileWithCaching.js#L81-L109)). A fetch that never ends leaves that promise pending too, and the listener stays registered.',
-			'**The fix.** `AbortSignal.timeout(60000)` fires after 60 seconds. The fetch then rejects with a `TimeoutError`, the `error => reject(null)` branch runs, and the panel gets `fetch-file-with-cache-error`. The signal also covers reading the body, so a response that stalls halfway makes `response.text()` reject into the `.catch`.',
-			'**What the commit says.** "this adds a timeout of 60 seconds to all fetch requests initiated by fileFetcher content script." The same pull request also stops the panel from sending the same URL twice while a request is in flight.'
+			'`fetch` has no timeout of its own, and line 14 passes only `cache: \'force-cache\'`. If the server accepts the connection and never sends a response, the promise stays pending. Neither the success handler on line 15 nor `error => reject(null)` on line 25 runs, so no message goes back to the panel.',
+			'On the panel side, `fetchFileWithCaching` returns `new Promise((resolve, reject) => ...)` and settles it only from an `onMessage` listener that looks for the two reply types ([fetchFileWithCaching.js](' + REACT + '/blob/' + PARENT + '/packages/react-devtools-extensions/src/main/fetchFileWithCaching.js#L81-L109)). A fetch that never ends leaves that promise pending too, and the listener stays registered.',
+			'The fix adds `signal: AbortSignal.timeout(60000)` to line 14, which fires after 60 seconds. The fetch then rejects with a `TimeoutError`, line 25 runs, and the panel gets `fetch-file-with-cache-error`. The signal also covers reading the body, so a response that stalls halfway makes `response.text()` reject into the `.catch` on line 20.',
+			'The commit message: "this adds a timeout of 60 seconds to all fetch requests initiated by fileFetcher content script." The same pull request also stops the panel from sending the same URL twice while a request is in flight.'
 		]
 	},
 	quiz: [
@@ -107,7 +107,10 @@ chrome.runtime.onMessage.addListener(message => {
 			why: 'A 404 and a DNS failure both reject quickly and already worked. Only a server that stays silent shows that the timeout fires and a message still comes back.'
 		}
 	],
-	takeaway: 'For every network call, find what makes it stop if the other side never answers. With `fetch`, that is a `signal`, such as `AbortSignal.timeout(ms)`. Test it with a server that accepts the request and stays silent.',
+	recall: {
+		q: 'The server accepts the connection and never answers. What does the fixed content script send to the panel, and when?',
+		a: '`fetch-file-with-cache-error`, after 60 seconds. `AbortSignal.timeout(60000)` makes the fetch reject, and the existing `error => reject(null)` handler sends the error message.'
+	},
 	sources: [
 		{ title: 'react pull request #34566', url: `${REACT}/pull/34566` },
 		{ title: 'MDN: AbortSignal.timeout()', url: 'https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static' }

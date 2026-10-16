@@ -4,7 +4,7 @@ const MOBY = 'https://github.com/moby/moby';
 export default {
 	slug: 'loop-closure',
 	part: 'L’état et le temps',
-	title: 'Le mauvais conteneur supprimé',
+	title: 'Une variable de boucle capturée par une goroutine',
 	minutes: 10,
 	hook: [
 		'Au démarrage, le démon Docker charge chaque conteneur depuis le disque dans une map indexée par ID de conteneur. Puis il enregistre chacun dans sa propre goroutine, avec un sémaphore qui limite combien tournent en même temps. Un conteneur qui échoue à s’enregistrer doit être **retiré de la map**, pour que les étapes suivantes du démarrage l’ignorent.',
@@ -50,10 +50,10 @@ export default {
  				mapLock.Unlock()
  				return`,
 		notes: [
-			'**`c` est copié, `id` est partagé.** La goroutine prend `c` en paramètre, donc chacune reçoit le conteneur de son tour. `id` n’est pas un paramètre. La fonction littérale lit l’unique variable `id` de la boucle, et la boucle continue d’y écrire une nouvelle clé.',
-			'**Ce qui est supprimé.** Chaque goroutine attend d’abord sur `sem.Acquire`, donc elle peut tourner bien après que la boucle a avancé. Mettons que le conteneur A échoue à `registerName` une fois la boucle finie. `id` contient alors la dernière clé visitée, disons C. Le code supprime C, un conteneur qui s’était bien enregistré, et A reste dans la map avec un nom qui n’a pas pu s’enregistrer.',
-			'**Le correctif.** La map est remplie avec `containers[container.ID] = container`, donc `c.ID` est la clé de ce conteneur. `delete(containers, c.ID)` utilise le paramètre, qui appartient à cette goroutine. Le commit fait le même changement sur le second `delete` et retire `id` de la ligne `for`.',
-			'**Comment ça s’est vu.** Aucun utilisateur ne l’a signalé. Le message du commit cite `go vet` : "daemon/daemon.go:273: loop variable id captured by func literal". Depuis Go 1.22, chaque tour d’une boucle `for` a ses propres variables, mais du code compilé avec un Go plus ancien, comme ici en janvier 2019, les partage.'
+			'La ligne 3 prend `c` en paramètre : chaque goroutine reçoit sa copie du conteneur de son tour. `id` n’est pas un paramètre. Les lignes 11 et 18 lisent l’unique variable `id` de la boucle, où la boucle écrit une nouvelle clé à chaque tour.',
+			'Chaque goroutine attend d’abord sur `sem.Acquire` à la ligne 5, donc elle peut tourner bien après que la boucle a avancé. Mettons que le conteneur A échoue à `registerName` une fois la boucle finie. `id` contient alors la dernière clé visitée, disons C. La ligne 11 supprime C, un conteneur bien enregistré, et A reste dans la map avec un nom qui n’a pas pu s’enregistrer.',
+			'Le code remplit la map avec `containers[container.ID] = container`, donc `c.ID` est la clé de ce conteneur. Le correctif écrit `delete(containers, c.ID)`, qui lit le paramètre de cette goroutine. Le commit fait le même changement à la ligne 18 et retire `id` de la ligne `for`.',
+			'Aucun utilisateur n’a signalé le bug. Le message du commit cite `go vet` : "daemon/daemon.go:273: loop variable id captured by func literal". Depuis Go 1.22, chaque tour d’une boucle `for` a ses propres variables, mais du code compilé avec un Go plus ancien, comme ici en janvier 2019, les partage.'
 		]
 	},
 	quiz: [
@@ -86,7 +86,10 @@ export default {
 			why: 'Le message du commit cite `go vet` lui-même : "loop variable id captured by func literal". Le race detector ne voit que le code qui s’exécute, et un démarrage sans erreur n’atteint jamais les lignes `delete`.'
 		}
 	],
-	takeaway: 'Quand une goroutine ou un callback lancé dans une boucle utilise une variable de boucle, passe la valeur en argument ou lis-la sur l’élément lui-même, comme `c.ID` ici. Lance `go vet` sur du code compilé avec un Go antérieur à 1.22.',
+	recall: {
+		q: 'Une goroutine lancée dans une boucle `for id, c := range` échoue et appelle `delete(containers, id)` après la fin de la boucle. Quelle clé supprime-t-elle, et qu’utilise le correctif à la place ?',
+		a: 'Elle supprime la dernière clé visitée, car avant Go 1.22 `id` est une seule variable pour toute la boucle. Le correctif utilise `c.ID`, lu sur le paramètre de cette goroutine.'
+	},
 	sources: [
 		{ title: 'moby, pull request #38497', url: `${MOBY}/pull/38497` },
 		{ title: 'Notes de version de Go 1.22, variables de boucle', url: 'https://go.dev/doc/go1.22#language' }

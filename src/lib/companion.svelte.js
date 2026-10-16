@@ -9,7 +9,7 @@ const KEY = 'dojo:companion';
 export const SIZES = { s: 110, m: 150, l: 200 };
 
 /** The cube in the corner. `beat` changes on every reaction, so the same mood twice still replays. */
-export const companion = $state({ on: true, size: /** @type {Size} */ ('m'), mood: /** @type {Mood} */ ('idle'), beat: 0 });
+export const companion = $state({ on: true, size: /** @type {Size} */ ('s'), mood: /** @type {Mood} */ ('idle'), beat: 0 });
 
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let calm;

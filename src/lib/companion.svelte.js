@@ -7,8 +7,8 @@ const KEY = 'dojo:companion';
 /**
  * @typedef {'idle' | 'happy' | 'sad'} Mood
  * @typedef {'s' | 'm' | 'l'} Size
- * @typedef {'glance' | 'nod' | 'done'} Cue
- * @typedef {typeof EYES[number]} Eyes
+ * @typedef {'glance' | 'nod' | 'done' | 'caught'} Cue
+ * @typedef {typeof EYES[number] | typeof SECRET_EYES} Eyes
  */
 
 /** Side of the cube's canvas in CSS pixels. */
@@ -17,8 +17,11 @@ export const SIZES = { s: 110, m: 150, l: 200 };
 /** Eye styles in unlock order: the first is free, then one more per finished part, in any dojo. */
 export const EYES = /** @type {const} */ (['pill', 'round', 'square', 'visor', 'heart']);
 
-/** @param {number} partsDone */
-export const unlockedEyes = (partsDone) => EYES.slice(0, 1 + partsDone);
+/** Not earned by reading: it is for whoever manages to catch the cube. */
+export const SECRET_EYES = /** @type {const} */ ('star');
+
+/** @param {number} partsDone @param {boolean} caught @returns {Eyes[]} */
+export const unlockedEyes = (partsDone, caught) => [...EYES.slice(0, 1 + partsDone), ...(caught ? [SECRET_EYES] : [])];
 
 /** Parts finished across all dojos. Reading it inside markup or `$derived` follows progress. */
 export function partsDone() {
@@ -31,13 +34,14 @@ export function partsDone() {
 }
 
 /** The saved style, or the free one when progress, replaced or imported, no longer unlocks it. */
-export const eyesInUse = () => (unlockedEyes(partsDone()).includes(companion.eyes) ? companion.eyes : EYES[0]);
+export const eyesInUse = () => (unlockedEyes(partsDone(), companion.caught).includes(companion.eyes) ? companion.eyes : EYES[0]);
 
 /** The cube in the corner. `beat` and `cueBeat` change on every reaction and cue, so the same one twice still replays. */
 export const companion = $state({
 	on: true,
 	size: /** @type {Size} */ ('s'),
 	eyes: /** @type {Eyes} */ ('pill'),
+	caught: false,
 	mood: /** @type {Mood} */ ('idle'),
 	beat: 0,
 	combo: 0,
@@ -94,18 +98,19 @@ export function initCompanion() {
 		const s = saved === '0' ? { on: false } : saved === '1' || !saved ? {} : JSON.parse(saved);
 		companion.on = s.on ?? true;
 		if (s.size in SIZES) companion.size = s.size;
-		if (EYES.includes(s.eyes)) companion.eyes = s.eyes;
+		companion.caught = s.caught === true;
+		if (EYES.includes(s.eyes) || (companion.caught && s.eyes === SECRET_EYES)) companion.eyes = s.eyes;
 	} catch {
 		// Blocked storage: the cube keeps its defaults.
 	}
 }
 
-/** @param {Partial<Pick<typeof companion, 'on' | 'size' | 'eyes'>>} change */
+/** @param {Partial<Pick<typeof companion, 'on' | 'size' | 'eyes' | 'caught'>>} change */
 export function setCompanion(change) {
 	Object.assign(companion, change);
-	const { on, size, eyes } = companion;
+	const { on, size, eyes, caught } = companion;
 	try {
-		localStorage.setItem(KEY, JSON.stringify({ on, size, eyes }));
+		localStorage.setItem(KEY, JSON.stringify({ on, size, eyes, caught }));
 	} catch {
 		// Blocked storage: the choice lasts for this tab only.
 	}

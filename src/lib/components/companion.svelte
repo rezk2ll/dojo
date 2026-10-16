@@ -1,13 +1,14 @@
 <script>
 	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { companion, eyesInUse, react, SIZES } from '#lib/companion.svelte.js';
+	import { companion, cue, eyesInUse, react, setCompanion, SECRET_EYES, SIZES } from '#lib/companion.svelte.js';
 	import { activeToday, streak } from '#lib/progress.svelte.js';
 	import { fmt } from '#lib/text.js';
 	import { t } from '#lib/i18n.svelte.js';
 
 	// Long enough that a reader who knows the answer never sees it.
 	const HINT_AFTER = 12_000;
+	const CATCH_WITHIN = 10_000;
 
 	/** @type {{ color: string, outfit: string, days: string[], offer?: { label: string, title: string, href: string } }} */
 	let { color, outfit, days, offer } = $props();
@@ -27,10 +28,22 @@
 	});
 	let shown = $derived(hintReady ? { label: '?', title: t().cubeHint } : offer);
 
+	/** @type {number[]} */
+	let catches = [];
+
 	function onclick() {
 		if (hintReady) hintOpen = !hintOpen;
 		else if (offer) goto(offer.href);
-		else react(true);
+		else {
+			react(true);
+			// It dodges the pointer, so three clicks in a row means someone caught it.
+			const now = performance.now();
+			catches = [...catches.filter((at) => now - at < CATCH_WITHIN), now];
+			if (catches.length >= 3 && !companion.caught) {
+				setCompanion({ caught: true, eyes: SECRET_EYES });
+				cue('caught');
+			}
+		}
 	}
 
 	/** @type {HTMLCanvasElement | undefined} */
@@ -43,8 +56,8 @@
 		/** @param {PointerEvent} e */
 		const follow = (e) => view?.look(e.clientX, e.clientY);
 		const leave = () => view?.look(-1e4, -1e4);
-		/** @param {PointerEvent} e A tap on the cube itself is for the cube, so it stays put. */
-		const tap = (e) => e.pointerType === 'touch' && e.target !== canvas && view?.poke(e.clientX, e.clientY);
+		/** @param {PointerEvent} e A tap on the cube stays put only while it offers something; otherwise it runs, so catching it takes a chase. */
+		const tap = (e) => e.pointerType === 'touch' && (e.target !== canvas || !shown) && view?.poke(e.clientX, e.clientY);
 		// three.js is large, so it loads only once the page is up, in its own chunk.
 		import('#lib/companion-scene.js').then(({ createScene }) => {
 			if (gone || !canvas) return;

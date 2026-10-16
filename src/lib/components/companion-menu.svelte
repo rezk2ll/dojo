@@ -1,16 +1,16 @@
 <script>
-	import { companion, eyesInUse, partsDone, setCompanion, unlockedEyes, EYES, SIZES } from '#lib/companion.svelte.js';
+	import { companion, eyesInUse, partsDone, setCompanion, unlockedEyes, EYES, SECRET_EYES, SIZES } from '#lib/companion.svelte.js';
 	import { t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Box from '@lucide/svelte/icons/box';
 
 	const sizes = /** @type {(keyof typeof SIZES)[]} */ (Object.keys(SIZES));
 
-	let unlocked = $derived(unlockedEyes(partsDone()));
+	let unlocked = $derived(unlockedEyes(partsDone(), companion.caught));
 	let eyes = $derived(eyesInUse());
 </script>
 
-{#snippet glyph(/** @type {typeof EYES[number]} */ style)}
+{#snippet glyph(/** @type {import('#lib/companion.svelte.js').Eyes} */ style)}
 	<svg viewBox="0 0 32 16" class="h-4 w-8" fill="currentColor" aria-hidden="true">
 		{#if style === 'visor'}
 			<rect x="3" y="5" width="26" height="6" rx="3" />
@@ -19,6 +19,7 @@
 				{#if style === 'pill'}<rect x={x - 2.5} y="2" width="5" height="12" rx="2.5" />
 				{:else if style === 'round'}<circle cx={x} cy="8" r="4.5" />
 				{:else if style === 'square'}<rect x={x - 4} y="4" width="8" height="8" rx="1.5" />
+				{:else if style === 'star'}<path d="M{x} 2 L{x + 1.8} 6 L{x + 6} 6.5 L{x + 2.8} 9.3 L{x + 3.7} 13.5 L{x} 11.3 L{x - 3.7} 13.5 L{x - 2.8} 9.3 L{x - 6} 6.5 L{x - 1.8} 6Z" />
 				{:else}<path d="M{x} 13 C{x - 7} 8 {x - 4} 2 {x} 5.5 C{x + 4} 2 {x + 7} 8 {x} 13Z" />
 				{/if}
 			{/each}
@@ -62,18 +63,21 @@
 	<div class="space-y-1.5">
 		<p class="text-muted-foreground text-xs">{t().cubeEyes}</p>
 		<div class="flex rounded-md border p-0.5" role="group" aria-label={t().cubeEyes}>
-			{#each EYES as style (style)}
+			{#each [...EYES, SECRET_EYES] as style (style)}
 				{@const open = unlocked.includes(style)}
+				{@const secret = style === SECRET_EYES && !open}
 				<button
 					class="flex flex-1 justify-center rounded py-1.5 {eyes === style
 						? 'bg-muted text-foreground'
 						: 'text-muted-foreground hover:text-foreground'} disabled:opacity-35"
 					aria-pressed={eyes === style}
-					aria-label={t().eyeStyles[style]}
-					title={open ? t().eyeStyles[style] : t().eyesLocked}
+					aria-label={secret ? t().eyesSecret : t().eyeStyles[style]}
+					title={open ? t().eyeStyles[style] : secret ? t().eyesSecret : t().eyesLocked}
 					disabled={!companion.on || !open}
-					onclick={() => setCompanion({ eyes: style })}>{@render glyph(style)}</button
+					onclick={() => setCompanion({ eyes: style })}
 				>
+					{#if secret}<span class="font-mono text-sm leading-4">?</span>{:else}{@render glyph(style)}{/if}
+				</button>
 			{/each}
 		</div>
 		{#if unlocked.length < EYES.length}<p class="text-muted-foreground text-xs">{t().eyesLocked}</p>{/if}

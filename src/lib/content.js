@@ -11,6 +11,9 @@
  * responders knew at that point and asks what to do next; `outcome` is what really happened.
  * @typedef {Question & { situation: string[] }} Decision
  * @typedef {{ org: string, title: string, url: string, date: string, steps: Decision[], outcome: string[] }} Incident
+ * A kata is a design exercise on paper: the reader works on `brief` for `minutes`, checks
+ * their design against `checklist`, then reads one possible answer.
+ * @typedef {{ brief: string[], minutes: number, checklist: string[], sample: string[] }} Kata
  * @typedef {{
  *   slug: string, part: string, title: string, minutes: number,
  *   hook: string[],
@@ -19,6 +22,7 @@
  *   example?: { title: string, repo: string, url: string, lang: string, code: string, notes: string[] },
  *   bug?: Bug,
  *   incident?: Incident,
+ *   kata?: Kata,
  *   tradeoff?: { gain: string[], cost: string[] },
  *   task?: { prompt: string, hint?: string, answer: string[] },
  *   quiz: Question[],

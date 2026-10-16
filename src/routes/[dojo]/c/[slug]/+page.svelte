@@ -13,6 +13,7 @@
 	import { focus, toggleFocus } from '#lib/focus.svelte.js';
 	import { answered, companion, cue, hintFor } from '#lib/companion.svelte.js';
 	import Cube from '#lib/components/cube.svelte';
+	import Timer from '#lib/components/timer.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
 	import Maximize from '@lucide/svelte/icons/maximize-2';
@@ -40,6 +41,7 @@
 		...(c.example ? [{ id: 'code', label: t().code }] : []),
 		...(c.bug ? [{ id: 'hunt', label: t().hunt }, { id: 'fix', label: t().fix }] : []),
 		...(c.incident ? [...c.incident.steps.map((_, i) => ({ id: `s${i}`, label: t().decision(i + 1) })), { id: 'outcome', label: t().outcome }] : []),
+		...(c.kata ? [{ id: 'brief', label: t().brief }, { id: 'check', label: t().check }, { id: 'sample', label: t().sample }] : []),
 		...(c.tradeoff ? [{ id: 'tradeoff', label: t().tradeoff }] : []),
 		...(c.task ? [{ id: 'task', label: t().task }] : []),
 		...c.quiz.map((_, i) => ({ id: `q${i}`, label: t().question(i + 1), quiz: `${c.slug}#${i}` })),
@@ -61,7 +63,7 @@
 	let top = $state();
 
 	// The task (or, without one, the first question) starts the second half, so a reader who stops before it stops at a natural break.
-	let breakAt = $derived(sections.findIndex((s) => ['task', 's0', 'q0'].includes(s.id)));
+	let breakAt = $derived(sections.findIndex((s) => ['task', 's0', 'brief', 'q0'].includes(s.id)));
 	let steps = $derived(c.diagram?.steps ?? []);
 
 	const words = (/** @type {string[]} */ ...texts) => texts.join(' ').split(/\s+/).length;
@@ -77,6 +79,9 @@
 		if (s.id === 'tradeoff' && c.tradeoff) return words(...c.tradeoff.gain, ...c.tradeoff.cost) / READ;
 		if (s.id === 'task' && c.task) return words(c.task.prompt, ...c.task.answer) / READ + 90;
 		if (s.id === 'outcome') return words(...(c.incident?.outcome ?? [])) / READ;
+		if (s.id === 'brief' && c.kata) return c.kata.minutes * 60;
+		if (s.id === 'check' && c.kata) return words(...c.kata.checklist) / READ + 60;
+		if (s.id === 'sample' && c.kata) return words(...c.kata.sample) / READ;
 		if (s.id === 'wrap') return 20;
 		const d = decisionAt(s.id);
 		if (d) return words(...d.step.situation, d.step.why) / READ + 20;
@@ -181,6 +186,8 @@
 	});
 
 	$effect(() => {
+		// A kata has no quiz: reading the sample answer finishes it.
+		if (c.kata && current.id !== 'sample') return;
 		if (!c.quiz.every((_, i) => picked[`${c.slug}#${i}`] !== undefined)) return;
 		// Only the first time: re-answering a finished chapter is not a new win.
 		if (!untrack(() => progress.done[c.slug])) cue('done');
@@ -561,6 +568,29 @@
 							</Alert.Description>
 						</Alert.Root>
 					{/if}
+				</div>
+			{:else if current.id === 'brief' && c.kata}
+				<div class="max-w-3xl space-y-4">
+					<div class="space-y-3 text-lg leading-relaxed">
+						{#each c.kata.brief as p, i (i)}<p>{@html fmt(p)}</p>{/each}
+					</div>
+					<p class="text-muted-foreground">{t().kataIntro(c.kata.minutes)}</p>
+					<Timer minutes={c.kata.minutes} />
+				</div>
+			{:else if current.id === 'check' && c.kata}
+				<div class="max-w-3xl space-y-3">
+					<p class="text-muted-foreground">{t().checkIntro}</p>
+					{#each c.kata.checklist as item, i (i)}
+						<label class="bg-card flex cursor-pointer items-start gap-3 rounded-xl p-4 text-base">
+							<input type="checkbox" class="accent-brand mt-1 size-4 shrink-0" />
+							<span>{@html fmt(item)}</span>
+						</label>
+					{/each}
+				</div>
+			{:else if current.id === 'sample' && c.kata}
+				<div class="max-w-3xl space-y-4 text-lg leading-relaxed">
+					<p class="text-muted-foreground text-base">{t().sampleIntro}</p>
+					{#each c.kata.sample as p, i (i)}<p>{@html fmt(p)}</p>{/each}
 				</div>
 			{:else if current.quiz !== undefined && current.id.startsWith('q')}
 				<p class="text-muted-foreground mb-4">{t().quizIntro}</p>

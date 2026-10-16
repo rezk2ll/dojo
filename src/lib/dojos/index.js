@@ -203,6 +203,25 @@ export const dojos = [
 			en: 'One chapter a day, with real packet captures, real config from open-source projects and the RFC that defines the behaviour.',
 			fr: 'Un chapitre par jour, avec de vraies captures de paquets, de la vraie config de projets open source et la RFC qui définit le comportement.'
 		}
+	},
+	{
+		id: 'linux',
+		name: 'Linux Dojo',
+		hue: 80,
+		chroma: 0.1,
+		hex: { top: '#d2b27c', left: '#926e2b', right: '#b8914b' },
+		description: {
+			en: 'What the kernel does under your services: processes, memory, files, systemd and containers, one 10-minute chapter a day.',
+			fr: 'Ce que fait le noyau sous tes services : processus, mémoire, fichiers, systemd et conteneurs, un chapitre de 10 minutes par jour.'
+		},
+		heroTitle: {
+			en: 'Know what the kernel is doing to your app.',
+			fr: 'Sache ce que le noyau fait à ton app.'
+		},
+		heroText: {
+			en: 'Symptoms like exit code 137 or a full disk with free space, traced to the kernel code or the man page that explains them.',
+			fr: 'Des symptômes comme un code de sortie 137 ou un disque plein avec de l’espace libre, expliqués par le code du noyau ou la page de man.'
+		}
 	}
 ];
 

@@ -3,6 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { companion, react, SIZES } from '#lib/companion.svelte.js';
 	import { activeToday, streak } from '#lib/progress.svelte.js';
+	import { fmt } from '#lib/text.js';
+	import { t } from '#lib/i18n.svelte.js';
+
+	// Long enough that a reader who knows the answer never sees it.
+	const HINT_AFTER = 12_000;
 
 	/** @type {{ color: string, days: string[], offer?: { label: string, title: string, href: string } }} */
 	let { color, days, offer } = $props();
@@ -12,8 +17,19 @@
 	let hour = $state(new Date().getHours());
 	let needsYou = $derived(hour >= 18 && !activeToday(days));
 
+	let hintReady = $state(false);
+	let hintOpen = $state(false);
+	$effect(() => {
+		hintReady = hintOpen = false;
+		if (!companion.hint) return;
+		const timer = setTimeout(() => (hintReady = true), HINT_AFTER);
+		return () => clearTimeout(timer);
+	});
+	let shown = $derived(hintReady ? { label: '?', title: t().cubeHint } : offer);
+
 	function onclick() {
-		if (offer) goto(offer.href);
+		if (hintReady) hintOpen = !hintOpen;
+		else if (offer) goto(offer.href);
 		else react(true);
 	}
 
@@ -66,7 +82,7 @@
 	$effect(() => view?.resize(size));
 	$effect(() => view?.setCombo(companion.combo));
 	$effect(() => view?.setStreak({ days: streak(days), needsYou }));
-	$effect(() => view?.setOffer(offer?.label));
+	$effect(() => view?.setOffer(shown?.label));
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));
@@ -81,11 +97,11 @@
 	bind:this={canvas}
 	class="fixed right-1 bottom-16 z-40 cursor-pointer"
 	style="width: {size}px; height: {size}px"
-	aria-hidden={offer ? undefined : 'true'}
-	role={offer ? 'button' : undefined}
-	tabindex={offer ? 0 : undefined}
-	aria-label={offer?.title}
-	title={offer?.title}
+	aria-hidden={shown ? undefined : 'true'}
+	role={shown ? 'button' : undefined}
+	tabindex={shown ? 0 : undefined}
+	aria-label={shown?.title}
+	title={shown?.title}
 	{onclick}
 	onkeydown={(e) => {
 		if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -93,3 +109,14 @@
 		onclick();
 	}}
 ></canvas>
+
+{#if hintOpen && companion.hint}
+	<div
+		role="status"
+		class="bg-card fixed right-4 z-40 max-w-xs rounded-2xl border p-4 text-sm leading-relaxed shadow-lg"
+		style="bottom: calc(4rem + {size}px)"
+	>
+		<p class="text-brand-ink mb-1 font-mono font-semibold">{companion.hint.term}</p>
+		<p>{@html fmt(companion.hint.def)}</p>
+	</div>
+{/if}

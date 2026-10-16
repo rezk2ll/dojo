@@ -76,8 +76,14 @@ export function createScene(canvas, { color, still, touch }) {
 	const tint = new THREE.Color(color);
 	const glowColor = () => tint.clone().lerp(new THREE.Color(0xffffff), 0.3);
 
-	// A light ring on the ground: the cube hovers over it instead of sitting.
-	const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.011, 8, 96), new THREE.MeshBasicMaterial({ color: tint, transparent: true }));
+	// A dashed light ring on the ground: the cube hovers over it, and its spin shows the answer combo.
+	const ringMat = new THREE.MeshBasicMaterial({ color: tint, transparent: true });
+	const ring = new THREE.Group();
+	for (let i = 0; i < 6; i++) {
+		const arc = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.011, 8, 24, (Math.PI / 3) * 0.78), ringMat);
+		arc.rotation.z = (i * Math.PI) / 3;
+		ring.add(arc);
+	}
 	ring.rotation.x = Math.PI / 2;
 	ring.position.y = -0.8;
 	const halo = new THREE.Mesh(
@@ -127,7 +133,9 @@ export function createScene(canvas, { color, still, touch }) {
 		glow: spring(60, 14, 1),
 		ox: spring(70, 14),
 		oy: spring(70, 14),
-		sleep: spring(30, 11)
+		sleep: spring(30, 11),
+		focus: spring(90, 18),
+		spin: spring(20, 9, 0.25)
 	};
 	const springs = Object.values(s);
 
@@ -142,6 +150,7 @@ export function createScene(canvas, { color, still, touch }) {
 	let drop;
 	let read = { until: 0, dir: 0 };
 	let turns = 0;
+	let combo = 0;
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
 	let activeAt = performance.now();
@@ -208,7 +217,7 @@ export function createScene(canvas, { color, still, touch }) {
 	/** @param {string} next */
 	function setColor(next) {
 		tint.set(next);
-		ring.material.color.copy(tint);
+		ringMat.color.copy(tint);
 		halo.material.color.copy(tint);
 		led.material.color.copy(tint);
 	}
@@ -244,6 +253,8 @@ export function createScene(canvas, { color, still, touch }) {
 		s.happy.to = 0;
 		s.sad.to = 0;
 		s.glow.to = 1;
+		s.focus.to = combo >= 3 ? 1 : 0;
+		s.spin.to = combo >= 3 ? 3.2 : 0.25;
 		if (cued?.name === 'glance' && c < 1.2) {
 			// A new section: a quick look at the page.
 			s.lookX.to = -0.75;
@@ -316,6 +327,7 @@ export function createScene(canvas, { color, still, touch }) {
 		ctx.fillStyle = ctx.strokeStyle = hex;
 		ctx.lineCap = 'round';
 		const sleep = Math.min(1, Math.max(0, s.sleep.x));
+		const focus = Math.min(1, Math.max(0, s.focus.x));
 		if (sleep > 0.5) {
 			// Closed eyes, and a few z drifting up.
 			ctx.lineWidth = 9;
@@ -345,10 +357,18 @@ export function createScene(canvas, { color, still, touch }) {
 			} else {
 				ctx.rotate(side * -0.32 * sad);
 				const w = 30;
-				const h = 54 * open * (1 - 0.45 * sad);
+				const h = 54 * open * (1 - 0.45 * sad) * (1 - 0.45 * focus);
 				ctx.beginPath();
 				ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h) / 2);
 				ctx.fill();
+				if (focus > 0.5) {
+					// A flat brow line: the look of someone on a roll.
+					ctx.lineWidth = 7;
+					ctx.beginPath();
+					ctx.moveTo(-20, -26);
+					ctx.lineTo(20, -26);
+					ctx.stroke();
+				}
 			}
 			ctx.restore();
 		}
@@ -423,7 +443,8 @@ export function createScene(canvas, { color, still, touch }) {
 
 		// The ring brightens as the cube comes closer and on a right answer.
 		const near = 1 - (root.position.y + 0.1) / 0.5;
-		ring.material.opacity = Math.min(1, (0.35 + 0.35 * near) * s.glow.x);
+		ringMat.opacity = Math.min(1, (0.35 + 0.35 * near) * s.glow.x);
+		if (!still) ring.rotation.z += s.spin.x * dt;
 		halo.material.opacity = Math.min(1, (0.25 + 0.2 * near) * s.glow.x);
 		led.material.color.copy(tint).multiplyScalar(0.6 + 0.4 * Math.sin(now / 600) ** 2);
 		drawFace(now);
@@ -452,6 +473,10 @@ export function createScene(canvas, { color, still, touch }) {
 		wake,
 		scrolled,
 		cue,
+		/** @param {number} n Right answers in a row. */
+		setCombo(n) {
+			combo = n;
+		},
 		react,
 		setColor,
 		resize,

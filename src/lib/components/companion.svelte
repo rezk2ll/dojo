@@ -52,6 +52,7 @@
 
 	$effect(() => view?.setColor(color));
 	$effect(() => view?.resize(size));
+	$effect(() => view?.setCombo(companion.combo));
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));

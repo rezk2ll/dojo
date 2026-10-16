@@ -15,6 +15,7 @@ export const companion = $state({
 	size: /** @type {Size} */ ('s'),
 	mood: /** @type {Mood} */ ('idle'),
 	beat: 0,
+	combo: 0,
 	cue: /** @type {Cue | undefined} */ (undefined),
 	cueBeat: 0
 });
@@ -34,6 +35,12 @@ export function react(correct) {
 	companion.beat++;
 	clearTimeout(calm);
 	calm = setTimeout(() => (companion.mood = 'idle'), 2600);
+}
+
+/** A quiz answer: the cube reacts, and right answers in a row build the combo. @param {boolean} correct */
+export function answered(correct) {
+	companion.combo = correct ? companion.combo + 1 : 0;
+	react(correct);
 }
 
 export function initCompanion() {

@@ -146,6 +146,25 @@ export const dojos = [
 			en: 'One chapter a day, checked against the docs and real code. Questions come back later so they stick.',
 			fr: 'Un chapitre par jour, vérifié dans la doc et du vrai code. Les questions reviennent plus tard pour que ça reste.'
 		}
+	},
+	{
+		id: 'drills',
+		name: 'Drills Dojo',
+		hue: 110,
+		chroma: 0.1,
+		hex: { top: '#babc80', left: '#797a31', right: '#9b9d50' },
+		description: {
+			en: 'Typed reps for the commands you use every day: git, the shell, SQL, regex, jq, curl and kubectl.',
+			fr: 'Des répétitions à taper pour les commandes de tous les jours : git, le shell, SQL, les regex, jq, curl et kubectl.'
+		},
+		heroTitle: {
+			en: 'Type the command without looking it up.',
+			fr: 'Tape la commande sans la chercher.'
+		},
+		heroText: {
+			en: 'Each drill is a set of short tasks. You type the answer, the app checks it and shows the answer with why it works.',
+			fr: 'Chaque exercice est une série de petites tâches. Tu tapes la réponse, l’appli la vérifie et te montre la réponse avec son explication.'
+		}
 	}
 ];
 

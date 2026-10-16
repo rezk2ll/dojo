@@ -1,8 +1,7 @@
 <script>
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
-	import { dayKey, dueCardIds, exportProgress, parseProgress, progressOf, replaceProgress, restore, INTERVAL_DAYS } from '#lib/progress.svelte.js';
-	import { questionById } from '#lib/content.js';
+	import { dayKey, dueQuestionIds, exportProgress, parseProgress, progressOf, replaceProgress, restore, INTERVAL_DAYS } from '#lib/progress.svelte.js';
 	import { shuffle } from '#lib/text.js';
 	import { t } from '#lib/i18n.svelte.js';
 	import Cubes from '#lib/components/cubes.svelte';
@@ -34,7 +33,7 @@
 	// Snapshot once: answering a card reschedules it, it should not vanish mid-session.
 	// Shuffled so questions from different chapters mix, which helps telling patterns apart.
 	function load() {
-		queue = shuffle(dueCardIds(id).filter((card) => questionById(id, card, 'en'))).map((card) => ({ dojo: id, id: card }));
+		queue = shuffle(dueQuestionIds(id)).map((card) => ({ dojo: id, id: card }));
 		loaded = true;
 	}
 

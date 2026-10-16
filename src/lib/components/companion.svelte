@@ -1,15 +1,21 @@
 <script>
 	import { onMount, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { companion, react, SIZES } from '#lib/companion.svelte.js';
 	import { activeToday, streak } from '#lib/progress.svelte.js';
 
-	/** @type {{ color: string, days: string[] }} */
-	let { color, days } = $props();
+	/** @type {{ color: string, days: string[], offer?: { label: string, title: string, href: string } }} */
+	let { color, days, offer } = $props();
 
 	let size = $derived(SIZES[companion.size]);
 	// Refreshed every minute, so the evening reminder lights up without a reload.
 	let hour = $state(new Date().getHours());
 	let needsYou = $derived(hour >= 18 && !activeToday(days));
+
+	function onclick() {
+		if (offer) goto(offer.href);
+		else react(true);
+	}
 
 	/** @type {HTMLCanvasElement | undefined} */
 	let canvas = $state();
@@ -60,6 +66,7 @@
 	$effect(() => view?.resize(size));
 	$effect(() => view?.setCombo(companion.combo));
 	$effect(() => view?.setStreak({ days: streak(days), needsYou }));
+	$effect(() => view?.setOffer(offer?.label));
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));
@@ -74,6 +81,15 @@
 	bind:this={canvas}
 	class="fixed right-1 bottom-16 z-40 cursor-pointer"
 	style="width: {size}px; height: {size}px"
-	aria-hidden="true"
-	onclick={() => react(true)}
+	aria-hidden={offer ? undefined : 'true'}
+	role={offer ? 'button' : undefined}
+	tabindex={offer ? 0 : undefined}
+	aria-label={offer?.title}
+	title={offer?.title}
+	{onclick}
+	onkeydown={(e) => {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		onclick();
+	}}
 ></canvas>

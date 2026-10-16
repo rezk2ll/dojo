@@ -3,7 +3,7 @@
 	import { asset, resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { progressOf, restore } from '#lib/progress.svelte.js';
+	import { dueQuestionIds, mixedToday, progressOf, restore, DAILY_MIX } from '#lib/progress.svelte.js';
 	import { dojos, dojoById } from '#lib/dojos/index.js';
 	import { theme, initTheme, toggleTheme } from '#lib/theme.svelte.js';
 	import { focus, initFocus } from '#lib/focus.svelte.js';
@@ -26,6 +26,21 @@
 	let mounted = $state(false);
 	// On the hub, a day counts if any dojo was practised.
 	let days = $derived(dojo ? progressOf(dojo.id).days : dojos.flatMap((d) => progressOf(d.id).days));
+	// Cards fall due as time passes, not only when progress changes, so the count is redone every minute.
+	let minute = $state(0);
+	let due = $derived.by(() => {
+		minute;
+		if (page.route.id?.endsWith('/review')) return 0;
+		const count = (/** @type {string} */ id) => dueQuestionIds(id).length;
+		if (dojo) return count(dojo.id);
+		return Math.min(
+			dojos.reduce((n, d) => n + count(d.id), 0),
+			Math.max(0, DAILY_MIX - mixedToday())
+		);
+	});
+	let offer = $derived(
+		due ? { label: String(due), title: t().cubeReview(due), href: dojo ? resolve('/[dojo]/review', { dojo: dojo.id }) : resolve('/review') } : undefined
+	);
 
 	onMount(() => {
 		for (const d of dojos) restore(d.id);
@@ -34,6 +49,8 @@
 		initLang();
 		initCompanion();
 		mounted = true;
+		const clock = setInterval(() => minute++, 60_000);
+		return () => clearInterval(clock);
 	});
 </script>
 
@@ -78,5 +95,5 @@
 		{@render children()}
 	</main>
 
-	{#if mounted && companion.on && !reading}<Companion color={(dojo ?? dojos[1]).hex.right} {days} />{/if}
+	{#if mounted && companion.on && !reading}<Companion color={(dojo ?? dojos[1]).hex.right} {days} {offer} />{/if}
 </div>

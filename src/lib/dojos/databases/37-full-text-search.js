@@ -12,15 +12,13 @@ export default {
 	hook: [
 		'A user types "restore backup" into your forum\'s search box. The code runs `WHERE body ILIKE \'%restore backup%\'`. The post titled "We restored the backups" **does not match**, because those exact characters are not in it.',
 		'When something does match, you get four thousand rows in no useful order. And every search **reads every post**, because a `%` at the start of a pattern cannot use a B-tree.',
-		'The PostgreSQL docs list exactly these three faults of `LIKE` for search: no linguistic support, no ranking, no index. **Full-text search fixes all three** by turning each document into normalized words once, and indexing those words.'
+		'The PostgreSQL docs list exactly these three faults of `LIKE` for search: no linguistic support, no ranking, no index. **Full-text search handles all three**: it turns each document into normalized words once, and indexes those words.'
 	],
 	terms: [
-		{ term: 'Lexeme', def: 'A word after normalization: lowercased, stemmed, stop words removed. With the `english` configuration, "restored" and "restore" both become `restor`.' },
+		{ term: 'Lexeme', def: 'A word after normalization: lowercased, stemmed, stop words removed. With the `english` configuration, "restored" and "restore" both give `restor`.' },
 		{ term: 'tsvector', def: 'A sorted list of lexemes, each with its positions in the document and an optional weight. What you store and index.' },
 		{ term: 'tsquery', def: 'Lexemes joined by `&`, `|`, `!` and `<->`. `@@` tests whether a tsvector matches it. `:*` asks for a prefix match.' },
-		{ term: 'Weight', def: 'A label A, B, C or D on each position, set with `setweight`. Used to rank a title hit above a body hit.' },
-		{ term: 'Inverted index', def: 'An index from each word to the rows that contain it. In PostgreSQL, that is a GIN index on the tsvector.' },
-		{ term: 'Configuration', def: 'The parser and dictionaries used to make lexemes, such as `english` or `simple`. The document and the query must use the same one.' }
+		{ term: 'Weight', def: 'A label A, B, C or D on each position, set with `setweight`. Used to rank a title hit above a body hit.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['doc["Title + body text"] -->|"to_tsvector english"| vec["tsvector: backup:1A restor:4A,7 test:5"]'],
 				highlight: ['doc', 'vec'],
-				note: '**Normalize once, at write time.** `to_tsvector` splits the text into tokens and runs them through dictionaries. "Backups" becomes `backup`, "restore" becomes `restor`, and "the" is dropped as a stop word. Each lexeme keeps its positions, and `setweight` marks the title ones with A.'
+				note: '`to_tsvector` runs once, at write time. It splits the text into tokens and runs them through the dictionaries of a configuration, here `english`: "Backups" gives `backup`, "restore" gives `restor`, and "the" is dropped as a stop word. Each lexeme keeps its positions, and `setweight` marks the title ones with A.'
 			},
 			{
 				add: ['vec --> gin[("GIN index: lexeme to rows")]'],
 				highlight: ['gin'],
-				note: '**Index the words, not the text.** The docs call GIN "the preferred text search index type": an inverted index with "an index entry for each word (lexeme), with a compressed list of matching locations". A search for two words finds the rows for the first, then drops those lacking the second.'
+				note: 'The GIN index stores lexemes and the rows that hold them. The docs call GIN "the preferred text search index type": an inverted index with "an index entry for each word (lexeme), with a compressed list of matching locations". A search for two words finds the rows for the first, then drops those lacking the second.'
 			},
 			{
 				add: ['user["User types: restore backup"] -->|"to_tsquery english"| query["tsquery: restor & backup"]', 'query -->|"@@"| gin'],
 				highlight: ['user', 'query'],
-				note: '**The query goes through the same steps.** `to_tsquery(\'english\', \'restore & backup\')` gives `\'restor\' & \'backup\'`, so "We restored the backups" now matches. If the document and the query use different configurations, the lexemes differ and nothing matches.'
+				note: 'The query goes through the same steps. `to_tsquery(\'english\', \'restore & backup\')` gives `\'restor\' & \'backup\'`, so "We restored the backups" now matches. If the document and the query use different configurations, the lexemes differ and nothing matches.'
 			},
 			{
 				add: ['gin --> rank["ts_rank_cd per match, ORDER BY rank LIMIT 20"]'],
 				highlight: ['rank'],
-				note: '**Ranking happens after matching.** `ts_rank_cd` reads the tsvector of each matching row and scores it by weight and by how close the words are. The docs warn this "can be expensive" because it must read every match, not just the top 20.'
+				note: '`ts_rank_cd` runs after matching. It reads the tsvector of each matching row and scores it by weight and by how close the words are. The docs warn this "can be expensive" because it reads every match, even with `LIMIT 20`.'
 			},
 			{
 				add: ['engine["Search engine: typos, facets, global relevance"] -.->|"when the app needs more"| user'],
 				highlight: ['engine'],
-				note: '**Where it stops.** PostgreSQL matches lexemes exactly, or by prefix, and its ranking functions "do not use any global information" about the whole collection. If users misspell, need facets, or need relevance tuned across millions of documents, a search engine such as Meilisearch, fed from the database, does that job.'
+				note: 'PostgreSQL matches lexemes exactly, or by prefix, and its ranking functions "do not use any global information" about the whole collection. If users misspell, need facets, or need relevance tuned across millions of documents, a search engine such as Meilisearch, fed from the database, does that job.'
 			}
 		]
 	},
@@ -113,24 +111,24 @@ export default {
       d_weight: post_text[0..600_000],
     ) { |params| params["private_message"] = private_message }`,
 		notes: [
-			'**Four weights, four sources.** A post\'s vector joins the topic title (A), the category name (B), the tags (C) and the post body (D). The query side spells it out in [`weights`](' + SEARCH + '#L1351-L1357): "A is for title", "D is for cooked". It is the docs\' own [recommended method](' + TS + '#L767-L776): `setweight(to_tsvector(coalesce(title,\'\')), \'A\') || ...`.',
-			'**One config per kind of text.** Usernames use the `simple` configuration, which lowercases but does not stem, so the user `running` is not reduced to `run`. Posts use `Search.ts_config`, picked from the site\'s locale.',
-			'**A hard limit, handled.** The body is cut at 600,000 characters, and the comment says why: the docs\' [limits](' + TS + '#L4056-L4057) say a tsvector\'s data "must be less than 1 megabyte". The vector is stored with `upsert` into `post_search_data`, a table beside `posts`.',
-			'**Prefix, weight filter, rank.** The query builds `\'term\':*A` in [`set_tsquery_weight_filter`](' + SEARCH + '#L1484-L1486) and sorts with [`TS_RANK_CD(..., normalization|32)`](' + SEARCH + '#L1441-L1450). A weight filter costs a heap recheck, because GIN indexes ["store only the words (lexemes) of `tsvector` values, and not their weight labels"](' + TS + '#L3770-L3776).',
-			'**The index is rebuilt daily.** A scheduled job runs [`CREATE INDEX CONCURRENTLY ... USING GIN(search_data) WHERE NOT private_message AND post_id >= :post_id`](' + DC + '/app/jobs/scheduled/create_recent_post_search_indexes.rb#L26-L41), then swaps it in by renaming. A partial index over recent posts stays much smaller than one over the whole forum (day 14).'
+			'Lines 19 to 24 and 44 to 54 join four texts into one vector: the topic title (A), the category name (B), the tags (C) and the post body (D). The query side names them in [`weights`](' + SEARCH + '#L1351-L1357): "A is for title", "D is for cooked". The docs recommend the same `setweight(to_tsvector(coalesce(title,\'\')), \'A\') || ...` pattern (in the sources).',
+			'Lines 16 and 17 pick the `simple` configuration for usernames. It lowercases but does not stem, so the user `running` stays `running` instead of `run`. Posts use `Search.ts_config`, picked from the site\'s locale.',
+			'Line 54 cuts the body at 600,000 characters, and lines 50 to 53 say why: the docs\' [limits](' + TS + '#L4056-L4057) say a tsvector\'s data "must be less than 1 megabyte". Lines 38 to 42 store the vector with `upsert` into `post_search_data`, a table beside `posts`.',
+			'At query time, [`set_tsquery_weight_filter`](' + SEARCH + '#L1484-L1486) builds `\'term\':*A`, a prefix match on weight A only, and the results are sorted with `TS_RANK_CD(..., normalization|32)`. A weight filter costs a heap recheck, because GIN indexes "store only the words (lexemes) of `tsvector` values, and not their weight labels".',
+			'A daily scheduled job runs [`CREATE INDEX CONCURRENTLY ... USING GIN(search_data) WHERE NOT private_message AND post_id >= :post_id`](' + DC + '/app/jobs/scheduled/create_recent_post_search_indexes.rb#L26-L41), then swaps the new index in by renaming it. A partial index over recent posts stays much smaller than one over the whole forum (day 14).'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'"restored backups" finds "restore the backup": stemming and stop words make search work on words, not characters.',
+			'"restored backups" finds "restore the backup", because both sides are reduced to the lexemes `restor` and `backup`.',
 			'A GIN index serves `@@`, so a search reads the matching rows instead of the whole table.',
-			'It lives in the database you already run: same transaction, same backups, no second system to keep in step.'
+			'Search lives in the database you already run: same transaction, same backups, no second system to keep in step.'
 		],
 		cost: [
-			'No typo tolerance. "bakup" matches nothing, and prefix matching only helps with the end of a word.',
+			'PostgreSQL has no typo tolerance: "bakup" matches nothing, and prefix matching only helps with the end of a word.',
 			'Ranking reads the tsvector of every matching row, and it scores each document alone, with no statistics about the whole collection.',
 			'The tsvector must be kept current: a generated column, a trigger or app code like Discourse\'s indexer, each with its own write cost.',
-			'One configuration per vector. A site with posts in many languages needs a config per row or per index, and queries that name it.'
+			'Each vector is built with one configuration, so a site with posts in many languages needs a config per row or per index, and queries that name it.'
 		]
 	},
 	task: {
@@ -179,12 +177,18 @@ export default {
 			why: 'PostgreSQL text search matches lexemes exactly or by prefix, so a swapped letter matches nothing. Typo tolerance is a feature of search engines such as Meilisearch, kept in sync from the source of truth (day 35).'
 		}
 	],
-	takeaway: 'Turn each document into weighted lexemes once, index them with GIN, match with `@@` and rank the matches; reach for a search engine when you need typos, facets or global relevance.',
+	recall: {
+		q: 'Why does a full-text search for "restore backup" find the post "We restored the backups", and which index serves `@@`?',
+		a: '`to_tsvector` and `to_tsquery` with the `english` configuration both reduce the words to the lexemes `restor` and `backup`. A GIN index on the tsvector serves `@@`.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Full Text Search: Introduction', url: 'https://www.postgresql.org/docs/current/textsearch-intro.html' },
 		{ title: 'PostgreSQL docs, Controlling Text Search (ranking)', url: 'https://www.postgresql.org/docs/current/textsearch-controls.html' },
 		{ title: 'PostgreSQL docs, Preferred Index Types for Text Search', url: 'https://www.postgresql.org/docs/current/textsearch-indexes.html' },
 		{ title: 'PostgreSQL docs, Text Search Types', url: 'https://www.postgresql.org/docs/current/datatype-textsearch.html' },
+		{ title: 'PostgreSQL source docs, textsearch.sgml: weighting title and body', url: `${TS}#L767-L776` },
+		{ title: 'PostgreSQL source docs, textsearch.sgml: GIN and weight labels', url: `${TS}#L3770-L3776` },
+		{ title: 'Discourse, lib/search.rb: TS_RANK_CD ordering', url: `${SEARCH}#L1441-L1450` },
 		{ title: 'Meilisearch docs, Typo tolerance settings', url: 'https://www.meilisearch.com/docs/learn/relevancy/typo_tolerance_settings' }
 	]
 };

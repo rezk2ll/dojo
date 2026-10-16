@@ -10,16 +10,13 @@ export default {
 	hook: [
 		'Your database already runs on the biggest machine your provider sells. Replicas took the reads (day 28). But **every write still lands on one primary**, and it is at its limit at peak hours.',
 		'Partitioning (day 33) split the table, but all the partitions still live on that one server. To go further, the rows themselves must live on **several servers, each the primary for its own share**.',
-		'That is **sharding**: a shard key decides which server holds a row. A query that names the key goes to **one server**. A query that does not must ask **all of them**. Pick the key well and the cluster feels like one database. Pick it badly and every page becomes a fan-out.'
+		'With **sharding**, a shard key decides which server holds a row. A query that names the key goes to one server, and a query that does not must ask all of them. If nearly every query names the key, most queries reach one server. If the pages do not name it, every page view queries every server.'
 	],
 	terms: [
 		{ term: 'Shard', def: 'One piece of a sharded table, a normal table on one server. Citus creates 32 per table by default and spreads them over the worker nodes.' },
 		{ term: 'Shard key', def: 'The column that decides a row\'s shard. Citus calls it the distribution column. Usually a tenant or customer id.' },
-		{ term: 'Hash range', def: 'Each shard owns a slice of the 32-bit hash space. A row goes to the shard whose slice contains the hash of its key.' },
 		{ term: 'Co-location', def: 'Tables sharded on the same key and the same ranges keep matching rows on the same node, so joins and transactions on one key stay local.' },
-		{ term: 'Reference table', def: 'A small shared table, such as countries or products, copied in full to every node so any shard can join to it.' },
-		{ term: 'Fan-out', def: 'A query that cannot be routed by the key, so it runs on every shard and the results are merged.' },
-		{ term: 'Rebalancing', def: 'Moving whole shards to other nodes, for example after adding one. Rows keep their shard; only the shard\'s home changes.' }
+		{ term: 'Fan-out', def: 'A query that cannot be routed by the key, so it runs on every shard and the results are merged.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -27,27 +24,27 @@ export default {
 			{
 				add: ['app["App: WHERE tenant_id = 6"] --> coord["Citus coordinator"]'],
 				highlight: ['app', 'coord'],
-				note: '**One entry point.** The app connects to the coordinator, an ordinary PostgreSQL with the Citus extension. It keeps the metadata: which shards exist, and which worker holds each one.'
+				note: 'The app connects to the coordinator, an ordinary PostgreSQL with the Citus extension. It keeps the metadata: which shards exist, and which worker holds each one.'
 			},
 			{
 				add: ['coord -->|"hash(6) falls in one range"| w1[("Worker 1")]', 'coord ~~~ w2[("Worker 2")]'],
 				highlight: ['w1'],
-				note: '**Routed.** The coordinator hashes `6`, finds the one shard whose range contains it, and sends the whole query to the worker that holds it. One node does the work, as if it were a single database.'
+				note: 'The coordinator hashes `6`, finds the one shard whose range contains it, and sends the whole query to the worker that holds it. One node does the work, as if it were a single database.'
 			},
 			{
 				add: ['w1 --> ev["event shard for this range"]', 'w1 --> pg["page shard for the same range"]'],
 				highlight: ['ev', 'pg'],
-				note: '**Co-located.** `event` and `page` are both sharded on `tenant_id`, so the shards for the same range sit on the same node. The join between them runs locally, with full SQL and transactions.'
+				note: '`event` and `page` are both sharded on `tenant_id`, so the shards for the same range sit on the same node. The join between them runs locally, with full SQL and transactions.'
 			},
 			{
 				add: ['fan["Query without tenant_id"] -.->|"one task per shard"| w1', 'fan -.-> w2'],
 				highlight: ['fan'],
-				note: '**Fan-out.** A query that does not filter on the key is sent to every shard, and the coordinator merges the results. Fine for a nightly report, costly on every page view.'
+				note: 'A query that does not filter on the key is sent to every shard, and the coordinator merges the results. A nightly report can afford that. A page that does it puts load on every shard at each view.'
 			},
 			{
 				add: ['w3[("New worker 3")]', 'w1 -->|"rebalancer moves whole shards"| w3'],
 				highlight: ['w3'],
-				note: '**Growing.** Add a worker, and the rebalancer moves some shards to it with logical replication. Rows never change shard, so nothing is rehashed. Only changing the number of shards would move rows.'
+				note: 'Add a worker, and the rebalancer moves some shards to it with logical replication. No row changes shard, so Citus rehashes nothing. Only changing the number of shards would move rows.'
 			}
 		]
 	},
@@ -110,24 +107,24 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 	return shardIndex;
 }`,
 		notes: [
-			'**Hash, then index.** `FindShardInterval` runs the column\'s hash function on the key, the one PostgreSQL itself uses for that type ([`hash_proc_finfo`](' + CITUS + '/src/backend/distributed/metadata/metadata_cache.c?plain=1#L1874-L1880)), then picks the shard at that index in a sorted array. The same key always lands on the same shard.',
-			'**Arithmetic, not search.** The hash space has [`HASH_TOKEN_COUNT`](' + CITUS + '/src/include/distributed/metadata_utility.h#L35) values, 2^32. With the [default of 32 shards](' + CITUS + '/src/backend/distributed/shared_library_init.c?plain=1#L2688-L2697), each owns 134,217,728 of them, and `CalculateUniformHashRangeIndex` is one division. Tables with the same ranges get the same index for the same key: that is [co-location](' + DOCS + '/sharding/data_modeling.rst?plain=1#L104).',
-			'**Why many small shards.** The shard count is fixed when the table is distributed, and is much higher than the number of nodes. Adding a node moves whole shards. The [rebalancer](' + DOCS + '/admin_guide/cluster_management.rst?plain=1#L156) uses logical replication, which "allows application reads and writes to continue uninterrupted", with a brief write lock at the switch. Changing the count itself takes [`alter_distributed_table`](' + DOCS + '/develop/api_udf.rst?plain=1#L242-L262).',
-			'**Choosing the key.** The [docs](' + DOCS + '/sharding/data_modeling.rst?plain=1#L55-L59) ask for "high cardinality" and "even distribution": a `status` column with three values can never fill more than three shards. And [not a timestamp](' + DOCS + '/sharding/data_modeling.rst?plain=1#L76-L84): hashing scatters a time range over all shards, so "the most recent data" becomes a fan-out. Partition by time inside each shard instead.',
-			'**When not to.** Citus lists [when it is inappropriate](' + DOCS + '/get_started/what_is_citus.rst?plain=1#L131-L139), starting with "When you do not expect your workload to ever grow beyond a single Postgres node". Every cross-shard query, constraint and transaction costs more than on one server.'
+			'Lines 6 to 10 run the column\'s hash function on the key, the one PostgreSQL itself uses for that type ([`hash_proc_finfo`](' + CITUS + '/src/backend/distributed/metadata/metadata_cache.c?plain=1#L1874-L1880)). Line 20 returns the shard at that index in a sorted array, so the same key always lands on the same shard.',
+			'Line 32 divides the hash space, [`HASH_TOKEN_COUNT`](' + CITUS + '/src/include/distributed/metadata_utility.h#L35) or 2^32 values, by the shard count. With the default of 32 shards, each shard owns 134,217,728 values, and line 35 finds the index with one division. Tables with the same ranges get the same index for the same key, and Citus calls that co-location.',
+			'Line 32 uses `shardCount`, which is fixed when the table is distributed and is much higher than the number of nodes. Adding a node therefore moves whole shards. The [rebalancer](' + DOCS + '/admin_guide/cluster_management.rst?plain=1#L156) uses logical replication, which "allows application reads and writes to continue uninterrupted", with a brief write lock at the switch. Changing the count itself takes `alter_distributed_table`.',
+			'The Citus [docs](' + DOCS + '/sharding/data_modeling.rst?plain=1#L55-L59) ask for a key with "high cardinality" and "even distribution": a `status` column with three values can never fill more than three shards. They also advise against a timestamp, because hashing scatters a time range over all shards. A query for "the most recent data" then runs on every shard. Partition by time inside each shard instead.',
+			'Citus lists [when it is inappropriate](' + DOCS + '/get_started/what_is_citus.rst?plain=1#L131-L139), starting with "When you do not expect your workload to ever grow beyond a single Postgres node". Every cross-shard query, constraint and transaction costs more than on one server.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Writes scale out: each node is the primary for its own shards, so adding nodes adds write capacity, not just read capacity.',
+			'Each node is the primary for its own shards, so adding nodes adds write capacity as well as read capacity.',
 			'A query routed by the key touches one node and a small shard, whatever the size of the whole table.',
-			'Growth is a shard move, done online with logical replication, not a rewrite of every row.'
+			'Adding a node moves whole shards online with logical replication, and no row is rewritten.'
 		],
 		cost: [
-			'Every table and query must carry the key. Unique constraints must include it, and a lookup by another id, such as `order_id` alone, becomes a fan-out.',
+			'Every table and query must carry the key. Unique constraints must include it, and a lookup by another id, such as `order_id` alone, runs on every shard.',
 			'Cross-shard joins, transactions and foreign keys are slower or limited. Co-location covers only queries on one key value.',
-			'One huge tenant still lives on one shard. A skewed key gives you one hot node and idle others.',
-			'Changing the key later means moving every row. It is the hardest decision to undo in the whole design.'
+			'One huge tenant still lives on one shard. With a skewed key, one node takes most of the load while the others sit idle.',
+			'Changing the key later moves every row to a new shard.'
 		]
 	},
 	task: {
@@ -176,10 +173,15 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 			why: 'Routing needs the value of the distribution column. Without it, the coordinator sends the query to all shards and merges the answers: a fan-out. Carry the key in every request.'
 		}
 	],
-	takeaway: 'Shard only when one primary cannot take the writes, on a key nearly every query names: routed queries stay as cheap as on one server, and everything else fans out.',
+	recall: {
+		q: '`orders` is distributed on `customer_id`. Which queries go to one shard, and which go to every shard?',
+		a: 'A query with `WHERE customer_id = 42` goes to the one shard whose hash range holds 42. A query without `customer_id`, such as `WHERE order_id = 123`, fans out to every shard, 32 by default.'
+	},
 	sources: [
 		{ title: 'Citus docs, Choosing Distribution Column', url: 'https://docs.citusdata.com/en/stable/sharding/data_modeling.html' },
 		{ title: 'Citus docs, Cluster Management', url: 'https://docs.citusdata.com/en/stable/admin_guide/cluster_management.html' },
+		{ title: 'Citus source, shared_library_init.c: default shard count', url: `${CITUS}/src/backend/distributed/shared_library_init.c?plain=1#L2688-L2697` },
+		{ title: 'Citus docs source, api_udf.rst: alter_distributed_table', url: `${DOCS}/develop/api_udf.rst?plain=1#L242-L262` },
 		{ title: 'Vitess docs, Sharding', url: 'https://vitess.io/docs/reference/features/sharding/' }
 	]
 };

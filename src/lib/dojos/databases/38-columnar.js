@@ -12,15 +12,13 @@ export default {
 	hook: [
 		'Finance wants revenue per month for the last three years. The query is one line: `SELECT date_trunc(\'month\', created_at), sum(total) FROM orders GROUP BY 1`. On your 40-column `orders` table, **it runs for minutes** and slows down checkout while it does.',
 		'The query needs two columns. But PostgreSQL stores **whole rows together** in 8 KB pages (day 9), so to read `total` it reads the address, the notes and the 36 other columns too, for every order ever placed.',
-		'Analytics engines such as DuckDB and ClickHouse flip the layout: **each column is stored on its own**, compressed, with a min and max per block. The same query reads a small part of the data, and often skips whole blocks without opening them.'
+		'Analytics engines such as DuckDB and ClickHouse use the other layout: **each column is stored on its own**, compressed, with a min and max per block. The same query reads a small part of the data, and often skips whole blocks without opening them.'
 	],
 	terms: [
-		{ term: 'Row store', def: 'All the columns of a row sit next to each other on disk. Fast to read or change one whole row. PostgreSQL\'s heap is one.' },
+		{ term: 'Row store', def: 'All the columns of a row sit next to each other on disk. Fast to read or change one whole row. PostgreSQL\'s heap stores rows this way.' },
 		{ term: 'Column store', def: 'Each column is stored on its own. A query reads only the columns it names. DuckDB and ClickHouse work this way.' },
 		{ term: 'Row group', def: 'A horizontal slice of a table, stored column by column. In DuckDB, 122,880 rows by default. Compression and parallelism work per row group.' },
-		{ term: 'Zonemap', def: 'The min and max of a column in a block. A filter that falls outside the range skips the block without reading it. Also called a min-max index.' },
-		{ term: 'Lightweight compression', def: 'Encodings that use the shape of one column: dictionary for few distinct values, run-length for repeats, bit packing for small numbers.' },
-		{ term: 'OLTP and OLAP', def: 'OLTP: many small reads and writes of whole rows, like checkout. OLAP: few large queries that scan and aggregate a few columns, like reports.' }
+		{ term: 'Zonemap', def: 'The min and max of a column in a block. A filter that falls outside the range skips the block without reading it. Also called a min-max index.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['q["sum(total) by month"] --> heap[("Row store: each page holds whole rows, 40 columns")]'],
 				highlight: ['q', 'heap'],
-				note: '**Rows: read everything.** In a row store, `total` is spread across every page of the table, between the other columns. Summing it means reading every page. That layout is right for checkout, which reads and writes one whole order at a time.'
+				note: 'In a row store, `total` is spread across every page of the table, between the other columns. To sum it, PostgreSQL reads every page. That layout suits checkout, which reads and writes one whole order at a time.'
 			},
 			{
 				add: ['q --> rg["Row group: 122,880 rows"]', 'rg --> c1[("created_at")]', 'rg --> c2[("total")]', 'rg -.->|"not read"| c3[("38 other columns")]'],
 				highlight: ['rg', 'c1', 'c2'],
-				note: '**Columns: read what you name.** DuckDB cuts a table into row groups and stores each column of a row group on its own. ClickHouse\'s [FAQ](' + CH + '/docs/faq/general/columnar-database.md#L15) puts it in one line: this "allows reading data from disk only for those columns that are used in any given query". The 38 other columns are never touched.'
+				note: 'DuckDB cuts a table into row groups and stores each column of a row group on its own. ClickHouse\'s [FAQ](' + CH + '/docs/faq/general/columnar-database.md#L15): this layout "allows reading data from disk only for those columns that are used in any given query". The 38 other columns are never touched.'
 			},
 			{
 				add: ['rg --> comp["Per column: try each encoding, keep the smallest"]'],
 				highlight: ['comp'],
-				note: '**Similar values compress well.** A column of `status` holds three words repeated a million times. DuckDB analyzes each column at checkpoint with every candidate encoding and keeps the one with the lowest estimated size: dictionary for `status`, bit packing for numbers that fit in few bits.'
+				note: 'A column of `status` holds three words repeated a million times. DuckDB analyzes each column at checkpoint with every candidate encoding and keeps the one with the lowest estimated size: dictionary for `status`, bit packing for numbers that fit in few bits.'
 			},
 			{
 				add: ['zm["Zonemap: min and max per row group"] -->|"skip groups before 2026"| rg'],
 				highlight: ['zm'],
-				note: '**Skip without reading.** DuckDB keeps the min and max of each column for every row group. With `WHERE created_at >= \'2026-01-01\'`, every row group whose max is earlier is skipped. This works well only when the data is roughly sorted on that column, as dates usually are.'
+				note: 'DuckDB keeps the min and max of each column for every row group. With `WHERE created_at >= \'2026-01-01\'`, every row group whose max is earlier is skipped. This works well only when the data is roughly sorted on that column, as dates usually are.'
 			},
 			{
 				add: ['c2 -->|"2048 values at a time"| vec["Vectorized aggregate"]'],
 				highlight: ['vec'],
-				note: '**Process in batches.** DuckDB\'s operators work on vectors of a fixed size, 2048 values by default. A vector is an array of a single type, and can even stay compressed. One operator call handles 2048 values instead of one row.'
+				note: 'DuckDB\'s operators work on vectors of a fixed size, 2048 values by default. A vector is an array of a single type, and can even stay compressed. One operator call handles 2048 values instead of one row.'
 			}
 		]
 	},
@@ -115,10 +113,10 @@ export default {
 			}
 		}`,
 		notes: [
-			'**Every encoding gets a try.** `ScanSegments` feeds the column\'s data, vector by vector, to each candidate\'s `analyze`. A method that cannot handle the data returns false and drops out. This runs when a column is [written to disk](' + CKPT + '#L310-L312) at checkpoint.',
-			'**The score is a size.** `final_analyze` returns an estimate in bytes, and the lowest wins. For run-length encoding it is [(count + value) times the number of runs](' + DD + '/src/storage/compression/rle.cpp#L130-L134); for bit packing, the [total packed size](' + DD + '/src/storage/compression/bitpacking.cpp#L431-L439). A forced method from settings overrides the choice.',
-			'**Per row group, so per local shape.** The [docs](' + DW + '/internals/storage.md#L214-L218) say compression and parallelism "are based on row groups", whose default size is [122,880 rows](' + DD + '/src/include/duckdb/storage/storage_info.hpp#L22-L23). A column can be dictionary encoded in one row group and stored plainly in the next.',
-			'**Order feeds both tricks.** The [indexing guide](' + DW + '/guides/performance/indexing.md#L19-L24) says "The more ordered the data within a column, the more valuable the zonemap indexes will be", and that with random values DuckDB "will likely be unable to skip any row groups". Sorted data also compresses better: in the same guide, an ordered timestamp column came out [2.5 times smaller](' + DW + '/guides/performance/indexing.md#L30-L35) than an unordered one.'
+			'Lines 5 to 22 feed the column\'s data, vector by vector, to the `analyze` of each candidate encoding. A method that cannot handle the data returns false on line 16 and drops out. This runs when a column is [written to disk](' + CKPT + '#L310-L312) at checkpoint.',
+			'Line 41 gets a score from `final_analyze`, an estimate in bytes, and lines 48 to 52 keep the lowest. For run-length encoding the score is [(count + value) times the number of runs](' + DD + '/src/storage/compression/rle.cpp#L130-L134), and for bit packing it is the total packed size. A forced method from settings (line 38) overrides the choice.',
+			'The [docs](' + DW + '/internals/storage.md#L214-L218) say compression and parallelism "are based on row groups", whose default size is 122,880 rows. A column can be dictionary encoded in one row group and stored uncompressed in the next.',
+			'The [indexing guide](' + DW + '/guides/performance/indexing.md#L19-L24) says "The more ordered the data within a column, the more valuable the zonemap indexes will be", and that with random values DuckDB "will likely be unable to skip any row groups". Sorted data also compresses better: in the same guide, an ordered timestamp column came out 2.5 times smaller than an unordered one.'
 		]
 	},
 	tradeoff: {
@@ -129,8 +127,8 @@ export default {
 			'Operators work on vectors of 2048 values of one type, so each call does the work of 2048 rows.'
 		],
 		cost: [
-			'Whole-row work gets slower. ClickHouse\'s FAQ: "operations that affect whole rows become proportionally more expensive". Fetching one order by id touches every column file.',
-			'Data should arrive in large batches. ClickHouse\'s [insert guide](' + CH + '/docs/best-practices/_snippets/_async_inserts.md#L7) warns that "Sending many small batches in synchronous mode isn\'t recommended". That suits a copy of OLTP data, not the live store for checkout.',
+			'Fetching one order by id touches every column file. ClickHouse\'s FAQ: "operations that affect whole rows become proportionally more expensive".',
+			'ClickHouse\'s [insert guide](' + CH + '/docs/best-practices/_snippets/_async_inserts.md#L7) warns that "Sending many small batches in synchronous mode isn\'t recommended". A batch copy of the orders fits that, while checkout writes one order at a time.',
 			'A second engine means a pipeline to copy data in, and reports that lag behind the live database.',
 			'Zonemaps help only on columns the data is ordered by. A filter on a random UUID reads every row group.'
 		]
@@ -181,8 +179,14 @@ export default {
 			why: 'A zonemap skips a row group only when the value falls outside its min-max range. With random UUIDs, every range is wide, so nothing is skipped. The DuckDB guide suggests ordered integers for such filters.'
 		}
 	],
-	takeaway: 'Store rows for work on whole rows, and columns for work on a few columns over many rows: a column store reads less, compresses more and skips blocks it can rule out.',
+	recall: {
+		q: 'A report sums 2 columns of a 40-column table, filtered on a date. What does a column store such as DuckDB skip that a row store reads?',
+		a: 'The 38 other columns, and every row group whose zonemap max on `created_at` is below the filter. Each row group holds 122,880 rows by default.'
+	},
 	sources: [
+		{ title: 'DuckDB, bitpacking.cpp (packed size estimate)', url: `${DD}/src/storage/compression/bitpacking.cpp#L431-L439` },
+		{ title: 'DuckDB, storage_info.hpp (row group size)', url: `${DD}/src/include/duckdb/storage/storage_info.hpp#L22-L23` },
+		{ title: 'DuckDB docs source, indexing.md (ordered vs unordered size)', url: `${DW}/guides/performance/indexing.md#L30-L35` },
 		{ title: 'ClickHouse docs, What is a columnar database?', url: 'https://clickhouse.com/docs/faq/general/columnar-database' },
 		{ title: 'DuckDB docs, Storage', url: 'https://duckdb.org/docs/stable/internals/storage' },
 		{ title: 'DuckDB docs, Indexing (zonemaps)', url: 'https://duckdb.org/docs/stable/guides/performance/indexing' },

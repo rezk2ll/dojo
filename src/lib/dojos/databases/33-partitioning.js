@@ -11,14 +11,12 @@ export default {
 	hook: [
 		'Your `events` table has two billion rows. Every night a job runs `DELETE FROM events WHERE created_at < now() - interval \'90 days\'`. It takes hours, the replicas lag, and the next morning **autovacuum is still cleaning up the dead rows** (day 16).',
 		'Most queries only read the last week anyway. Yet the indexes cover two years, and they no longer fit in memory.',
-		'**Partitioning** splits one big table into smaller tables, one per month for example, behind a single name. The app still writes to `events`. A query on last week reads **one partition**. And forgetting a month is no longer a `DELETE`: it is **`DROP TABLE` on one partition**, done in a moment.'
+		'Partitioning splits one big table into smaller tables, one per month for example, behind a single name. The app still writes to `events`, and a query on last week reads one partition. Removing a month of old rows takes **one `DROP TABLE` on one partition**, which finishes in a moment instead of hours.'
 	],
 	terms: [
-		{ term: 'Partitioned table', def: 'A "virtual" table with no storage of its own. Rows live in its partitions, ordinary tables attached to it.' },
 		{ term: 'Partition key', def: 'The column (or columns) that decides which partition a row goes to. Often a timestamp for range, a region or tenant for list.' },
-		{ term: 'Range, list, hash', def: 'Range: each partition holds an interval, lower bound included, upper bound excluded. List: explicit values. Hash: a modulus and a remainder, for spreading rows evenly.' },
 		{ term: 'Partition pruning', def: 'The planner proves from the `WHERE` clause that some partitions cannot hold matching rows, and leaves them out of the plan.' },
-		{ term: 'Default partition', def: 'A catch-all for rows that fit no other partition. Without one, such an insert is an error.' },
+		{ term: 'Default partition', def: 'A catch-all for rows that fit no other partition. Without one, PostgreSQL rejects such an insert with an error.' },
 		{ term: 'Retention', def: 'The rule that drops or detaches partitions once all their data is older than a limit. pg_partman runs it for you.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['app["INSERT INTO events"] --> parent["events, partitioned by created_at"]'],
 				highlight: ['app', 'parent'],
-				note: '**One name.** The app inserts into `events` as before. The parent has no storage: PostgreSQL routes each row to a partition by its `created_at`.'
+				note: 'The app inserts into `events` as before. The parent has no storage: PostgreSQL routes each row to a partition by its `created_at`.'
 			},
 			{
 				add: ['parent --> sep[("events_p2026_09")]', 'parent --> oct[("events_p2026_10")]', 'parent --> def[("events_default")]'],
 				highlight: ['sep', 'oct', 'def'],
-				note: '**One table per month.** A range partition includes its lower bound and excludes its upper one, so midnight on October 1 goes to October. A row that fits no partition goes to the default one. Without a default, the insert fails.'
+				note: 'A range partition includes its lower bound and excludes its upper one, so midnight on October 1 goes to October. A row that fits no partition goes to the default one. Without a default, the insert fails.'
 			},
 			{
 				add: ['q["SELECT ... WHERE created_at >= \'2026-10-01\'"] -.->|"pruned to one partition"| oct'],
 				highlight: ['q'],
-				note: '**Pruning.** The planner reads each partition\'s bounds and drops from the plan those that cannot match. `EXPLAIN` (day 12) shows only `events_p2026_10`. A query that does not filter on `created_at` still reads every partition.'
+				note: 'The planner reads each partition\'s bounds and drops from the plan those that cannot match. `EXPLAIN` (day 12) shows only `events_p2026_10`. A query that does not filter on `created_at` still reads every partition.'
 			},
 			{
 				add: ['maint["pg_partman run_maintenance()"] -->|"premake: create ahead"| nov[("events_p2026_11")]', 'parent --> nov'],
 				highlight: ['maint', 'nov'],
-				note: '**Make partitions before they are needed.** pg_partman keeps a number of future partitions ready, `premake`, 4 by default. Run its maintenance from cron or its background worker, and November exists before the first November row.'
+				note: 'pg_partman keeps a number of future partitions ready, `premake`, 4 by default. Run its maintenance from cron or its background worker, and November exists before the first November row.'
 			},
 			{
 				add: ['maint -->|"retention: detach, or drop"| sep'],
 				highlight: ['sep'],
-				note: '**Forget old data cheaply.** When a whole partition is older than the retention interval, maintenance detaches it, or drops it. No row-by-row delete, no dead rows, no vacuum afterwards.'
+				note: 'When a whole partition is older than the retention interval, maintenance detaches it, or drops it. No row is deleted one by one, so vacuum has no dead rows to clean afterwards.'
 			}
 		]
 	},
@@ -93,16 +91,16 @@ LOOP
                 v_sql := 'DROP TABLE %I.%I';
                 EXECUTE format(v_sql, v_row.partition_schemaname, v_row.partition_tablename);`,
 		notes: [
-			'**The retention test.** The loop walks the partitions oldest first. A partition goes only if its start plus one interval, its upper bound, is older than now minus `retention`. The [docs](' + DOC + '#L120) say it: "any partitions containing only data older than that will be dropped". A partition that is half old stays.',
-			'**Never the last one.** If only one partition is left, the function warns and skips it. The [docs](' + DOC + '#L126) state the rule: "retention will never drop the last child table in a set".',
-			'**Detach is the default.** With `retention_keep_table` true, the [default](' + DOC + '#L118), the partition is only detached: it becomes a plain table, out of the parent, still on disk. The [PostgreSQL docs](' + PG + '#L4658-L4680) suggest that moment to back the data up with `COPY` or `pg_dump`, then drop it.',
-			'**Mind the lock.** `DROP TABLE` on a partition "can very quickly delete millions of records", but [it takes](' + PG + '#L4646-L4656) an `ACCESS EXCLUSIVE` lock on the parent. `DETACH PARTITION ... CONCURRENTLY` needs only `SHARE UPDATE EXCLUSIVE`. Same lock queue as day 26: a long query on `events` makes the drop, and everything behind it, wait.',
-			'**Why not create partitions on demand.** pg_partman always creates a [default partition](' + DOC + '#L14) and watches it with `check_default()`. Its authors prefer that to creating tables on demand and cleaning up "potentially hundreds or thousands of unwanted partitions". Then [`run_maintenance()`](' + DOC + '#L461-L466) creates the partitions ahead, and it is safe to run more often than needed.'
+			'Lines 1 to 5: the loop walks the partitions oldest first. A partition goes only if its start plus one interval, its upper bound, is older than now minus `retention`. The [docs](' + DOC + '#L120): "any partitions containing only data older than that will be dropped". A partition with some rows newer than the limit stays.',
+			'Lines 7 to 11: if only one partition is left, the function warns and skips it. The [docs](' + DOC + '#L126): "retention will never drop the last child table in a set".',
+			'Lines 13 to 20 run when `retention_keep_table` is true, the [default](' + DOC + '#L118). The partition is only detached: it stays on disk as a plain table, outside the parent. The PostgreSQL docs suggest backing it up at that point with `COPY` or `pg_dump`, then dropping it.',
+			'Lines 35 and 36 drop the table. `DROP TABLE` on a partition "can very quickly delete millions of records", but [it takes](' + PG + '#L4646-L4656) an `ACCESS EXCLUSIVE` lock on the parent, while `DETACH PARTITION ... CONCURRENTLY` needs only `SHARE UPDATE EXCLUSIVE`. As on day 26, a long query on `events` makes the drop wait, and every query queued behind the drop waits too.',
+			'pg_partman always creates a [default partition](' + DOC + '#L14) and watches it with `check_default()`. Its authors prefer that to creating tables on demand and cleaning up "potentially hundreds or thousands of unwanted partitions". `run_maintenance()` creates the partitions ahead, and running it more often than needed is safe.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Deleting a month is a `DROP TABLE` or a `DETACH`, not millions of row deletes. No bloat, no vacuum debt.',
+			'Deleting a month is one `DROP TABLE` or `DETACH` instead of millions of row deletes, and it leaves no dead rows for vacuum.',
 			'Queries that filter on the key read only the partitions they need. Each partition has smaller indexes, more likely to fit in memory.',
 			'Maintenance runs per partition: vacuum, reindex or move one month at a time, and leave old partitions alone.'
 		],
@@ -110,7 +108,7 @@ LOOP
 			'A primary key or unique constraint must include the partition key. `PRIMARY KEY (id)` alone is refused; you get `(id, created_at)`, and global uniqueness of `id` is no longer enforced by the database.',
 			'Queries that do not filter on the key now plan and scan every partition. The docs say the planner handles "up to a few thousand partitions fairly well" only if queries prune all but a few; past that, planning time and memory grow.',
 			'Someone must create the next partitions on time. Without a job, or a default partition, inserts start failing at midnight on the first of the month.',
-			'The docs say partitioning pays off "only when a table would otherwise be very large". Below that, it is extra moving parts for nothing.'
+			'The docs say partitioning pays off "only when a table would otherwise be very large". A smaller table still carries the primary key rule, the planning cost and the job that creates partitions.'
 		]
 	},
 	task: {
@@ -144,7 +142,7 @@ LOOP
 				'The row is stored in the parent table until the next maintenance run moves it'
 			],
 			answer: 2,
-			why: 'Inserting a row that maps to no partition is an error; the partition must be created first. That is why pg_partman pre-creates partitions with `premake` and adds a default partition as a safety net.'
+			why: 'Inserting a row that maps to no partition is an error; the partition must be created first. pg_partman therefore pre-creates partitions with `premake` and adds a default partition as a safety net.'
 		},
 		{
 			q: 'You must delete everything older than 90 days from a table partitioned by month. What is the cheapest correct way?',
@@ -158,9 +156,13 @@ LOOP
 			why: 'Dropping or detaching a partition removes its rows without touching them one by one, and leaves no dead rows for vacuum (day 16). The partition that is only partly older than 90 days stays until it is wholly past the limit.'
 		}
 	],
-	takeaway: 'Partition a very large table by the column you filter and expire on: queries prune to a few partitions, and old data leaves with a `DROP TABLE` instead of a `DELETE`.',
+	recall: {
+		q: '`events` is partitioned by month on `created_at`. How do you remove rows older than 90 days, and which partitions go?',
+		a: 'Detach and drop each partition whose whole range is older than 90 days: `DETACH PARTITION ... CONCURRENTLY`, then `DROP TABLE`. A partition with some newer rows stays, and no dead rows are left for vacuum.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Table Partitioning', url: 'https://www.postgresql.org/docs/current/ddl-partitioning.html' },
+		{ title: 'PostgreSQL source docs, ddl.sgml: back up a detached partition', url: `${PG}#L4658-L4680` },
 		{ title: 'pg_partman docs', url: `${PARTMAN}/doc/pg_partman.md` },
 		{ title: 'pg_partman howto', url: `${PARTMAN}/doc/pg_partman_howto.md` }
 	]

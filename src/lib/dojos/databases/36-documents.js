@@ -10,16 +10,14 @@ export default {
 	title: 'Documents and JSONB',
 	minutes: 10,
 	hook: [
-		'Your team needed a few settings per customer, and nobody wanted a migration. So you added one `settings` column of type `jsonb` and moved on. **It felt free.**',
-		'Six months later, the billing page filters on `settings->>\'plan\' = \'pro\'` and reads every row of the table. One customer has `"plan": "Pro"`, another has `"plan": null`, a third has no `plan` key at all. **No constraint saw any of it**, because to the database the whole document is one value.',
-		'JSONB is not a mistake. It is a real tool with a clear shape: **a binary document that PostgreSQL can search with a GIN index**, next to typed columns that keep their rules. The skill is knowing which fact goes where.'
+		'Your team needed a few settings per customer, and nobody wanted a migration. So you added one `settings` column of type `jsonb` and moved on.',
+		'Six months later, the billing page filters on `settings->>\'plan\' = \'pro\'` and reads every row of the table. One customer has `"plan": "Pro"`, another has `"plan": null`, a third has no `plan` key at all. **No constraint caught any of it**, because the database sees the whole document as one value.',
+		'PostgreSQL stores a `jsonb` value as a binary document that it can search with a GIN index. Typed columns next to it keep their types and constraints. A value you filter, sort or constrain goes in a column, and the part whose shape varies goes in the document.'
 	],
 	terms: [
-		{ term: 'json', def: 'Stores the exact input text. Keeps white space, key order and duplicate keys. Every function call parses it again.' },
-		{ term: 'jsonb', def: 'Stores a parsed, binary form. Drops white space and duplicate keys, does not keep key order, and can be indexed.' },
+		{ term: 'jsonb', def: 'Stores a parsed, binary form. Drops white space and duplicate keys, does not keep key order, and can be indexed. The `json` type keeps the exact input text instead.' },
 		{ term: 'Containment (@>)', def: '`a @> b` is true when every key and value of `b` is found in `a`, at the same place. The main operator a GIN index on jsonb can answer.' },
-		{ term: 'jsonb_ops', def: 'The default GIN operator class. One index entry per key and per value. Supports `@>` and the key-exists operators `?`, `?|`, `?&`.' },
-		{ term: 'jsonb_path_ops', def: 'A smaller GIN operator class. One hashed entry per path to a value. Supports `@>`, `@?` and `@@`, but not `?`.' },
+		{ term: 'jsonb_path_ops', def: 'A smaller GIN operator class. One hashed entry per path to a value. Supports `@>`, `@?` and `@@`, but not `?`. The default class, `jsonb_ops`, also supports `?`.' },
 		{ term: '->> and ->', def: '`->` returns a field as jsonb, `->>` returns it as text. A plain GIN index on the column does not help a filter on `doc->>\'key\'`.' }
 	],
 	diagram: {
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['app["App sends JSON text"] --> parse["Parse once on input"]', 'parse --> row[("Row: typed columns + jsonb detail")]'],
 				highlight: ['parse', 'row'],
-				note: '**Parse once, read many times.** The docs say `jsonb` is "slightly slower to input due to added conversion overhead, but significantly faster to process, since no reparsing is needed". The document sits in the row next to ordinary columns, and a large one is moved to TOAST like any big value (day 9).'
+				note: 'PostgreSQL parses the JSON text once, on input. The docs say `jsonb` is "slightly slower to input due to added conversion overhead, but significantly faster to process, since no reparsing is needed". The document sits in the row next to ordinary columns, and a large one is moved to TOAST like any big value (day 9).'
 			},
 			{
 				add: ['row --> gin["GIN index, jsonb_path_ops: one hash per path to a value"]'],
 				highlight: ['gin'],
-				note: '**An inverted index over the document.** A GIN index (day 11) stores entries that point back to rows. With `jsonb_path_ops`, `{"foo": {"bar": "baz"}}` becomes one hash of `foo`, `bar` and `baz` together. The index is small and very specific, but it cannot tell whether a key exists on its own.'
+				note: 'A GIN index (day 11) is an inverted index: it stores entries that point back to rows. With `jsonb_path_ops`, `{"foo": {"bar": "baz"}}` gives a single entry, one hash of the path `foo.bar.baz`. The index is small and very specific, but it cannot tell whether a key exists on its own.'
 			},
 			{
 				add: ['q1["WHERE detail @> type FeatureFlag"] -->|"index scan"| gin'],
 				highlight: ['q1'],
-				note: '**Containment uses the index.** A query of the shape `detail @> \'{"type": "FeatureFlag"}\'` turns into hashes, looks them up in GIN, then rechecks the rows it found. This is the query the index was built for.'
+				note: 'A containment query uses the index. PostgreSQL hashes the paths in `detail @> \'{"type": "FeatureFlag"}\'`, looks the hashes up in GIN, then rechecks the rows it found.'
 			},
 			{
 				add: ['q2["WHERE detail->>name = x"] -.->|"no index, reads every row"| row'],
 				highlight: ['q2'],
-				note: '**A key lookup does not.** The docs explain that an operator only uses the index when it is "applied directly to the indexed column". `detail->>\'name\' = \'x\'` compares a text value, so the plan falls back to a sequential scan unless you add an expression index on exactly that expression.'
+				note: 'A key lookup with `->>` does not use the index. The docs explain that an operator only uses the index when it is "applied directly to the indexed column". `detail->>\'name\' = \'x\'` compares a text value, so the plan falls back to a sequential scan unless you add an expression index on exactly that expression.'
 			},
 			{
 				add: ['col["Hot key promoted to a column"] -->|"B-tree, NOT NULL, CHECK"| row'],
 				highlight: ['col'],
-				note: '**When a column beats a key.** If you filter, sort, join or enforce a rule on a value, give it a real column. It gets a type, a NOT NULL, a foreign key (day 22) and a plain B-tree. Keep in jsonb only the part whose shape really varies.'
+				note: 'If you filter, sort, join or enforce a rule on a value, give it a real column. It gets a type, a NOT NULL, a foreign key (day 22) and a plain B-tree. Keep in jsonb only the part whose shape really varies.'
 			}
 		]
 	},
@@ -103,10 +101,10 @@ export default {
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at = models.DateTimeField(default=timezone.now)`,
 		notes: [
-			'**Columns for what the app filters on.** `team_id`, `scope`, `item_id`, `activity` and `created_at` are typed columns with B-tree indexes and a CHECK constraint. Only `detail`, whose shape changes with each scope, is a document. Django maps `JSONField` to [`jsonb`](' + DJANGO + '/django/db/backends/postgresql/base.py#L123) on PostgreSQL.',
-			'**The opclass is a choice.** The comment picks `jsonb_path_ops` because no query uses `?`. That matches the [docs](' + JSON_DOC + '#L527-L537): a `jsonb_path_ops` index "is usually much smaller than a `jsonb_ops` index over the same data, and the specificity of searches is better".',
-			'**The known blind spot.** The comment warns that `detail @> \'{"changes": []}\'` falls back to a full index scan. The [docs](' + JSON_DOC + '#L572-L577) say the same: `jsonb_path_ops` "produces no index entries for JSON structures not containing any values", and such a search "will require a full-index scan, which is quite slow".',
-			'**The index was built online.** Migration 0854 creates it with raw [`CREATE INDEX CONCURRENTLY ... USING GIN (detail jsonb_path_ops)`](' + PH + '/posthog/migrations/0854_add_activitylog_detail_gin_path_ops_index.py#L28-L33), so writes to the log keep flowing while it builds (day 26). The partial index `idx_alog_org_scope_created_at` above is built the same way, with [`WHERE detail IS NOT NULL AND jsonb_typeof(detail) = \'object\'`](' + PH + '/posthog/migrations/0850_add_activitylog_org_scope_created_at.py#L26-L31).'
+			'Lines 3 to 10 add a CHECK constraint and a B-tree on `team_id`, `scope` and `item_id`, and lines 34 to 45 declare `activity`, `scope` and `created_at` as typed columns. Only `detail` (line 44), whose shape changes with each scope, is a document. Django maps `JSONField` to [`jsonb`](' + DJANGO + '/django/db/backends/postgresql/base.py#L123) on PostgreSQL.',
+			'The comment on lines 21 to 27 picks `jsonb_path_ops` because no query uses `?`. That matches the [docs](' + JSON_DOC + '#L527-L537): a `jsonb_path_ops` index "is usually much smaller than a `jsonb_ops` index over the same data, and the specificity of searches is better".',
+			'Lines 25 to 27 warn that `detail @> \'{"changes": []}\'` falls back to a full index scan. The [docs](' + JSON_DOC + '#L572-L577) say the same: `jsonb_path_ops` "produces no index entries for JSON structures not containing any values", and such a search "will require a full-index scan, which is quite slow".',
+			'Migration 0854 builds the GIN index of lines 28 to 32 with raw [`CREATE INDEX CONCURRENTLY ... USING GIN (detail jsonb_path_ops)`](' + PH + '/posthog/migrations/0854_add_activitylog_detail_gin_path_ops_index.py#L28-L33), so writes to the log keep flowing while it builds (day 26). Migration 0850 (in the sources) builds the partial index of lines 11 to 15 the same way, with `WHERE detail IS NOT NULL AND jsonb_typeof(detail) = \'object\'`.'
 		]
 	},
 	tradeoff: {
@@ -116,7 +114,7 @@ export default {
 			'The document is read back in one piece, with no join, which suits data the app always loads whole.'
 		],
 		cost: [
-			'No types, no NOT NULL, no foreign key inside the document. Bad values arrive silently unless you add CHECK constraints or validate in the app.',
+			'The database checks no type, NOT NULL or foreign key inside the document. A `"plan": "Pro"` is stored without an error unless you add CHECK constraints or validate in the app.',
 			'A plain GIN index does not serve `->>` filters, sorting or ranges. Each hot key needs its own expression index or its own column.',
 			'Updating one key writes a new version of the whole row, and the docs warn that "any update acquires a row-level lock on the whole row" (days 18 and 20).',
 			'Keys are repeated in every document, so a table of many small documents is larger than the same data in columns.'
@@ -164,14 +162,18 @@ export default {
 				'In the jsonb document, validated by the app before each write'
 			],
 			answer: 2,
-			why: 'Filtering, sorting and a rule the database enforces are all things a column does well and a key inside a document does not. App-side validation alone can be bypassed and can race (day 22).'
+			why: 'A typed column gets a B-tree for filtering and sorting, and a CHECK constraint that the database applies on every write. App-side validation alone can be bypassed and can race (day 22).'
 		}
 	],
-	takeaway: 'Use jsonb for the part of a row whose shape really varies, index it with GIN for containment, and give every value you filter, sort or enforce its own typed column.',
+	recall: {
+		q: 'Which jsonb filter can a GIN index on the column serve, and what does a `->>` filter need instead?',
+		a: 'Containment applied to the column itself, like `settings @> \'{"beta": true}\'`. A `->>` filter needs an expression index on that exact expression, or the key moved to a typed column with a B-tree.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, JSON Types', url: 'https://www.postgresql.org/docs/current/datatype-json.html' },
 		{ title: 'PostgreSQL docs, JSON Functions and Operators', url: 'https://www.postgresql.org/docs/current/functions-json.html' },
 		{ title: 'PostgreSQL docs, Indexes on Expressions', url: 'https://www.postgresql.org/docs/current/indexes-expressional.html' },
-		{ title: 'Django docs, JSONField', url: 'https://docs.djangoproject.com/en/stable/ref/models/fields/#jsonfield' }
+		{ title: 'Django docs, JSONField', url: 'https://docs.djangoproject.com/en/stable/ref/models/fields/#jsonfield' },
+		{ title: 'PostHog, migration 0850 (partial index on activity log)', url: `${PH}/posthog/migrations/0850_add_activitylog_org_scope_created_at.py#L26-L31` }
 	]
 };

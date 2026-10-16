@@ -10,16 +10,13 @@ export default {
 	hook: [
 		'Ta base tourne déjà sur la plus grosse machine que vend ton hébergeur. Les réplicas ont pris les lectures (jour 28). Mais **chaque écriture arrive encore sur un seul primaire**, et il est à sa limite aux heures de pointe.',
 		'Le partitionnement (jour 33) a découpé la table, mais toutes les partitions vivent encore sur ce serveur. Pour aller plus loin, les lignes elles-mêmes doivent vivre sur **plusieurs serveurs, chacun primaire pour sa part**.',
-		'C’est le **sharding** : une clé de sharding décide quel serveur garde une ligne. Une requête qui donne la clé va sur **un seul serveur**. Une requête qui ne la donne pas doit interroger **tous les serveurs**. Choisis bien la clé et le cluster ressemble à une seule base. Choisis-la mal et chaque page devient un fan-out.'
+		'Avec le **sharding**, une clé de sharding décide quel serveur garde une ligne. Une requête qui donne la clé va sur un seul serveur, et une requête qui ne la donne pas doit interroger tous les serveurs. Si presque chaque requête donne la clé, la plupart des requêtes touchent un seul serveur. Si les pages ne la donnent pas, chaque affichage de page interroge tous les serveurs.'
 	],
 	terms: [
 		{ term: 'Shard', def: 'Un morceau d’une table shardée, une table normale sur un serveur. Citus en crée 32 par table par défaut et les répartit sur les nœuds workers.' },
-		{ term: 'Clé de sharding', def: 'La colonne qui décide du shard d’une ligne. Citus l’appelle distribution column. En général un id de tenant ou de client.' },
-		{ term: 'Plage de hash', def: 'Chaque shard possède une tranche de l’espace de hash sur 32 bits. Une ligne va dans le shard dont la tranche contient le hash de sa clé.' },
+		{ term: 'Clé de sharding', def: 'La colonne qui décide du shard d’une ligne. Citus l’appelle la distribution column. En général, c’est un id de tenant ou de client.' },
 		{ term: 'Co-location', def: 'Des tables shardées sur la même clé et les mêmes plages gardent les lignes qui vont ensemble sur le même nœud, donc les jointures et les transactions sur une clé restent locales.' },
-		{ term: 'Table de référence', def: 'Une petite table partagée, comme les pays ou les produits, copiée en entier sur chaque nœud pour que tout shard puisse la joindre.' },
-		{ term: 'Fan-out', def: 'Une requête qu’on ne peut pas router par la clé : elle tourne sur chaque shard et les résultats sont fusionnés.' },
-		{ term: 'Rééquilibrage', def: 'Déplacer des shards entiers vers d’autres nœuds, par exemple après en avoir ajouté un. Les lignes gardent leur shard ; seule la maison du shard change.' }
+		{ term: 'Fan-out', def: 'Une requête qu’on ne peut pas router par la clé : elle tourne sur chaque shard et les résultats sont fusionnés.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -27,27 +24,27 @@ export default {
 			{
 				add: ['app["App : WHERE tenant_id = 6"] --> coord["Coordinateur Citus"]'],
 				highlight: ['app', 'coord'],
-				note: '**Un seul point d’entrée.** L’application se connecte au coordinateur, un PostgreSQL ordinaire avec l’extension Citus. Il garde les métadonnées : quels shards existent, et quel worker tient chacun.'
+				note: 'L’application se connecte au coordinateur, un PostgreSQL ordinaire avec l’extension Citus. Il garde les métadonnées : quels shards existent, et quel worker tient chacun.'
 			},
 			{
 				add: ['coord -->|"hash(6) tombe dans une plage"| w1[("Worker 1")]', 'coord ~~~ w2[("Worker 2")]'],
 				highlight: ['w1'],
-				note: '**Routée.** Le coordinateur hashe `6`, trouve le shard dont la plage le contient, et envoie toute la requête au worker qui le tient. Un seul nœud fait le travail, comme si c’était une seule base.'
+				note: 'Le coordinateur hashe `6`, trouve le shard dont la plage le contient, et envoie toute la requête au worker qui le tient. Un seul nœud fait le travail, comme si c’était une seule base.'
 			},
 			{
 				add: ['w1 --> ev["shard event de cette plage"]', 'w1 --> pg["shard page de la même plage"]'],
 				highlight: ['ev', 'pg'],
-				note: '**Co-localisées.** `event` et `page` sont toutes deux shardées sur `tenant_id`, donc les shards de la même plage sont sur le même nœud. La jointure entre elles tourne en local, avec tout le SQL et les transactions.'
+				note: '`event` et `page` sont toutes deux shardées sur `tenant_id`, donc les shards de la même plage sont sur le même nœud. La jointure entre elles tourne en local, avec tout le SQL et les transactions.'
 			},
 			{
 				add: ['fan["Requête sans tenant_id"] -.->|"une tâche par shard"| w1', 'fan -.-> w2'],
 				highlight: ['fan'],
-				note: '**Fan-out.** Une requête qui ne filtre pas sur la clé part vers chaque shard, et le coordinateur fusionne les résultats. Très bien pour un rapport nocturne, cher à chaque affichage de page.'
+				note: 'Une requête qui ne filtre pas sur la clé part vers chaque shard, et le coordinateur fusionne les résultats. Un rapport de nuit peut se le permettre. Une page qui fait ça charge tous les shards à chaque affichage.'
 			},
 			{
 				add: ['w3[("Nouveau worker 3")]', 'w1 -->|"le rééquilibreur déplace des shards entiers"| w3'],
 				highlight: ['w3'],
-				note: '**Grandir.** Ajoute un worker, et le rééquilibreur y déplace une partie des shards avec la réplication logique. Les lignes ne changent jamais de shard, donc rien n’est rehashé. Seul un changement du nombre de shards déplacerait des lignes.'
+				note: 'Ajoute un worker, et le rééquilibreur y déplace une partie des shards avec la réplication logique. Aucune ligne ne change de shard, donc Citus ne rehashe rien. Seul un changement du nombre de shards déplacerait des lignes.'
 			}
 		]
 	},
@@ -110,24 +107,24 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 	return shardIndex;
 }`,
 		notes: [
-			'**Hasher, puis indexer.** `FindShardInterval` applique à la clé la fonction de hash de la colonne, celle que PostgreSQL utilise lui-même pour ce type ([`hash_proc_finfo`](' + CITUS + '/src/backend/distributed/metadata/metadata_cache.c?plain=1#L1874-L1880)), puis prend le shard à cet index dans un tableau trié. La même clé tombe toujours dans le même shard.',
-			'**Du calcul, pas une recherche.** L’espace de hash a [`HASH_TOKEN_COUNT`](' + CITUS + '/src/include/distributed/metadata_utility.h#L35) valeurs, 2^32. Avec les [32 shards par défaut](' + CITUS + '/src/backend/distributed/shared_library_init.c?plain=1#L2688-L2697), chacun en possède 134 217 728, et `CalculateUniformHashRangeIndex` se résume à une division. Des tables avec les mêmes plages donnent le même index pour la même clé : c’est la [co-location](' + DOCS + '/sharding/data_modeling.rst?plain=1#L104).',
-			'**Pourquoi beaucoup de petits shards.** Le nombre de shards est fixé quand la table est distribuée, et il est bien plus grand que le nombre de nœuds. Ajouter un nœud déplace des shards entiers. Le [rééquilibreur](' + DOCS + '/admin_guide/cluster_management.rst?plain=1#L156) utilise la réplication logique, qui "allows application reads and writes to continue uninterrupted" (laisse les lectures et écritures continuer sans interruption), avec un bref verrou d’écriture à la bascule. Changer le nombre lui-même passe par [`alter_distributed_table`](' + DOCS + '/develop/api_udf.rst?plain=1#L242-L262).',
-			'**Choisir la clé.** La [doc](' + DOCS + '/sharding/data_modeling.rst?plain=1#L55-L59) demande "high cardinality" (beaucoup de valeurs distinctes) et "even distribution" (une répartition égale) : une colonne `status` à trois valeurs ne remplira jamais plus de trois shards. Et [pas de timestamp](' + DOCS + '/sharding/data_modeling.rst?plain=1#L76-L84) : le hash disperse une plage de temps sur tous les shards, donc "the most recent data" (les données récentes) devient un fan-out. Partitionne plutôt par le temps dans chaque shard.',
-			'**Quand s’abstenir.** Citus liste les cas où [il n’est pas adapté](' + DOCS + '/get_started/what_is_citus.rst?plain=1#L131-L139), à commencer par "When you do not expect your workload to ever grow beyond a single Postgres node" (quand ta charge ne dépassera jamais un seul nœud Postgres). Chaque requête, contrainte et transaction entre shards coûte plus cher que sur un seul serveur.'
+			'Les lignes 6 à 10 appliquent à la clé la fonction de hash de la colonne, celle que PostgreSQL utilise lui-même pour ce type ([`hash_proc_finfo`](' + CITUS + '/src/backend/distributed/metadata/metadata_cache.c?plain=1#L1874-L1880)). La ligne 20 renvoie le shard à cet index dans un tableau trié, donc la même clé tombe toujours dans le même shard.',
+			'La ligne 32 divise l’espace de hash, [`HASH_TOKEN_COUNT`](' + CITUS + '/src/include/distributed/metadata_utility.h#L35) soit 2^32 valeurs, par le nombre de shards. Avec 32 shards par défaut, chaque shard possède 134 217 728 valeurs, et la ligne 35 trouve l’index en une division. Des tables avec les mêmes plages donnent le même index pour la même clé : Citus appelle ça la co-location.',
+			'La ligne 32 utilise `shardCount`, fixé quand la table est distribuée et bien plus grand que le nombre de nœuds. Ajouter un nœud déplace donc des shards entiers. Le [rééquilibreur](' + DOCS + '/admin_guide/cluster_management.rst?plain=1#L156) utilise la réplication logique, qui "allows application reads and writes to continue uninterrupted" (laisse les lectures et écritures continuer sans interruption), avec un bref verrou d’écriture à la bascule. Pour changer le nombre lui-même, il faut `alter_distributed_table`.',
+			'La [doc](' + DOCS + '/sharding/data_modeling.rst?plain=1#L55-L59) de Citus demande une clé avec "high cardinality" (beaucoup de valeurs distinctes) et "even distribution" (une répartition égale) : une colonne `status` à trois valeurs ne remplira jamais plus de trois shards. Elle déconseille aussi un timestamp, parce que le hash disperse une plage de temps sur tous les shards. Une requête sur "the most recent data" (les données récentes) tourne alors sur chaque shard. Partitionne plutôt par le temps dans chaque shard.',
+			'Citus liste les cas où [il n’est pas adapté](' + DOCS + '/get_started/what_is_citus.rst?plain=1#L131-L139), à commencer par "When you do not expect your workload to ever grow beyond a single Postgres node" (quand ta charge ne dépassera jamais un seul nœud Postgres). Chaque requête, contrainte et transaction entre shards coûte plus cher que sur un seul serveur.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Les écritures passent à l’échelle : chaque nœud est primaire pour ses shards, donc ajouter des nœuds ajoute de la capacité d’écriture, pas seulement de lecture.',
+			'Chaque nœud est primaire pour ses propres shards, donc ajouter des nœuds ajoute de la capacité d’écriture en plus de la capacité de lecture.',
 			'Une requête routée par la clé touche un nœud et un petit shard, quelle que soit la taille de la table entière.',
-			'Grandir, c’est déplacer des shards, en ligne, avec la réplication logique, pas réécrire chaque ligne.'
+			'Ajouter un nœud déplace des shards entiers, en ligne, avec la réplication logique, et aucune ligne n’est réécrite.'
 		],
 		cost: [
-			'Chaque table et chaque requête doivent porter la clé. Les contraintes uniques doivent l’inclure, et une recherche par un autre id, comme `order_id` seul, devient un fan-out.',
+			'Chaque table et chaque requête doivent porter la clé. Les contraintes uniques doivent l’inclure, et une recherche par un autre id, comme `order_id` seul, tourne sur chaque shard.',
 			'Les jointures, transactions et clés étrangères entre shards sont plus lentes ou limitées. La co-location ne couvre que les requêtes sur une seule valeur de clé.',
-			'Un très gros tenant vit quand même sur un seul shard. Une clé déséquilibrée donne un nœud brûlant et des nœuds qui dorment.',
-			'Changer de clé plus tard, c’est déplacer chaque ligne. C’est la décision la plus dure à défaire de tout le design.'
+			'Un très gros tenant vit quand même sur un seul shard. Avec une clé déséquilibrée, un nœud prend l’essentiel de la charge et les autres restent presque inactifs.',
+			'Changer de clé plus tard déplace chaque ligne vers un nouveau shard.'
 		]
 	},
 	task: {
@@ -147,7 +144,7 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 			options: [
 				'La dernière heure tombe sur un seul shard, qui devient le seul nœud occupé',
 				'Le hash éparpille la dernière heure sur tous les shards, d’où un fan-out',
-				'Citus refuse tout simplement de distribuer une table sur une colonne timestamp',
+				'Citus refuse dans tous les cas de distribuer une table sur une colonne timestamp',
 				'Les requêtes vont sur un seul shard, parce que la plage de temps est connue'
 			],
 			answer: 1,
@@ -176,10 +173,15 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 			why: 'Le routage a besoin de la valeur de la colonne de distribution. Sans elle, le coordinateur envoie la requête à tous les shards et fusionne les réponses : un fan-out. Fais porter la clé à chaque requête.'
 		}
 	],
-	takeaway: 'Ne sharde que quand un seul primaire ne tient plus les écritures, sur une clé que presque chaque requête nomme : les requêtes routées restent aussi peu chères que sur un serveur, et tout le reste part en fan-out.',
+	recall: {
+		q: '`orders` est distribuée sur `customer_id`. Quelles requêtes vont sur un seul shard, et lesquelles vont sur tous ?',
+		a: 'Une requête avec `WHERE customer_id = 42` va sur le seul shard dont la plage de hash contient 42. Une requête sans `customer_id`, comme `WHERE order_id = 123`, part sur tous les shards, 32 par défaut.'
+	},
 	sources: [
 		{ title: 'Doc Citus, Choosing Distribution Column', url: 'https://docs.citusdata.com/en/stable/sharding/data_modeling.html' },
 		{ title: 'Doc Citus, Cluster Management', url: 'https://docs.citusdata.com/en/stable/admin_guide/cluster_management.html' },
+		{ title: 'Source Citus, shared_library_init.c : nombre de shards par défaut', url: `${CITUS}/src/backend/distributed/shared_library_init.c?plain=1#L2688-L2697` },
+		{ title: 'Source de la doc Citus, api_udf.rst : alter_distributed_table', url: `${DOCS}/develop/api_udf.rst?plain=1#L242-L262` },
 		{ title: 'Doc Vitess, Sharding', url: 'https://vitess.io/docs/reference/features/sharding/' }
 	]
 };

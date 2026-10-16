@@ -11,14 +11,12 @@ export default {
 	hook: [
 		'Ta table `events` a deux milliards de lignes. Chaque nuit, un job lance `DELETE FROM events WHERE created_at < now() - interval \'90 days\'`. Ça prend des heures, les réplicas prennent du retard, et le lendemain matin **l’autovacuum nettoie encore les lignes mortes** (jour 16).',
 		'De toute façon, la plupart des requêtes ne lisent que la dernière semaine. Pourtant les index couvrent deux ans, et ils ne tiennent plus en mémoire.',
-		'**Partitionner**, c’est découper une grosse table en tables plus petites, une par mois par exemple, derrière un seul nom. L’application écrit toujours dans `events`. Une requête sur la semaine dernière lit **une seule partition**. Et oublier un mois n’est plus un `DELETE` : c’est **un `DROP TABLE` sur une partition**, fait en un instant.'
+		'Le partitionnement découpe une grosse table en tables plus petites, une par mois par exemple, derrière un seul nom. L’application écrit toujours dans `events`, et une requête sur la semaine dernière lit une seule partition. Pour retirer un mois de vieilles lignes, il suffit d’**un `DROP TABLE` sur une partition**, qui finit en un instant au lieu de plusieurs heures.'
 	],
 	terms: [
-		{ term: 'Table partitionnée', def: 'Une table « virtuelle » sans stockage propre. Les lignes vivent dans ses partitions, des tables ordinaires rattachées à elle.' },
 		{ term: 'Clé de partitionnement', def: 'La colonne (ou les colonnes) qui décide dans quelle partition va une ligne. Souvent un timestamp pour range, une région ou un tenant pour list.' },
-		{ term: 'Range, list, hash', def: 'Range : chaque partition contient un intervalle, borne basse incluse, borne haute exclue. List : des valeurs explicites. Hash : un modulo et un reste, pour répartir les lignes également.' },
-		{ term: 'Élagage de partitions', def: 'Le planificateur prouve, à partir du `WHERE`, que certaines partitions ne peuvent pas contenir de lignes qui correspondent, et les retire du plan. En anglais, partition pruning.' },
-		{ term: 'Partition par défaut', def: 'Un fourre-tout pour les lignes qui ne vont dans aucune autre partition. Sans elle, un tel insert est une erreur.' },
+		{ term: 'Élagage de partitions', def: 'Le planificateur prouve, à partir du `WHERE`, que certaines partitions ne peuvent pas contenir de lignes qui correspondent, et les retire du plan. En anglais, on dit partition pruning.' },
+		{ term: 'Partition par défaut', def: 'Un fourre-tout pour les lignes qui ne vont dans aucune autre partition. Sans elle, PostgreSQL refuse un tel insert avec une erreur.' },
 		{ term: 'Rétention', def: 'La règle qui supprime ou détache les partitions dès que toutes leurs données dépassent un âge limite. pg_partman la fait tourner pour toi.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['app["INSERT INTO events"] --> parent["events, partitionnée par created_at"]'],
 				highlight: ['app', 'parent'],
-				note: '**Un seul nom.** L’application insère dans `events` comme avant. Le parent n’a pas de stockage : PostgreSQL envoie chaque ligne dans une partition selon son `created_at`.'
+				note: 'L’application insère dans `events` comme avant. Le parent n’a pas de stockage : PostgreSQL envoie chaque ligne dans une partition selon son `created_at`.'
 			},
 			{
 				add: ['parent --> sep[("events_p2026_09")]', 'parent --> oct[("events_p2026_10")]', 'parent --> def[("events_default")]'],
 				highlight: ['sep', 'oct', 'def'],
-				note: '**Une table par mois.** Une partition range inclut sa borne basse et exclut sa borne haute, donc minuit le 1er octobre va en octobre. Une ligne qui ne va dans aucune partition tombe dans la partition par défaut. Sans partition par défaut, l’insert échoue.'
+				note: 'Une partition range inclut sa borne basse et exclut sa borne haute, donc minuit le 1er octobre va en octobre. Une ligne qui ne va dans aucune partition tombe dans la partition par défaut. Sans partition par défaut, l’insert échoue.'
 			},
 			{
 				add: ['q["SELECT ... WHERE created_at >= \'2026-10-01\'"] -.->|"élagué à une partition"| oct'],
 				highlight: ['q'],
-				note: '**L’élagage.** Le planificateur lit les bornes de chaque partition et retire du plan celles qui ne peuvent pas correspondre. `EXPLAIN` (jour 12) ne montre que `events_p2026_10`. Une requête qui ne filtre pas sur `created_at` lit quand même toutes les partitions.'
+				note: 'Le planificateur lit les bornes de chaque partition et retire du plan celles qui ne peuvent pas correspondre. `EXPLAIN` (jour 12) ne montre que `events_p2026_10`. Une requête qui ne filtre pas sur `created_at` lit quand même toutes les partitions.'
 			},
 			{
 				add: ['maint["pg_partman run_maintenance()"] -->|"premake : créer en avance"| nov[("events_p2026_11")]', 'parent --> nov'],
 				highlight: ['maint', 'nov'],
-				note: '**Créer les partitions avant d’en avoir besoin.** pg_partman garde un certain nombre de partitions futures prêtes, `premake`, 4 par défaut. Lance sa maintenance depuis cron ou son background worker, et novembre existe avant la première ligne de novembre.'
+				note: 'pg_partman garde un certain nombre de partitions futures prêtes, `premake`, 4 par défaut. Lance sa maintenance depuis cron ou son background worker, et novembre existe avant la première ligne de novembre.'
 			},
 			{
 				add: ['maint -->|"rétention : détacher, ou supprimer"| sep'],
 				highlight: ['sep'],
-				note: '**Oublier les vieilles données à bas prix.** Quand toute une partition dépasse l’intervalle de rétention, la maintenance la détache, ou la supprime. Pas de suppression ligne par ligne, pas de lignes mortes, pas de vacuum derrière.'
+				note: 'Quand toute une partition dépasse l’intervalle de rétention, la maintenance la détache, ou la supprime. Aucune ligne n’est supprimée une par une, donc le vacuum n’a pas de lignes mortes à nettoyer ensuite.'
 			}
 		]
 	},
@@ -93,16 +91,16 @@ LOOP
                 v_sql := 'DROP TABLE %I.%I';
                 EXECUTE format(v_sql, v_row.partition_schemaname, v_row.partition_tablename);`,
 		notes: [
-			'**Le test de rétention.** La boucle parcourt les partitions de la plus ancienne à la plus récente. Une partition ne part que si son début plus un intervalle, sa borne haute, est plus ancien que maintenant moins `retention`. La [doc](' + DOC + '#L120) le dit : "any partitions containing only data older than that will be dropped" (les partitions qui ne contiennent que des données plus vieilles seront supprimées). Une partition à moitié vieille reste.',
-			'**Jamais la dernière.** S’il ne reste qu’une partition, la fonction lève un warning et passe. La [doc](' + DOC + '#L126) pose la règle : "retention will never drop the last child table in a set" (la rétention ne supprime jamais la dernière table enfant).',
-			'**Détacher, par défaut.** Avec `retention_keep_table` à true, la [valeur par défaut](' + DOC + '#L118), la partition est seulement détachée : elle devient une table simple, hors du parent, toujours sur le disque. La [doc PostgreSQL](' + PG + '#L4658-L4680) propose ce moment pour sauvegarder les données avec `COPY` ou `pg_dump`, puis la supprimer.',
-			'**Attention au verrou.** Un `DROP TABLE` sur une partition "can very quickly delete millions of records" (supprime très vite des millions de lignes), mais [il prend](' + PG + '#L4646-L4656) un verrou `ACCESS EXCLUSIVE` sur le parent. `DETACH PARTITION ... CONCURRENTLY` n’a besoin que de `SHARE UPDATE EXCLUSIVE`. Même file de verrous qu’au jour 26 : une longue requête sur `events` fait attendre la suppression, et tout ce qui est derrière.',
-			'**Pourquoi ne pas créer les partitions à la volée.** pg_partman crée toujours une [partition par défaut](' + DOC + '#L14) et la surveille avec `check_default()`. Ses auteurs préfèrent ça à créer des tables à la demande puis nettoyer "potentially hundreds or thousands of unwanted partitions" (des centaines ou des milliers de partitions inutiles). Ensuite [`run_maintenance()`](' + DOC + '#L461-L466) crée les partitions en avance, et on peut la lancer plus souvent que nécessaire sans risque.'
+			'Lignes 1 à 5 : la boucle parcourt les partitions de la plus ancienne à la plus récente. Une partition ne part que si son début plus un intervalle, sa borne haute, est plus ancien que maintenant moins `retention`. La [doc](' + DOC + '#L120) : "any partitions containing only data older than that will be dropped" (les partitions qui ne contiennent que des données plus vieilles seront supprimées). Une partition qui a encore des lignes plus récentes que la limite reste.',
+			'Lignes 7 à 11 : s’il ne reste qu’une partition, la fonction lève un warning et passe à la suite. La [doc](' + DOC + '#L126) : "retention will never drop the last child table in a set" (la rétention ne supprime jamais la dernière table enfant).',
+			'Les lignes 13 à 20 tournent quand `retention_keep_table` vaut true, la [valeur par défaut](' + DOC + '#L118). La partition est seulement détachée : elle reste sur le disque comme table simple, hors du parent. La doc PostgreSQL propose de la sauvegarder à ce moment avec `COPY` ou `pg_dump`, puis de la supprimer.',
+			'Les lignes 35 et 36 suppriment la table. Un `DROP TABLE` sur une partition "can very quickly delete millions of records" (supprime très vite des millions de lignes), mais [il prend](' + PG + '#L4646-L4656) un verrou `ACCESS EXCLUSIVE` sur le parent, alors que `DETACH PARTITION ... CONCURRENTLY` n’a besoin que de `SHARE UPDATE EXCLUSIVE`. Comme au jour 26, une longue requête sur `events` fait attendre la suppression, et toutes les requêtes en file derrière elle attendent aussi.',
+			'pg_partman crée toujours une [partition par défaut](' + DOC + '#L14) et la surveille avec `check_default()`. Ses auteurs préfèrent ça à créer des tables à la demande puis nettoyer "potentially hundreds or thousands of unwanted partitions" (des centaines ou des milliers de partitions inutiles). `run_maintenance()` crée les partitions en avance, et tu peux la lancer plus souvent que nécessaire sans risque.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Supprimer un mois, c’est un `DROP TABLE` ou un `DETACH`, pas des millions de suppressions de lignes. Pas de bloat, pas de dette de vacuum.',
+			'Pour supprimer un mois, un `DROP TABLE` ou un `DETACH` remplace des millions de suppressions de lignes, et ne laisse aucune ligne morte au vacuum.',
 			'Les requêtes qui filtrent sur la clé ne lisent que les partitions utiles. Chaque partition a des index plus petits, qui tiennent plus facilement en mémoire.',
 			'La maintenance se fait par partition : vacuum, reindex ou déplacement d’un mois à la fois, sans toucher aux vieilles partitions.'
 		],
@@ -110,7 +108,7 @@ LOOP
 			'Une clé primaire ou une contrainte unique doit inclure la clé de partitionnement. `PRIMARY KEY (id)` seul est refusé ; tu obtiens `(id, created_at)`, et la base ne garantit plus que `id` est unique sur toute la table.',
 			'Les requêtes qui ne filtrent pas sur la clé planifient et lisent maintenant toutes les partitions. La doc dit que le planificateur gère "up to a few thousand partitions fairly well" (quelques milliers de partitions sans souci) seulement si les requêtes en élaguent presque toutes ; au-delà, le temps de planification et la mémoire grimpent.',
 			'Quelqu’un doit créer les prochaines partitions à temps. Sans job, ou sans partition par défaut, les inserts se mettent à échouer à minuit le premier du mois.',
-			'La doc dit que le partitionnement ne vaut le coup "only when a table would otherwise be very large" (que si la table serait sinon très grosse). En dessous, ce sont des pièces en plus pour rien.'
+			'La doc dit que le partitionnement ne vaut le coup "only when a table would otherwise be very large" (que si la table serait sinon très grosse). Une table plus petite garde quand même la règle sur la clé primaire, le coût de planification et le job qui crée les partitions.'
 		]
 	},
 	task: {
@@ -144,7 +142,7 @@ LOOP
 				'La ligne reste dans la table parente jusqu’à ce que la maintenance la déplace'
 			],
 			answer: 2,
-			why: 'Insérer une ligne qui ne correspond à aucune partition est une erreur ; il faut d’abord créer la partition. C’est pour ça que pg_partman crée les partitions en avance avec `premake` et ajoute une partition par défaut comme filet de sécurité.'
+			why: 'Insérer une ligne qui ne correspond à aucune partition est une erreur ; il faut d’abord créer la partition. Pour l’éviter, pg_partman crée les partitions en avance avec `premake` et ajoute une partition par défaut comme filet de sécurité.'
 		},
 		{
 			q: 'Tu dois supprimer tout ce qui a plus de 90 jours dans une table partitionnée par mois. Quelle est la façon correcte la moins chère ?',
@@ -158,9 +156,13 @@ LOOP
 			why: 'Supprimer ou détacher une partition retire ses lignes sans les toucher une par une, et ne laisse aucune ligne morte pour le vacuum (jour 16). La partition qui n’a qu’une partie de ses données au-delà de 90 jours reste jusqu’à ce qu’elle soit entièrement passée.'
 		}
 	],
-	takeaway: 'Partitionne une très grosse table sur la colonne qui sert à filtrer et à expirer : les requêtes s’élaguent à quelques partitions, et les vieilles données partent avec un `DROP TABLE` au lieu d’un `DELETE`.',
+	recall: {
+		q: '`events` est partitionnée par mois sur `created_at`. Comment retires-tu les lignes de plus de 90 jours, et quelles partitions partent ?',
+		a: 'Tu détaches puis supprimes chaque partition dont tout l’intervalle a plus de 90 jours : `DETACH PARTITION ... CONCURRENTLY`, puis `DROP TABLE`. Une partition qui a encore des lignes récentes reste, et le vacuum n’a aucune ligne morte à nettoyer.'
+	},
 	sources: [
 		{ title: 'Doc PostgreSQL, Table Partitioning', url: 'https://www.postgresql.org/docs/current/ddl-partitioning.html' },
+		{ title: 'Source de la doc PostgreSQL, ddl.sgml : sauvegarder une partition détachée', url: `${PG}#L4658-L4680` },
 		{ title: 'Doc pg_partman', url: `${PARTMAN}/doc/pg_partman.md` },
 		{ title: 'pg_partman howto', url: `${PARTMAN}/doc/pg_partman_howto.md` }
 	]

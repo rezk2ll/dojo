@@ -11,15 +11,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'Un déploiement redémarre le conteneur Redis. Le cache des produits se remplit en une minute, personne ne remarque rien. Mais les paniers vivaient aussi dans Redis, et **les paniers des dernières minutes ont disparu**.',
-		'Redis garde tout le jeu de données **en mémoire**. C’est ce qui le rend rapide. Qu’une écriture survive aussi à un redémarrage dépend de deux réglages que la plupart des gens n’ouvrent jamais : les **snapshots** et l’**append-only file**.',
-		'Alors la première question à poser à une base clé-valeur n’est pas « à quelle vitesse ». C’est **« est-ce un cache, ou la seule copie ? »**. Un cache peut tout perdre et se remplir à nouveau. La seule copie demande le même soin que PostgreSQL : un journal, du fsync, des sauvegardes.'
+		'Redis garde tout le jeu de données **en mémoire** et sert les lectures et les écritures depuis là. Qu’une écriture survive aussi à un redémarrage dépend de deux réglages : les snapshots RDB et l’append-only file.',
+		'Avant de mettre des données dans une base clé-valeur, décide si elle tient un cache ou la seule copie. Un cache peut tout perdre et se remplir à nouveau depuis la base. La seule copie demande le même soin que PostgreSQL : un journal, du fsync, des sauvegardes.'
 	],
 	terms: [
-		{ term: 'Base clé-valeur', def: 'Une base où tu lis et écris des valeurs par clé, sans jointure ni planificateur. Redis ajoute des valeurs typées : strings, hashes, lists, sets, sorted sets, streams.' },
 		{ term: 'TTL', def: 'Un délai d’expiration sur une clé, posé avec `EXPIRE` ou `SET ... EX`. Redis appelle une telle clé « volatile ». Quand le temps est écoulé, la clé est supprimée.' },
 		{ term: 'Snapshot RDB', def: 'Une copie à un instant donné de tout le jeu de données dans un seul fichier compact, écrite par un processus enfant forké aux points de sauvegarde configurés.' },
-		{ term: 'AOF', def: 'L’append-only file : chaque commande d’écriture est journalisée puis rejouée au démarrage pour reconstruire les données. Désactivé par défaut.' },
-		{ term: 'appendfsync', def: 'La fréquence à laquelle l’AOF est forcé sur le disque : `always`, `everysec` (par défaut) ou `no`, qui laisse faire le système d’exploitation.' },
+		{ term: 'AOF', def: 'L’append-only file : chaque commande d’écriture est journalisée puis rejouée au démarrage pour reconstruire les données. Redis le livre désactivé.' },
 		{ term: 'Politique d’éviction', def: 'Ce que fait Redis quand il atteint `maxmemory` : jeter des clés par LRU, LFU, TTL ou au hasard, ou refuser les écritures avec `noeviction`, le défaut.' }
 	],
 	diagram: {
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['app["App : SET cart:42 ... EX 3600"] --> mem["Mémoire Redis : tout le jeu de données"]'],
 				highlight: ['app', 'mem'],
-				note: '**La mémoire d’abord.** L’écriture change les données en mémoire et la réponse repart. Sans persistance, c’est toute l’histoire : un redémarrage repart de zéro.'
+				note: 'L’écriture change les données en mémoire et la réponse repart. Sans persistance, Redis redémarre avec un jeu de données vide.'
 			},
 			{
 				add: ['mem -->|"chaque écriture ajoutée"| buf["Buffer AOF"]', 'buf -->|"write(), fsync une fois par seconde"| aof[("fichier append-only")]'],
 				highlight: ['buf', 'aof'],
-				note: '**Le journal.** Avec `appendonly yes`, chaque commande d’écriture va dans un buffer, est écrite dans le fichier, puis fsyncée une fois par seconde par un thread en arrière-plan avec le `everysec` par défaut. C’est la même idée que le WAL (jour 15), avec un défaut moins strict.'
+				note: 'Avec `appendonly yes`, chaque commande d’écriture va dans un buffer, est écrite dans le fichier, puis fsyncée une fois par seconde par un thread en arrière-plan avec le `everysec` par défaut. C’est la même idée que le WAL (jour 15), avec un défaut moins strict.'
 			},
 			{
 				add: ['mem -.->|"fork, snapshot aux points de sauvegarde"| rdb[("dump.rdb")]'],
 				highlight: ['rdb'],
-				note: '**Le snapshot.** À chaque point de sauvegarde, par exemple « après 300 secondes s’il y a eu au moins 100 changements », Redis forke et l’enfant écrit les données dans `dump.rdb`. Compact et parfait pour les sauvegardes, mais un crash perd tout depuis le dernier.'
+				note: 'À chaque point de sauvegarde, par exemple « après 300 secondes s’il y a eu au moins 100 changements », Redis forke et l’enfant écrit les données dans `dump.rdb`. Le fichier est compact et convient bien aux sauvegardes, mais un crash perd toutes les écritures depuis le dernier snapshot.'
 			},
 			{
 				add: ['exp["Expiration : à l’accès, plus un contrôle aléatoire régulier"] -.->|"supprime les clés expirées"| mem'],
 				highlight: ['exp'],
-				note: '**Les TTL.** Une clé dont le délai est dépassé est supprimée quand quelqu’un la lit. Les clés que personne ne lit sont trouvées par un cycle régulier qui teste des clés au hasard parmi celles qui ont un TTL.'
+				note: 'Une clé dont le délai est dépassé est supprimée quand quelqu’un la lit. Les clés que personne ne lit sont trouvées par un cycle régulier qui teste des clés au hasard parmi celles qui ont un TTL.'
 			},
 			{
 				add: ['evict["maxmemory atteint"] -.->|"éviction selon la politique, ou refus des écritures"| mem'],
 				highlight: ['evict'],
-				note: '**Mémoire pleine.** Avec une politique `allkeys-*`, Redis jette n’importe quelle clé pour faire de la place : parfait pour un cache, fatal pour des paniers. Avec `noeviction`, le défaut, les écritures qui demandent de la mémoire échouent et les lectures continuent.'
+				note: 'Avec une politique `allkeys-*`, Redis jette n’importe quelle clé pour faire de la place. Un cache recharge la clé jetée, mais un panier jeté est perdu. Avec `noeviction`, le défaut, les écritures qui demandent de la mémoire échouent et les lectures continuent.'
 			}
 		]
 	},
@@ -115,24 +113,24 @@ try_fsync:
         server.aof_last_fsync = server.mstime;
     }`,
 		notes: [
-			'**Une seconde, ou deux.** La [doc](' + PERSIST + '#L160) dit qu’avec `everysec` "you may lose 1 second of data if there is a disaster" (tu peux perdre 1 seconde de données en cas de sinistre). Le code ajoute un détail : si le fsync précédent tourne encore en arrière-plan, l’écriture est repoussée, et ce n’est qu’au bout de deux secondes que Redis écrit quand même et compte un `aof_delayed_fsync`. Sur un disque lent, la fenêtre s’allonge.',
-			'**`always` veut dire s’arrêter en cas d’échec.** Avec `always`, le fsync tourne dans le thread principal avant que les réponses partent. S’il échoue, Redis [logue et s’arrête](' + REDIS + '/src/aof.c?plain=1#L1595-L1602) : une écriture qu’il a confirmée doit être sur le disque, donc il préfère planter que mentir. La doc le dit "Very very slow, very safe" (très très lent, très sûr), aidé par le group commit.',
-			'**Un trou pendant les réécritures.** Avec `no-appendfsync-on-rewrite yes`, le bloc `try_fsync` sort pendant qu’un enfant sauvegarde. Le [fichier de config](' + CONF + '#L1584-L1587) prévient que la durabilité tombe alors à celle de `appendfsync no` : il est "possible to lose up to 30 seconds of log in the worst scenario" (possible de perdre jusqu’à 30 secondes de journal au pire).',
-			'**Les défauts sont ceux d’un cache.** D’origine, [`appendonly no`](' + CONF + '#L1511) et des [points de sauvegarde](' + CONF + '#L519-L522) RDB à 1 heure, 5 minutes et 60 secondes. La doc dit qu’avec RDB on "should be prepared to lose the latest minutes of data" (doit s’attendre à perdre les dernières minutes), et recommande RDB et AOF ensemble pour ["a degree of data safety comparable to what PostgreSQL can provide you"](' + PERSIST + '#L61-L62) (une sûreté comparable à PostgreSQL).',
-			'**Les TTL ont leurs pièges.** Un délai est [effacé](' + DOCS + '/commands/expire.md?plain=1#L81-L88) par les commandes qui écrasent la clé, comme `SET`, mais `INCR`, `LPUSH` et `HSET` n’y touchent pas. Et la [politique par défaut](' + CONF + '#L1284-L1286) est `noeviction` : un Redis plein refuse les écritures comme `SET` avec une erreur.'
+			'Les lignes 8 à 22 gèrent un disque lent. La [doc](' + PERSIST + '#L160) dit qu’avec `everysec` "you may lose 1 second of data if there is a disaster" (tu peux perdre 1 seconde de données en cas de sinistre). Si le fsync précédent tourne encore en arrière-plan, la ligne 13 repousse l’écriture. Redis n’écrit quand même qu’au bout de deux secondes (ligne 14) et compte alors un `aof_delayed_fsync` ligne 21, donc sur un disque lent tu peux perdre plus d’une seconde.',
+			'Lignes 33 à 43 : avec `always`, le fsync tourne dans le thread principal avant que les réponses partent. S’il échoue, Redis logue et s’arrête ligne 43, parce qu’une écriture qu’il a confirmée doit être sur le disque. La doc le décrit comme "Very very slow, very safe" (très très lent, très sûr), aidé par le group commit.',
+			'Lignes 29 et 30 : avec `no-appendfsync-on-rewrite yes`, la fonction sort sans fsync pendant qu’un enfant sauvegarde. Le [fichier de config](' + CONF + '#L1584-L1587) prévient que la durabilité tombe alors à celle de `appendfsync no` : il est "possible to lose up to 30 seconds of log in the worst scenario" (possible de perdre jusqu’à 30 secondes de journal au pire).',
+			'D’origine, `redis.conf` règle `appendonly no` et des points de sauvegarde RDB à 1 heure, 5 minutes et 60 secondes. La [doc](' + PERSIST + '#L61-L62) dit qu’avec RDB tu "should be prepared to lose the latest minutes of data" (dois t’attendre à perdre les dernières minutes). Elle recommande RDB et AOF ensemble pour "a degree of data safety comparable to what PostgreSQL can provide you" (une sûreté comparable à PostgreSQL).',
+			'Les commandes qui écrasent la clé, comme `SET`, [effacent son délai](' + DOCS + '/commands/expire.md?plain=1#L81-L88), mais `INCR`, `LPUSH` et `HSET` n’y touchent pas. La politique par défaut de `redis.conf` est `noeviction`, donc un Redis plein refuse les écritures comme `SET` avec une erreur.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Les lectures et écritures sont servies depuis la mémoire, sans planificateur ni lecture disque sur le chemin chaud.',
-			'Des structures de données côté serveur : compteurs avec `INCR`, classements dans des sorted sets, files dans des lists ou des streams, chaque mise à jour atomique.',
-			'Les TTL et l’éviction donnent un cache qui se nettoie tout seul, sans job de nettoyage.'
+			'Redis garde des structures de données côté serveur : compteurs avec `INCR`, classements dans des sorted sets, files dans des lists ou des streams, chaque mise à jour atomique.',
+			'Avec les TTL et l’éviction, Redis supprime lui-même les vieilles entrées du cache, sans job de nettoyage.'
 		],
 		cost: [
-			'Les données doivent tenir en RAM. La mémoire, c’est la facture, et `maxmemory` est une décision à prendre.',
-			'La durabilité est à activer, et plus faible par défaut : `everysec` peut perdre environ une seconde d’écritures confirmées, RDB seul peut en perdre des minutes.',
-			'Pas de jointures, pas de contraintes, pas d’index secondaires à lui. Chaque chemin d’accès est une clé que tu as conçue à l’avance.',
-			'Un cache devant une base peut servir des données périmées. Chaque chemin d’écriture doit mettre à jour ou supprimer la clé en cache, sinon c’est le TTL qui décide quand la vérité revient.'
+			'Tout le jeu de données doit tenir en RAM, donc la taille de la RAM fixe la facture, et tu dois choisir une valeur de `maxmemory`.',
+			'Une fois l’AOF activé (il est livré désactivé), `everysec` peut perdre environ une seconde d’écritures confirmées, et RDB seul peut en perdre des minutes.',
+			'Redis n’a ni jointures, ni contraintes, ni index secondaires à lui. Chaque chemin d’accès est une clé que tu as conçue à l’avance.',
+			'Un cache devant une base peut servir des données périmées. Chaque chemin d’écriture doit mettre à jour ou supprimer la clé en cache, sinon les lecteurs voient l’ancienne valeur jusqu’à l’expiration du TTL.'
 		]
 	},
 	task: {
@@ -169,7 +167,7 @@ try_fsync:
 			why: 'Avec everysec, le fsync tourne une fois par seconde en arrière-plan, donc les écritures confirmées depuis le dernier fsync peuvent être perdues. La doc parle d’environ une seconde ; le code repousse les écritures jusqu’à deux secondes quand un fsync est lent.'
 		},
 		{
-			q: 'Redis atteint `maxmemory` avec la `maxmemory-policy` par défaut. Que devient un nouveau `SET` ?',
+			q: 'Redis atteint `maxmemory` avec la `maxmemory-policy` par défaut. Que se passe-t-il pour un nouveau `SET` ?',
 			options: [
 				'Redis évince la clé utilisée le moins récemment pour faire de la place',
 				'Redis écrit les plus vieilles clés sur le disque et les recharge à la demande',
@@ -180,10 +178,15 @@ try_fsync:
 			why: 'Le défaut est noeviction : les commandes qui demandent plus de mémoire échouent, les lectures marchent encore. Un cache doit choisir explicitement une politique `allkeys-*` ; une base qui ne doit pas perdre de clés garde noeviction et surveille la mémoire.'
 		}
 	],
-	takeaway: 'Décide d’abord si Redis tient un cache ou la seule copie : le cache reçoit des TTL et une politique d’éviction, la seule copie reçoit l’AOF, des sauvegardes RDB et noeviction, et risque encore environ une seconde d’écritures.',
+	recall: {
+		q: 'Redis tient la seule copie de tes paniers. Quels réglages poses-tu, et combien une coupure de courant peut-elle encore faire perdre ?',
+		a: '`appendonly yes` avec `appendfsync everysec`, des snapshots RDB pour les sauvegardes, et `noeviction`. Une coupure peut encore faire perdre environ une seconde d’écritures confirmées, plus si un fsync était lent.'
+	},
 	sources: [
 		{ title: 'Doc Redis, Redis persistence', url: 'https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/' },
 		{ title: 'Doc Redis, EXPIRE', url: 'https://redis.io/docs/latest/commands/expire/' },
-		{ title: 'Source Redis, redis.conf', url: CONF }
+		{ title: 'Source Redis, redis.conf', url: CONF },
+		{ title: 'Source Redis, redis.conf : points de sauvegarde RDB', url: `${CONF}#L519-L522` },
+		{ title: 'Source Redis, redis.conf : maxmemory-policy par défaut', url: `${CONF}#L1284-L1286` }
 	]
 };

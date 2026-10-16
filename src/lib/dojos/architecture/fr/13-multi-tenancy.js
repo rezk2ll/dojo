@@ -8,9 +8,9 @@ export default {
 	title: 'Multi-tenant : à qui sont ces données ?',
 	minutes: 10,
 	hook: [
-		'Tu héberges des forums pour cent clients. Une seule installation de Discourse peut tous les servir : Discourse appelle ça le **multisite**. Avant de faire quoi que ce soit avec une requête, il doit répondre à une question : **à qui sont ces données ?** Il suffit de se tromper une fois pour qu’un client lise les sujets privés d’un autre.',
+		'Tu héberges des forums pour cent clients. Une seule installation de Discourse peut tous les servir : Discourse appelle ça le **multisite**. Avant de faire quoi que ce soit avec une requête, il doit répondre à une question : à qui sont ces données ? S’il se trompe une seule fois, un client lit les sujets privés d’un autre.',
 		'Discourse répond grâce au **nom d’hôte** de la requête. `forum.shop-a.example` est un site, `forum.shop-b.example` en est un autre. À partir de là, le site voyage avec chaque appel : vers sa propre base PostgreSQL, dans chaque clé Redis, dans chaque job en arrière-plan.',
-		'Ce que les tenants partagent, ce n’est pas oui ou non. C’est un **spectre** : de tout partager jusqu’à un déploiement par tenant. Le multisite de Discourse se place au milieu, volontairement, et il le paie d’une façon bien précise.'
+		'Les tenants peuvent partager les mêmes tables, ou seulement le code avec un déploiement chacun, ou quelque chose entre les deux. Le multisite de Discourse se place au **milieu** : il partage les processus et donne à chaque site sa propre base.'
 	],
 	terms: [
 		{ term: 'Tenant', def: 'Tenant (locataire) : un client dont les données doivent rester séparées de celles des autres. Dans le multisite de Discourse, un tenant est un site, identifié par son nom d’hôte.' },
@@ -34,17 +34,17 @@ export default {
 			{
 				add: ['mw --> redis["Redis partagé : chaque clé préfixée par le nom du site"]'],
 				highlight: ['redis'],
-				note: 'Redis, c’est un seul serveur pour tous les sites. `DiscourseRedis` préfixe chaque clé avec le site courant. Pour partager une clé entre sites, le code doit appeler `without_namespace` exprès.'
+				note: 'Tous les sites partagent un seul serveur Redis. `DiscourseRedis` préfixe chaque clé avec le site courant. Pour partager une clé entre sites, le code doit appeler `without_namespace` exprès.'
 			},
 			{
 				add: ['mw -->|"Jobs.enqueue ajoute current_site_id"| sk["Files et workers Sidekiq partagés"]', 'sk -->|"with_connection(site)"| pg'],
 				highlight: ['sk'],
-				note: 'Les jobs de tous les sites vont dans les **mêmes files**. Chaque job porte `current_site_id`, et le worker se connecte à la base de ce site avant de le lancer. C’est là qu’un noisy neighbour fait mal.'
+				note: 'Les jobs de tous les sites vont dans les **mêmes files**. Chaque job porte `current_site_id`, et le worker se connecte à la base de ce site avant de le lancer. Une rafale de jobs d’un site retarde les jobs de tous les autres sites dans ces files.'
 			},
 			{
 				add: ['s1["Tout partagé : une base, colonne tenant_id"] -->|plus d’isolation| s2["Processus partagés, une base par tenant : multisite Discourse"] -->|plus d’isolation| s3["Un déploiement par tenant"]'],
 				highlight: ['s1', 's2', 's3'],
-				note: 'Le spectre. À gauche : le moins cher, un seul `WHERE` raté et les données fuient. À droite : l’isolation la plus forte, un déploiement à faire tourner et à mettre à jour par client. Le multisite est au **milieu** : données isolées, calcul partagé.'
+				note: 'À gauche : le moins cher, et un seul `WHERE` raté fait fuiter les données. À droite : l’isolation la plus forte, avec un déploiement à faire tourner et à mettre à jour par client. Le multisite se place au **milieu** : chaque site a ses données à part, et tous les sites partagent le calcul.'
 			}
 		]
 	},
@@ -68,9 +68,9 @@ export default {
     delay = opts.delete(:delay_for)
     queue = opts.delete(:queue)`,
 		notes: [
-			'Le **site est la clé du tenant**, et il est ajouté pour toi. Le code qui met un job en file n’a jamais à nommer le site. La file vient de `opts[:queue]` ou de la classe du job, jamais du site.',
+			'La ligne 10 ajoute le **site**, la clé du tenant, à chaque job. Le code qui met un job en file n’a jamais à nommer le site. La ligne 14 prend la file dans `opts[:queue]`, sinon la classe du job la choisit, jamais le site.',
 			'Côté worker, [`Jobs::Base#perform`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/jobs/base.rb#L289-L300) lance le job dans `with_connection(db)` pour ce seul site. Sans `current_site_id`, il boucle sur `all_dbs` : **tous les sites**.',
-			'« Aucun tenant », ça se dit tout haut. `all_sites: true` est un flag explicite, et [`without_namespace`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/lib/discourse_redis.rb#L23-L26) porte le commentaire « Only use this if you want to store and fetch data that’s shared between sites ».',
+			'La ligne 9 n’omet le site que si l’appelant passe `all_sites: true`. Dans Redis, [`without_namespace`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/lib/discourse_redis.rb#L23-L26) porte le commentaire « Only use this if you want to store and fetch data that’s shared between sites ».',
 			'Le côté requête vit dans une gem de Discourse : [le middleware](https://github.com/discourse/rails_multisite/blob/86c6ce96e2599d5fe20dd6024f1cdcc76f795da3/lib/rails_multisite/middleware.rb#L9-L30) renvoie 404 pour un hôte inconnu, puis se connecte à la base du site pour le reste de la requête.'
 		]
 	},
@@ -82,18 +82,18 @@ export default {
 		],
 		cost: [
 			'Chaque site a une base à créer et à migrer. La doc de Discourse cible un site avec `RAILS_DB=alternate rake db:migrate`.',
-			'Des files Sidekiq partagées, ce sont des noisy neighbours. Une rafale de jobs d’un site attend dans les mêmes files que les jobs des autres sites.',
-			'Chaque chemin de code doit porter le site. Un job poussé directement dans Sidekiq sans `current_site_id` tournerait sur tous les sites.'
+			'Tous les sites partagent les files Sidekiq. Une rafale de jobs d’un site attend dans les mêmes files que les jobs des autres sites.',
+			'Chaque chemin de code qui met du travail en file doit porter `current_site_id`. Un job poussé directement dans Sidekiq sans lui tournerait sur tous les sites.'
 		]
 	},
 	task: {
 		prompt: 'Un gros client demande : « Notre forum peut-il tourner sur des serveurs qu’aucun autre client n’utilise ? » Place trois réponses sur le spectre du diagramme, et donne un coût pour chacune.',
 		hint: 'Chaque site a déjà sa propre base. Qu’est-ce qu’on pourrait séparer d’autre : le serveur de base de données, Redis et les workers, le déploiement entier ?',
 		answer: [
-			'Leur propre **serveur PostgreSQL** : chaque entrée de `multisite.yml` est une config de base de données (`adapter`, `database`), donc elle peut nommer son propre `host` de base. Coût : un serveur de plus à faire tourner, alors que Redis et Sidekiq restent partagés.',
-			'Leurs propres **workers** : rien dans le code multisite que tu as lu ne donne à un site ses propres files. La file vient du job ou de l’appelant, pas du site. Pour ça, il faut une installation séparée.',
+			'Leur propre **serveur de base de données** : chaque entrée de `multisite.yml` est une config de base de données (`adapter`, `database`), donc elle peut nommer son propre `host` de base. Coût : un serveur de plus à faire tourner, alors que Redis et Sidekiq restent partagés.',
+			'Leurs propres **workers** : rien dans le code multisite que tu as lu ne donne à un site ses propres files. La file vient du job ou de l’appelant, pas du site. Pour avoir leurs propres workers, il leur faut une installation séparée.',
 			'Un **déploiement dédié** : leur propre appli, PostgreSQL, Redis et Sidekiq. Coût : une stack complète de plus à mettre à jour et à surveiller, pour un seul client.',
-			'Le réflexe d’architecte : demander ce qu’ils craignent vraiment (qu’un autre tenant **lise** leurs données, ou qu’un autre tenant **les ralentisse**) avant de choisir. Le premier cas est déjà traité. Le second demande du calcul séparé.'
+			'Le réflexe d’architecte : avant de choisir, demande-leur ce qu’ils craignent. Les bases séparées empêchent déjà un autre tenant de lire leurs données. Pour qu’un autre tenant ne puisse pas **les ralentir**, il faut du calcul séparé.'
 		]
 	},
 	quiz: [
@@ -101,13 +101,13 @@ export default {
 			q: 'Dans un système multi-tenant, qu’est-ce qu’un noisy neighbour ?',
 			options: ['Un tenant qui peut lire les données d’un autre tenant parce qu’une requête a oublié le filtre de tenant', 'Un tenant dont la charge ralentit les autres, parce qu’ils partagent du calcul, des workers ou une base de données', 'Un tenant qui ouvre tant de tickets de support que l’équipe n’a plus de temps pour les autres', 'Un serveur placé à côté d’un autre dans la même baie, si bien qu’une panne matérielle touche les deux'],
 			answer: 1,
-			why: 'Une fuite de données est un problème d’isolation. Un noisy neighbour est un problème de performance, causé par tout ce que les tenants partagent encore.'
+			why: 'Un tenant qui lit les données d’un autre, c’est un défaut d’isolation des données. Un noisy neighbour est un problème de performance : il vient du CPU, des workers ou de la base que les tenants partagent encore.'
 		},
 		{
 			q: 'Le multisite de Discourse donne à chaque site sa propre base mais partage Sidekiq. Quel risque reste ouvert ?',
 			options: ['Une requête SQL qui renvoie les sujets d’un autre site', 'Restaurer un site sans les autres', 'Une rafale de jobs d’un site qui retarde les autres', 'Déplacer un site vers un autre serveur de base de données'],
 			answer: 2,
-			why: 'Des bases séparées empêchent les fuites de données et rendent facile la restauration d’un seul site. Les files partagées, c’est là que vit le noisy neighbour.'
+			why: 'Des bases séparées empêchent les fuites de données et rendent facile la restauration d’un seul site. Les files Sidekiq restent partagées : les jobs d’un site peuvent retarder ceux des autres.'
 		},
 		{
 			q: 'Pourquoi `Jobs.enqueue` ajoute-t-il `current_site_id` à chaque job par défaut ?',
@@ -116,7 +116,10 @@ export default {
 			why: 'Les workers servent tous les sites. Sans l’identifiant du site, `perform` boucle sur `all_dbs`. Avec, le job tourne dans la connexion de ce seul site.'
 		}
 	],
-	takeaway: 'Décide où les tenants sont séparés (données, cache, calcul) et fais en sorte qu’il soit impossible d’oublier le tenant dans le code.',
+	recall: {
+		q: 'Dans le multisite de Discourse, que partagent les sites, et qu’est-ce que chaque site a pour lui seul ?',
+		a: 'Les sites partagent les processus, un serveur Redis avec des clés préfixées par site, et les files Sidekiq. Chaque site a sa propre base PostgreSQL, choisie d’après le nom d’hôte de la requête.'
+	},
 	sources: [
 		{ title: 'Discourse docs, Set up a multisite development environment', url: `${REPO}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md` },
 		{ title: 'Discourse, app/jobs/base.rb, Jobs.enqueue', url: `${REPO}/app/jobs/base.rb#L379-L392` },

@@ -86,5 +86,5 @@
 		{@render children()}
 	</main>
 
-	{#if mounted && companion.on && !reading}<Companion />{/if}
+	{#if mounted && companion.on && !reading}<Companion color={(dojo ?? dojos[1]).hex.right} />{/if}
 </div>

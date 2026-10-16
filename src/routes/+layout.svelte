@@ -10,8 +10,11 @@
 	import { initLang, lang, toggleLang, t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Cube from '#lib/components/cube.svelte';
+	import Companion from '#lib/components/companion.svelte';
+	import { companion, initCompanion, toggleCompanion } from '#lib/companion.svelte.js';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Sun from '@lucide/svelte/icons/sun';
+	import Box from '@lucide/svelte/icons/box';
 
 	/** @type {{children: import('svelte').Snippet}} */
 	let { children } = $props();
@@ -19,12 +22,16 @@
 	let dojo = $derived(page.params.dojo ? dojoById(page.params.dojo) : undefined);
 	// Each dojo installs as its own app, so its icons and manifest live under its own path.
 	let dir = $derived(dojo ? `/${dojo.id}` : '');
+	let reading = $derived(focus.on && page.route.id === '/[dojo]/c/[slug]');
+	let mounted = $state(false);
 
 	onMount(() => {
 		for (const d of dojos) restore(d.id);
 		initTheme();
 		initFocus();
 		initLang();
+		initCompanion();
+		mounted = true;
 	});
 </script>
 
@@ -37,7 +44,7 @@
 </svelte:head>
 
 <div class="contents" data-dojo={dojo?.id} style={dojo ? `--hue: ${dojo.hue}; --chroma: ${dojo.chroma}` : undefined}>
-	<header class="mx-auto flex max-w-screen-2xl items-center justify-between px-4 py-4 sm:px-8" hidden={focus.on && page.route.id === '/[dojo]/c/[slug]'}>
+	<header class="mx-auto flex max-w-screen-2xl items-center justify-between px-4 py-4 sm:px-8" hidden={reading}>
 		<div class="flex items-center gap-3">
 			<a href={resolve('/')} aria-label={dojo ? t().allDojos : 'Dojo'} title={dojo ? t().allDojos : undefined} class="flex items-center gap-2 font-mono font-bold">
 				<Cube state="done" class="size-6" />{#if !dojo}<span>dojo</span>{/if}
@@ -58,6 +65,17 @@
 			<Button variant="ghost" size="icon-sm" class="font-mono text-xs" aria-label={t().toOtherLang} title={t().toOtherLang} onclick={toggleLang}>
 				{t().otherLang}
 			</Button>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class={companion.on ? '' : 'opacity-50'}
+				aria-label={companion.on ? t().hideCube : t().showCube}
+				title={companion.on ? t().hideCube : t().showCube}
+				aria-pressed={companion.on}
+				onclick={toggleCompanion}
+			>
+				<Box />
+			</Button>
 			<Button variant="ghost" size="icon-sm" aria-label={theme.dark ? t().toLight : t().toDark} onclick={toggleTheme}>
 				{#if theme.dark}<Sun />{:else}<Moon />{/if}
 			</Button>
@@ -67,4 +85,6 @@
 	<main class="mx-auto max-w-screen-2xl px-4 pb-10 sm:px-8">
 		{@render children()}
 	</main>
+
+	{#if mounted && companion.on && !reading}<Companion />{/if}
 </div>

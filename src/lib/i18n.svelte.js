@@ -32,6 +32,8 @@ const strings = {
 		glossary: 'Glossary',
 		toLight: 'Switch to light mode',
 		toDark: 'Switch to dark mode',
+		hideCube: 'Hide the cube',
+		showCube: 'Show the cube',
 		otherLang: 'FR',
 		toOtherLang: 'Passer en français',
 
@@ -149,6 +151,8 @@ const strings = {
 		glossary: 'Glossaire',
 		toLight: 'Passer en mode clair',
 		toDark: 'Passer en mode sombre',
+		hideCube: 'Cacher le cube',
+		showCube: 'Afficher le cube',
 		otherLang: 'EN',
 		toOtherLang: 'Switch to English',
 

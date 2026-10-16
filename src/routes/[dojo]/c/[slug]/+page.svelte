@@ -49,6 +49,7 @@
 	let step = $state(0);
 	let showHint = $state(false);
 	let showAnswer = $state(false);
+	let showRecall = $state(false);
 	/** @type {number | undefined} */
 	let guess = $state();
 	/** Option picked per question id, e.g. picked['adrs#0'] = 2 */
@@ -148,7 +149,7 @@
 			at = resume();
 			step = 0;
 			scene = undefined;
-			showHint = showAnswer = false;
+			showHint = showAnswer = showRecall = false;
 			picked = {};
 			guess = undefined;
 		});
@@ -515,10 +516,22 @@
 				{@render question(current.quiz, c.quiz[Number(current.id.slice(1))])}
 			{:else if current.id === 'wrap'}
 				<div class="max-w-3xl space-y-6">
-					<div class="border-brand/40 bg-brand/5 rounded-2xl border-2 p-6">
-						<p class="text-muted-foreground mb-2 font-mono text-xs uppercase">{t().keepLine}</p>
-						<p class="text-xl leading-snug font-semibold">{@html fmt(c.takeaway)}</p>
-					</div>
+					{#if c.recall}
+						<div class="border-brand/40 bg-brand/5 space-y-4 rounded-2xl border-2 p-6">
+							<p class="text-muted-foreground font-mono text-xs uppercase">{t().recallIntro}</p>
+							<p class="text-xl leading-snug font-semibold">{@html fmt(c.recall.q)}</p>
+							{#if showRecall}
+								<p class="text-lg leading-relaxed">{@html fmt(c.recall.a)}</p>
+							{:else}
+								<Button variant="secondary" onclick={() => (showRecall = true)}>{t().showAnswer}</Button>
+							{/if}
+						</div>
+					{:else if c.takeaway}
+						<div class="border-brand/40 bg-brand/5 rounded-2xl border-2 p-6">
+							<p class="text-muted-foreground mb-2 font-mono text-xs uppercase">{t().keepLine}</p>
+							<p class="text-xl leading-snug font-semibold">{@html fmt(c.takeaway)}</p>
+						</div>
+					{/if}
 
 					{#if progress.done[c.slug]}
 						<Card.Root class="border-good">

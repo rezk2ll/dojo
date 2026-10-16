@@ -17,7 +17,8 @@
  *   tradeoff?: { gain: string[], cost: string[] },
  *   task?: { prompt: string, hint?: string, answer: string[] },
  *   quiz: Question[],
- *   takeaway: string,
+ *   takeaway?: string,
+ *   recall?: { q: string, a: string },
  *   sources: { title: string, url: string }[]
  * }} Chapter
  */

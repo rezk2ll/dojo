@@ -13,12 +13,10 @@ export default {
 		'Les deux bugs viennent d’une question à laquelle tu réponds dès le premier jour, souvent sans t’en rendre compte : **qu’est-ce qui identifie une ligne ?** Une clé, c’est cette réponse, écrite noir sur blanc pour que la base la fasse respecter.'
 	],
 	terms: [
-		{ term: 'Table et ligne', def: 'Une table contient une sorte de chose (des tickets, des utilisateurs). Chaque ligne en est une, avec les mêmes colonnes que toutes les autres.' },
 		{ term: 'Clé primaire', def: 'La ou les colonnes qui identifient une ligne. PostgreSQL exige qu’elles soient uniques et non nulles, et construit dessus un index B-tree unique.' },
 		{ term: 'Clé étrangère', def: 'Une colonne dont la valeur doit correspondre à une clé d’une autre table. La base refuse une commande qui pointe vers un client qui n’existe pas.' },
-		{ term: 'Clé naturelle', def: 'Une clé tirée du monde réel : un email, un ISBN, « le ticket 42 de ce dépôt ». Elle a du sens, mais le monde peut la changer.' },
-		{ term: 'Clé de substitution', def: 'Une clé sans signification, fabriquée par la base : 1, 2, 3 tirés d’une séquence, ou un UUID aléatoire. Elle n’a jamais besoin de changer.' },
-		{ term: 'bigint ou UUID', def: 'Deux clés de substitution courantes. Un bigint fait 8 octets et compte vers le haut. Un UUID fait 128 bits et peut être créé n’importe où, sans demander à la base.' }
+		{ term: 'Clé naturelle', def: 'Une clé tirée du monde réel : un email, un ISBN, « le ticket 42 de ce dépôt ». Les gens peuvent la changer, comme un client qui change d’email.' },
+		{ term: 'Clé de substitution', def: 'Une clé sans signification, fabriquée par la base : 1, 2, 3 tirés d’une séquence, ou un UUID aléatoire. Elle n’a jamais besoin de changer.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['repo[("repository : id = 7")]'],
 				highlight: ['repo'],
-				note: '**Une clé de substitution par dépôt.** Dans Gitea, les tables des dépôts et des tickets commencent toutes deux par un `ID int64` marqué `pk autoincr`. Le nombre ne veut rien dire, exprès : aucun fait sur le dépôt n’y est rangé, donc aucun fait n’a besoin de rester figé pour qu’il reste valable.'
+				note: 'Dans Gitea, les tables des dépôts et des tickets commencent toutes deux par un `ID int64` marqué `pk autoincr`, une clé de substitution. Le nombre 7 ne contient aucun fait sur le dépôt, donc aucun fait n’a besoin de rester figé pour que la clé reste valable.'
 			},
 			{
 				add: ['issue[("issue : id = 9001, repo_id = 7, index = 42")]', 'issue -->|"repo_id"| repo'],
 				highlight: ['issue'],
-				note: '**Deux clés sur une ligne.** Le ticket a sa propre clé de substitution `id`, et aussi `(repo_id, index)`, qui est unique. L’`index`, c’est le « #42 » de l’URL. C’est une clé naturelle : les gens la tapent, la partagent et s’attendent à ce qu’elle ne bouge pas.'
+				note: 'La ligne du ticket porte deux clés : sa propre clé de substitution `id`, et la paire unique `(repo_id, index)`. L’`index` est le « #42 » de l’URL. Les gens tapent ce numéro, le partagent et comptent sur lui : c’est une clé naturelle.'
 			},
 			{
 				add: ['url["URL : /owner/repo/issues/42"] -->|"GetIssueByIndex(7, 42)"| issue'],
 				highlight: ['url'],
-				note: '**Les gens utilisent la clé naturelle.** Le [handler de la page du ticket](' + GITEA + '/routers/web/repo/issue.go#L183) appelle `GetIssueByIndex` avec l’ID du dépôt courant et le numéro de l’URL. Dans la base, les autres lignes pointent plutôt vers la clé de substitution `issue.ID`.'
+				note: 'Les gens passent par la clé naturelle. Le [handler de la page du ticket](' + GITEA + '/routers/web/repo/issue.go#L183) appelle `GetIssueByIndex` avec l’ID du dépôt courant et le numéro de l’URL. Dans la base, les autres lignes pointent plutôt vers la clé de substitution `issue.ID`.'
 			},
 			{
 				add: ['counter[("issue_index : group_id = 7, max_index = 42")]', 'counter -.->|"numéro suivant, même transaction"| issue'],
 				highlight: ['counter'],
-				note: '**Une clé naturelle demande son propre compteur.** Une séquence numérote les lignes de toute la table, elle ne peut donc pas donner à chaque dépôt ses propres 1, 2, 3. Gitea garde une ligne de compteur par dépôt et l’incrémente dans la transaction même qui insère le ticket.'
+				note: 'Une séquence numérote les lignes de toute la table, elle ne peut donc pas donner à chaque dépôt ses propres 1, 2, 3. Gitea garde une ligne de compteur par dépôt et l’incrémente dans la transaction même qui insère le ticket.'
 			},
 			{
 				add: ['comment[("comment : issue_id = 9001")]', 'comment -->|"issue_id"| issue'],
 				highlight: ['comment'],
-				note: '**Les enfants pointent vers la clé de substitution.** Un commentaire stocke `issue_id`, pas `(repo_id, index)`. Le tag de struct sur `Comment.IssueID` demande un index, pas une clé étrangère, donc quand un ticket est supprimé, c’est le code de Gitea qui doit supprimer chaque ligne enfant.'
+				note: 'Un commentaire stocke la clé de substitution `issue_id`, jamais `(repo_id, index)`. Le tag de struct sur `Comment.IssueID` demande un index et aucune clé étrangère. Donc quand un ticket est supprimé, c’est le code de Gitea qui doit supprimer chaque ligne enfant.'
 			}
 		]
 	},
@@ -75,10 +73,10 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 	return issue, nil
 }`,
 		notes: [
-			'**Les deux clés dans les tags.** `ID` est `pk autoincr` : la clé de substitution. `RepoID` et `Index` partagent `UNIQUE(repo_index)`, une contrainte d’unicité sur deux colonnes. C’est la clé naturelle, et c’est la base, pas le code Go, qui garantit qu’aucun dépôt n’a deux tickets numéro 42.',
-			'**La recherche utilise la paire.** `GetIssueByIndex` filtre sur `repo_id` et `index`. L’unicité de ces deux colonnes repose sur un index unique, donc la recherche lit quelques pages d’index, pas toute la table.',
-			'**Le compteur est un upsert.** Sur PostgreSQL, [`postgresGetNextResourceIndex`](' + GITEA + '/models/db/index.go#L56-L67) lance `INSERT ... ON CONFLICT (group_id) DO UPDATE SET max_index = %s.max_index+1 RETURNING max_index`. Son appelant [`GetNextResourceIndex`](' + GITEA + '/models/db/index.go#L114) prévient : « it must run in the same transaction where the resource is created » (à lancer dans la transaction qui crée la ressource), et [`NewIssue`](' + GITEA + '/models/issues/issue_update.go#L452-L461) fait exactement ça.',
-			'**Sans clés étrangères, le ménage est manuel.** [`deleteIssue`](' + GITEA + '/services/issue/issue.go#L199-L253) enchaîne 18 suppressions de lignes enfants, dans une seule transaction. Quelques lignes plus bas vit [`DeleteOrphanedIssues`](' + GITEA + '/services/issue/issue.go#L256-L257), « delete issues without a repo » : le ménage qu’une clé étrangère aurait rendu inutile.'
+			'La ligne 2 marque `ID` en `pk autoincr`, la clé de substitution. Les lignes 3 et 5 mettent `RepoID` et `Index` dans `UNIQUE(repo_index)`, une contrainte d’unicité sur deux colonnes qui porte la clé naturelle. La base refuse elle-même un second ticket 42 dans le même dépôt, quoi que fasse le code Go.',
+			'La ligne 12 fait la recherche : `GetIssueByIndex` filtre sur `repo_id` et `index`. Un index unique couvre cette paire, donc la recherche lit quelques pages d’index au lieu de toute la table.',
+			'Sur PostgreSQL, Gitea tire le numéro suivant d’un dépôt de [`postgresGetNextResourceIndex`](' + GITEA + '/models/db/index.go#L56-L67), un upsert : `INSERT ... ON CONFLICT (group_id) DO UPDATE SET max_index = %s.max_index+1 RETURNING max_index`. Son appelant `GetNextResourceIndex` prévient : « it must run in the same transaction where the resource is created » (à lancer dans la transaction qui crée la ressource), et `NewIssue` le fait (les deux sont dans les sources).',
+			'Sans clés étrangères, Gitea fait le ménage à la main. [`deleteIssue`](' + GITEA + '/services/issue/issue.go#L199-L253) enchaîne 18 suppressions de lignes enfants, dans une seule transaction. Quelques lignes plus bas, `DeleteOrphanedIssues` sert à « delete issues without a repo », des lignes qu’une clé étrangère n’aurait jamais laissées exister.'
 		]
 	},
 	tradeoff: {
@@ -89,9 +87,9 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 			'Une contrainte d’unicité sur la clé naturelle attrape quand même le doublon, même quand la clé primaire est un nombre sans signification.'
 		],
 		cost: [
-			'Deux clés par table, c’est deux index à tenir à jour à chaque insert.',
+			'Avec deux clés par table, chaque insert met à jour deux index.',
 			'Une clé étrangère n’indexe pas le côté qui référence. La doc : « the declaration of a foreign key constraint does not automatically create an index on the referencing columns », donc un delete sur le parent peut parcourir toute la table enfant.',
-			'Les UUID aléatoires sont durs pour un B-tree. RFC 9562 : l’UUIDv4 a une « poor database-index locality » (mauvaise localité dans l’index), donc les inserts « are performed at random locations ». PostgreSQL 18 propose `uuidv7()`, ordonné dans le temps.',
+			'Les UUID aléatoires tombent à des endroits aléatoires d’un B-tree. RFC 9562 : l’UUIDv4 a une « poor database-index locality » (mauvaise localité dans l’index), donc les inserts « are performed at random locations ». PostgreSQL 18 propose `uuidv7()`, ordonné dans le temps.',
 			'Un bigint tiré d’une séquence trahit l’ordre et le volume (la commande 1041 est venue après la 1040), et la doc prévient qu’il peut y avoir des « holes » (des trous).'
 		]
 	},
@@ -141,8 +139,14 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 			why: 'RFC 9562 : les valeurs UUIDv4 « are not close to each other in the index; thus, they require inserts to be performed at random locations ». Une séquence ajoute toujours au bord droit, et pour les UUID ordonnés dans le temps comme le v7, « the new values are near each other in the index ». Les B-trees reviennent au jour 10.'
 		}
 	],
-	takeaway: 'Donne à chaque ligne une clé primaire sans signification qui ne change jamais, protège l’identité réelle par une contrainte d’unicité, et laisse les clés étrangères, pas le code, garder les références honnêtes.',
+	recall: {
+		q: 'Gitea range le ticket #42 du dépôt 7 dans la ligne d’id 9001. Quelle clé les commentaires stockent-ils, et qu’est-ce qui empêche un second #42 dans le dépôt 7 ?',
+		a: 'Les commentaires stockent la clé de substitution, `issue_id = 9001`. La contrainte d’unicité `UNIQUE(repo_index)` sur `(repo_id, index)` refuse un second ticket 42 dans le dépôt 7.'
+	},
 	sources: [
+		{ title: 'Gitea, models/db/index.go (GetNextResourceIndex)', url: `${GITEA}/models/db/index.go#L114` },
+		{ title: 'Gitea, models/issues/issue_update.go (NewIssue)', url: `${GITEA}/models/issues/issue_update.go#L452-L461` },
+		{ title: 'Gitea, services/issue/issue.go (DeleteOrphanedIssues)', url: `${GITEA}/services/issue/issue.go#L256-L257` },
 		{ title: 'Doc PostgreSQL, Constraints (clés primaires et étrangères)', url: 'https://www.postgresql.org/docs/current/ddl-constraints.html' },
 		{ title: 'Doc PostgreSQL, Identity Columns', url: 'https://www.postgresql.org/docs/current/ddl-identity-columns.html' },
 		{ title: 'Doc PostgreSQL, UUID Type', url: 'https://www.postgresql.org/docs/current/datatype-uuid.html' },

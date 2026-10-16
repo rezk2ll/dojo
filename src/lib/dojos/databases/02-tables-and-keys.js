@@ -13,12 +13,10 @@ export default {
 		'Both bugs come from one question you answer on day one, often without noticing: **what identifies a row?** A key is that answer, written down so the database can enforce it.'
 	],
 	terms: [
-		{ term: 'Table and row', def: 'A table holds one kind of thing (issues, users). Each row is one of them, with the same columns as every other row.' },
 		{ term: 'Primary key', def: 'The column or columns that identify a row. PostgreSQL requires them to be unique and not null, and builds a unique B-tree index on them.' },
 		{ term: 'Foreign key', def: 'A column whose value must match a key in another table. The database rejects an order that points at a customer who does not exist.' },
-		{ term: 'Natural key', def: 'A key taken from the real world: an email, an ISBN, "issue 42 of this repo". Meaningful, but the world can change it.' },
-		{ term: 'Surrogate key', def: 'A key with no meaning, made by the database: 1, 2, 3 from a sequence, or a random UUID. It never needs to change.' },
-		{ term: 'bigint vs UUID', def: 'Two common surrogate keys. bigint is 8 bytes and counts up. A UUID is 128 bits and can be made anywhere without asking the database.' }
+		{ term: 'Natural key', def: 'A key taken from the real world: an email, an ISBN, "issue 42 of this repo". People can change it, like when a customer changes their email.' },
+		{ term: 'Surrogate key', def: 'A key with no meaning, made by the database: 1, 2, 3 from a sequence, or a random UUID. It never needs to change.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['repo[("repository: id = 7")]'],
 				highlight: ['repo'],
-				note: '**A surrogate key per repository.** Gitea\'s repository and issue tables both start with an `ID int64` marked `pk autoincr`. The number means nothing on purpose: no fact about the repo is stored in it, so no fact has to stay frozen for it to stay valid.'
+				note: 'Gitea\'s repository and issue tables both start with an `ID int64` marked `pk autoincr`, a surrogate key. The number 7 stores no fact about the repo, so no fact has to stay the same for the key to stay valid.'
 			},
 			{
 				add: ['issue[("issue: id = 9001, repo_id = 7, index = 42")]', 'issue -->|"repo_id"| repo'],
 				highlight: ['issue'],
-				note: '**Two keys on one row.** The issue has its own surrogate `id`, and also `(repo_id, index)`, which is unique. The `index` is the "#42" in the URL. It is a natural key: people type it, link it, and expect it to be stable.'
+				note: 'The issue row has two keys: its own surrogate `id`, and the unique pair `(repo_id, index)`. The `index` is the "#42" in the URL. It is a natural key: people type it, link it, and expect it to stay the same.'
 			},
 			{
 				add: ['url["URL: /owner/repo/issues/42"] -->|"GetIssueByIndex(7, 42)"| issue'],
 				highlight: ['url'],
-				note: '**People use the natural key.** The [issue page handler](' + GITEA + '/routers/web/repo/issue.go#L183) calls `GetIssueByIndex` with the current repo\'s ID and the number from the URL. Inside the database, other rows point at the surrogate `issue.ID` instead.'
+				note: 'People use the natural key. The [issue page handler](' + GITEA + '/routers/web/repo/issue.go#L183) calls `GetIssueByIndex` with the current repo\'s ID and the number from the URL. Inside the database, other rows point at the surrogate `issue.ID` instead.'
 			},
 			{
 				add: ['counter[("issue_index: group_id = 7, max_index = 42")]', 'counter -.->|"next number, same transaction"| issue'],
 				highlight: ['counter'],
-				note: '**A natural key needs its own counter.** A sequence numbers rows across the whole table, so it cannot give each repo its own 1, 2, 3. Gitea keeps one counter row per repo and bumps it in the same transaction that inserts the issue.'
+				note: 'A sequence numbers rows across the whole table, so it cannot give each repo its own 1, 2, 3. Gitea keeps one counter row per repo and bumps it in the same transaction that inserts the issue.'
 			},
 			{
 				add: ['comment[("comment: issue_id = 9001")]', 'comment -->|"issue_id"| issue'],
 				highlight: ['comment'],
-				note: '**Children point at the surrogate key.** A comment stores `issue_id`, not `(repo_id, index)`. Gitea\'s struct tag on `Comment.IssueID` asks for an index, not a foreign key, so when an issue is deleted, Gitea\'s own code has to delete every child row.'
+				note: 'A comment stores the surrogate `issue_id`, and never `(repo_id, index)`. Gitea\'s struct tag on `Comment.IssueID` asks for an index and no foreign key. So when an issue is deleted, Gitea\'s own code has to delete every child row.'
 			}
 		]
 	},
@@ -75,10 +73,10 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 	return issue, nil
 }`,
 		notes: [
-			'**Both keys in the struct tags.** `ID` is `pk autoincr`: the surrogate key. `RepoID` and `Index` share `UNIQUE(repo_index)`, a two-column unique constraint. That is the natural key, and the database, not the Go code, makes sure no repo gets two issues numbered 42.',
-			'**The lookup uses the pair.** `GetIssueByIndex` filters on `repo_id` and `index`. Uniqueness on those two columns is backed by a unique index, so the lookup reads a few index pages, not the whole table.',
-			'**The counter is an upsert.** On PostgreSQL, [`postgresGetNextResourceIndex`](' + GITEA + '/models/db/index.go#L56-L67) runs `INSERT ... ON CONFLICT (group_id) DO UPDATE SET max_index = %s.max_index+1 RETURNING max_index`. Its caller [`GetNextResourceIndex`](' + GITEA + '/models/db/index.go#L114) warns that "it must run in the same transaction where the resource is created", and [`NewIssue`](' + GITEA + '/models/issues/issue_update.go#L452-L461) does exactly that.',
-			'**No foreign keys means manual cleanup.** [`deleteIssue`](' + GITEA + '/services/issue/issue.go#L199-L253) lists 18 deletes of child rows, all in one transaction. A few lines down sits [`DeleteOrphanedIssues`](' + GITEA + '/services/issue/issue.go#L256-L257), "delete issues without a repo": the cleanup a foreign key would have made unnecessary.'
+			'Line 2 marks `ID` as `pk autoincr`, the surrogate key. Lines 3 and 5 put `RepoID` and `Index` in `UNIQUE(repo_index)`, a two-column unique constraint on the natural key. The database itself rejects a second issue numbered 42 in the same repo, whatever the Go code does.',
+			'Line 12 is the lookup: `GetIssueByIndex` filters on `repo_id` and `index`. A unique index backs that pair, so the lookup reads a few index pages instead of the whole table.',
+			'On PostgreSQL, Gitea gets the next number for a repo from [`postgresGetNextResourceIndex`](' + GITEA + '/models/db/index.go#L56-L67), an upsert: `INSERT ... ON CONFLICT (group_id) DO UPDATE SET max_index = %s.max_index+1 RETURNING max_index`. Its caller `GetNextResourceIndex` warns that "it must run in the same transaction where the resource is created", and `NewIssue` does that (both in the sources).',
+			'With no foreign keys, Gitea cleans up by hand. [`deleteIssue`](' + GITEA + '/services/issue/issue.go#L199-L253) lists 18 deletes of child rows, all in one transaction. A few lines down, `DeleteOrphanedIssues` will "delete issues without a repo", rows that a foreign key would never let exist.'
 		]
 	},
 	tradeoff: {
@@ -91,7 +89,7 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 		cost: [
 			'Two keys per table means two indexes to keep up to date on every insert.',
 			'A foreign key does not index the referencing side. The docs: "the declaration of a foreign key constraint does not automatically create an index on the referencing columns", so a delete on the parent may scan the child table.',
-			'Random UUIDs are hard on a B-tree. RFC 9562: UUIDv4 has "poor database-index locality", so inserts "are performed at random locations". PostgreSQL 18 offers `uuidv7()`, which is time-ordered.',
+			'Random UUIDs land at random places in a B-tree. RFC 9562: UUIDv4 has "poor database-index locality", so inserts "are performed at random locations". PostgreSQL 18 offers `uuidv7()`, which is time-ordered.',
 			'A bigint from a sequence leaks order and volume (order 1041 came after order 1040), and the docs warn there may be "holes" or gaps.'
 		]
 	},
@@ -141,8 +139,14 @@ func GetIssueByIndex(ctx context.Context, repoID, index int64) (*Issue, error) {
 			why: 'RFC 9562: UUIDv4 values "are not close to each other in the index; thus, they require inserts to be performed at random locations". A sequence always adds at the right edge, and for time-ordered UUIDs like v7 "the new values are near each other in the index". B-trees come back on day 10.'
 		}
 	],
-	takeaway: 'Give every row a meaningless primary key that never changes, protect the real-world identity with a unique constraint, and let foreign keys, not code, keep references honest.',
+	recall: {
+		q: 'Gitea stores issue #42 of repo 7 as row id 9001. Which key do comments store, and what stops a second #42 in repo 7?',
+		a: 'Comments store the surrogate key, `issue_id = 9001`. The unique constraint `UNIQUE(repo_index)` on `(repo_id, index)` rejects a second issue 42 in repo 7.'
+	},
 	sources: [
+		{ title: 'Gitea, models/db/index.go (GetNextResourceIndex)', url: `${GITEA}/models/db/index.go#L114` },
+		{ title: 'Gitea, models/issues/issue_update.go (NewIssue)', url: `${GITEA}/models/issues/issue_update.go#L452-L461` },
+		{ title: 'Gitea, services/issue/issue.go (DeleteOrphanedIssues)', url: `${GITEA}/services/issue/issue.go#L256-L257` },
 		{ title: 'PostgreSQL docs, Constraints (primary and foreign keys)', url: 'https://www.postgresql.org/docs/current/ddl-constraints.html' },
 		{ title: 'PostgreSQL docs, Identity Columns', url: 'https://www.postgresql.org/docs/current/ddl-identity-columns.html' },
 		{ title: 'PostgreSQL docs, UUID Type', url: 'https://www.postgresql.org/docs/current/datatype-uuid.html' },

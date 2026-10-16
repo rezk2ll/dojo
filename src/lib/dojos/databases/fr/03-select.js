@@ -7,15 +7,13 @@ export default {
 	title: 'Interroger avec SELECT',
 	minutes: 10,
 	hook: [
-		'Tu veux les longs articles d’un lecteur de flux. Tu écris `SELECT title, reading_time * 60 AS seconds FROM entries WHERE seconds > 600`. PostgreSQL répond : `column "seconds" does not exist`. **Elle est pourtant là, quelques mots plus tôt.**',
-		'La raison : **SQL ne s’exécute pas de haut en bas**. Tu écris SELECT en premier, mais la base le calcule presque à la fin, après avoir déjà filtré les lignes avec WHERE. Au moment où WHERE tourne, `seconds` n’existe pas encore.',
-		'Une fois que tu connais l’ordre réel (FROM, WHERE, puis SELECT, puis ORDER BY, puis LIMIT), beaucoup de surprises disparaissent : **pourquoi un alias marche dans ORDER BY mais pas dans WHERE, pourquoi la page 2 montre une ligne déjà vue en page 1, et pourquoi un total peut ignorer LIMIT**.'
+		'Tu veux les longs articles d’un lecteur de flux. Tu écris `SELECT title, reading_time * 60 AS seconds FROM entries WHERE seconds > 600`. PostgreSQL répond : `column "seconds" does not exist`, alors que l’alias figure quelques mots plus tôt dans la même requête.',
+		'PostgreSQL n’applique pas les clauses dans l’ordre où tu les tapes. Tu écris SELECT en premier, mais la base le calcule presque à la fin, après avoir déjà filtré les lignes avec WHERE. Au moment où WHERE tourne, `seconds` n’existe pas encore.',
+		'L’ordre réel est FROM, WHERE, puis SELECT, puis ORDER BY, puis LIMIT. Il explique trois surprises : **pourquoi un alias marche dans ORDER BY mais pas dans WHERE, pourquoi la page 2 montre une ligne déjà vue en page 1, et pourquoi un total peut ignorer LIMIT**.'
 	],
 	terms: [
 		{ term: 'Liste SELECT', def: 'Les expressions après SELECT : les colonnes et les valeurs calculées de chaque ligne de sortie. `AS` donne un nom à l’une d’elles, un alias.' },
-		{ term: 'WHERE', def: 'Une condition que chaque ligne doit remplir. Elle porte sur les lignes d’entrée, avant le calcul de la liste SELECT, donc elle ne voit pas les alias.' },
-		{ term: 'ORDER BY', def: 'Trie le résultat. Sans lui, PostgreSQL rend les lignes « in whatever order the system finds fastest to produce » (dans l’ordre qui lui coûte le moins).' },
-		{ term: 'LIMIT et OFFSET', def: 'Ne rendre qu’une partie du résultat trié : sauter OFFSET lignes, puis en rendre au plus LIMIT. Ils passent en dernier.' },
+		{ term: 'ORDER BY', def: 'La clause qui trie le résultat. Sans elle, PostgreSQL rend les lignes « in whatever order the system finds fastest to produce » (dans l’ordre qui lui coûte le moins).' },
 		{ term: 'Ordre logique', def: 'L’ordre dans lequel les clauses agissent, que la doc de SELECT décrit étape par étape. Il décide de ce que chaque clause peut voir.' },
 		{ term: 'Pagination par clé', def: 'Demander « les lignes suivantes après la dernière que j’ai vue » avec un WHERE sur la clé de tri, au lieu de sauter des lignes avec OFFSET.' }
 	],
@@ -25,27 +23,27 @@ export default {
 			{
 				add: ['from["FROM entries, JOIN feeds, users"]'],
 				highlight: ['from'],
-				note: '**FROM d’abord.** La base part des tables de FROM, jointes ensemble. Chaque colonne de chaque table jointe est disponible ici, mais aucun alias de la liste SELECT n’existe encore. Les jointures ont leur propre chapitre demain (jour 4).'
+				note: 'La base part des tables de FROM, jointes ensemble. Chaque colonne de chaque table jointe est disponible ici, mais aucun alias de la liste SELECT n’existe encore. Les jointures ont leur propre chapitre demain (jour 4).'
 			},
 			{
 				add: ['from --> where["WHERE e.user_id = $1 AND e.status = $2"]'],
 				highlight: ['where'],
-				note: '**WHERE écarte des lignes.** La doc : « all rows that do not satisfy the condition are eliminated from the output ». Il ne voit que les colonnes des tables. Voilà pourquoi `WHERE seconds > 600` échoue : écris plutôt l’expression `reading_time * 60 > 600`.'
+				note: 'WHERE écarte des lignes. La doc : « all rows that do not satisfy the condition are eliminated from the output ». WHERE ne voit que les colonnes des tables, donc `WHERE seconds > 600` échoue. Écris plutôt l’expression `reading_time * 60 > 600`.'
 			},
 			{
 				add: ['where --> list["Liste SELECT : e.title, f.title AS feed_title, count(*) OVER()"]'],
 				highlight: ['list'],
-				note: '**Maintenant, les colonnes de sortie existent.** La liste SELECT est calculée pour chaque ligne restante. Les alias comme `feed_title` naissent ici. Une fonction de fenêtrage comme `count(*) OVER()` tourne aussi ici, sur toutes les lignes restantes.'
+				note: 'La base calcule la liste SELECT pour chaque ligne qui a passé WHERE. Les alias comme `feed_title` existent à partir de cette étape. Une fonction de fenêtrage comme `count(*) OVER()` tourne aussi ici, sur toutes les lignes restantes.'
 			},
 			{
 				add: ['list --> order["ORDER BY published_at DESC, id DESC"]'],
 				highlight: ['order'],
-				note: '**ORDER BY peut utiliser les alias.** Il passe après la liste SELECT, donc `ORDER BY seconds` marche. La doc ajoute un piège : un nom de colonne de sortie « has to stand alone » (doit être seul), donc `ORDER BY seconds + 1` échoue de nouveau.'
+				note: 'ORDER BY passe après la liste SELECT, donc `ORDER BY seconds` marche. La doc ajoute un piège : un nom de colonne de sortie « has to stand alone » (doit être seul), donc `ORDER BY seconds + 1` échoue de nouveau.'
 			},
 			{
 				add: ['order --> limit["LIMIT 100 OFFSET 200"]', 'limit --> out[("20 lignes vers l’app")]'],
 				highlight: ['limit'],
-				note: '**LIMIT coupe le résultat trié.** Il passe en dernier, donc il garde les premières lignes de l’ordre que tu as demandé. Sans ordre unique, la doc prévient que tu « will get an unpredictable subset of the query\'s rows » (un sous-ensemble imprévisible).'
+				note: 'LIMIT passe en dernier, donc il garde les premières lignes de l’ordre que tu as demandé. Sans ordre unique, la doc prévient que tu « will get an unpredictable subset of the query\'s rows » (un sous-ensemble imprévisible).'
 			}
 		]
 	},
@@ -114,10 +112,10 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 	}
 }`,
 		notes: [
-			'**WHERE est une liste de conditions.** Chaque méthode `With...` ajoute une condition, et [`buildCondition`](' + EQB + '#L522-L524) les relie avec `" AND "`. La liste commence toujours par `e.user_id = $1`, donc chaque requête porte sur les entrées d’un seul utilisateur.',
-			'**Les valeurs en paramètres, les noms entre guillemets.** Des conditions comme [`BeforeEntryID`](' + EQB + '#L100-L106) ajoutent `$2`, `$3` et passent la valeur à part. Une colonne de tri ne peut pas être un paramètre : la doc de PREPARE définit les paramètres comme des « values that are substituted into the statement » (des valeurs substituées dans la requête). Alors [`WithSorting`](' + EQB + '#L191-L200) met le nom de colonne entre guillemets et n’accepte que ASC ou DESC.',
-			'**Le total ignore LIMIT.** `count(*) OVER()` est dans la liste SELECT, calculée avant ORDER BY et LIMIT. Chaque ligne rendue porte le nombre de lignes qui ont passé WHERE, donc une seule requête donne une page et le total pour la pagination.',
-			'**LIMIT a un plafond.** [`WithLimit`](' + EQB + '#L202-L206) ramène une limite absente ou énorme à `model.MaxEntryLimit` « so callers cannot request an unbounded result set » (pour qu’aucun appelant ne demande un résultat sans borne). OFFSET est géré aussi, mais la doc prévient : « a large OFFSET might be inefficient », car les lignes sautées sont quand même calculées.'
+			'Chaque méthode `With...` ajoute une condition à une liste. Les lignes 31 à 33 relient la liste avec `" AND "`, et la ligne 27 la place après WHERE. La ligne 57 ouvre la liste avec `e.user_id = $1`, donc chaque requête porte sur les entrées d’un seul utilisateur.',
+			'Des conditions comme `BeforeEntryID` ajoutent `$2`, `$3` et passent la valeur à part. Une colonne de tri ne peut pas être un paramètre : la doc de PREPARE définit les paramètres comme des « values that are substituted into the statement » (des valeurs substituées dans la requête). Alors [`WithSorting`](' + EQB + '#L191-L200) met le nom de colonne entre guillemets et n’accepte que ASC ou DESC.',
+			'La ligne 7 met `count(*) OVER()` dans la liste SELECT, calculée avant l’ORDER BY et le LIMIT des lignes 38 à 44. Chaque ligne rendue porte le nombre de lignes qui ont passé WHERE, donc une seule requête donne une page et le total pour la pagination.',
+			'La ligne 43 ajoute le LIMIT. [`WithLimit`](' + EQB + '#L202-L206) ramène une limite absente ou énorme à `model.MaxEntryLimit` « so callers cannot request an unbounded result set » (pour qu’aucun appelant ne demande un résultat sans borne). OFFSET est géré aussi, mais la doc prévient : « a large OFFSET might be inefficient », car les lignes sautées sont quand même calculées.'
 		]
 	},
 	tradeoff: {
@@ -128,8 +126,8 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			'Une fonction de fenêtrage comme `count(*) OVER()` donne la page et le total en un seul aller-retour.'
 		],
 		cost: [
-			'L’ordre d’écriture (SELECT d’abord) et l’ordre logique (SELECT tard) diffèrent, et ça piège tout le monde au moins une fois.',
-			'Tu répètes des expressions : WHERE veut `reading_time * 60`, pas son alias. Une sous-requête ou une CTE peut le nommer une fois, au prix d’un niveau de plus.',
+			'Tu écris SELECT en premier, mais il passe après WHERE, donc `WHERE seconds > 600` échoue avec `column "seconds" does not exist`.',
+			'Tu répètes des expressions : WHERE a besoin de `reading_time * 60` car il ne voit pas l’alias. Une sous-requête ou une CTE peut le nommer une fois, au prix d’un niveau de plus.',
 			'OFFSET ralentit à mesure que tu avances, car « the rows skipped by an OFFSET clause still have to be computed inside the server » (les lignes sautées sont quand même calculées).',
 			'`count(*) OVER()` compte quand même chaque ligne qui correspond, même si tu n’en affiches que 20.'
 		]
@@ -139,7 +137,7 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 		hint: 'Plusieurs entrées peuvent partager un même `published_at`. Qu’est-ce qui rend l’ordre unique ? Et pour la page 2, quelles valeurs de la dernière ligne as-tu encore ?',
 		answer: [
 			'(1) `SELECT id, title, published_at FROM entries WHERE user_id = 7 AND status = \'unread\' ORDER BY published_at DESC, id DESC LIMIT 20;` L’`id` départage les égalités, donc aucune ligne ne peut changer de page.',
-			'(2) Garde le `published_at` et l’`id` de la dernière ligne, puis ajoute `AND (published_at, id) < ($1, $2)` avec le même ORDER BY et le même LIMIT. La comparaison de lignes suit l’ordre de tri, et elle ne lit pas les lignes qu’elle saute.',
+			'(2) Garde le `published_at` et l’`id` de la dernière ligne, puis ajoute `AND (published_at, id) < ($1, $2)` avec le même ORDER BY et le même LIMIT. Dans cette pagination par clé, la comparaison de lignes suit l’ordre de tri, et elle ne lit pas les lignes qu’elle saute.',
 			'(3) Répète l’expression dans WHERE et garde l’alias dans ORDER BY : `... WHERE reading_time * 60 > 600 ORDER BY seconds DESC`. WHERE tourne avant que l’alias existe, ORDER BY après.',
 			'Vérifie : lance (3) avec l’alias dans WHERE et lis l’erreur, `column "seconds" does not exist`. Puis essaie `ORDER BY seconds + 0` et constate qu’un alias doit être seul.'
 		]
@@ -165,7 +163,7 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 				'Le nombre de lignes de toute la table entries, tous utilisateurs confondus'
 			],
 			answer: 1,
-			why: 'La liste SELECT, fonctions de fenêtrage comprises, est calculée pour chaque ligne qui a passé WHERE. LIMIT vient en dernier et ne fait que retirer des lignes de sortie. C’est pour ça qu’une seule requête peut rendre une page et le total.'
+			why: 'La liste SELECT, fonctions de fenêtrage comprises, est calculée pour chaque ligne qui a passé WHERE. LIMIT vient en dernier et ne fait que retirer des lignes de sortie, donc une seule requête peut rendre une page et le total.'
 		},
 		{
 			q: 'La page 1 est `ORDER BY published_at DESC LIMIT 20`, la page 2 ajoute `OFFSET 20`. Beaucoup d’entrées partagent un horodatage. Un utilisateur voit une entrée sur les deux pages. Qu’est-ce qui corrige ça ?',
@@ -179,8 +177,12 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			why: 'Des lignes à clé de tri égale peuvent revenir dans n’importe quel ordre, et cet ordre peut changer d’une exécution à l’autre. La doc : utilise « an ORDER BY clause that constrains the result rows into a unique order ». Un départage unique comme `id` fait ça.'
 		}
 	],
-	takeaway: 'SQL exécute FROM, WHERE, SELECT, ORDER BY, LIMIT, quel que soit l’ordre où tu l’écris ; filtre sur des expressions, trie sur des alias, et donne toujours à LIMIT un ordre unique.',
+	recall: {
+		q: 'Dans quel ordre PostgreSQL applique-t-il FROM, WHERE, SELECT, ORDER BY et LIMIT, et pourquoi `WHERE seconds > 600` échoue-t-il ?',
+		a: 'FROM, WHERE, la liste SELECT, ORDER BY, puis LIMIT. WHERE passe avant que la liste SELECT crée l’alias `seconds`, donc il doit répéter `reading_time * 60`. ORDER BY passe après et peut utiliser l’alias.'
+	},
 	sources: [
+		{ title: 'Miniflux, entry_query_builder.go (BeforeEntryID)', url: `${EQB}#L100-L106` },
 		{ title: 'Doc PostgreSQL, SELECT', url: 'https://www.postgresql.org/docs/current/sql-select.html' },
 		{ title: 'Doc PostgreSQL, Sorting Rows (ORDER BY)', url: 'https://www.postgresql.org/docs/current/queries-order.html' },
 		{ title: 'Doc PostgreSQL, LIMIT and OFFSET', url: 'https://www.postgresql.org/docs/current/queries-limit.html' },

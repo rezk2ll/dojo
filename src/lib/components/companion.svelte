@@ -15,11 +15,8 @@
 	onMount(() => {
 		let gone = false;
 		/** @param {PointerEvent} e */
-		const follow = (e) => {
-			if (!canvas || !view) return;
-			const r = canvas.getBoundingClientRect();
-			view.look(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
-		};
+		const follow = (e) => view?.look(e.clientX, e.clientY);
+		const leave = () => view?.look(-1e4, -1e4);
 		// three.js is large, so it loads only once the page is up, in its own chunk.
 		import('#lib/companion-scene.js').then(({ createScene }) => {
 			if (gone || !canvas) return;
@@ -27,9 +24,11 @@
 			view.resize(SIZE, SIZE);
 		});
 		addEventListener('pointermove', follow, { passive: true });
+		document.documentElement.addEventListener('pointerleave', leave);
 		return () => {
 			gone = true;
 			removeEventListener('pointermove', follow);
+			document.documentElement.removeEventListener('pointerleave', leave);
 			view?.dispose();
 		};
 	});

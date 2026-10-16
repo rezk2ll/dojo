@@ -19,6 +19,14 @@ function spring(stiffness = 170, damping = 22, x = 0) {
 }
 
 const REST = { yaw: -0.42, pitch: 0.22 };
+// Places it can hide, in pixels from its home corner. Spaced so one is always clear of the pointer.
+const SPOTS = [
+	[0, 0],
+	[-230, 0],
+	[0, -220],
+	[-230, -220]
+];
+const DODGE = 140;
 const FACE = 256;
 
 /**
@@ -109,20 +117,36 @@ export function createScene(canvas, { color, still }) {
 		lid: spring(500, 40),
 		happy: spring(90, 18),
 		sad: spring(90, 18),
-		glow: spring(60, 14, 1)
+		glow: spring(60, 14, 1),
+		ox: spring(70, 14),
+		oy: spring(70, 14)
 	};
 	const springs = Object.values(s);
 
-	let pointer = { x: 0, y: 0, at: performance.now() };
+	let pointer = { x: -1e4, y: -1e4, at: performance.now() };
+	let spot = SPOTS[0];
 	/** @type {{ mood: Mood, at: number } | undefined} */
 	let reaction;
 	let turns = 0;
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
 
-	/** @param {number} x @param {number} y Pointer position relative to the cube, in pixels. */
+	/** @param {number} x @param {number} y Pointer position in the viewport, in pixels. */
 	function look(x, y) {
 		pointer = { x, y, at: performance.now() };
+	}
+
+	/** Moves out of the pointer's way, and back home once the pointer leaves. Returns the pointer relative to the cube. */
+	function dodge() {
+		// offsetLeft ignores the translate, so this stays the home corner while it moves.
+		const hx = canvas.offsetLeft + canvas.offsetWidth / 2;
+		const hy = canvas.offsetTop + canvas.offsetHeight / 2;
+		const from = (/** @type {number[]} */ [x, y]) => Math.hypot(pointer.x - hx - x, pointer.y - hy - y);
+		if (from(spot) < DODGE) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
+		else if (spot !== SPOTS[0] && from(SPOTS[0]) > DODGE + 40) spot = SPOTS[0];
+		s.ox.to = spot[0];
+		s.oy.to = spot[1];
+		return { x: pointer.x - hx - s.ox.x, y: pointer.y - hy - s.oy.x };
 	}
 
 	/** @param {Mood} mood */
@@ -140,10 +164,11 @@ export function createScene(canvas, { color, still }) {
 	}
 
 	function aim(/** @type {number} */ now) {
-		const d = Math.hypot(pointer.x, pointer.y) || 1;
+		const p = dodge();
+		const d = Math.hypot(p.x, p.y) || 1;
 		const reach = Math.min(1, d / 500);
-		let dx = (pointer.x / d) * reach;
-		let dy = (pointer.y / d) * reach;
+		let dx = (p.x / d) * reach;
+		let dy = (p.y / d) * reach;
 		if (now - pointer.at > 5000) {
 			// Nobody is moving the mouse: it scans the room slowly.
 			dx = Math.sin(now / 2400) * 0.5;
@@ -252,8 +277,11 @@ export function createScene(canvas, { color, still }) {
 
 		const hover = still ? 0 : Math.sin(now / 1100) * 0.04;
 		root.position.y = s.y.x + hover;
-		root.rotation.z = s.roll.x;
+		// It leans into the direction it flies, and straightens up as it stops.
+		root.rotation.z = s.roll.x + Math.max(-0.5, Math.min(0.5, -s.ox.v * 0.0004));
+		root.rotation.x = Math.max(-0.4, Math.min(0.4, s.oy.v * 0.0004));
 		body.rotation.set(s.pitch.x, s.yaw.x, 0, 'YXZ');
+		canvas.style.translate = `${s.ox.x.toFixed(1)}px ${s.oy.x.toFixed(1)}px`;
 
 		// The ring brightens as the cube comes closer and on a right answer.
 		const near = 1 - (root.position.y + 0.1) / 0.5;

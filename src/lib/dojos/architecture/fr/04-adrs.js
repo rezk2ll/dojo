@@ -5,19 +5,17 @@ const ADRS = `${BACKSTAGE}/docs/architecture-decisions`;
 export default {
 	slug: 'adrs',
 	part: 'Penser en architecte',
-	title: 'Écris la décision, avec son pourquoi',
+	title: 'Les ADR : écrire le pourquoi d’une décision',
 	minutes: 10,
 	hook: [
-		'Backstage est un portail développeur open source fait de nombreux plugins. Imagine un nouveau venu qui ouvre un plugin qui importe `node-fetch`, puis un autre qui appelle le `fetch` intégré. Lequel a raison ? Si la réponse ne vit que dans un fil de revue, il va deviner, et le code va dériver encore plus.',
-		'C’est la deuxième loi en action : **le pourquoi compte plus que le comment**. Le code montre le comment. Seule une décision écrite garde le pourquoi.',
-		'L’outil est minuscule : un **Architecture Decision Record**. Une page, une décision. Backstage les range dans `docs/architecture-decisions`, numérotés, à côté du code. Deux d’entre eux répondent au nouveau venu, et montrent comment une décision change sans perdre son historique.'
+		'Backstage est un portail développeur open source fait de nombreux plugins. Imagine un nouveau venu qui ouvre un plugin qui importe `node-fetch`, puis un autre qui appelle le `fetch` intégré. Lequel a raison ? Si la réponse n’est que dans un fil de revue, il va deviner, et le plugin suivant prendra peut-être une troisième bibliothèque.',
+		'La deuxième loi de l’architecture logicielle : **le pourquoi compte plus que le comment**. N’importe qui lit le comment dans le code. Le pourquoi ne reste que si quelqu’un écrit la décision.',
+		'Un Architecture Decision Record (ADR) contient une décision sur une page. Backstage les range dans `docs/architecture-decisions`, numérotés, à côté du code. Deux d’entre eux répondent au nouveau venu, et montrent comment une décision change tout en gardant son historique lisible.'
 	],
 	terms: [
-		{ term: 'ADR', def: 'Architecture Decision Record (registre de décision d’architecture). Un fichier court : Titre, Statut, Contexte, Décision, Conséquences (Michael Nygard, 2011).' },
-		{ term: 'Contexte', def: 'Les forces en jeu, écrites de façon neutre. Ce qui est vrai, ce qui pèse sur la décision.' },
-		{ term: 'Conséquences', def: 'Tout ce qui découle de la décision, le bon **et** le mauvais. S’il n’y a rien de mauvais, regarde encore (première loi).' },
-		{ term: 'Alternatives envisagées', def: 'Les options auxquelles tu as dit non, chacune avec sa raison. Ça évite que la personne suivante les propose à nouveau.' },
-		{ term: 'Superseded (remplacé)', def: 'Un ADR plus récent a remplacé celui-ci. Tu ne modifies jamais un ADR accepté pour changer la décision, tu en écris un nouveau et tu les relies.' },
+		{ term: 'ADR', def: 'Architecture Decision Record (registre de décision d’architecture) : un fichier court avec Titre, Statut, Contexte, Décision et Conséquences (Michael Nygard, 2011).' },
+		{ term: 'Conséquences', def: 'Tout ce qui découle de la décision, le bon **et** le mauvais. Si tu n’as listé aucun inconvénient, cherche encore (première loi).' },
+		{ term: 'Superseded (remplacé)', def: 'Le statut d’un ADR qu’un ADR plus récent a remplacé. Tu ne modifies jamais un ADR accepté pour changer la décision : tu en écris un nouveau et tu relies les deux.' },
 		{ term: 'Y-statement', def: 'Un ADR en une phrase : « Dans le contexte de…, face à…, nous avons choisi… et écarté…, pour obtenir…, en acceptant… »' }
 	],
 	diagram: {
@@ -31,17 +29,17 @@ export default {
 			{
 				add: ['draft -->|validé| accepted["Accepté : ADR013, déc. 2021"]', 'draft -->|pas ça| rejected["Rejeté"]'],
 				highlight: ['accepted', 'rejected'],
-				note: 'Il finit **Accepté** ou **Rejeté**. ADR013 a été écrit en décembre 2021 : les paquets backend doivent utiliser le paquet `node-fetch`.'
+				note: 'À la fin de la revue, l’ADR est Accepté ou Rejeté. ADR013 a été accepté en décembre 2021 : les paquets backend doivent utiliser le paquet `node-fetch`.'
 			},
 			{
 				add: ['accepted -->|le contexte a changé| superseded["ADR013 marqué remplacé"]', 'adr14["ADR014, nov. 2024 : fetch natif"] -.->|remplace| superseded'],
 				highlight: ['superseded', 'adr14'],
-				note: 'Backstage a relevé son minimum à Node.js 20, où le `fetch` intégré marche sans option. Backstage n’a pas réécrit ADR013. Il a écrit **ADR014**, et ADR013 commence maintenant par « Cet ADR a été remplacé par ADR014 et ne s’applique plus. » Les deux restent lisibles.'
+				note: 'Backstage a relevé son minimum à Node.js 20, où le `fetch` intégré marche sans option. Backstage a laissé la décision d’ADR013 telle quelle et a écrit **ADR014**. ADR013 commence maintenant par « Cet ADR a été remplacé par ADR014 et ne s’applique plus. » Les deux restent lisibles.'
 			},
 			{
 				add: ['inplace["Premier commit : modifier ADR013 sur place"] -.->|même pull request| adr14'],
 				highlight: ['inplace'],
-				note: 'La tentation de modifier sur place est réelle. Dans la pull request qui a créé ADR014, le premier commit réécrivait directement la Décision d’ADR013. Un commit suivant, dans la même pull request, a déplacé le changement dans un nouveau record. La règle du projet a gagné : « Les records ne sont jamais supprimés, mais peuvent être marqués comme remplacés. »'
+				note: 'Backstage aussi a d’abord modifié sur place. Dans la pull request qui a créé ADR014, le premier commit réécrivait directement la Décision d’ADR013. Un commit suivant, dans la même pull request, a déplacé le changement dans un nouveau record, comme le demande la règle du projet : « Les records ne sont jamais supprimés, mais peuvent être marqués comme remplacés. »'
 			}
 		]
 	},
@@ -72,41 +70,40 @@ We will gradually transition away from third party \`fetch\` replacement package
 such as \`node-fetch\` and others on the Node.js platform.
 …`,
 		notes: [
-			'Le **Contexte** dit ce qui a changé depuis la dernière décision, sans plaider : un nouveau minimum Node.js, un `fetch` natif stable, des problèmes connus avec les anciennes bibliothèques. C’est un contexte qui a changé qui rend un nouvel ADR légitime.',
-			'La **Décision** est faite de phrases complètes à la voix active, comme le demande le [template](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr000-template.md?plain=1#L9-L22). Le template vient du billet de blog de Nygard de 2011 et dit « toutes les conséquences doivent être listées ici », les négatives aussi.',
-			'Les **Conséquences** le font. Leur dernier paragraphe prévient que `msw` 1.x [n’intercepte pas correctement le fetch natif](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr014-use-fetch.md?plain=1#L79), donc certains tests vont échouer et devront être réécrits. C’est le coût, dit à voix haute.',
-			'Ce qui manque : une section **Alternatives envisagées**. ADR013 cite `axios` et `got` comme paquets à abandonner, mais aucun des deux records ne dit pourquoi ils ont perdu. Un nouveau venu qui demande « pourquoi pas `axios` ? » doit encore aller poser la question.'
+			'Les lignes 1 à 9, le Contexte, disent ce qui a changé depuis ADR013, sans plaider : un nouveau minimum Node.js, un `fetch` natif stable, des problèmes connus avec les anciennes bibliothèques. Comme le contexte a changé, un nouvel ADR se justifie.',
+			'Les lignes 11 à 15, la Décision, sont des phrases complètes à la voix active, comme le demande le [template](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr000-template.md?plain=1#L9-L22). Le template vient du billet de blog de Nygard de 2011 et dit « toutes les conséquences doivent être listées ici », les négatives aussi.',
+			'Les lignes 17 à 20 ouvrent les Conséquences, et la section en liste une négative. Son dernier paragraphe prévient que `msw` 1.x [n’intercepte pas correctement le fetch natif](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/docs/architecture-decisions/adr014-use-fetch.md?plain=1#L79), donc certains tests vont échouer et devront être réécrits.',
+			'Aucun des deux records n’a de section **Alternatives envisagées**, qui liste les options écartées et leur raison. ADR013 cite `axios` et `got` comme paquets à abandonner, sans dire pourquoi ils ont perdu. Un nouveau venu qui demande « pourquoi pas `axios` ? » doit encore aller poser la question.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Le pourquoi survit aux départs, et les relecteurs discutent du raisonnement, pas de toi.',
-			'Écrire les conséquences te force à trouver l’inconvénient avant de livrer, comme les tests `msw` cassés.',
+			'Le pourquoi reste dans le dépôt après le départ de ses auteurs, et les relecteurs peuvent discuter le raisonnement écrit.',
+			'Écrire les conséquences t’oblige à chercher l’inconvénient avant de livrer, comme les tests `msw` cassés.',
 			'Un ADR remplacé garde l’historique : un lecteur voit ce qui a été décidé en 2021, ce qui a changé, et ce qui tient maintenant.'
 		],
 		cost: [
-			'Ça prend du temps que tu préférerais passer à coder.',
-			'Une décision sur le papier n’est pas une décision dans le code. Presque deux ans après ADR014, le [plugin backend Kubernetes](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/plugins/kubernetes-backend/src/service/KubernetesConnection.ts#L24) importe toujours `node-fetch`. Le record dit « progressivement », et progressivement, c’est lent.',
-			'En écrire un pour chaque petit choix enterre les choix importants. Garde-les pour les décisions coûteuses à changer.'
+			'Presque deux ans après ADR014, le [plugin backend Kubernetes](https://github.com/backstage/backstage/blob/b717df252896a9e12b0bca1f84cfe453ecba3283/plugins/kubernetes-backend/src/service/KubernetesConnection.ts#L24) importe toujours `node-fetch`, car le record demande seulement d’abandonner « progressivement ».',
+			'Si tu en écris un pour chaque petit choix, les choix importants se perdent dans la masse. Réserve les ADR aux décisions coûteuses à changer.'
 		]
 	},
 	task: {
 		prompt: 'Écris ADR014 sous forme de **Y-statement** (une phrase). Tout ce qu’il te faut est dans l’extrait et le diagramme.',
 		hint: 'Dans le contexte de… (quel code), face à… (ce qui a changé), nous avons choisi… et écarté… (l’ancienne option), pour obtenir… (le gain), en acceptant… (le coût).',
 		answer: [
-			'**Dans le contexte du** code Backstage qui tourne dans Node.js et fait des appels HTTP,',
-			'**face à** un minimum Node.js 20 avec un `fetch` natif intégré, et à des problèmes avec les bibliothèques tierces sur les versions récentes de Node.js,',
-			'**nous avons choisi** le `fetch` natif partout dans Node.js **et écarté** le maintien de `node-fetch` que demandait ADR013,',
-			'**pour obtenir** un seul `fetch`, sans paquet supplémentaire à tenir à jour,',
-			'**en acceptant** que les tests basés sur `msw` 1.x puissent ne plus intercepter le trafic et doivent être réécrits pour `msw` 2.x.'
+			'Dans le contexte du code Backstage qui tourne dans Node.js et fait des appels HTTP,',
+			'face à un minimum Node.js 20 avec un `fetch` natif intégré, et à des problèmes avec les bibliothèques tierces sur les versions récentes de Node.js,',
+			'nous avons choisi le `fetch` natif partout dans Node.js et écarté le maintien de `node-fetch` que demandait ADR013,',
+			'pour obtenir un seul `fetch`, sans paquet supplémentaire à tenir à jour,',
+			'en acceptant que les tests basés sur `msw` 1.x puissent ne plus intercepter le trafic et doivent être réécrits pour `msw` 2.x.'
 		]
 	},
 	quiz: [
 		{
-			q: 'Un an après l’acceptation d’un ADR, l’équipe change la décision. Que devient l’ancien ADR ?',
+			q: 'Un an après l’acceptation d’un ADR, l’équipe change la décision. Qu’arrive-t-il à l’ancien ADR ?',
 			options: ['On modifie sa section Décision pour coller au nouveau choix', 'On écrit un nouvel ADR et on marque l’ancien « remplacé »', 'On le supprime, le code fait foi', 'On ajoute un commentaire dans le code qui l’utilisait'],
 			answer: 1,
-			why: 'Les ADR acceptés forment un historique. Tu les remplaces, pour que les lecteurs voient à la fois ce qui a été décidé et pourquoi ça a changé. L’ADR013 de Backstage commence par une note qui renvoie vers ADR014.'
+			why: 'Les ADR acceptés gardent l’historique. Tu les remplaces, pour que les lecteurs voient à la fois ce qui a été décidé et pourquoi ça a changé. L’ADR013 de Backstage commence par une note qui renvoie vers ADR014.'
 		},
 		{
 			q: 'ADR014 prévient que les tests `msw` 1.x peuvent échouer avec le fetch natif. Pourquoi cette ligne a-t-elle sa place dans les Conséquences ?',
@@ -121,7 +118,10 @@ such as \`node-fetch\` and others on the Node.js platform.
 			why: 'Le guide dit de copier le template sans attribuer de numéro, de recueillir les retours sur la pull request, et « au bout du compte, d’attribuer un numéro ». Un numéro marque une décision réellement prise.'
 		}
 	],
-	takeaway: 'Une décision, une page : contexte, décision, conséquences. Quand le contexte change, écris un nouveau record et remplace l’ancien.',
+	recall: {
+		q: 'Backstage est passé de `node-fetch` au `fetch` natif. Qu’a-t-il fait d’ADR013, et pourquoi ?',
+		a: 'Il a écrit ADR014 et marqué ADR013 comme remplacé, sans toucher à la décision d’ADR013. Les records acceptés ne sont jamais supprimés : un lecteur voit encore la décision de 2021, ce qui a changé (Node.js 20) et ce qui tient maintenant.'
+	},
 	sources: [
 		{ title: 'Backstage ADR014, Proper use of HTTP fetching libraries', url: `${ADRS}/adr014-use-fetch.md` },
 		{ title: 'Backstage ADR013 (superseded), the node-fetch decision', url: `${ADRS}/adr013-use-node-fetch.md` },

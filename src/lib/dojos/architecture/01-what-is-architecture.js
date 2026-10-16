@@ -4,19 +4,17 @@ const DJANGO = 'https://github.com/django/django/blob/d430084791a61b31cecec132bc
 export default {
 	slug: 'what-is-architecture',
 	part: 'Thinking like an architect',
-	title: 'Architecture is the decisions that are expensive to change',
+	title: 'Software architecture: the decisions that are expensive to change',
 	minutes: 10,
 	hook: [
 		'Django\'s FAQ answers "Does Django scale?" with a yes, and this reason: Django uses a **"shared-nothing" architecture**, so you can add hardware at any level, database servers, caching servers or web servers.',
-		'That one decision shapes every app built on it. A Django process keeps nothing between requests that another process would need. Sessions go to the database by default, not into memory. Change that rule late, and half your code has to move.',
-		'That is what architecture is: **the few decisions that are expensive to change later, and that every other decision has to live with**. Your job as an architect is to make those decisions on purpose, and to know what each one costs.'
+		'Every app built on Django lives with that decision. A Django process keeps nothing between requests that another process would need. By default, sessions go to the database and stay out of process memory. If you change that rule late, half your code has to move.',
+		'Architecture is the few decisions that are expensive to change later, and that every other decision depends on. As an architect, you make those decisions on purpose and you know what each one costs.'
 	],
 	terms: [
 		{ term: 'Architecture', def: 'The decisions that are hard to change later and shape everything else: how the system is split, where state lives, how parts talk.' },
-		{ term: 'Trade-off', def: 'What you give up to get what you want. Every architecture decision has one.' },
-		{ term: 'First law', def: '"Everything in software architecture is a trade-off." If you think you found a decision with no downside, you have not found the downside yet.' },
-		{ term: 'Second law', def: '"Why is more important than how." Anyone can read **how** in the code. Only a written decision keeps the **why**.' },
-		{ term: 'Stateless', def: 'A server that keeps nothing between requests. Any copy can answer any request because the state lives elsewhere.' }
+		{ term: 'Trade-off', def: 'What you give up to get what you want. The first law of software architecture says every decision has one: "Everything in software architecture is a trade-off."' },
+		{ term: 'Stateless', def: 'A server that keeps nothing between requests. Any copy can answer any request because the state lives in another store.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -24,21 +22,21 @@ export default {
 			{
 				add: ['users(["Shoppers: browser and mobile"]) -->|HTTPS| lb["Load balancer"]', 'lb --> app1["Django app"]', 'app1 --> db[("PostgreSQL: orders, sessions")]'],
 				highlight: ['users', 'lb', 'app1', 'db'],
-				note: '**Launch day for a small online shop.** One app process, one database. Sessions live in the database, because that is Django\'s default.'
+				note: 'A small online shop launches with one app process and one database. Sessions are stored in the database, because that is Django\'s default.'
 			},
 			{
 				add: ['app1 --> cache[("Redis: shared cache")]'],
 				highlight: ['cache'],
-				note: '**The shop gets busy.** Pages are cached. The cache is a separate server, not the app\'s own memory, so every process sees the same cached pages.'
+				note: 'As traffic grows, the shop caches pages. The cache runs on a separate Redis server outside the app\'s memory, so every process sees the same cached pages.'
 			},
 			{
 				add: ['lb --> app2["Django app 2"]', 'lb --> app3["Django app 3"]', 'app2 --> db', 'app2 --> cache', 'app3 --> db', 'app3 --> cache'],
 				highlight: ['app2', 'app3'],
-				note: '**Black Friday.** Run more copies of the same app behind the load balancer. This only works because the app is **stateless**: any copy can serve any shopper, the state lives in PostgreSQL and Redis.'
+				note: 'On Black Friday, the shop runs more copies of the same app behind the load balancer. This works because the app is **stateless**: any copy can serve any shopper, and the state lives in PostgreSQL and Redis.'
 			},
 			{
 				add: [],
-				note: 'Notice what did **not** change between the three steps: the code. The decision "no state in the app process" is what made growing from one box to many a deployment change, not a rewrite.'
+				note: 'The code stayed the same across the three steps. Because the app process holds no state, going from one machine to three was a deployment change, with no rewrite.'
 			}
 		]
 	},
@@ -57,32 +55,31 @@ CACHES = {
     }
 }`,
 		notes: [
-			'Sessions default to the **database**. Any process can read any shopper\'s session, so the load balancer can send each request anywhere.',
-			'The cache defaults to **local memory**. The Django docs are blunt about it: ["each process will have its own private cache instance, which means no cross-process caching is possible"](https://github.com/django/django/blob/d430084791a61b31cecec132bce3dca19194f7f2/docs/topics/cache.txt?plain=1#L426-L429). They call it "nice for development".',
-			'So one default keeps the shared-nothing promise and one quietly breaks it once you run two copies. Moving the cache to Redis or Memcached is a small settings change on day one, and a hunt for stale data on day 300.',
-			'Defaults are decisions too. Read them before you scale out.'
+			'Line 2 stores sessions in the **database** by default. Any process can read any shopper\'s session, so the load balancer can send each request to any copy.',
+			'Lines 4 to 8 put the cache in local memory by default. The Django docs: ["each process will have its own private cache instance, which means no cross-process caching is possible"](https://github.com/django/django/blob/d430084791a61b31cecec132bce3dca19194f7f2/docs/topics/cache.txt?plain=1#L426-L429). They call it "nice for development".',
+			'The session default keeps the shared-nothing promise, and the cache default breaks it as soon as you run two copies. Moving the cache to Redis or Memcached is a small settings change on day one, and a hunt for stale data on day 300.',
+			'Read the default settings of your framework before you run a second copy of the app.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'You scale by adding copies. No copy is special.',
-			'A copy can crash or be replaced during a deploy, and shoppers do not lose their cart.',
-			'Each copy is simple: it reads state, does the work, writes state, forgets.'
+			'You scale by adding identical copies, and the load balancer can send any request to any of them.',
+			'A copy can crash or be replaced during a deploy, and shoppers keep their cart, because it is in the database.'
 		],
 		cost: [
 			'Every request pays a network trip to the database or cache for state that could have been in memory.',
-			'The shared stores become the hard part. Adding app copies is easy, adding database capacity is not.',
-			'Anything that wants to live in memory, like a local cache or an upload in progress, has to be moved out on purpose.'
+			'Adding app copies is easy, and adding capacity to the shared PostgreSQL and Redis servers is much harder.',
+			'Anything that would sit in memory, like a local cache or an upload in progress, has to be moved to a shared store on purpose.'
 		]
 	},
 	task: {
 		prompt: 'A teammate on a video platform proposes keeping half-uploaded video chunks in the app\'s memory until the upload finishes, because it is faster. On the setup from step 3, what breaks?',
 		hint: 'Look at step 3. Which copy receives the second chunk?',
 		answer: [
-			'The load balancer can send chunk 2 to **app 2**, which never saw chunk 1. The upload fails or corrupts.',
-			'It breaks the "stateless app" decision. You would need sticky sessions (always the same copy per user) or a shared store for chunks.',
-			'Sticky sessions are a new trade-off: a copy that dies takes its users\' uploads with it, and load spreads unevenly.',
-			'The architect\'s move: not "no", but "this changes a decision we rely on, here is what it costs, is it worth it?"'
+			'The load balancer can send chunk 2 to **app 2**, which never saw chunk 1. The upload fails or ends up corrupted.',
+			'The proposal puts state in the app process, against the "stateless app" decision. You would need sticky sessions (always the same copy per user) or a shared store for chunks.',
+			'Sticky sessions bring a new trade-off: a copy that dies takes its users\' uploads with it, and load spreads unevenly.',
+			'As the architect, you do not just say no. You say: "this changes a decision we rely on, here is what it costs, is it worth it?"'
 		]
 	},
 	quiz: [
@@ -90,7 +87,7 @@ CACHES = {
 			q: 'Why can a shared-nothing web app run as several identical copies behind one load balancer?',
 			options: ['Because the load balancer pins each user to one copy, so no copy ever sees another user', 'Because the load balancer copies session memory between the app processes after each request', 'Because the app process keeps no state between requests, it all lives in shared stores like the database', 'Because each copy keeps its own sessions in memory and syncs them with the others in the background'],
 			answer: 2,
-			why: 'Stateless processes are interchangeable. Any copy can answer any request, so you add copies to scale.'
+			why: 'A stateless process reads all state from the shared stores. Any copy can answer any request, so you add copies to scale.'
 		},
 		{
 			q: 'What makes a decision an **architecture** decision?',
@@ -105,7 +102,10 @@ CACHES = {
 			why: 'The default `LocMemCache` is per process. It keeps state in the app process, which is exactly what shared-nothing forbids. Point `CACHES` at a shared server before you run a second copy.'
 		}
 	],
-	takeaway: 'Architecture is the short list of expensive-to-change decisions. For each one, know what it buys and what it costs.',
+	recall: {
+		q: 'What makes a decision an architecture decision, and which Django decision is the example here?',
+		a: 'It is expensive to change later and other decisions depend on it. In Django, the app process keeps no state between requests (sessions go to the database), so you scale by adding copies.'
+	},
 	sources: [
 		{ title: 'Django FAQ, Does Django scale?', url: `${DJANGO}/docs/faq/general.txt?plain=1#L55-L66` },
 		{ title: 'Django, global_settings.py: session and cache defaults', url: `${DJANGO}/django/conf/global_settings.py#L509-L526` },

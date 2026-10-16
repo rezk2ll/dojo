@@ -1,7 +1,7 @@
 <script>
 	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { companion, react, SIZES } from '#lib/companion.svelte.js';
+	import { companion, eyesInUse, react, SIZES } from '#lib/companion.svelte.js';
 	import { activeToday, streak } from '#lib/progress.svelte.js';
 	import { fmt } from '#lib/text.js';
 	import { t } from '#lib/i18n.svelte.js';
@@ -80,6 +80,7 @@
 
 	$effect(() => view?.setColor(color));
 	$effect(() => view?.setOutfit(outfit));
+	$effect(() => view?.setEyes(eyesInUse()));
 	$effect(() => view?.resize(size));
 	$effect(() => view?.setCombo(companion.combo));
 	$effect(() => view?.setStreak({ days: streak(days), needsYou }));

@@ -9,9 +9,9 @@ export default {
 	title: 'Architecture styles',
 	minutes: 10,
 	hook: [
-		'Someone in a meeting says "we should move to microservices". Someone else says "we already have a modular monolith". Nobody checks what the code actually is. The argument is about labels.',
-		'An **architecture style** is a named shape for a whole system: how it is split, how the parts talk, how it is deployed. Richards & Ford catalogue them: layered, modular monolith, pipeline, microkernel, service-based, event-driven, space-based, orchestration-driven SOA, microservices. Each comes with **known strengths and known weaknesses**.',
-		'The useful skill is not knowing the list. It is **looking at real code, naming its style honestly, and checking that style against the characteristics you said matter** (day 2). Most real systems are a mix. Today: Discourse, the forum software, and one microservices demo for contrast.'
+		'Someone in a meeting says "we should move to microservices". Someone else says "we already have a modular monolith". Nobody opens the code to check which one it is.',
+		'An **architecture style** is a named shape for a whole system: how it is split, how the parts talk, how it is deployed. Richards & Ford catalogue them: layered, modular monolith, pipeline, microkernel, service-based, event-driven, space-based, orchestration-driven SOA, microservices. Each style has strengths and weaknesses you can look up.',
+		'You will look at real code, name its style, and check that style against the characteristics you picked on day 2. Most real systems mix several styles. The code is Discourse, the forum software, with a microservices demo for comparison.'
 	],
 	terms: [
 		{ term: 'Style', def: 'The overall shape of a system: its split, its communication and its deployment units. A style has typical trade-offs you can look up.' },
@@ -25,27 +25,27 @@ export default {
 			{
 				add: ['app["Discourse: one Rails app"]', 'app --> ctrl["app/controllers"]', 'app --> models["app/models"]', 'app --> jobs["app/jobs"]'],
 				highlight: ['app', 'ctrl', 'models', 'jobs'],
-				note: '**A monolith, split by layer.** One Rails back end, with Postgres and Redis. The folders under `app/` are technical layers: controllers, models, serializers, services, jobs. Topics, posts and users each live in several of them. That is a layered monolith, not a modular one.'
+				note: 'Discourse is one Rails back end, with Postgres and Redis. The folders under `app/` are technical layers: controllers, models, serializers, services, jobs. Topics, posts and users each live in several of them, so this is a layered monolith.'
 			},
 			{
 				add: ['pc["PostCreator: save in one transaction"]', 'evt["DiscourseEvent.trigger :post_created"]', 'models --> pc', 'pc -->|"after commit, in process"| evt'],
 				highlight: ['pc', 'evt'],
-				note: '**Event-driven, inside the monolith.** After the transaction, `PostCreator` triggers `:post_created`. `DiscourseEvent` is a hash of blocks in memory. It calls each one in turn, in the same process, before `create` returns.'
+				note: 'The monolith also uses events inside its own process. After the transaction, `PostCreator` triggers `:post_created`. `DiscourseEvent` is a hash of blocks in memory, and it calls each one in turn before `create` returns.'
 			},
 			{
 				add: ['sq["Sidekiq workers"]', 'pc -->|"enqueue_jobs"| sq', 'class sq ext'],
 				highlight: ['sq'],
-				note: '**Background jobs.** Slow work goes to Sidekiq through Redis: `enqueue_jobs` runs right after the events. Same code base, a second kind of process. `app/jobs` holds over a hundred regular jobs and over a hundred scheduled ones.'
+				note: 'Slow work goes to Sidekiq through Redis: `enqueue_jobs` runs right after the events. The Sidekiq workers run the same code base as a second kind of process. `app/jobs` holds over a hundred regular jobs and over a hundred scheduled ones.'
 			},
 			{
 				add: ['poll["plugins/poll"]', 'chat["plugins/chat"]', 'poll -->|"on(:post_created)"| evt', 'poll -->|"prepend into Post, User"| models', 'chat -->|"plugin API"| app'],
 				highlight: ['poll', 'chat'],
-				note: '**Microkernel, with open doors.** The repo ships 46 plugins, from `poll` to `chat`. Each has a `plugin.rb` that calls the plugin API: `on(event)`, `add_to_serializer`, `add_to_class`. The poll plugin also prepends its own modules into the core `Post` and `User` classes.'
+				note: 'The plugins make Discourse a microkernel too. The repo ships 46 plugins, from `poll` to `chat`, and each has a `plugin.rb` that calls the plugin API: `on(event)`, `add_to_serializer`, `add_to_class`. The poll plugin also prepends its own modules into the core `Post` and `User` classes.'
 			},
 			{
 				add: ['boutique["Online Boutique: 11 services, many languages, gRPC"]', 'class boutique ext'],
 				highlight: ['boutique'],
-				note: '**For contrast, microservices.** Google\'s Online Boutique demo is "11 microservices written in different languages that talk to each other over gRPC". Each one is built and deployed on its own. Compare: in Discourse, a new feature is a plugin folder and a new release of one app.'
+				note: 'For comparison, Google\'s Online Boutique demo is "11 microservices written in different languages that talk to each other over gRPC". Each service is built and deployed on its own. In Discourse, a new feature is a plugin folder and a new release of one app.'
 			}
 		]
 	},
@@ -73,17 +73,17 @@ after_initialize do
     scope.user&.staff? || scope.user&.in_any_groups?(SiteSetting.poll_create_allowed_groups_map)
   end`,
 		notes: [
-			'Three ways in. A **setting** that switches the plug-in on and off. A **hook** on a core event. An **extension** of a core class or serializer. Together they are the contract between core and plug-in.',
-			'The core wraps each hook in the on/off switch: [`on`](' + REPO + '/lib/plugin/instance.rb#L691-L694) registers a block with `DiscourseEvent` that runs only `if enabled?`. [`add_to_class`](' + REPO + '/lib/plugin/instance.rb#L474-L491) defines a method on any core class, guarded the same way.',
-			'`prepend` has no such guard and no fixed contract. The plug-in can change any method of `Post`. That is the microkernel cost in full: plug-ins are independent until a core class changes under them.',
-			'The events run inline. [`DiscourseEvent.trigger`](' + REPO + '/lib/discourse_event.rb#L11-L18) calls each block in turn and re-raises unless `continue_on_error`. [`PostCreator`](' + REPO + '/lib/post_creator.rb#L203-L280) passes `continue_on_error: true` for `:post_created`, so a broken plug-in is a warning, not a failed post.'
+			'The plug-in enters the core in three ways. Line 1 is a setting that switches it on and off. Line 10 is a hook on a core event, and line 16 extends a core serializer. These calls are the **contract** between core and plug-in.',
+			'The core wraps each hook in the on/off switch: [`on`](' + REPO + '/lib/plugin/instance.rb#L691-L694) registers a block with `DiscourseEvent` that runs only `if enabled?`. `add_to_class` defines a method on any core class, with the same guard.',
+			'Lines 6 and 7 use `prepend`, which has no such guard and no fixed contract. The plug-in can change any method of `Post`. A core refactor of `Post` can then break the poll plug-in, though the core never mentions it.',
+			'The events run inline. [`DiscourseEvent.trigger`](' + REPO + '/lib/discourse_event.rb#L11-L18) calls each block in turn and re-raises unless `continue_on_error`. `PostCreator` passes `continue_on_error: true` for `:post_created`, so a broken plug-in logs a warning and the post is still saved.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Discourse (monolith): **simple** to run. One app, one database, one thing to deploy and debug, and one transaction around a new post.',
-			'Plug-ins (microkernel): each site switches features on with a setting. Customization without forking.',
-			'In-process events: a new reaction to "post created" is a hook, not an edit to `PostCreator`.'
+			'Discourse runs as one app with one database: one thing to deploy and debug, and one transaction around a new post.',
+			'With plug-ins, each site switches features on with a setting, and nobody has to fork Discourse.',
+			'A new reaction to "post created" is an `on(:post_created)` hook, and `PostCreator` stays unchanged.'
 		],
 		cost: [
 			'Every change ships the whole app, and a bug in one area can take down all of them.',
@@ -95,10 +95,10 @@ after_initialize do
 		prompt: 'Pick one component you work on. In 3 minutes: name its style (one of the Richards & Ford names, or "X with Y inside"). Then rate it against your top 3 characteristics from day 2 with a +, = or -.',
 		hint: 'Look at the top-level folders (layer names or business names?), the number of deployables, and how parts talk (calls, events, plug-in hooks).',
 		answer: [
-			'Check: did you name it from the **code**, not from the wiki or the team\'s wish?',
-			'Check: top folders named `controllers/services/repositories` mean technical partitioning. Folders named after business areas mean domain partitioning.',
-			'Check: at least one characteristic got a **minus**. Every style has one, and pretending otherwise fails the first law (day 1: everything is a trade-off).',
-			'Bonus: write one sentence on what would have to change to move it to the next style. That sentence is an ADR waiting to happen.'
+			'Check: did you name it from the **code**, instead of from the wiki or what the team wants it to be?',
+			'Check: top folders named `controllers/services/repositories` mean technical partitioning. Top folders named after business areas mean domain partitioning.',
+			'Check: at least one characteristic got a minus. Every style has one, and day 1 said every choice is a trade-off.',
+			'Bonus: write one sentence on what would have to change to move it to the next style. You can turn that sentence into an ADR.'
 		]
 	},
 	quiz: [
@@ -106,26 +106,31 @@ after_initialize do
 			q: 'A system is one deployable whose top folders are `controllers/`, `models/` and `jobs/`, with business areas spread inside each. Which label is most honest?',
 			options: ['Microservices, one per top-level folder', 'A pure modular monolith, partitioned by business domain first', 'Space-based architecture', 'A layered monolith: technical partitioning first'],
 			answer: 3,
-			why: 'The first split is technical (layers), so it is not a modular monolith. It is one deployable, so it is not microservices. Name what the code shows.'
+			why: 'The top folders split the code by layer, so it is not a modular monolith. The system ships as one deployable, so it cannot be microservices.'
 		},
 		{
 			q: 'What makes Discourse\'s plug-in system a microkernel?',
 			options: ['It stores every plug-in in its own database, apart from the core one', 'A core app loads plug-ins that add hooks, settings and extensions', 'Each plug-in runs as its own service and talks to the core over gRPC', 'It sends every event to Sidekiq so the plug-ins can process it'],
 			answer: 1,
-			why: 'Microkernel means core plus plug-ins. Each `plugin.rb` registers what it adds through the plug-in API. The plug-ins run inside the same Rails process.'
+			why: 'In a microkernel, a core app loads plug-ins at boot. Each `plugin.rb` registers what it adds through the plug-in API, and the plug-ins run inside the same Rails process.'
 		},
 		{
 			q: '`DiscourseEvent` keeps its handlers in memory and calls them inline, after the post is saved. What is the trade-off?',
 			options: ['Cheap and simple, but a slow handler delays the caller and nothing replays it after a crash', 'It needs a separate broker process to run, which adds a deployable to operate', 'Handlers run before the transaction commits, so they can roll back the post', 'There is no real downside, since every process registers the same handlers at boot'],
 			answer: 0,
-			why: 'In-process events cost nothing to set up. They also give no durability and no isolation: the handler runs inside the caller, and a crash loses it. Work that must survive goes to a Sidekiq job.'
+			why: 'In-process events need no setup. They are also not stored and not isolated: the handler runs inside the caller, and a crash loses it. Work that must survive goes to a Sidekiq job.'
 		}
 	],
-	takeaway: 'Name the style from the code, expect a mix, and rate it against your own characteristics, minuses included.',
+	recall: {
+		q: 'Which two styles does Discourse mix, and what in the code shows each one?',
+		a: 'A layered monolith: one Rails app whose `app/` folders are layers (controllers, models, jobs). A microkernel: 46 plug-ins, each with a `plugin.rb` that calls `on`, `add_to_serializer` or `add_to_class`.'
+	},
 	sources: [
 		{ title: 'Richards & Ford, Fundamentals of Software Architecture, 2nd ed., table of contents', url: 'https://nealford.com/books/SAF2e.html' },
 		{ title: 'Richards & Ford, Fundamentals of Software Architecture, 2nd ed. (O\'Reilly)', url: 'https://www.oreilly.com/library/view/fundamentals-of-software/9781098175504/' },
 		{ title: 'Discourse, lib/plugin/instance.rb: the plug-in API', url: `${REPO}/lib/plugin/instance.rb#L691-L694` },
+		{ title: 'Discourse, lib/plugin/instance.rb: add_to_class', url: `${REPO}/lib/plugin/instance.rb#L474-L491` },
+		{ title: 'Discourse, lib/post_creator.rb', url: `${REPO}/lib/post_creator.rb#L203-L280` },
 		{ title: 'Discourse, plugins/: the bundled plug-ins', url: `${TREE}/plugins` },
 		{ title: 'Online Boutique, README: architecture', url: `${BOUTIQUE}/README.md#architecture` }
 	]

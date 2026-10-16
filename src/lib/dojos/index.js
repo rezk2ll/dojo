@@ -89,6 +89,25 @@ export const dojos = [
 			en: 'One real bug a day, from a real fix commit. Questions come back later so they stick.',
 			fr: 'Un vrai bug par jour, tiré d’un vrai commit de correctif. Les questions reviennent plus tard pour que ça reste.'
 		}
+	},
+	{
+		id: 'kata',
+		name: 'Kata Dojo',
+		hue: 245,
+		chroma: 0.1,
+		hex: { top: '#8cbde8', left: '#407aa9', right: '#609ed1' },
+		description: {
+			en: 'One system design exercise a day: a brief, ten minutes on paper, a checklist and a sample answer.',
+			fr: 'Un exercice de conception de système par jour : un énoncé, dix minutes sur papier, une liste de vérification et une réponse possible.'
+		},
+		heroTitle: {
+			en: 'Design one system a day, on paper.',
+			fr: 'Conçois un système par jour, sur papier.'
+		},
+		heroText: {
+			en: 'Read the brief, sketch for ten minutes, check your design against the list, then compare with one answer.',
+			fr: 'Lis l’énoncé, dessine pendant dix minutes, vérifie ton design avec la liste, puis compare avec une réponse.'
+		}
 	}
 ];
 

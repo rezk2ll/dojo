@@ -4,7 +4,7 @@ const ETCD = 'https://github.com/etcd-io/etcd';
 export default {
 	slug: 'unbounded-growth',
 	part: 'Les ressources',
-	title: 'Une file que seul le leader vide',
+	title: 'Un tas de leases que seul le leader etcd vide',
 	minutes: 10,
 	hook: [
 		'Un cluster etcd 3.4.3 de trois membres sert des clients qui utilisent des leases. Le signalement : "Leader memory is normal , but two follower node memory are very big" (la mémoire du leader est normale, celle des deux followers est énorme). Pas de fuite de goroutines, peu de charge, et un redémarrage ne règle le problème que pour un temps.',
@@ -66,10 +66,10 @@ return l, nil`,
  		le.scheduleCheckpointIfNeeded(l)
  	}`,
 		notes: [
-			'**Tous les membres ajoutent, un seul retire.** Les lignes 19 et 20 s’exécutent sur chaque membre, leader ou pas. Le tas ne rétrécit que dans `expireExists`, que seul le leader appelle. Sur un follower, chaque nouvel ID de lease ajoute un élément au tas et une entrée à sa map, et rien ne les retire.',
-			'**Révoquer n’aide pas.** `Revoke` supprime le lease de `leaseMap` et du backend, mais laisse son élément dans le notifier. Sur le leader, `expireExists` retrouve plus tard l’ID mort et le désinscrit. Sur un follower, ça n’arrive jamais. Disons que les clients créent et révoquent 10 leases par seconde : au bout d’un jour, chaque follower garde 864 000 éléments pour des leases qui n’existent plus.',
-			'**L’élément d’un follower ne sert à rien de toute façon.** La ligne 15 met un lease de follower à `forever()`, donc l’élément qu’il inscrit expire dans un futur lointain. Quand un follower devient leader, `Promote` rafraîchit chaque lease et l’inscrit à nouveau : le leader n’a pas besoin de ce que le follower avait stocké.',
-			'**Le correctif.** N’inscrire l’élément que `if le.isPrimary()`. Le même commit fait remplacer le notifier par un notifier vide dans `Demote`, pour qu’un leader qui redevient follower jette aussi ses éléments. Signalé dans l’issue [#11730](' + ETCD + '/issues/11730), corrigé dans la pull request [#11731](' + ETCD + '/pull/11731).'
+			'Les lignes 19 et 20 tournent sur le leader et sur chaque follower. Le tas ne rétrécit que dans `expireExists`, que seul le leader appelle. Sur un follower, chaque nouvel ID de lease ajoute un élément au tas et une entrée à sa map, et aucun code ne les retire.',
+			'`Revoke` supprime le lease de `leaseMap` et du backend, mais laisse son élément dans le notifier. Sur le leader, `expireExists` retrouve plus tard l’ID mort et le désinscrit. Sur un follower, ça n’arrive jamais. Si les clients créent et révoquent 10 leases par seconde, chaque follower garde 864 000 éléments de leases supprimés au bout d’un jour.',
+			'La ligne 15 met un lease de follower à `forever()`, donc l’élément qu’il inscrit expire dans un futur lointain. Quand un follower est promu leader, `Promote` rafraîchit chaque lease et l’inscrit à nouveau. Le nouveau leader ne lit jamais les éléments stockés par le follower.',
+			'Le correctif déplace les lignes 19 et 20 dans le bloc `if le.isPrimary()` de la ligne 26. Le même commit fait remplacer le notifier par un notifier vide dans `Demote` : un leader qui repasse follower jette aussi ses éléments. Le correctif est la [pull request #11731](' + ETCD + '/pull/11731).'
 		]
 	},
 	quiz: [
@@ -102,7 +102,10 @@ return l, nil`,
 			why: 'Ici, l’ajout tournait sur chaque membre et le retrait seulement sur le leader. La taille, le type des éléments ou le verrou n’empêchent pas une structure de grossir si rien n’en retire.'
 		}
 	],
-	takeaway: 'Pour chaque map, tas ou file qui grandit, trouve le code qui en retire et vérifie qu’il tourne partout où tourne le code qui ajoute. Une condition de rôle (leader seulement, primaire seulement) d’un côté et pas de l’autre, c’est une fuite.',
+	recall: {
+		q: 'Pourquoi le `leaseExpiredNotifier` d’un follower etcd grossissait-il sans limite ?',
+		a: 'Le code de création inscrivait un élément sur chaque membre, mais seul le leader exécute `expireExists`, qui retire les éléments. Le correctif n’inscrit l’élément que `if le.isPrimary()`.'
+	},
 	sources: [
 		{ title: 'etcd, pull request #11731', url: `${ETCD}/pull/11731` },
 		{ title: 'etcd, issue #11730, le signalement', url: `${ETCD}/issues/11730` }

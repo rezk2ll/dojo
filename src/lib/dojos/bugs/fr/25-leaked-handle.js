@@ -4,7 +4,7 @@ const SPRING = 'https://github.com/spring-projects/spring-framework';
 export default {
 	slug: 'leaked-handle',
 	part: 'Les ressources',
-	title: 'Le close qu’un throw saute',
+	title: 'Une connexion jamais fermée, à cause d’un throw dans finally',
 	minutes: 10,
 	hook: [
 		'Spring JDBC fournit `MySQLMaxValueIncrementer`, qui distribue des identifiants à partir d’une table compteur dans MySQL. Par défaut, il prend une **connexion à part** dans la `DataSource` pour chaque mise à jour du compteur, fait un commit, puis ferme cette connexion.',
@@ -70,10 +70,10 @@ finally {
 +                        }
                      }`,
 		notes: [
-			'**Un throw au milieu du nettoyage.** Le `finally` extérieur s’exécute sur tous les chemins, mais il contient son propre `catch` qui lance une exception. Quand `con.commit()` ou `con.setAutoCommit(true)` échoue, ce `throw` sort tout de suite du bloc `finally`. `JdbcUtils.closeConnection(con)` est la ligne d’après : elle ne s’exécute jamais.',
-			'**Ce que ça coûte.** La connexion vient de `getDataSource().getConnection()` et plus personne ne la tient. Si la `DataSource` est un pool de 10 connexions, 10 commits ratés les laissent toutes les 10 empruntées, et l’appelant suivant attend une connexion qui ne revient jamais.',
-			'**Le correctif.** Un `finally` sur le `try` intérieur met la fermeture sur tous les chemins de sortie, y compris le `throw` du `catch`. L’exception arrive toujours à l’appelant, après la fermeture de la connexion.',
-			'**Comment ça a été trouvé.** [La pull request #37321](' + SPRING + '/pull/37321) l’explique : "the exception handler throws a `DataAccessResourceFailureException` before reaching `Connection.close()`." Le message du commit : "Move connection cleanup into a finally block so the connection is closed even if commit or auto-commit restoration fails."'
+			'Le `finally` extérieur de la ligne 18 s’exécute sur tous les chemins, mais son `catch` intérieur lance une exception à la ligne 29. Si `con.commit()` (ligne 23) ou `con.setAutoCommit(true)` (ligne 25) échoue, ce `throw` sort aussitôt du bloc `finally`. `JdbcUtils.closeConnection(con)`, à la ligne 32, ne s’exécute jamais.',
+			'La connexion vient de `getDataSource().getConnection()` à la ligne 6, et plus aucune variable ne la tient. Avec un pool de 10 connexions, 10 commits ratés laissent les 10 empruntées. L’appelant suivant attend alors une connexion qui ne revient jamais.',
+			'Le correctif place la ligne 32 dans un `finally` du `try` intérieur : la fermeture a lieu sur tous les chemins de sortie, y compris le `throw` du `catch`. L’exception arrive toujours à l’appelant, une fois la connexion fermée.',
+			'[La pull request #37321](' + SPRING + '/pull/37321) décrit la fuite : "the exception handler throws a `DataAccessResourceFailureException` before reaching `Connection.close()`." Le message du commit : "Move connection cleanup into a finally block so the connection is closed even if commit or auto-commit restoration fails."'
 		]
 	},
 	quiz: [
@@ -111,7 +111,10 @@ finally {
 			why: 'La fuite n’arrive que sur le chemin d’échec. Une connexion simulée dont `commit` lance une exception, et une vérification que `close` a quand même été appelé, la couvrent.'
 		}
 	],
-	takeaway: 'Regarde dans chaque bloc `finally` s’il y a du code qui peut lancer une exception avant le dernier appel de nettoyage. Mets chaque nettoyage dans son propre `finally`, ou utilise try-with-resources, pour qu’une exception plus haut dans le bloc ne puisse pas le sauter.',
+	recall: {
+		q: 'Pourquoi `JdbcUtils.closeConnection(con)` ne s’exécutait-il pas quand le commit échouait, et qu’a changé le correctif ?',
+		a: 'Le `catch` autour de `con.commit()` lançait une `DataAccessResourceFailureException`, qui sortait du `finally` extérieur avant la ligne de fermeture. Le correctif met `closeConnection(con)` dans un `finally` du `try` intérieur.'
+	},
 	sources: [
 		{ title: 'spring-framework, pull request #37321', url: `${SPRING}/pull/37321` },
 		{ title: 'Le commit du correctif', url: `${SPRING}/commit/5e45b9be1b742c7493e2bafbb0f1d1d0828194e3` }

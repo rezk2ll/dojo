@@ -4,7 +4,7 @@ const SIDEKIQ = 'https://github.com/sidekiq/sidekiq';
 export default {
 	slug: 'infinite-loop',
 	part: 'Resources',
-	title: 'A job deleted from the wrong queue',
+	title: 'Sidekiq drain_all loops on a job outside its default queue',
 	minutes: 10,
 	hook: [
 		'In Sidekiq\'s fake test mode, jobs are not sent to Redis. They wait in memory until a test runs them with `drain` or `drain_all`. A user\'s test called `Sidekiq::Worker.drain_all` and **never returned**. Each job had run once. The loop kept going with nothing left to run.',
@@ -68,10 +68,10 @@ class << self
 +          Queues.delete_for(next_job["jid"], next_job["queue"], self.to_s)
            process_job(next_job)`,
 		notes: [
-			'**Added under one name, removed under another.** The client pushes with `Queues.push(job[\'queue\'], ...)`, the queue written in the job. `drain` deletes with `queue`, the default from the worker\'s `sidekiq_options`. When the two differ, `delete_if` runs on the wrong array and removes nothing there.',
-			'**Where it loops.** A worker has the default queue `"default"` and one job sits in `"critical"`. `drain` deletes it from `jobs_by_worker` (the class name is right) and runs it, so its own `while` ends. `jobs_by_queue["critical"]` still holds the job. `drain_all` reads that hash, sees one job, calls `drain` again, which finds no job for the worker and returns. That repeats forever.',
-			'**The fix.** `next_job["queue"]` is the queue the job was pushed to, so the delete hits the same array as the push. Both hashes lose the job, and the exit condition of `drain_all` becomes false.',
-			'**How it was found.** Issue [#3144](' + SIDEKIQ + '/issues/3144) explains it in one line: "the job is only removed from the `jobs_by_worker` hash in the Queue, and not the `jobs_by_queue` Hash, leading to `drain_all` repeatedly trying to get a worker to work on the job". The reporter got the test working by passing the job\'s own queue, and that change was merged in pull request #3152.'
+			'The client pushes with `Queues.push(job[\'queue\'], ...)`, the queue written in the job. Line 22 deletes with `queue`, the default from the worker\'s `sidekiq_options` (line 12). When the two differ, line 7 runs `delete_if` on the wrong array and removes nothing there.',
+			'A worker has the default queue `"default"` and one job sits in `"critical"`. `drain` deletes it from `jobs_by_worker` (the class name is right) and runs it, so its `while` on line 20 ends. `jobs_by_queue["critical"]` still holds the job. Line 33 in `drain_all` reads that hash and calls `drain` again, which finds no job for the worker and returns, on every turn.',
+			'The fix passes `next_job["queue"]` on line 22, the queue the job was pushed to, so the delete hits the same array as the push. Both hashes lose the job, and `jobs.any?` in `drain_all` returns false.',
+			'Issue [#3144](' + SIDEKIQ + '/issues/3144) states the cause: "the job is only removed from the `jobs_by_worker` hash in the Queue, and not the `jobs_by_queue` Hash, leading to `drain_all` repeatedly trying to get a worker to work on the job". The reporter got the test working by passing the job\'s own queue, and that change was merged in pull request #3152.'
 		]
 	},
 	quiz: [
@@ -109,7 +109,10 @@ class << self
 			why: 'With the default queue, `queue` and `job["queue"]` are equal and the bug is invisible. Only a job in another queue makes them differ.'
 		}
 	],
-	takeaway: 'When a loop runs until a collection is empty, check that its body removes items from that same collection, with the same key they were added under.',
+	recall: {
+		q: 'Why did `drain_all` keep calling `drain` after every job had run once?',
+		a: '`drain` deleted with the worker\'s default queue instead of `next_job["queue"]`, so the job stayed in `jobs_by_queue`. `drain_all` loops while that hash has jobs.'
+	},
 	sources: [
 		{ title: 'sidekiq issue #3144', url: `${SIDEKIQ}/issues/3144` },
 		{ title: 'sidekiq pull request #3152', url: `${SIDEKIQ}/pull/3152` }

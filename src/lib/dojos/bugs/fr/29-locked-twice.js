@@ -4,7 +4,7 @@ const TOKIO = 'https://github.com/tokio-rs/tokio';
 export default {
 	slug: 'locked-twice',
 	part: 'Les ressources',
-	title: 'Un destructeur qui tourne sous le verrou',
+	title: 'Un waker détruit pendant que le mutex du JoinSet est tenu',
 	minutes: 10,
 	hook: [
 		'Un `JoinSet` de Tokio regroupe des tâches lancées, et `join_next()` attend la prochaine qui se termine. En septembre 2026, un signalement montre un programme qui **reste bloqué pour toujours** dans un poll de `JoinSet`. Sa dernière ligne de log : "child completing, about to wake the JoinSet entry".',
@@ -67,11 +67,11 @@ export default {
 +            _old_waker = lock.waker.replace(waker.clone());
          }`,
 		notes: [
-			'**L’affectation lance un destructeur.** `lock.waker = Some(waker.clone())` détruit le waker rangé avant. Ce drop tourne pendant que `lock` tient encore `self.lists`. Un waker maison peut y exécuter n’importe quel code. Le ticket dit qu’il faut "an unusual executor/waker cleanup adapter, not an ordinary Tokio task waker." (un adaptateur d’exécuteur inhabituel, pas un waker de tâche Tokio ordinaire).',
-			'**Comment ça bloque.** Le waker du signalement fait tourner le runtime dans son `Drop`. Une tâche enfant se termine, et son `wake_by_ref` appelle `me.parent.lock()`, le même mutex. Le thread le tient déjà, dans `pop_notified`, donc le second `lock()` ne rend jamais la main. Le signalement : "The trigger hangs after the child finishes."',
-			'**Le correctif.** `lock.waker.replace(...)` renvoie l’ancien waker au lieu de le détruire, et `_old_waker` le garde. Rust détruit les variables locales dans l’ordre inverse de leur déclaration : `_old_waker`, déclaré avant `lock`, est détruit après la libération du mutex. Le nouveau commentaire précise que ça couvre aussi le `return` anticipé du `?`.',
-			'**Le même fichier le faisait déjà une fois.** Dans `wake_by_ref`, le code sort le waker avec `lock.waker.take()`, appelle `drop(lock)`, et seulement ensuite `waker.wake()`. Les auteurs du signalement renvoient au [ticket #5429](' + TOKIO + '/issues/5429), sur le remplacement de waker dans d’autres primitives de Tokio.',
-			'**Comment ça s’est vu.** Le [ticket #8553](' + TOKIO + '/issues/8553), intitulé "JoinSet destroys a replaced parent waker under its list mutex", contenait un petit programme qui bloque, et une version témoin qui garde l’ancien waker jusqu’après le poll et qui se termine.'
+			'La ligne 16, `lock.waker = Some(waker.clone())`, détruit le waker rangé avant. Ce drop tourne pendant que le `lock` de la ligne 9 tient encore `self.lists`, que la ligne 29 libère. Un waker maison peut exécuter n’importe quel code dans son `Drop`. Le ticket dit qu’il faut "an unusual executor/waker cleanup adapter, not an ordinary Tokio task waker." (un adaptateur d’exécuteur inhabituel, pas un waker de tâche Tokio ordinaire).',
+			'Le waker du signalement fait tourner le runtime dans son `Drop`. Une tâche enfant se termine, et son `wake_by_ref` appelle `me.parent.lock()`, le même mutex. Le thread le tient déjà dans `pop_notified`, donc le second `lock()` ne rend jamais la main. Le signalement : "The trigger hangs after the child finishes."',
+			'Le correctif remplace la ligne 16 par `lock.waker.replace(...)`, qui renvoie l’ancien waker au lieu de le détruire, et `_old_waker` le garde. Rust détruit les variables locales dans l’ordre inverse de leur déclaration : `_old_waker`, déclaré avant `lock`, est détruit après la libération du mutex. Le nouveau commentaire précise que ça couvre aussi le `return` anticipé du `?` de la ligne 20.',
+			'Dans le même fichier, `wake_by_ref` sort déjà le waker avec `lock.waker.take()`, appelle `drop(lock)`, et seulement ensuite `waker.wake()`. Les auteurs du signalement renvoient au [ticket #5429](' + TOKIO + '/issues/5429), sur le remplacement de waker dans d’autres primitives de Tokio.',
+			'Le [ticket #8553](' + TOKIO + '/issues/8553), intitulé "JoinSet destroys a replaced parent waker under its list mutex", contenait un petit programme qui bloque. Une version témoin garde l’ancien waker jusqu’après le poll, et celle-là se termine.'
 		]
 	},
 	quiz: [
@@ -109,7 +109,10 @@ export default {
 			why: 'Sortir l’ancienne valeur (`replace`, `take`, `mem::replace`) empêche son destructeur de tourner sous le verrou. Un verrou réentrant laisserait l’enfant modifier les listes en plein milieu de `pop_notified`.'
 		}
 	],
-	takeaway: 'Sous un verrou, cherche chaque valeur qui est détruite, y compris l’ancienne valeur d’un champ que tu affectes. Si son destructeur peut rappeler ton code, sors-la et détruis-la après avoir libéré le verrou.',
+	recall: {
+		q: 'Dans `pop_notified`, quelle ligne lançait un destructeur maison pendant que `self.lists` était verrouillé, et comment le correctif déplace-t-il ce drop ?',
+		a: '`lock.waker = Some(waker.clone())` détruisait l’ancien waker sous le verrou. Le correctif le range avec `_old_waker = lock.waker.replace(...)`, et `_old_waker` est déclaré avant `lock` : Rust le détruit donc après la libération du mutex.'
+	},
 	sources: [
 		{ title: 'tokio, ticket #8553', url: `${TOKIO}/issues/8553` },
 		{ title: 'tokio, pull request #8554', url: `${TOKIO}/pull/8554` },

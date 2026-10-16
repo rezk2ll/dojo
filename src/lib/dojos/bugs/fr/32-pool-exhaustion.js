@@ -13,7 +13,7 @@ export default {
 	],
 	terms: [
 		{ term: 'Pool de connexions', def: 'Un ensemble de connexions ouvertes à la base, que les appelants empruntent et rendent, pour ne pas en ouvrir une à chaque requête.' },
-		{ term: 'Liste libre', def: 'Les connexions ouvertes et disponibles. Ici `freeConn`, limitée à 2 par défaut.' },
+		{ term: 'Liste libre', def: 'Les connexions ouvertes qu’aucun appelant ne tient en ce moment, rangées dans `freeConn` (2 au plus par défaut).' },
 		{ term: 'numOpen', def: 'Le compte des connexions ouvertes du pool. Avec `SetMaxOpenConns(n)`, les appelants attendent dès qu’il atteint n.' }
 	],
 	bug: {
@@ -73,10 +73,10 @@ func (db *DB) putConnDBLocked(dc *driverConn, err error) bool {
 +	}
  }`,
 		notes: [
-			'**La valeur de retour est jetée.** `putConnDBLocked` renvoie `false` quand personne n’attend et que la liste libre est pleine. `openNewConnection` l’ignore. La connexion n’est alors dans aucune liste, personne ne la ferme, et `numOpen` l’a déjà comptée.',
-			'**Le timing qui la déclenche**, d’après le rapport : un appelant demande une connexion, aucune n’est libre, donc la goroutine d’ouverture lance une connexion. Pendant qu’elle attend le réseau, 3 connexions occupées sont rendues. La première va à l’appelant en attente, les 2 suivantes remplissent la liste libre (2 par défaut). La nouvelle connexion arrive sans appelant ni place libre : `false`, et elle est perdue.',
-			'**Pourquoi ça finit en interblocage.** Chaque connexion perdue reste dans `numOpen` pour toujours. Avec `SetMaxOpenConns(10)`, après 10 pertes `numOpen` vaut 10 alors qu’il ne reste aucune vraie connexion. `conn()` attend quand `db.numOpen >= db.maxOpen`, et aucune nouvelle connexion n’est ouverte, donc chaque requête attend. Sans limite, les connexions perdues s’empilent sur le serveur de base de données.',
-			'**Le correctif** ne compte la connexion que si `putConnDBLocked` l’a acceptée, et la ferme sinon. L’auteur du rapport, sur [l’issue #6593](' + GO + '/issues/6593) : "it calls putConnDBLocked() without checking the return value, assuming the connection will either fulfill a pending request or be added to the idle queue, but that\'s not always the case."'
+			'La ligne 36 renvoie `false` quand personne n’attend et que la liste libre est pleine. La ligne 23 ignore cette valeur, alors que la ligne 22 a déjà ajouté la connexion à `numOpen`. La connexion n’est alors dans aucune liste, et personne ne la ferme.',
+			'D’après le rapport, un appelant demande une connexion, aucune n’est libre, et la goroutine d’ouverture lance une connexion. Pendant qu’elle attend le réseau, 3 connexions occupées reviennent : la première va à l’appelant en attente, les 2 suivantes remplissent la liste libre (2 par défaut). La nouvelle connexion arrive sans appelant ni place libre, la ligne 36 renvoie `false`, et la connexion est perdue.',
+			'Chaque connexion perdue reste dans `numOpen` pour toujours. Avec `SetMaxOpenConns(10)`, après 10 pertes, `numOpen` vaut 10 alors qu’il ne reste aucune vraie connexion. `conn()` attend dès que `db.numOpen >= db.maxOpen` et n’ouvre rien de neuf, donc **chaque requête attend**. Sans limite, les connexions perdues s’empilent sur le serveur de base de données.',
+			'Le correctif ne compte la connexion que si `putConnDBLocked` renvoie `true`, et la ferme sinon. L’auteur du rapport, sur [l’issue #6593](' + GO + '/issues/6593) : "it calls putConnDBLocked() without checking the return value, assuming the connection will either fulfill a pending request or be added to the idle queue, but that\'s not always the case."'
 		]
 	},
 	quiz: [
@@ -114,7 +114,10 @@ func (db *DB) putConnDBLocked(dc *driverConn, err error) bool {
 			why: 'Ici le pool ne ferme pas ce qu’il refuse. L’appelant possède la ressource tant que le pool n’a pas dit oui : il ne doit la compter que sur `true` et la fermer sur `false`.'
 		}
 	],
-	takeaway: 'Quand tu confies une connexion ou un worker à un pool, vérifie que le pool l’a gardé. Compte-le seulement dans ce cas, et ferme-le toi-même sinon.',
+	recall: {
+		q: 'Dans `database/sql` de Go 1.2, que devenait une nouvelle connexion quand `putConnDBLocked` renvoyait `false`, et pourquoi l’appli finissait-elle bloquée ?',
+		a: 'Personne ne la fermait et aucune liste ne la gardait, mais `numOpen` l’avait déjà comptée. Avec `SetMaxOpenConns(10)`, 10 pertes laissaient `numOpen` à 10 sans aucune vraie connexion, et tout appelant attendait. Le correctif compte la connexion seulement sur `true` et la ferme sur `false`.'
+	},
 	sources: [
 		{ title: 'go, issue #6593', url: `${GO}/issues/6593` },
 		{ title: 'Revue de code 14611045', url: 'https://golang.org/cl/14611045' }

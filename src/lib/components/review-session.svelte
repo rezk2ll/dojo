@@ -1,6 +1,7 @@
 <script>
 	import { fmt } from '#lib/text.js';
 	import { answer } from '#lib/progress.svelte.js';
+	import { react } from '#lib/companion.svelte.js';
 	import { questionById } from '#lib/content.js';
 	import { dojoById } from '#lib/dojos/index.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
@@ -27,6 +28,7 @@
 		if (picked !== undefined || !q) return;
 		picked = option;
 		answer(card.dojo, card.id, option === q.answer);
+		react(option === q.answer);
 		onanswer?.();
 	}
 

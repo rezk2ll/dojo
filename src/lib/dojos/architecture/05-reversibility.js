@@ -4,19 +4,18 @@ const DISCOURSE = 'https://github.com/discourse/discourse/blob/9252651c5c25df36c
 export default {
 	slug: 'reversibility',
 	part: 'Thinking like an architect',
-	title: 'One-way doors, two-way doors, and the options in between',
+	title: 'Reversible decisions: one-way and two-way doors',
 	minutes: 10,
 	hook: [
-		'You cannot spend a week on every decision. You also cannot afford to rush the few that lock you in. The skill is telling them apart.',
-		'In his letter to Amazon shareholders filed in 2016, Jeff Bezos put it as doors. **One-way doors**: "If you walk through and don\'t like what you see on the other side, you can\'t get back to where you were before." Decide slowly. **Two-way doors**: "You can reopen the door and go back through." Decide fast.',
-		'Second trap: thinking every decision is yes or no. Most are a **spectrum**. Deleting a post in Discourse, the forum software, shows both ideas at once. A deleted post can almost always be brought back. Outside private messages and server-side bulk tasks, removing one for good takes an admin, on a site that turned it on.'
+		'You cannot spend a week on every decision. You also cannot afford to rush the few that lock you in. So you need a way to tell the two kinds apart.',
+		'In his letter to Amazon shareholders filed in 2016, Jeff Bezos described them as doors. **One-way doors**: "If you walk through and don\'t like what you see on the other side, you can\'t get back to where you were before." Decide slowly. Two-way doors: "You can reopen the door and go back through." Decide fast.',
+		'Most decisions also have options between yes and no, from one extreme to the other. Deleting a post in Discourse, the forum software, shows both ideas. A deleted post can almost always be brought back. Outside private messages and server-side bulk tasks, removing one for good takes an admin, on a site that turned it on.'
 	],
 	terms: [
-		{ term: 'One-way door', def: 'Hard or impossible to undo: deleted data, a public contract, data you never recorded. Slow down, write an ADR.' },
-		{ term: 'Two-way door', def: 'Cheap to undo: a config flag, a state column, a library behind an interface. Decide and move on.' },
-		{ term: 'Spectrum', def: 'Lay out the options from one extreme to the other instead of "do it or not". The right answer is usually in the middle.' },
-		{ term: 'Soft delete', def: 'Mark a row as deleted (a timestamp column) instead of removing it. Hidden from users, still there to restore.' },
-		{ term: 'Feature flag', def: 'A switch that turns behavior on per deployment or per tenant. It turns a one-way rollout into a two-way door, as long as turning it off leaves nothing behind.' }
+		{ term: 'One-way door', def: 'A decision that is hard or impossible to undo: deleted data, a public contract, data you never recorded. Slow down and write an ADR.' },
+		{ term: 'Two-way door', def: 'A decision that is cheap to undo: a config flag, a state column, a library behind an interface. Decide and move on.' },
+		{ term: 'Soft delete', def: 'Marking a row as deleted (a timestamp column) instead of removing it. Users no longer see it, and staff can still restore it.' },
+		{ term: 'Feature flag', def: 'A switch that turns behavior on per deployment or per tenant. It lets you undo a rollout, as long as turning it off leaves no new data behind.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -24,22 +23,22 @@ export default {
 			{
 				add: ['active["Post visible"]', 'gone["Permanently deleted"]'],
 				highlight: ['active', 'gone'],
-				note: 'The two extremes. A **visible** post is in the topic. A **permanently deleted** post is, in Discourse\'s own words, "completely removed from the database and cannot be recovered". If delete were one button, one misclick would be a one-way door.'
+				note: 'At one extreme, a visible post is in the topic. At the other, a **permanently deleted** post is, in Discourse\'s own words, "completely removed from the database and cannot be recovered". If delete were one button, one misclick would destroy a post for good.'
 			},
 			{
 				add: ['active -->|"author deletes"| stub["Deleted by author: text replaced"]', 'stub -.->|"author recovers"| active', 'stub -->|"after 24 h, scheduled job"| trashed["Soft-deleted: deleted_at set"]', 'active -->|"staff deletes"| trashed', 'trashed -.->|"staff recovers"| active'],
 				highlight: ['stub', 'trashed'],
-				note: 'The middle of the spectrum. An author\'s delete only replaces the text, and the author can take it back. A day later, by default, a job soft-deletes it. A **soft-deleted** post is one timestamp on the row. Staff can recover it: two-way doors.'
+				note: 'Discourse has two states in between. An author\'s delete only replaces the text, and the author can take it back. A day later, by default, a job soft-deletes the post: it sets one timestamp on the row, and staff can recover it. Someone can undo each of these two steps, so each is a two-way door.'
 			},
 			{
 				add: ['trashed -->|"admin, setting on, wait 5 min or a second admin"| gone'],
 				highlight: ['gone'],
-				note: 'The one-way door, guarded several times. Only an admin. Only a post that is **already soft-deleted**. And an admin who just soft-deleted it must wait 5 minutes, or let a different admin do it. The irreversible step is never the first step.'
+				note: 'Three rules guard the one-way door. Only an admin can use it, and only on a post that is **already soft-deleted**. An admin who just soft-deleted the post must wait 5 minutes, or let a different admin do it.'
 			},
 			{
 				add: ['flag["Site setting: can_permanently_delete, off by default"] -->|"unlocks"| gone'],
 				highlight: ['flag'],
-				note: 'The whole door is behind a flag that is **off by default** and asks for confirmation when you turn it on. Turning it off again is easy. Bringing back what was destroyed while it was on is not. The flag is reversible. What it did is not.'
+				note: 'The whole door sits behind a site setting that is **off by default** and asks for confirmation when you turn it on. You can turn the setting off again at any time. The posts destroyed while it was on stay destroyed.'
 			}
 		]
 	},
@@ -60,21 +59,20 @@ export default {
     true
   end`,
 		notes: [
-			'Every line is a guard in front of the one-way door. The site setting comes first, and it [defaults to `false`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/config/site_settings.yml#L3271-L3274).',
-			'`return false if !post.deleted_at`: you can only destroy what is already soft-deleted. The cheap, undoable step must come first.',
-			'`PERMANENT_DELETE_TIMER` is [5 minutes](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/post.rb#L26-L27). The refusal message says "You must wait … or a different administrator must do it." In effect: a pause, or a second person.',
-			'The two-way door is tiny. [`trash!` and `recover!`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/concerns/trashable.rb#L18-L36) only set or clear `deleted_at` and `deleted_by_id`. The one-way door is one ternary away, in [`PostDestroyer`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/lib/post_destroyer.rb#L198-L199): `permanent? ? @post.destroy! : @post.trash!(@user)`. The guards are what keep them apart.'
+			'Lines 2 to 9 each guard the one-way door. Line 2 checks the site setting first, and it [defaults to `false`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/config/site_settings.yml#L3271-L3274).',
+			'Line 6, `return false if !post.deleted_at`, allows destroying only a post that is already soft-deleted. The undoable step always runs first.',
+			'Line 7 uses `PERMANENT_DELETE_TIMER`, which is [5 minutes](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/post.rb#L26-L27). The refusal message says "You must wait … or a different administrator must do it." So the admin either waits or asks a second person.',
+			'The two-way door is two short methods: `trash!` and `recover!` only set or clear `deleted_at` and `deleted_by_id`. One ternary in [`PostDestroyer`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/lib/post_destroyer.rb#L198-L199) picks between the two doors: `permanent? ? @post.destroy! : @post.trash!(@user)`. Only the guards above stop `permanent?` from being true.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'You spend design time only where it matters: the one-way doors.',
-			'Small decisions go fast, the team keeps moving.',
-			'Seeing a spectrum gives you middle options, like a soft delete or a 5 minute wait, that make the risky step rare and late.'
+			'You spend design time on the one-way doors, and small decisions like a config flag go fast.',
+			'The middle options, a soft delete and a 5 minute wait, mean a post is destroyed only after an undoable step and a pause.'
 		],
 		cost: [
 			'Every middle state is code to own: soft-deleted rows must be hidden from every query, and a scheduled job has to clean up author deletes.',
-			'Soft-deleted data still exists. It still takes space, and it is still there when someone expects it gone.',
+			'Soft-deleted rows still take space, and they are still in the database when someone expects them gone.',
 			'Misjudging a door is expensive: a field name in a public API looks like a detail until another team depends on it.'
 		]
 	},
@@ -82,10 +80,10 @@ export default {
 		prompt: 'You run a SaaS invoicing app. Classify each decision as one-way or two-way, and say what makes it so: (a) a feature flag that shows the new dashboard to some customers, (b) a nightly job that hard-deletes invoices older than 10 years, (c) renaming a field in the webhook payload customers receive, (d) changing the font of invoice PDFs.',
 		hint: 'Ask: if we change our mind in a month, who else has to change, and what data stays behind?',
 		answer: [
-			'(a) **Two-way**, if the new dashboard writes nothing the old one cannot read. If it stores new data, turning the flag off leaves that data behind.',
-			'(b) **One-way.** Deleted invoices do not come back. A middle option: soft-delete first, purge for real after a delay, so a wrong date in the job is caught before the data is gone.',
-			'(c) **One-way-ish.** Customer code you cannot see depends on the old name. The middle option: send both fields for a while, announce the old one is going away, remove it later.',
-			'(d) **Two-way** for new PDFs. Change it back any time. Invoices already sent keep the font they were made with, and nobody needs them changed.'
+			'(a) Two-way: if the new dashboard writes nothing the old one cannot read. If it stores new data, turning the flag off leaves that data behind.',
+			'(b) One-way: deleted invoices do not come back. A middle option: soft-delete first, purge for real after a delay, so a wrong date in the job is caught before the data is gone.',
+			'(c) Close to one-way: customer code you cannot see depends on the old name. The middle option: send both fields for a while, announce the old one is going away, remove it later.',
+			'(d) Two-way for new PDFs: you can change the font back any time. Invoices already sent keep the font they were made with, and nobody needs them changed.'
 		]
 	},
 	quiz: [
@@ -109,7 +107,7 @@ export default {
 				'Discourse queues the destroy and only runs it for real after 30 days'
 			],
 			answer: 0,
-			why: '`PERMANENT_DELETE_TIMER` is 5 minutes and applies when the same admin deleted the post. The rule buys a pause, or a second pair of eyes, before the one-way door.'
+			why: '`PERMANENT_DELETE_TIMER` is 5 minutes and applies when the same admin deleted the post. The rule forces a pause, or a check by a second admin, before the one-way door.'
 		},
 		{
 			q: 'A site turns `can_permanently_delete` on for a month, then off again. What happens to the posts destroyed during that month?',
@@ -120,14 +118,18 @@ export default {
 				'They move to the admin\'s private messages'
 			],
 			answer: 2,
-			why: 'The setting\'s own description says permanently deleted data "cannot be recovered". Turning a flag off stops new effects. It does not undo old ones.'
+			why: 'The setting\'s own description says permanently deleted data "cannot be recovered". Turning the setting off only blocks new permanent deletes.'
 		}
 	],
-	takeaway: 'Slow down on one-way doors, speed up on two-way doors, and put a cheap, undoable step in front of every irreversible one.',
+	recall: {
+		q: 'Which steps must a Discourse post go through before an admin can delete it permanently?',
+		a: 'The `can_permanently_delete` setting must be on (it is off by default), the post must already be soft-deleted, and if the same admin soft-deleted it, 5 minutes must have passed. Otherwise a different admin has to do it.'
+	},
 	sources: [
 		{ title: 'Jeff Bezos, letter to Amazon shareholders (Type 1 and Type 2 decisions)', url: 'https://www.sec.gov/Archives/edgar/data/1018724/000119312516530910/d168744dex991.htm' },
 		{ title: 'Discourse, post_guardian.rb: can_permanently_delete_post?', url: `${DISCOURSE}/lib/guardian/post_guardian.rb#L250-L260` },
 		{ title: 'Discourse, post_destroyer.rb: destroy_stubs, the job behind author deletes', url: `${DISCOURSE}/lib/post_destroyer.rb#L21-L47` },
+		{ title: 'Discourse, trashable.rb: trash! and recover!', url: `${DISCOURSE}/app/models/concerns/trashable.rb#L18-L36` },
 		{ title: 'Discourse, server.en.yml: what can_permanently_delete does', url: `${DISCOURSE}/config/locales/server.en.yml#L2326` },
 		{ title: 'Discourse, site_settings.yml: delete_removed_posts_after defaults to 24 hours', url: `${DISCOURSE}/config/site_settings.yml#L1512-L1516` }
 	]

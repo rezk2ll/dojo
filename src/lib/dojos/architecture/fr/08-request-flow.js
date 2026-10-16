@@ -8,14 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Un utilisateur te dit : « publier un post bloque parfois plusieurs secondes, mais seulement quand je mentionne quelqu’un. » Le diagramme de conteneurs d’hier montre les boîtes. Il ne montre pas **quelles boîtes un clic touche**, ni dans quel ordre.',
-		'Pour ça, C4 a le **diagramme dynamique** : tu choisis un vrai cas d’usage et tu numérotes les étapes à mesure qu’il traverse les conteneurs. Aujourd’hui, on suit une requête, « publier un post », dans le code de Mastodon.',
-		'Garde une idée en tête pendant la lecture. **Chaque saut est un endroit où la requête peut échouer ou attendre.** Compte les sauts et tu sais où chercher les secondes perdues.'
+		'Pour ça, C4 propose le diagramme dynamique : tu choisis un vrai cas d’usage et tu numérotes les étapes à mesure qu’il traverse les conteneurs. Ici, tu suis le cas « publier un post » dans le code de Mastodon.',
+		'À chaque saut, la requête peut échouer ou attendre. Si tu listes les sauts dans l’ordre, tu sais où chercher les secondes perdues.'
 	],
 	terms: [
 		{ term: 'Diagramme dynamique', def: 'Une vue C4 d’un cas d’usage à l’exécution : les mêmes boîtes que les diagrammes statiques, avec des étapes numérotées.' },
-		{ term: 'Saut', def: 'Une étape où la requête passe dans une autre partie : une autre couche de code, ou pire, un autre conteneur à travers le réseau.' },
+		{ term: 'Saut', def: 'Une étape où la requête passe dans une autre partie : une autre couche de code, ou un autre conteneur à travers le réseau, plus lent et qui peut tomber.' },
 		{ term: 'Hot path (chemin critique)', def: 'Le code que chaque requête exécute avant de pouvoir répondre. Un appel lent à cet endroit fait attendre l’utilisateur.' },
-		{ term: 'Fan-out', def: 'Un événement transformé en plein de jobs : un post copié dans le fil de chaque abonné, et envoyé au serveur de chaque abonné.' }
+		{ term: 'Fan-out', def: 'Un événement qui déclenche plein de jobs : un post copié dans le fil de chaque abonné, et envoyé au serveur de chaque abonné.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -26,7 +26,7 @@ export default {
 					'api -->|"2. vérifie le token OAuth"| pg[("PostgreSQL")]'
 				],
 				highlight: ['app', 'api', 'pg'],
-				note: 'Avant que le moindre code de publication tourne, le contrôleur exige un token avec le scope `write` ou [`write:statuses`](' + REPO + '/app/controllers/api/v1/statuses_controller.rb#L8). Les tokens vivent dans PostgreSQL, dans `oauth_access_tokens`. Pas de token valide, et la requête s’arrête là.'
+				note: 'Avant que le moindre code de publication tourne, le contrôleur exige un token avec le scope `write` ou [`write:statuses`](' + REPO + '/app/controllers/api/v1/statuses_controller.rb#L8). Les tokens sont stockés dans PostgreSQL, dans `oauth_access_tokens`. Sans token valide, la requête s’arrête là.'
 			},
 			{
 				add: [
@@ -35,12 +35,12 @@ export default {
 					'class fedi ext'
 				],
 				highlight: ['svc', 'fedi'],
-				note: 'Le [service](' + REPO + '/app/services/post_status_service.rb#L94-L110) commence par chercher les mentions dans le texte. Une mention d’un compte distant qu’il ne connaît pas encore est **résolue tout de suite** : une requête WebFinger vers cet autre serveur. **Un saut vers un serveur que tu ne fais pas tourner, pendant la requête de l’utilisateur.**'
+				note: 'Le [service](' + REPO + '/app/services/post_status_service.rb#L94-L110) commence par chercher les mentions dans le texte. Pour un compte distant qu’il ne connaît pas encore, il envoie **tout de suite** une requête WebFinger à cet autre serveur. La requête de l’utilisateur attend alors un serveur que tu ne fais pas tourner.'
 			},
 			{
 				add: ['svc -->|"5. enregistre le post, dans une transaction"| pg'],
 				highlight: ['svc', 'pg'],
-				note: 'Ensuite `@status.save!` dans `ApplicationRecord.transaction`. À partir de là, le post **existe**. Tout ce qui suit concerne qui a le droit de le voir.'
+				note: 'Ensuite, `@status.save!` tourne dans `ApplicationRecord.transaction`, et le post **existe** dans PostgreSQL. Les étapes suivantes décident qui le voit.'
 			},
 			{
 				add: [
@@ -57,7 +57,7 @@ export default {
 					'sk -->|"10. une livraison par inbox"| fedi'
 				],
 				highlight: ['sk', 'stream'],
-				note: 'Le **fan-out**, dans Sidekiq. Un job par abonné écrit le post dans son fil d’accueil dans Redis, et un message sur un canal Redis atteint le serveur de streaming, qui le pousse vers les applis ouvertes. Un autre job envoie le post à chaque inbox distante, [retenté pendant des jours](' + REPO + '/app/workers/activitypub/delivery_worker.rb#L11-L21) si un serveur est en panne.'
+				note: 'Sidekiq exécute le **fan-out**. Un job par abonné écrit le post dans son fil d’accueil dans Redis, et un message sur un canal Redis demande au serveur de streaming de le pousser vers les applis ouvertes. Un autre job envoie le post à chaque inbox distante, [retenté pendant des jours](' + REPO + '/app/workers/activitypub/delivery_worker.rb#L11-L21) si un serveur est en panne.'
 			}
 		]
 	},
@@ -91,22 +91,22 @@ export default {
         end
       end`,
 		notes: [
-			'C’est l’étape 4. [`ResolveAccountService`](' + REPO + '/app/services/resolve_account_service.rb#L91-L105) lance une requête WebFinger sur l’autre serveur, puis récupère le compte. Ce sont **des appels réseau vers la machine de quelqu’un d’autre**, une fois par mention inconnue, avant même que le post soit enregistré.',
-			'Combien de temps un appel peut-il attendre ? Le client HTTP de Mastodon fixe [`TIMEOUT = { connect_timeout: 5, read_timeout: 10, write_timeout: 10, read_deadline: 30 }`](' + REPO + '/app/lib/request.rb#L86). Un serveur lent coûte des secondes. Un serveur qui ne répond jamais coûte au moins le timeout de connexion de 5 secondes, et le commentaire au-dessus de cette ligne estime le pire cas pour ouvrir une connexion à environ 15 secondes.',
-			'Regarde le `rescue` : les erreurs de connexion et les mauvaises réponses deviennent `mentioned_account = nil`. Le post est quand même publié, et la mention reste du **texte brut**. Un échec ici est invisible pour l’utilisateur, sauf sous forme d’attente.',
-			'Tu ne trouves ça qu’en lisant le chemin saut par saut. Un dashboard afficherait « POST /api/v1/statuses p99 = 6 s » et rien de plus. La correction commence par savoir que l’étape 4 existe.'
+			'La ligne 20 correspond à l’étape 4. [`ResolveAccountService`](' + REPO + '/app/services/resolve_account_service.rb#L91-L105) lance une requête WebFinger sur l’autre serveur, puis récupère le compte. Ce sont **des appels réseau vers la machine de quelqu’un d’autre**, une fois par mention inconnue, avant même l’enregistrement du post.',
+			'Le client HTTP de Mastodon fixe [`TIMEOUT = { connect_timeout: 5, read_timeout: 10, write_timeout: 10, read_deadline: 30 }`](' + REPO + '/app/lib/request.rb#L86). Un serveur lent ajoute des secondes à la requête. Un serveur qui ne répond jamais coûte au moins le timeout de connexion de 5 secondes, et le commentaire au-dessus de cette ligne estime le pire cas pour ouvrir une connexion à environ 15 secondes.',
+			'Les lignes 21 et 22 rattrapent les erreurs de connexion et les mauvaises réponses, et mettent `mentioned_account = nil`. Le post est quand même publié, et la mention reste en **texte brut**. L’utilisateur ne voit aucune erreur, seulement l’attente.',
+			'Tu ne trouves ça qu’en lisant le chemin saut par saut. Un dashboard afficherait « POST /api/v1/statuses p99 = 6 s » et rien de plus. Pour corriger, il faut d’abord savoir que l’étape 4 existe.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Enregistrer le post pendant la requête donne à l’utilisateur une réponse nette : 200 veut dire que le post existe.',
-			'Mettre le fan-out en file le sort du temps de réponse. Le coût d’une grosse liste d’abonnés retombe sur Sidekiq, pas sur le clic de l’utilisateur.',
-			'Des sauts bien nets (contrôleur, service, base, file) te permettent de mettre un chrono autour de chacun.'
+			'En enregistrant le post pendant la requête, tu donnes à l’utilisateur une réponse nette : 200 veut dire que le post existe.',
+			'Le fan-out part en file, donc il n’ajoute rien au temps de réponse. Sidekiq absorbe le coût d’une grosse liste d’abonnés, et le clic revient aussi vite que pour une petite.',
+			'Chaque saut (contrôleur, service, base, file) est un appel séparé : tu peux mettre un chrono autour de chacun.'
 		],
 		cost: [
-			'La requête n’est disponible que si **tous** ses sauts synchrones le sont ensemble : PostgreSQL et Redis. Un serveur distant cité dans une mention ne peut pas la faire échouer (l’erreur est rattrapée), mais il peut la bloquer.',
-			'La latence s’additionne, et un saut échappe à ton contrôle : un serveur distant lent fait attendre ton utilisateur.',
-			'La partie asynchrone n’a aucune réponse. Si les livraisons s’entassent dans une file, le 200 reçu par l’utilisateur ne lui dit rien.'
+			'La requête échoue dès qu’**un** de ses sauts synchrones est en panne : PostgreSQL ou Redis. Un serveur distant cité dans une mention ne peut pas la faire échouer (l’erreur est rattrapée), mais il peut la faire attendre.',
+			'Les attentes s’additionnent, et un saut échappe à ton contrôle : un serveur distant lent fait attendre ton utilisateur.',
+			'L’utilisateur ne reçoit aucune réponse sur la partie asynchrone. Si les livraisons s’entassent dans une file, le 200 qu’il a reçu ne lui en dit rien.'
 		]
 	},
 	task: {
@@ -114,7 +114,7 @@ export default {
 		hint: 'Parcours les étapes dans l’ordre et demande-toi à chacune : « qu’est-ce qui peut mal tourner ici, et est-ce que l’utilisateur s’en rend compte ? »',
 		answer: [
 			'(a) Étape 2 : le token est absent, révoqué ou invalide.',
-			'(b) Regarde chaque saut synchrone. Le premier suspect est l’étape 4 : une mention d’un compte distant inconnu, résolue par le réseau avant l’enregistrement.',
+			'(b) Vérifie chaque saut synchrone. Le premier suspect est l’étape 4 : une mention d’un compte distant inconnu, résolue par le réseau avant l’enregistrement.',
 			'(c) Étape 10 : le job de livraison est en file ou en retry, ou Sidekiq ne tourne pas. La requête (étapes 1 à 7) a réussi, donc elle ne peut rien te dire.',
 			'(d) Encore l’étape 4 : la résolution du compte a échoué, l’erreur a été rattrapée, et la mention est restée du texte.'
 		]
@@ -129,7 +129,7 @@ export default {
 				'La version de chaque API'
 			],
 			answer: 1,
-			why: 'Un diagramme dynamique montre comment les éléments des diagrammes statiques collaborent à l’exécution pour une fonctionnalité ou un cas d’usage. Les numéros donnent l’ordre.'
+			why: 'Un diagramme dynamique montre comment les éléments des diagrammes statiques collaborent à l’exécution pour une fonctionnalité ou un cas d’usage, et chaque numéro donne la place d’une interaction dans cette suite.'
 		},
 		{
 			q: 'Quand Mastodon publie un post, lequel de ces traitements se fait **pendant** la requête HTTP de l’utilisateur ?',
@@ -154,7 +154,10 @@ export default {
 			why: 'Le `rescue` met `mentioned_account = nil`, et le code garde ensuite le texte original pour cette mention. L’utilisateur obtient son post, peut-être après une attente, et aucune erreur.'
 		}
 	],
-	takeaway: 'Suis une vraie requête dans le code. Chaque saut est un endroit où elle peut échouer ou attendre, et les secondes perdues se cachent dans l’un d’eux.',
+	recall: {
+		q: 'Quelle étape de « publier un post » peut faire attendre la requête de Mastodon sur un autre serveur, et que se passe-t-il si ce serveur échoue ?',
+		a: 'L’étape 4 : `ProcessMentionsService` résout une mention distante inconnue par WebFinger avant d’enregistrer le post, avec un timeout de connexion de 5 secondes. Si l’appel échoue, l’erreur est rattrapée et la mention reste en texte brut.'
+	},
 	sources: [
 		{ title: 'C4 model, Dynamic diagram', url: 'https://c4model.com/diagrams/dynamic' },
 		{ title: 'mastodon, PostStatusService', url: `${REPO}/app/services/post_status_service.rb` },

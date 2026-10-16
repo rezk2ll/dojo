@@ -14,6 +14,7 @@
 	import { answered, companion, cue, hintFor } from '#lib/companion.svelte.js';
 	import Cube from '#lib/components/cube.svelte';
 	import Timer from '#lib/components/timer.svelte';
+	import DrillRep from '#lib/components/drill-rep.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
 	import Maximize from '@lucide/svelte/icons/maximize-2';
@@ -42,6 +43,7 @@
 		...(c.bug ? [{ id: 'hunt', label: t().hunt }, { id: 'fix', label: t().fix }] : []),
 		...(c.incident ? [...c.incident.steps.map((_, i) => ({ id: `s${i}`, label: t().decision(i + 1) })), { id: 'outcome', label: t().outcome }] : []),
 		...(c.kata ? [{ id: 'brief', label: t().brief }, { id: 'check', label: t().check }, { id: 'sample', label: t().sample }] : []),
+		...(c.reps ?? []).map((_, i) => ({ id: `r${i}`, label: t().rep(i + 1) })),
 		...(c.tradeoff ? [{ id: 'tradeoff', label: t().tradeoff }] : []),
 		...(c.task ? [{ id: 'task', label: t().task }] : []),
 		...c.quiz.map((_, i) => ({ id: `q${i}`, label: t().question(i + 1), quiz: `${c.slug}#${i}` })),
@@ -59,11 +61,13 @@
 	let picked = $state(/** @type {Record<string, number>} */ ({}));
 	/** Option picked per incident step. These are not review cards, so they stay on this page. */
 	let decided = $state(/** @type {Record<number, number>} */ ({}));
+	/** Whether each rep was typed right first time. */
+	let typed = $state(/** @type {Record<number, boolean>} */ ({}));
 	/** @type {HTMLElement | undefined} */
 	let top = $state();
 
 	// The task (or, without one, the first question) starts the second half, so a reader who stops before it stops at a natural break.
-	let breakAt = $derived(sections.findIndex((s) => ['task', 's0', 'brief', 'q0'].includes(s.id)));
+	let breakAt = $derived(sections.findIndex((s) => ['task', 's0', 'brief', 'r0', 'q0'].includes(s.id)));
 	let steps = $derived(c.diagram?.steps ?? []);
 
 	const words = (/** @type {string[]} */ ...texts) => texts.join(' ').split(/\s+/).length;
@@ -83,6 +87,7 @@
 		if (s.id === 'check' && c.kata) return words(...c.kata.checklist) / READ + 60;
 		if (s.id === 'sample' && c.kata) return words(...c.kata.sample) / READ;
 		if (s.id === 'wrap') return 20;
+		if (/^r\d+$/.test(s.id)) return 45;
 		const d = decisionAt(s.id);
 		if (d) return words(...d.step.situation, d.step.why) / READ + 20;
 		return 30; // a question
@@ -170,6 +175,7 @@
 			showHint = showAnswer = showRecall = false;
 			picked = {};
 			decided = {};
+			typed = {};
 			guess = undefined;
 		});
 	});
@@ -188,6 +194,7 @@
 	$effect(() => {
 		// A kata has no quiz: reading the sample answer finishes it.
 		if (c.kata && current.id !== 'sample') return;
+		if (c.reps?.some((_, i) => typed[i] === undefined)) return;
 		if (!c.quiz.every((_, i) => picked[`${c.slug}#${i}`] !== undefined)) return;
 		// Only the first time: re-answering a finished chapter is not a new win.
 		if (!untrack(() => progress.done[c.slug])) cue('done');
@@ -569,6 +576,11 @@
 						</Alert.Root>
 					{/if}
 				</div>
+			{:else if /^r\d+$/.test(current.id) && c.reps}
+				{@const n = Number(current.id.slice(1))}
+				{#key current.id}
+					<DrillRep rep={c.reps[n]} result={typed[n]} onresult={(right) => ((typed[n] = right), answered(right))} />
+				{/key}
 			{:else if current.id === 'brief' && c.kata}
 				<div class="max-w-3xl space-y-4">
 					<div class="space-y-3 text-lg leading-relaxed">

@@ -31,15 +31,20 @@
 		addEventListener('pointermove', follow, { passive: true });
 		addEventListener('pointerdown', tap, { passive: true });
 		const wake = () => view?.wake();
+		let lastY = scrollY;
+		const scroll = () => {
+			view?.scrolled(scrollY - lastY);
+			lastY = scrollY;
+		};
 		addEventListener('keydown', wake);
-		addEventListener('scroll', wake, { passive: true });
+		addEventListener('scroll', scroll, { passive: true });
 		document.documentElement.addEventListener('pointerleave', leave);
 		return () => {
 			gone = true;
 			removeEventListener('pointermove', follow);
 			removeEventListener('pointerdown', tap);
 			removeEventListener('keydown', wake);
-			removeEventListener('scroll', wake);
+			removeEventListener('scroll', scroll);
 			document.documentElement.removeEventListener('pointerleave', leave);
 			view?.dispose();
 		};
@@ -50,6 +55,10 @@
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));
+	});
+
+	$effect(() => {
+		if (companion.cueBeat && view) untrack(() => companion.cue && view?.cue(companion.cue));
 	});
 </script>
 

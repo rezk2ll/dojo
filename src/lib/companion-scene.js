@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-/** @typedef {'idle' | 'happy' | 'sad'} Mood */
+/**
+ * @typedef {import('./companion.svelte.js').Mood} Mood
+ * @typedef {import('./companion.svelte.js').Cue} Cue
+ */
 
 /** A damped spring, so every motion eases in and settles instead of snapping. */
 function spring(stiffness = 170, damping = 22, x = 0) {
@@ -132,6 +135,9 @@ export function createScene(canvas, { color, still, touch }) {
 	let spot = SPOTS[0];
 	/** @type {{ mood: Mood, at: number } | undefined} */
 	let reaction;
+	/** @type {{ name: Cue, at: number } | undefined} */
+	let cued;
+	let read = { until: 0, dir: 0 };
 	let turns = 0;
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
@@ -156,6 +162,18 @@ export function createScene(canvas, { color, still, touch }) {
 	function poke(x, y) {
 		wake();
 		pointer = { x, y, at: performance.now() };
+	}
+
+	/** @param {number} dy Pixels scrolled since the last call. */
+	function scrolled(dy) {
+		wake();
+		read = { until: performance.now() + 900, dir: Math.sign(dy) };
+	}
+
+	/** @param {Cue} name */
+	function cue(name) {
+		wake();
+		cued = { name, at: performance.now() };
 	}
 
 	/** Moves out of the pointer's way, and back home once the pointer leaves. Returns the pointer relative to the cube. */
@@ -197,7 +215,11 @@ export function createScene(canvas, { color, still, touch }) {
 		const reach = Math.min(1, d / 500);
 		let dx = (p.x / d) * reach;
 		let dy = (p.y / d) * reach;
-		if (now - pointer.at > 5000) {
+		if (now < read.until) {
+			// Reading along: it looks at the page, up or down with the scroll.
+			dx = -0.55;
+			dy = read.dir * 0.6;
+		} else if (now - pointer.at > 5000) {
 			// Nobody is moving the mouse: it scans the room slowly.
 			dx = Math.sin(now / 2400) * 0.5;
 			dy = -0.15;
@@ -210,6 +232,7 @@ export function createScene(canvas, { color, still, touch }) {
 
 	function perform(/** @type {number} */ now) {
 		const t = reaction ? (now - reaction.at) / 1000 : Infinity;
+		const c = cued ? (now - cued.at) / 1000 : Infinity;
 		const asleep = now - activeAt > SLEEP_AFTER;
 		s.sleep.to = asleep ? 1 : 0;
 		s.y.to = 0;
@@ -217,6 +240,12 @@ export function createScene(canvas, { color, still, touch }) {
 		s.happy.to = 0;
 		s.sad.to = 0;
 		s.glow.to = 1;
+		if (cued?.name === 'glance' && c < 1.2) {
+			// A new section: a quick look at the page.
+			s.lookX.to = -0.75;
+			s.yaw.to -= 0.25;
+		}
+		if (cued?.name === 'nod' && c < 1.1) s.pitch.to += Math.sin(c * 11.5) * 0.22 * (1 - c / 1.1);
 		if (reaction?.mood === 'happy' && t < 2.2) {
 			s.happy.to = 1;
 			s.glow.to = 1.8;
@@ -366,6 +395,8 @@ export function createScene(canvas, { color, still, touch }) {
 		look,
 		poke,
 		wake,
+		scrolled,
+		cue,
 		react,
 		setColor,
 		resize,

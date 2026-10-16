@@ -11,7 +11,7 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { focus, toggleFocus } from '#lib/focus.svelte.js';
-	import { react } from '#lib/companion.svelte.js';
+	import { cue, react } from '#lib/companion.svelte.js';
 	import Cube from '#lib/components/cube.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
@@ -162,6 +162,7 @@
 	/** @param {number} i */
 	function go(i) {
 		at = i;
+		cue(sections[i]?.id === 'wrap' ? 'nod' : 'glance');
 		savePosition(dojo, c.slug, i);
 		if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ behavior: 'smooth' });
 	}

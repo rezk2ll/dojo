@@ -3,13 +3,27 @@ const KEY = 'dojo:companion';
 /**
  * @typedef {'idle' | 'happy' | 'sad'} Mood
  * @typedef {'s' | 'm' | 'l'} Size
+ * @typedef {'glance' | 'nod'} Cue
  */
 
 /** Side of the cube's canvas in CSS pixels. */
 export const SIZES = { s: 110, m: 150, l: 200 };
 
-/** The cube in the corner. `beat` changes on every reaction, so the same mood twice still replays. */
-export const companion = $state({ on: true, size: /** @type {Size} */ ('s'), mood: /** @type {Mood} */ ('idle'), beat: 0 });
+/** The cube in the corner. `beat` and `cueBeat` change on every reaction and cue, so the same one twice still replays. */
+export const companion = $state({
+	on: true,
+	size: /** @type {Size} */ ('s'),
+	mood: /** @type {Mood} */ ('idle'),
+	beat: 0,
+	cue: /** @type {Cue | undefined} */ (undefined),
+	cueBeat: 0
+});
+
+/** @param {Cue} name */
+export function cue(name) {
+	companion.cue = name;
+	companion.cueBeat++;
+}
 
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let calm;

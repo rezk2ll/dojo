@@ -9,14 +9,12 @@ export default {
 	title: 'Connections and pooling',
 	minutes: 10,
 	hook: [
-		'A sale starts and you scale the web tier from 10 pods to 40. Two minutes later, the logs fill with `FATAL: sorry, too many clients already`. **The database is not busy. It is out of connections.**',
+		'A sale starts and you scale the web tier from 10 pods to 40. Two minutes later, the logs fill with `FATAL: sorry, too many clients already`. **The server refuses new logins because every connection slot is taken.**',
 		'Each pod runs 4 processes, and each process keeps a pool of 5 connections. That was 200 connections at 10 pods. At 40 it is 800, and the server allows 100. **Most of those connections sit idle**, waiting for a request that might use them.',
-		'In PostgreSQL every connection is a whole operating system process. **You cannot just raise the limit tenfold.** The usual answer is a pooler such as PgBouncer: hundreds of clients talk to it, and it shares a few real connections among them. How it shares them decides what still works.'
+		'In PostgreSQL every connection is a whole operating system process, so raising the limit tenfold would start hundreds more of them. The usual answer is a pooler such as PgBouncer: hundreds of clients talk to it, and it shares a few real connections among them. **Its pooling mode decides which session features still work.**'
 	],
 	terms: [
 		{ term: 'Backend process', def: 'The server process PostgreSQL starts for one connection. It lives as long as the connection and holds that session\'s state.' },
-		{ term: 'max_connections', def: 'The most connections the server accepts at once. The default is typically 100, and it can only change with a restart.' },
-		{ term: 'Client-side pool', def: 'Connections an app process opens once and reuses (ActiveRecord, HikariCP, SQLAlchemy). It saves connect time but multiplies with every process.' },
 		{ term: 'Session pooling', def: 'PgBouncer gives a client one server connection until the client disconnects. Everything works, but idle clients still hold a connection.' },
 		{ term: 'Transaction pooling', def: 'PgBouncer gives a client a server connection only for the length of one transaction, then hands it to someone else.' },
 		{ term: 'Session state', def: 'Anything that lives on a connection between transactions: `SET` values, `LISTEN`, session advisory locks, SQL `PREPARE`, temp tables.' }
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['app["40 pods x 4 processes x 5 connections"] -->|"800 connections"| pm["postmaster"]', 'pm -->|"one process each, max 100"| be[("backend processes")]'],
 				highlight: ['app', 'pm'],
-				note: '**Without a pooler.** For every new connection the postmaster starts a new backend process. Once the slots run out, the next connection is refused at login with "too many clients already". Most of the ones that got in are idle.'
+				note: 'Without a pooler, the postmaster starts a new backend process for every new connection. Once the 100 slots run out, the next connection is refused at login with "too many clients already". Most of the connections that got in sit idle.'
 			},
 			{
 				add: ['app -->|"800 client connections"| pgb["PgBouncer"]', 'pgb -->|"20 server connections"| be'],
 				highlight: ['pgb'],
-				note: '**A pooler in front.** Clients connect to PgBouncer instead. It is light (its docs put it at 2 kB per connection by default), holds hundreds of client connections, and keeps a small pool of real ones: `default_pool_size` is 20 per user and database pair.'
+				note: 'With a pooler in front, clients connect to PgBouncer instead. It is light (its docs put it at 2 kB per connection by default), holds hundreds of client connections, and keeps a small pool of real ones: `default_pool_size` is 20 per user and database pair.'
 			},
 			{
 				add: ['sess["Session mode: one server connection per client, until it disconnects"] -.-> pgb'],
 				highlight: ['sess'],
-				note: '**Session mode does not help here.** It is the default, and it supports every feature. But app pools keep their connections open all day, so each one still pins a server connection. 800 clients would need 800 server connections.'
+				note: 'Session mode is the default, and it supports every feature. But app pools keep their connections open all day, so each one still pins a server connection. 800 clients would need 800 server connections.'
 			},
 			{
 				add: ['tx["Transaction mode: server connection back to the pool at COMMIT"] --> pgb'],
 				highlight: ['tx'],
-				note: '**Transaction mode shares for real.** A client holds a server connection only while a transaction runs. Requests that spend most of their time outside the database leave it free. 800 clients can share 20 connections if, at any moment, at most 20 are inside a transaction.'
+				note: 'In transaction mode, a client holds a server connection only while a transaction runs. Requests that spend most of their time outside the database leave it free. 800 clients can share 20 connections if, at any moment, at most 20 are inside a transaction.'
 			},
 			{
 				add: ['tx -->|"SET, LISTEN, advisory locks, PREPARE"| lost["Session state lands on whichever connection ran it"]'],
 				highlight: ['lost'],
-				note: '**The price is session state.** The next transaction may run on another server connection. A `SET statement_timeout` from an earlier transaction may not apply, a `LISTEN` hears nothing, and a session advisory lock may be released from the wrong connection or never.'
+				note: 'In transaction mode, the next transaction may run on another server connection. A `SET statement_timeout` from an earlier transaction may not apply, a `LISTEN` hears nothing, and a session advisory lock may be released from the wrong connection or never.'
 			}
 		]
 	},
@@ -93,11 +91,11 @@ export default {
 				release_server(server);
 				break;`,
 		notes: [
-			'**PostgreSQL tells the pooler when a transaction ends.** After every query the server sends ReadyForQuery with one status byte. The [protocol docs](https://www.postgresql.org/docs/current/protocol-message-formats.html) define it: "\'I\' if idle (not in a transaction block); \'T\' if in a transaction block; or \'E\' if in a failed transaction block". Only `I` marks the server connection `ready`.',
-			'**Statement mode is stricter still.** If the status is not idle and the pool runs in statement mode, PgBouncer [drops the connection](' + PGB + '#L449-L451) with "transaction blocks not allowed in statement pooling mode". The [config docs](' + CONFIG + '#pool_mode) sum up the three modes: released "after client disconnects", "after transaction finishes", or "after query finishes".',
-			'**Release happens on flush.** Once the reply is sent, a ready server is [released](' + PGB + '#L888-L914) unless the pool is in session mode. In session mode it stays linked to its client until disconnect, and `server_reset_query` (default `DISCARD ALL`) cleans it before the next client.',
-			'**No cleanup in transaction mode, on purpose.** The docs say the reset query "is not used, because in that mode, clients must not use any session-based features, since each transaction ends up in a different connection and thus gets a different session state." Protocol-level prepared statements work if [`max_prepared_statements`](' + CONFIG + '#max_prepared_statements) is non-zero, but SQL `PREPARE`, `EXECUTE` and `DEALLOCATE` "are forwarded straight to Postgres".',
-			'**A Rails example of what breaks.** Rails migrations take a session lock with [`pg_try_advisory_lock`](' + RAILS + '/postgresql_adapter.rb#L559-L571) and release it with `pg_advisory_unlock`. Through a transaction pooler, the two calls can reach different server connections. That is why Rails has an [`advisory_locks`](' + RAILS + '/abstract_adapter.rb#L253-L254) setting you can turn off.'
+			'Lines 2 to 16 read the ReadyForQuery packet, which PostgreSQL sends after every query with one status byte. The [protocol docs](https://www.postgresql.org/docs/current/protocol-message-formats.html) define it: "\'I\' if idle (not in a transaction block); \'T\' if in a transaction block; or \'E\' if in a failed transaction block". Only `I`, on line 9, marks the server connection `ready`.',
+			'Lines 11 to 13 handle statement mode: if the status is not idle, PgBouncer drops the connection with "transaction blocks not allowed in statement pooling mode". The [config docs](' + CONFIG + '#pool_mode) sum up the three modes: released "after client disconnects", "after transaction finishes", or "after query finishes".',
+			'Lines 22 to 35 run once the reply is flushed. A ready server is [released](' + PGB + '#L888-L914) unless the pool is in session mode (line 27). In session mode it stays linked to its client until disconnect, and `server_reset_query` (default `DISCARD ALL`) cleans it before the next client.',
+			'In transaction mode PgBouncer runs no reset query. The docs say the reset query "is not used, because in that mode, clients must not use any session-based features, since each transaction ends up in a different connection and thus gets a different session state." Protocol-level prepared statements work if [`max_prepared_statements`](' + CONFIG + '#max_prepared_statements) is non-zero, but SQL `PREPARE`, `EXECUTE` and `DEALLOCATE` "are forwarded straight to Postgres".',
+			'Rails migrations take a session lock with [`pg_try_advisory_lock`](' + RAILS + '/postgresql_adapter.rb#L559-L571) and release it with `pg_advisory_unlock`. Through a transaction pooler, the two calls can reach different server connections. Rails has an `advisory_locks` setting to turn the lock off for this case.'
 		]
 	},
 	tradeoff: {
@@ -108,7 +106,7 @@ export default {
 		],
 		cost: [
 			'Transaction mode breaks session features: `SET`, `LISTEN`, session advisory locks, SQL `PREPARE`, `WITH HOLD` cursors and temp tables that outlive a transaction. PgBouncer\'s feature table marks them "Never".',
-			'One more hop and one more thing to run, monitor and fail over. If PgBouncer goes down, every client loses the database.',
+			'PgBouncer adds a network hop and a service you must run, monitor and fail over. If PgBouncer goes down, every client loses the database.',
 			'A slow transaction now holds a shared connection. Twenty slow requests can stall everyone queued behind the pool, so `pool_size` and timeouts need tuning.',
 			'Pools stack: an app pool, then PgBouncer, then `max_connections`. Each layer\'s limits must make sense against the next one.'
 		]
@@ -158,8 +156,12 @@ export default {
 			why: 'In session mode a server connection is "released back to pool after client disconnects". App pools rarely disconnect, so PgBouncer saves almost nothing. With a smaller `pool_size`, the clients beyond it would wait until another client disconnects.'
 		}
 	],
-	takeaway: 'Every PostgreSQL connection is a process, so share a few of them through a transaction pooler, and keep session state (`SET`, `LISTEN`, advisory locks, SQL `PREPARE`) out of code that goes through it.',
+	recall: {
+		q: '40 pods with 4 processes and a pool of 5 each open 800 connections against `max_connections = 100`. What fixes it, and what must the code stop relying on?',
+		a: 'PgBouncer in transaction mode, sharing about 20 server connections among the 800 clients. The code must not keep session state across transactions: `SET`, `LISTEN`, session advisory locks, SQL `PREPARE`.'
+	},
 	sources: [
+		{ title: 'Rails, abstract_adapter.rb: the advisory_locks setting', url: `${RAILS}/abstract_adapter.rb#L253-L254` },
 		{ title: 'PostgreSQL docs, How Connections Are Established', url: 'https://www.postgresql.org/docs/current/connect-estab.html' },
 		{ title: 'PostgreSQL docs, Connections and Authentication settings', url: 'https://www.postgresql.org/docs/current/runtime-config-connection.html' },
 		{ title: 'PgBouncer, Features and SQL feature map for pooling modes', url: 'https://www.pgbouncer.org/features.html' },

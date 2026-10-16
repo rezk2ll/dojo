@@ -11,12 +11,10 @@ export default {
 	hook: [
 		'A user edits their profile, clicks Save, and the page reloads with **the old name**. They click Save again. Support gets a ticket: "the site does not save".',
 		'Nothing was lost. The write went to the primary. The page after the redirect read from a replica that was **a few hundred milliseconds behind**, and had not replayed that commit yet.',
-		'Today: how streaming replication ships the WAL to replicas, what asynchronous and synchronous really promise, how to measure lag, and how Rails sends a user back to the primary right after they write.'
+		'The primary streams its WAL to each replica, and the replica replays it a little later. `synchronous_commit` decides whether a commit waits for that replay, `pg_stat_replication` shows the lag, and Rails sends a user who just wrote back to the primary.'
 	],
 	terms: [
-		{ term: 'Streaming replication', def: 'The primary sends its WAL to each replica over a connection as it is written. The replica replays it, so its data files follow the primary\'s.' },
-		{ term: 'Hot standby', def: 'A replica that accepts read-only queries while it replays. Writes go to the primary only.' },
-		{ term: 'Asynchronous replication', def: 'The default. A commit returns once the primary has flushed its own WAL. Replicas catch up a little later.' },
+		{ term: 'Asynchronous replication', def: 'PostgreSQL\'s default: a commit returns once the primary has flushed its own WAL. Replicas catch up a little later.' },
 		{ term: 'Synchronous replication', def: 'A commit also waits for named standbys. `synchronous_commit` chooses how far: written (`remote_write`), flushed (`on`), or replayed and visible (`remote_apply`).' },
 		{ term: 'Replication lag', def: 'How far a replica is behind, in bytes of WAL or in seconds. Shown per replica in `pg_stat_replication` on the primary.' },
 		{ term: 'Read your own writes', def: 'A promise to one user: after they write, their next read sees it. Replicas alone do not give it; the app has to route for it.' }
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['save["Save: UPDATE users SET name"] -->|"COMMIT"| prim[("Primary")]'],
 				highlight: ['save', 'prim'],
-				note: '**The write.** The commit is a WAL record flushed on the primary (day 15). With the default settings, the app gets its answer right then. No replica has been asked anything.'
+				note: 'The commit is a WAL record flushed on the primary (day 15). With the default settings, the app gets its answer right then. No replica has been asked anything.'
 			},
 			{
 				add: ['prim -->|"WAL stream"| rep[("Replica")]'],
 				highlight: ['rep'],
-				note: '**The stream.** The primary sends the WAL to the replica, which writes it, flushes it and replays it. The docs: there is "a small delay between committing a transaction in the primary and the changes becoming visible in the standby", "typically under one second" if the replica keeps up.'
+				note: 'The primary sends the WAL to the replica over a connection as it is written. The replica writes it, flushes it and replays it, and accepts read-only queries meanwhile. The docs: there is "a small delay between committing a transaction in the primary and the changes becoming visible in the standby", "typically under one second" if the replica keeps up.'
 			},
 			{
 				add: ['page["Next page: SELECT name"] -.->|"before replay"| rep'],
 				highlight: ['page'],
-				note: '**The stale read.** The redirect lands on the replica inside that gap and reads the old row. On the primary, `pg_stat_replication` shows the gap per replica: `write_lag`, `flush_lag` and `replay_lag`. Replay is the one your reads feel.'
+				note: 'The redirect lands on the replica inside that gap and reads the old row. On the primary, `pg_stat_replication` shows the gap per replica: `write_lag`, `flush_lag` and `replay_lag`. Reads depend on `replay_lag`, because a query on the replica sees a row only after replay.'
 			},
 			{
 				add: ['sync["synchronous_commit = remote_apply"] -.->|"commit waits for replay"| prim'],
 				highlight: ['sync'],
-				note: '**Make the commit wait.** With a synchronous standby and `remote_apply`, the commit returns only once that standby has replayed it. The price: every commit pays a round trip, and the docs warn such commits "may never be completed if any one of the synchronous standbys should crash".'
+				note: 'With a synchronous standby and `remote_apply`, the commit returns only once that standby has replayed it. Every commit then pays a network round trip, and the docs warn such commits "may never be completed if any one of the synchronous standbys should crash".'
 			},
 			{
 				add: ['stick["Rails: wrote less than 2 s ago"] -->|"read from primary"| prim'],
 				highlight: ['stick'],
-				note: '**Or route the reader.** The cheaper fix: for a short window after a user writes, send that user\'s reads to the primary. Rails does it on a timer. GitLab does it by WAL position, and only goes back to a replica once it has caught up.'
+				note: 'The app can instead send a user\'s reads to the primary for a short window after that user writes. Rails does it on a timer. GitLab does it by WAL position, and only goes back to a replica once it has caught up.'
 			}
 		]
 	},
@@ -108,24 +106,24 @@ export default {
             Time.now - context.last_write_timestamp >= send_to_replica_delay
           end`,
 		notes: [
-			'**The HTTP verb decides first.** The [middleware](' + SELECTOR + '.rb#L72-L84) calls `read` when `reading_request?` is true (GET, HEAD or QUERY) and `write` for every other request. `read` then picks the primary while less than `delay` has passed since this user\'s last write.',
-			'**The clock lives in the session.** `write_to_primary` updates the timestamp in an `ensure`, so a write that raised still counts. [`Session`](' + SELECTOR + '/resolver/session.rb#L34-L40) stores it in milliseconds under `session[:last_write]`. It follows one user in one browser, nobody else.',
-			'**The guide states the limit.** "Rails guarantees "read your own write" and will send your GET or HEAD request to the writer if it\'s within the `delay` window." It also says Rails "doesn\'t guarantee "read a recent write" for other users", and that you [should change the delay](' + RAILS + '/guides/source/active_record_multiple_databases.md?plain=1#L330-L334) "based on your database infrastructure". A replica 3 seconds behind beats a 2 second window.',
-			'**GitLab measures instead of guessing.** [`stick`](' + LB + '/sticking.rb#L111-L120) saves "the latest WAL pointer from the primary" for a user. Later, [`caught_up?`](' + LB + '/host.rb#L274-L281) asks a replica how far it is behind that pointer, using `pg_wal_lsn_diff` against `pg_last_wal_replay_lsn()`, and accepts the replica only when the difference is zero or less.',
-			'**Lag in seconds has a catch.** GitLab also computes [`now() - pg_last_xact_replay_timestamp()`](' + LB + '/host.rb#L57-L59). That timestamp is when the last replayed commit was generated on the primary, so on a quiet primary the number grows even when the replica is missing nothing.'
+			'Lines 19 to 29: the [middleware](' + SELECTOR + '.rb#L72-L84) calls `read` when `reading_request?` is true (GET, HEAD or QUERY) and `write` for every other request. `read` then picks the primary while less than `delay` (2 seconds, line 4) has passed since this user\'s last write.',
+			'Lines 35 and 36: `write_to_primary` updates the timestamp in an `ensure`, so a write that raised still counts. [`Session`](' + SELECTOR + '/resolver/session.rb#L34-L40) stores it in milliseconds under `session[:last_write]`. Each user has their own session, so the window applies only to the user who wrote, in that browser.',
+			'The guide: "Rails guarantees "read your own write" and will send your GET or HEAD request to the writer if it\'s within the `delay` window." It also says Rails "doesn\'t guarantee "read a recent write" for other users", and that you [should change the delay](' + RAILS + '/guides/source/active_record_multiple_databases.md?plain=1#L330-L334) "based on your database infrastructure". With a replica 3 seconds behind, a 2 second window sends the user to stale data for 1 second.',
+			'GitLab measures the replica instead of using a timer. `stick` (in the sources) saves "the latest WAL pointer from the primary" for a user. Later, [`caught_up?`](' + LB + '/host.rb#L274-L281) asks a replica how far it is behind that pointer, using `pg_wal_lsn_diff` against `pg_last_wal_replay_lsn()`, and accepts the replica only when the difference is zero or less.',
+			'GitLab also computes lag in seconds, as [`now() - pg_last_xact_replay_timestamp()`](' + LB + '/host.rb#L57-L59). That timestamp is when the last replayed commit was generated on the primary, so on a quiet primary the number grows even when the replica is missing nothing.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Read traffic spreads over replicas, and the primary keeps its capacity for writes.',
-			'A replica is a warm copy: it holds nearly current data if the primary dies.',
+			'A replica holds nearly current data if the primary dies.',
 			'Asynchronous replication costs the commit nothing: the primary never waits for the network.'
 		],
 		cost: [
 			'Asynchronous means a crash can lose commits: "The amount of data loss is proportional to the replication delay at the time of failover."',
 			'Synchronous means every commit waits a round trip, and a dead synchronous standby can stall commits until another takes its place.',
-			'Every read path now has to choose: primary for fresh data, replica for scale. A wrong choice is a stale page, never an error.',
-			'Lag is not steady. A bulk import or a long query on the replica can push it from milliseconds to minutes.'
+			'Every read path now has to choose: primary for fresh data, replica for scale. A wrong choice shows a stale page and raises no error.',
+			'A bulk import or a long query on the replica can push the lag from milliseconds to minutes.'
 		]
 	},
 	task: {
@@ -141,7 +139,7 @@ export default {
 	},
 	quiz: [
 		{
-			q: 'Replication is asynchronous, the default. The primary crashes one second after a commit returned to the client. What can happen to that commit?',
+			q: 'You run asynchronous replication, the default. The primary crashes one second after a commit returned to the client. What can happen to that commit?',
 			options: [
 				'It may be missing on the replica that is promoted in the primary\'s place',
 				'It is safe on every replica, because the commit waited for their answer',
@@ -174,12 +172,16 @@ export default {
 			why: 'The docs warn that such commits "may never be completed if any one of the synchronous standbys should crash", and advise naming several potential synchronous standbys in `synchronous_standby_names` so another can take over.'
 		}
 	],
-	takeaway: 'A replica is always a little behind: decide per read whether stale is fine, and send a user who just wrote to the primary until the replica has caught up.',
+	recall: {
+		q: 'For how long does Rails send a user\'s reads to the primary after they write, and when does that user still see stale data?',
+		a: 'For 2 seconds (`delay`), tracked in that user\'s session. If replay lag is longer than the window, like 6 s during an import, their reads go back to a replica that has not replayed the write.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Log-Shipping Standby Servers (streaming and synchronous replication)', url: 'https://www.postgresql.org/docs/current/warm-standby.html' },
 		{ title: 'PostgreSQL docs, synchronous_commit', url: 'https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT' },
 		{ title: 'PostgreSQL docs, pg_stat_replication', url: 'https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-REPLICATION-VIEW' },
 		{ title: 'Rails Guides, Multiple Databases with Active Record', url: 'https://guides.rubyonrails.org/active_record_multiple_databases.html' },
-		{ title: 'GitLab source, lib/gitlab/database/load_balancing', url: `${LB}/sticking.rb` }
+		{ title: 'GitLab source, lib/gitlab/database/load_balancing', url: `${LB}/sticking.rb` },
+		{ title: 'GitLab source, Sticking#stick', url: `${LB}/sticking.rb#L111-L120` }
 	]
 };

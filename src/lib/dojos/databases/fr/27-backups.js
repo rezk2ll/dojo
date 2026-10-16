@@ -9,16 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Mercredi, 14 h 03. Quelqu’un lance `DELETE FROM orders` dans le mauvais terminal, sans `WHERE`. Ta sauvegarde, c’est un `pg_dump` nocturne de 2 h. **Douze heures de commandes ont disparu**, quoi que tu fasses ensuite.',
-		'Et ce dump : quelqu’un l’a-t-il déjà chargé dans un serveur neuf ? **Une sauvegarde jamais restaurée, c’est un pari.** Tu découvres si elle marche le pire jour pour le découvrir.',
-		'Au programme : les deux sortes de sauvegarde que connaît PostgreSQL, comment une base backup plus le WAL archivé te ramène à **14:02:59**, et pourquoi c’est la restauration, pas la sauvegarde, qu’il faut tester. pgBackRest, un outil de sauvegarde très utilisé, montre ce qu’une restauration écrit vraiment.'
+		'Et ce dump : quelqu’un l’a-t-il déjà chargé dans un serveur neuf ? Si personne ne l’a fait, tu testes la restauration pour la première fois aujourd’hui, avec douze heures de commandes déjà perdues.',
+		'PostgreSQL connaît deux sortes de sauvegarde : le dump logique et la base backup. Une base backup plus le WAL archivé te ramène à **14:02:59**. pgBackRest, un outil de sauvegarde très utilisé, montre ce qu’une restauration écrit vraiment.'
 	],
 	terms: [
 		{ term: 'Dump logique', def: 'Ce que produit `pg_dump` : du SQL ou une archive qui reconstruit les tables. Un instantané cohérent d’un moment, portable d’une version à l’autre, mais impossible de rejouer du WAL par-dessus.' },
 		{ term: 'Base backup', def: 'Une copie de tout le répertoire de données, prise pendant que le serveur tourne (`pg_basebackup`, ou un outil comme pgBackRest). Le point de départ pour rejouer le WAL.' },
 		{ term: 'Archive WAL', def: 'Chaque segment de WAL terminé, copié en lieu sûr par `archive_command`. Avec une base backup, elle contient chaque changement depuis cette sauvegarde.' },
-		{ term: 'restore_command', def: 'La commande shell qu’utilise la récupération pour aller chercher un segment de WAL archivé. `%f` est le nom du fichier voulu, `%p` le chemin où le copier.' },
-		{ term: 'Récupération à un instant donné', def: 'PITR, en anglais. Restaurer une base backup, rejouer le WAL, et s’arrêter à un moment choisi, la cible de récupération, comme `recovery_target_time`.' },
-		{ term: 'Timeline', def: 'Chaque récupération d’archive terminée ouvre une nouvelle timeline. Son ID figure dans le nom des fichiers WAL : le WAL écrit après une restauration n’écrase jamais l’ancien historique.' }
+		{ term: 'Récupération à un instant donné', def: 'PITR en anglais : tu restaures une base backup, tu rejoues le WAL, et tu t’arrêtes à un moment choisi, la cible de récupération, comme `recovery_target_time`.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['db[("Primaire : fichiers de données et pg_wal")] -->|"pgbackrest backup, dimanche 01:00"| base["Base backup"]'],
 				highlight: ['db', 'base'],
-				note: '**Une copie des fichiers.** La base backup copie le répertoire de données pendant que le serveur continue de tourner. La doc est détendue là-dessus : « We do not need a perfectly consistent file system backup as the starting point. » (pas besoin d’une copie parfaitement cohérente au départ). Le rejeu du WAL corrige ce qui a bougé pendant la copie.'
+				note: 'La base backup copie le répertoire de données pendant que le serveur continue de tourner. La doc : « We do not need a perfectly consistent file system backup as the starting point. » (pas besoin d’une copie parfaitement cohérente au départ). Le rejeu du WAL corrige ce qui a bougé pendant la copie.'
 			},
 			{
 				add: ['db -->|"archive_command, chaque segment terminé"| arch[("Archive WAL")]'],
 				highlight: ['arch'],
-				note: '**Puis chaque changement.** Chaque segment de WAL, une fois plein, part dans l’archive. La commande doit renvoyer 0 seulement si la copie a vraiment marché, car sur un zéro PostgreSQL supprime ou recycle le segment. Base backup plus archive, c’est chaque changement depuis dimanche.'
+				note: 'Chaque segment de WAL, une fois plein, part dans l’archive. La commande doit renvoyer 0 seulement si la copie a vraiment marché, car sur un zéro PostgreSQL supprime ou recycle le segment. À elles deux, la base backup et l’archive contiennent chaque changement depuis dimanche.'
 			},
 			{
 				add: ['oops["Mercredi 14:03 : DELETE sans WHERE"] -.-> db'],
 				highlight: ['oops'],
-				note: '**L’erreur.** Le `DELETE` est dans le WAL lui aussi, comme tout autre changement. Un dump de 2 h ne peut rien pour toi après 2 h. L’archive peut te ramener à n’importe quel moment avant 14:03, parce qu’elle contient les minutes entre les deux.'
+				note: 'Le `DELETE` est dans le WAL lui aussi, comme tout autre changement. Un dump de 2 h ne peut rien pour toi après 2 h. L’archive peut te ramener à n’importe quel moment avant 14:03, parce qu’elle contient les minutes entre les deux.'
 			},
 			{
 				add: ['base -->|"restaure les fichiers"| new[("Nouveau serveur")]', 'arch -->|"restore_command, rejoue jusqu’à 14:02:59"| new'],
 				highlight: ['new'],
-				note: '**Rejouer à la minute.** Restaure la base backup sur un nouveau serveur, règle `restore_command` et `recovery_target_time`, crée `recovery.signal`, démarre. Le serveur va chercher et rejoue le WAL depuis dimanche, puis s’arrête à la cible. La cible doit être après la fin de la base backup : le rejeu ne va que vers l’avant.'
+				note: 'Restaure la base backup sur un nouveau serveur, règle `restore_command` et `recovery_target_time`, crée `recovery.signal`, démarre. Le serveur va chercher et rejoue le WAL depuis dimanche, puis s’arrête à la cible. La cible doit être après la fin de la base backup : le rejeu ne va que vers l’avant.'
 			},
 			{
 				add: ['new -->|"en pause : vérifie les lignes"| check["Compte les commandes, puis reprends"]'],
 				highlight: ['check'],
-				note: '**Regarder avant d’ouvrir.** Par défaut, `recovery_target_action` vaut `pause` : tu peux d’abord interroger les lignes. Trop tôt ? Mets une cible plus tardive et redémarre, le rejeu continue. C’est bon ? `pg_wal_replay_resume()` termine la récupération et une nouvelle timeline commence.'
+				note: 'Par défaut, `recovery_target_action` vaut `pause` : tu peux d’abord interroger les lignes. Si la cible était trop tôt, mets-en une plus tardive et redémarre ; le rejeu continue. Si les lignes sont bonnes, `pg_wal_replay_resume()` termine la récupération et une nouvelle timeline commence. L’ID de timeline figure dans le nom des fichiers WAL : le WAL écrit après la restauration n’écrase jamais l’ancien historique.'
 			}
 		]
 	},
@@ -94,24 +92,24 @@ export default {
                 kvPut(result, VARSTRDEF(RECOVERY_TARGET_INCLUSIVE), VARSTR(FALSE_STR));
         }`,
 		notes: [
-			'**restore_command renvoie vers l’outil.** Sauf si tu mets la tienne, pgBackRest écrit une `restore_command` qui lance son propre `archive-get` avec `%f "%p"`, les deux marqueurs que PostgreSQL remplit. Il retire les options qui n’avaient de sens que pour la restauration ; le [commentaire](' + CONF + '#L84-L86) trouve ça « seems better than, for example, passing --process-max=32 to archive-get because it was specified for restore. » (mieux que de passer à archive-get un --process-max=32 donné pour la restauration).',
-			'**La cible tient en une ligne.** `--type=time --target=...` devient `recovery_target_` suivi du nom du type, donc `recovery_target_time`. `--target-exclusive` ajoute `recovery_target_inclusive = false`, qui s’arrête juste avant la cible au lieu de juste après. Chaque option est ensuite [écrite sous la forme](' + CONF + '#L184-L194) `key = \'value\'`.',
-			'**Les anciennes cibles sont commentées.** Avant d’ajouter les siennes, la restauration [réécrit postgresql.auto.conf](' + CONF + '#L262-L283) et préfixe chaque ancienne ligne `recovery_target*` par « # Removed by pgBackRest restore on ». Une deuxième restauration n’hérite jamais du point d’arrêt de la première. Puis elle [crée `recovery.signal`](' + CONF + '#L346-L355), qui dit à PostgreSQL de récupérer.',
-			'**À quoi ça ressemble.** Le [guide utilisateur](https://pgbackrest.org/user-guide.html#pitr) restaure un cluster avec `--type=time` et affiche le résultat : `restore_command = \'pgbackrest --stanza=demo archive-get %f "%p"\'` et une ligne `recovery_target_time`. Ses mots : « pgBackRest has generated the recovery settings in postgresql.auto.conf so PostgreSQL can be started immediately. » (les réglages sont prêts, PostgreSQL peut démarrer tout de suite).',
-			'**Choisis une sauvegarde d’avant la cible.** Le même guide essaie ensuite une sauvegarde prise après la suppression de la table, et prévient : « PostgreSQL can only play forward, not backward. » (PostgreSQL ne rejoue que vers l’avant). La doc PostgreSQL le dit aussi : « The stop point must be after the ending time of the base backup ».'
+			'Lignes 1 à 13 : sauf si tu mets la tienne, pgBackRest écrit une `restore_command` qui lance son propre `archive-get` avec `%f "%p"`. La récupération lance cette commande shell pour chaque segment de WAL archivé, avec dans `%f` le nom du fichier voulu et dans `%p` le chemin où le copier. Il retire les options qui n’avaient de sens que pour la restauration ; le [commentaire](' + CONF + '#L84-L86) trouve ça « seems better than, for example, passing --process-max=32 to archive-get because it was specified for restore. » (mieux que de passer à archive-get un --process-max=32 donné pour la restauration).',
+			'Lignes 27 à 37 : pgBackRest écrit `--type=time --target=...` sous la forme `recovery_target_` suivi du nom du type, donc `recovery_target_time`. `--target-exclusive` ajoute `recovery_target_inclusive = false`, qui s’arrête juste avant la cible au lieu de juste après. Chaque option est ensuite [écrite sous la forme](' + CONF + '#L184-L194) `key = \'value\'`.',
+			'Avant d’ajouter les siennes, la restauration [réécrit postgresql.auto.conf](' + CONF + '#L262-L283) et préfixe chaque ancienne ligne `recovery_target*` par « # Removed by pgBackRest restore on ». Une deuxième restauration n’hérite jamais du point d’arrêt de la première. Puis elle crée `recovery.signal` (dans les sources), qui dit à PostgreSQL de récupérer.',
+			'Le [guide utilisateur](https://pgbackrest.org/user-guide.html#pitr) restaure un cluster avec `--type=time` et affiche le résultat : `restore_command = \'pgbackrest --stanza=demo archive-get %f "%p"\'` et une ligne `recovery_target_time`. Ses mots : « pgBackRest has generated the recovery settings in postgresql.auto.conf so PostgreSQL can be started immediately. » (les réglages sont prêts, PostgreSQL peut démarrer tout de suite).',
+			'Choisis une sauvegarde terminée avant la cible. Le même guide essaie ensuite une sauvegarde prise après la suppression de la table, et prévient : « PostgreSQL can only play forward, not backward. » (PostgreSQL ne rejoue que vers l’avant). La doc PostgreSQL le dit aussi : « The stop point must be after the ending time of the base backup ».'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Récupération à n’importe quel moment depuis la base backup : un mauvais `DELETE` te coûte quelques secondes de données, pas une journée.',
-			'Une protection continue sans copie complète chaque jour. La doc : « continuous backup can be achieved simply by continuing to archive the WAL files. » (il suffit de continuer à archiver le WAL).',
+			'Tu n’as pas besoin d’une copie complète chaque jour. La doc : « continuous backup can be achieved simply by continuing to archive the WAL files. » (il suffit de continuer à archiver le WAL).',
 			'La base backup n’a pas besoin d’un système de fichiers figé ni de snapshots ; le rejeu du WAL répare ce qui a changé pendant la copie.'
 		],
 		cost: [
-			'On restaure tout le cluster ou rien : la méthode « can only support restoration of an entire database cluster, not a subset ». Une table perdue, c’est une restauration ailleurs et une copie retour.',
-			'Les base backups sont liées à la version du serveur. Un `pg_dump` peut « generally be re-loaded into newer versions of PostgreSQL » (se recharger dans une version plus récente) : garde des dumps pour changer de version.',
+			'Tu restaures tout le cluster ou rien : la méthode « can only support restoration of an entire database cluster, not a subset ». Pour une table perdue, tu restaures ailleurs puis tu recopies la table.',
+			'Une base backup ne se restaure que sur la version de serveur qui l’a produite. Un `pg_dump` peut « generally be re-loaded into newer versions of PostgreSQL » (se recharger dans une version plus récente) : garde des dumps pour changer de version.',
 			'Le stockage : la base backup est volumineuse, et un serveur chargé envoie beaucoup de mégaoctets de WAL vers l’archive.',
-			'Un seul segment de WAL manquant coupe la chaîne. La récupération exige « a continuous sequence of archived WAL files » (une suite continue de fichiers WAL archivés), et seule une restauration de test prouve que tu l’as.'
+			'Le rejeu ne peut pas dépasser un segment de WAL manquant. La récupération exige « a continuous sequence of archived WAL files » (une suite continue de fichiers WAL archivés), et seule une restauration de test prouve que tu l’as.'
 		]
 	},
 	task: {
@@ -160,12 +158,16 @@ export default {
 			why: 'La doc : « Upon getting a zero result, PostgreSQL will assume that the file has been successfully archived, and will remove or recycle it. » La chaîne a maintenant un trou, et tu l’apprends pendant la restauration. Un code de sortie non nul est l’échec sans danger : PostgreSQL réessaie.'
 		}
 	],
-	takeaway: 'Une sauvegarde, c’est une base backup plus chaque segment de WAL depuis, et elle ne compte qu’une fois restaurée à une minute choisie, lignes vérifiées.',
+	recall: {
+		q: 'Un `DELETE` a frappé `orders` à 14:03. De quoi as-tu besoin pour retrouver les lignes telles qu’à 14:02:59, et pourquoi un `pg_dump` nocturne ne t’y amène-t-il pas ?',
+		a: 'D’une base backup terminée avant 14:03, plus chaque segment de WAL archivé depuis, rejoués avec `recovery_target_time`. Le rejeu du WAL a besoin des fichiers de données : il ne peut pas tourner par-dessus un dump logique.'
+	},
 	sources: [
 		{ title: 'Doc PostgreSQL, Continuous Archiving and Point-in-Time Recovery', url: 'https://www.postgresql.org/docs/current/continuous-archiving.html' },
 		{ title: 'Doc PostgreSQL, SQL Dump', url: 'https://www.postgresql.org/docs/current/backup-dump.html' },
 		{ title: 'Doc PostgreSQL, réglages Recovery Target', url: 'https://www.postgresql.org/docs/current/runtime-config-wal.html#RUNTIME-CONFIG-WAL-RECOVERY-TARGET' },
 		{ title: 'Guide utilisateur de pgBackRest', url: 'https://pgbackrest.org/user-guide.html' },
-		{ title: 'Source pgBackRest, src/command/restore/config.c.inc', url: CONF }
+		{ title: 'Source pgBackRest, src/command/restore/config.c.inc', url: CONF },
+		{ title: 'Source pgBackRest, création de recovery.signal', url: `${CONF}#L346-L355` }
 	]
 };

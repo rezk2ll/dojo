@@ -9,14 +9,13 @@ export default {
 	hook: [
 		'Ton playbook fait maintenant 400 lignes. nginx, PostgreSQL, utilisateurs, pare-feu, tout dans un fichier. Un deuxième projet a besoin de la partie nginx, alors tu la copies. Un mois plus tard, les deux copies ont divergé.',
 		'Pire : tu modifies `nginx.conf` dans le playbook et nginx doit être rechargé. Tu ajoutes une tâche « reload nginx » à la fin, et maintenant il recharge à **chaque** exécution, même quand rien n’a changé.',
-		'Un **rôle** règle les deux. C’est un dossier avec une structure fixe : tâches, defaults, templates, handlers. Tu l’écris une fois, tu lui donnes des réglages, et tu le réutilises partout.'
+		'Un **rôle** règle les deux problèmes. C’est un dossier avec une structure fixe : tâches, defaults, templates et handlers. Tu l’écris une fois, tu lui donnes des variables avec des valeurs par défaut, et tu le réutilises dans chaque projet.'
 	],
 	terms: [
 		{ term: 'Rôle', def: 'Un dossier avec une structure connue (`tasks/`, `handlers/`, `defaults/`, `vars/`, `templates/`, `files/`, `meta/`). Ansible charge chaque `main.yml` pour toi.' },
-		{ term: 'Defaults du rôle', def: '`defaults/main.yml` : les réglages du rôle, à la priorité la plus basse. Presque n’importe quelle autre variable les écrase.' },
-		{ term: 'Template', def: 'Un fichier Jinja2 (`.j2`) où `{{ nginx_worker_processes }}` devient une valeur. Le module `template` le génère sur le serveur.' },
-		{ term: 'Handler', def: 'Une tâche qui ne tourne que si une autre tâche la **notifie** et répond `changed`. Usage typique : recharger un service après un changement de sa config.' },
-		{ term: 'Ansible Vault', def: 'Chiffre un fichier de variables ou une valeur seule, pour que les secrets puissent vivre dans Git. Ansible les déchiffre à l’exécution avec le mot de passe du vault.' }
+		{ term: 'Defaults du rôle', def: '`defaults/main.yml` : les variables que l’utilisateur du rôle est censé changer, à la priorité la plus basse. Presque n’importe quelle autre variable les écrase.' },
+		{ term: 'Template', def: 'Un fichier Jinja2 (`.j2`) où Ansible remplace `{{ nginx_worker_processes }}` par la valeur de chaque hôte. Le module `template` le génère sur le serveur.' },
+		{ term: 'Handler', def: 'Une tâche qui ne tourne que si une autre tâche la **notifie** et répond `changed`. Usage typique : recharger un service après un changement de sa config.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -28,7 +27,7 @@ export default {
 					'role --> d["defaults/main.yml"]'
 				],
 				highlight: ['role', 't', 'd'],
-				note: 'Le playbook se réduit à une liste de rôles. Le rôle contient les **tâches** et ses **defaults**, les valeurs que l’utilisateur est censé changer.'
+				note: 'Le playbook se réduit à une liste de rôles. Le rôle contient les tâches et ses **defaults**, les valeurs que l’utilisateur est censé changer.'
 			},
 			{
 				add: [
@@ -37,7 +36,7 @@ export default {
 					't -->|module template| conf["/etc/nginx/nginx.conf"]'
 				],
 				highlight: ['tpl', 'conf'],
-				note: 'Fini d’éditer `nginx.conf` à la main. Le fichier est un **template** : le même texte pour chaque serveur, avec les variables remplies par hôte.'
+				note: 'Tu n’édites plus `nginx.conf` à la main. Le fichier est un **template** : le même texte pour chaque serveur, avec les variables remplies par hôte.'
 			},
 			{
 				add: ['h["handlers/main.yml : reload nginx"]', 'role --> h', 'conf -.->|notify, seulement si changé| h'],
@@ -47,7 +46,7 @@ export default {
 			{
 				add: ['gv["group_vars et host_vars"] -->|écrasent| d', 'ev["extra vars -e : gagnent toujours"] -->|écrasent| d'],
 				highlight: ['gv', 'ev'],
-				note: 'La priorité, en version légère : les defaults du rôle perdent face aux `group_vars` et `host_vars` de l’inventaire, et `-e` en ligne de commande bat tout. Le conseil d’Ansible lui-même : **définis chaque variable à un seul endroit**.'
+				note: 'La priorité, en version légère : les defaults du rôle perdent face aux `group_vars` et `host_vars` de l’inventaire, et `-e` en ligne de commande bat tout. La doc d’Ansible conseille de **définir chaque variable à un seul endroit**.'
 			},
 			{
 				add: ['vault["group_vars/prod/vault.yml, chiffré"] -.->|déchiffré à l’exécution| t'],
@@ -78,22 +77,22 @@ export default {
     state: "{{ nginx_service_state }}"
     enabled: "{{ nginx_service_enabled }}"`,
 		notes: [
-			'`validate: nginx -t -c %s` lance `nginx -t` sur une copie temporaire **avant** de remplacer le vrai fichier. Un template cassé fait échouer la tâche, et l’ancienne config reste en place.',
-			'`notify: reload nginx` pointe vers le [handler](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/handlers/main.yml#L9-L11). C’est un reload, pas un restart : pas de connexions coupées pour un changement de config.',
-			'Chaque valeur entre `{{ }}` est un réglage. Les valeurs par défaut sont dans [`defaults/main.yml`](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/defaults/main.yml#L18-L22) : `nginx_service_state: started`, `nginx_conf_template: "nginx.conf.j2"`. Écrase-les dans tes `group_vars`, jamais en modifiant le rôle.',
-			'Le même rôle installe nginx sur Debian, Red Hat, Arch et d’autres : [`tasks/main.yml`](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/tasks/main.yml#L11-L31) choisit un fichier d’installation selon les facts de l’OS. Ce travail, tu l’as gratuitement en réutilisant un rôle.'
+			'Ligne 8, `validate: nginx -t -c %s` lance `nginx -t` sur une copie temporaire **avant** de remplacer le vrai fichier. Un template cassé fait échouer la tâche, et l’ancienne config reste en place.',
+			'Lignes 9 et 10, `notify: reload nginx` pointe vers le [handler](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/handlers/main.yml#L9-L11). C’est un reload, pas un restart : pas de connexions coupées pour un changement de config.',
+			'Les lignes 3, 4, 6, 14 et 15 lisent des variables entre `{{ }}`. Leurs valeurs par défaut sont dans [`defaults/main.yml`](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/defaults/main.yml#L18-L22) : `nginx_service_state: started`, `nginx_conf_template: "nginx.conf.j2"`. Écrase-les dans tes `group_vars`, jamais en modifiant le rôle.',
+			'Le même rôle installe nginx sur Debian, Red Hat, Arch et d’autres : [`tasks/main.yml`](https://github.com/geerlingguy/ansible-role-nginx/blob/5ff0b235006390a0d5666fd4cce7477410982cdf/tasks/main.yml#L11-L31) choisit un fichier d’installation selon les facts de l’OS. Quand tu réutilises le rôle, tu n’écris pas cette gestion des OS toi-même.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Réutilisation : un seul rôle nginx pour tous les projets, testé une fois, amélioré à un seul endroit.',
+			'Un seul rôle nginx sert tous les projets : tu écris et testes une correction à un seul endroit.',
 			'Les handlers redémarrent ou rechargent un service seulement quand sa config a vraiment changé.',
 			'Vault garde les secrets dans le même repo que le code, chiffrés, donc un clone tout neuf peut quand même déployer.'
 		],
 		cost: [
 			'Les variables peuvent venir de plus de vingt endroits. Deux personnes qui posent la même variable à deux endroits vont perdre un après-midi sur la priorité.',
 			'Les handlers tournent à la fin du play. Si une tâche suivante a besoin du service rechargé, il faut ajouter `meta: flush_handlers`.',
-			'Un mot de passe de vault est un secret partagé. Qui l’a lit tous les secrets qu’il protège, et le changer veut dire `ansible-vault rekey` sur chaque fichier chiffré. Une valeur chiffrée seule ne peut pas passer par `rekey` : tu la chiffres à nouveau.'
+			'Toute personne qui a le mot de passe du vault peut lire tous les secrets qu’il protège. Le changer veut dire `ansible-vault rekey` sur chaque fichier chiffré. Une valeur chiffrée seule ne peut pas passer par `rekey` : tu la chiffres à nouveau.'
 		]
 	},
 	task: {
@@ -104,7 +103,7 @@ export default {
 			'`roles/web/defaults/main.yml` : `web_motd: "Managed by Ansible"`. La tâche motd utilise `content: "{{ web_motd }}"`.',
 			'`roles/web/templates/site.conf.j2` pour la config nginx, et la tâche template a `notify: reload nginx`.',
 			'`roles/web/handlers/main.yml` : `- name: reload nginx` avec `ansible.builtin.service: name=nginx state=reloaded`.',
-			'`site.yml` devient `- hosts: web`, `become: yes`, `roles: [web]`. Deuxième exécution : aucun changement, aucun reload.'
+			'`site.yml` ne contient plus que `- hosts: web`, `become: yes`, `roles: [web]`. Deuxième exécution : aucun changement, aucun reload.'
 		]
 	},
 	quiz: [
@@ -142,7 +141,10 @@ export default {
 			why: 'Ansible Vault chiffre un fichier ou une valeur. Le texte chiffré vit dans ton repo, et tu passes le mot de passe avec `--ask-vault-pass` ou `--vault-password-file` à l’exécution.'
 		}
 	],
-	takeaway: 'Un rôle est un dossier à la forme fixe : les tâches font le travail, les defaults sont les réglages, les templates remplacent les fichiers édités à la main, les handlers ne réagissent qu’aux changements. Mets les secrets dans Vault, et chaque variable à un seul endroit.',
+	recall: {
+		q: 'Dans un rôle, quel fichier contient les valeurs que l’utilisateur écrase depuis son inventaire, et lequel contient le reload qui ne tourne qu’après un changement de config ?',
+		a: '`defaults/main.yml` contient les valeurs, à la priorité la plus basse, donc les `group_vars` les écrasent. `handlers/main.yml` contient `reload nginx`, qui tourne une fois après les tâches du play, et seulement si une tâche qui l’a notifié a répondu `changed`.'
+	},
 	sources: [
 		{ title: 'Doc Ansible, Roles', url: 'https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html' },
 		{ title: 'Doc Ansible, Handlers : agir sur changement', url: 'https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html' },

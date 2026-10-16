@@ -8,16 +8,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Sur tes anciens serveurs, l’appli web vivait sur `10.0.3.17`. Tu avais écrit cette IP dans la config du load balancer, et elle est restée vraie pendant des années.',
-		'Dans Kubernetes, ce qui fait tourner ton appli est un **Pod**, et les Pods sont jetables. Ils meurent, sont remplacés, et reviennent avec un nouveau nom et une nouvelle IP. Écrire une IP de Pod quelque part, c’est un bug qui attend son heure.',
-		'Alors Kubernetes coupe le travail en deux. Un **Deployment** garde le bon nombre de Pods en vie. Un **Service** leur donne un nom stable. Et la colle entre les deux n’est pas une IP. C’est un **label**.'
+		'Dans Kubernetes, ce qui fait tourner ton appli est un **Pod**, et les Pods sont jetables. Ils meurent, sont remplacés, et reviennent avec un nouveau nom et une nouvelle IP. Une IP de Pod écrite dans un fichier de config casse au prochain remplacement de ce Pod.',
+		'Kubernetes coupe donc le travail en deux. Un Deployment garde le bon nombre de Pods en vie. Un Service leur donne un nom stable, et les trouve par **label**, comme `app: guestbook`, jamais par IP.'
 	],
 	terms: [
 		{ term: 'Pod', def: 'La plus petite chose que Kubernetes fait tourner : un ou plusieurs conteneurs qui partagent réseau et stockage, toujours placés sur le même node.' },
-		{ term: 'ReplicaSet', def: 'Garde un nombre fixé de Pods identiques en marche. Tu y touches rarement toi-même.' },
 		{ term: 'Deployment', def: 'Gère les ReplicaSets pour toi, et déploie une nouvelle version en créant un nouveau ReplicaSet et en réduisant l’ancien.' },
 		{ term: 'Service', def: 'Un nom stable et une IP virtuelle devant un ensemble de Pods qui change. Le type par défaut est `ClusterIP`, joignable seulement depuis le cluster.' },
-		{ term: 'Label', def: 'Une clé et une valeur collées sur un objet, comme `app: guestbook`. Libre, et fait pour toi.' },
-		{ term: 'Selector', def: 'Une requête sur les labels, comme « tous les Pods avec `app: guestbook` et `tier: frontend` ». C’est ainsi qu’un objet en trouve d’autres.' }
+		{ term: 'Label et selector', def: 'Un label est une clé et une valeur posées sur un objet, comme `app: guestbook`. Un selector est une requête sur les labels, comme « tous les Pods avec `app: guestbook` et `tier: frontend` ».' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -29,7 +27,7 @@ export default {
 					'p3["Pod frontend-c"]'
 				],
 				highlight: ['p1', 'p2', 'p3'],
-				note: 'Trois **Pods**, chacun avec les labels `app: guestbook` et `tier: frontend`. Chacun a sa propre IP. S’il meurt, son IP meurt avec lui.'
+				note: 'Trois **Pods**, chacun avec les labels `app: guestbook` et `tier: frontend`. Chacun a sa propre IP. Quand un Pod meurt, son IP disparaît avec lui, et le Pod qui le remplace en reçoit une nouvelle.'
 			},
 			{
 				add: [
@@ -39,7 +37,7 @@ export default {
 					'rs --> p3'
 				],
 				highlight: ['rs'],
-				note: 'Un **ReplicaSet** compte les Pods qui correspondent à son selector. Moins de 3 ? Il en crée un. Plus ? Il en supprime un. C’est la boucle de contrôle d’hier.'
+				note: 'Un **ReplicaSet** garde un nombre fixé de Pods identiques en marche : il compte les Pods qui correspondent à son selector. Moins de 3 ? Il en crée un. Plus ? Il en supprime un, comme la boucle du contrôleur du chapitre précédent.'
 			},
 			{
 				add: [
@@ -47,7 +45,7 @@ export default {
 					'dep --> rs'
 				],
 				highlight: ['dep'],
-				note: 'C’est toi qui écris le **Deployment**. Il crée le ReplicaSet à partir de son template de Pod. Change l’image, et il crée un **second ReplicaSet** pour la nouvelle version, puis bascule les Pods. Par défaut, au plus 25 % des Pods sont indisponibles à un instant donné.'
+				note: 'Tu écris le Deployment. Il crée le ReplicaSet à partir de son template de Pod. Change l’image, et il crée un **second ReplicaSet** pour la nouvelle version, puis bascule les Pods. Par défaut, au plus 25 % des Pods sont indisponibles à un instant donné.'
 			},
 			{
 				add: [
@@ -57,7 +55,7 @@ export default {
 					'svc -.-> p3'
 				],
 				highlight: ['svc'],
-				note: 'Le **Service** ne sait pas que le Deployment existe. Il n’a qu’un **selector**. Kubernetes tient la liste des IP des Pods correspondants, marque ceux qui sont prêts, et la met à jour quand les Pods vont et viennent. Le trafic ne va qu’aux Pods prêts.'
+				note: 'Le **Service** ne sait pas que le Deployment existe. Il n’a qu’un selector. Kubernetes tient la liste des IP des Pods correspondants, marque ceux qui sont prêts, et la met à jour quand les Pods vont et viennent. Le trafic ne va qu’aux Pods prêts.'
 			},
 			{
 				add: [
@@ -66,7 +64,7 @@ export default {
 					'class cli ext'
 				],
 				highlight: ['cli'],
-				note: 'Les clients utilisent le **nom** du Service, résolu par le DNS du cluster. Les Pods peuvent être remplacés toute la journée : le nom reste, seule la liste derrière change.'
+				note: 'Les clients utilisent le **nom** du Service, résolu par le DNS du cluster. Quand des Pods sont remplacés, le nom `frontend` ne change pas, seule la liste des IP derrière lui change.'
 			}
 		]
 	},
@@ -95,8 +93,8 @@ spec:
       - name: php-redis
         image: gcr.io/google-samples/gb-frontend:v5`,
 		notes: [
-			'Le guestbook est la démo classique de Kubernetes. `spec.selector` et `spec.template.metadata.labels` portent **les deux mêmes labels**. Ils doivent correspondre, sinon l’API server refuse le Deployment.',
-			'`template` est un Pod, écrit en ligne. Le Deployment en produit 3 copies. Tu n’écris jamais les Pods toi-même.',
+			'Le guestbook est la démo classique de Kubernetes. Les lignes 6 à 9 (`spec.selector`) et 13 à 15 (`spec.template.metadata.labels`) portent **les deux mêmes labels**. Ils doivent correspondre, sinon l’API server refuse le Deployment.',
+			'Les lignes 11 à 19, sous `template`, décrivent un Pod écrit en ligne. La ligne 10 demande au Deployment 3 copies de ce Pod. Tu n’écris jamais les Pods toi-même.',
 			'Le [Service frontend](https://github.com/kubernetes/examples/blob/d6b8cd27eacb51e651a1aa6f7c190a28713eff6e/web/guestbook/frontend-service.yaml#L14-L18) sélectionne lui aussi `app: guestbook` et `tier: frontend`. Cette paire de labels est le seul lien entre les deux fichiers.',
 			'Un selector à deux labels veut dire **les deux**. Le [Deployment Redis](https://github.com/kubernetes/examples/blob/d6b8cd27eacb51e651a1aa6f7c190a28713eff6e/web/guestbook/redis-master-deployment.yaml#L6-L17) de la même appli utilise `app: redis` et `tier: backend`, donc ses Pods ne peuvent jamais se retrouver derrière le Service frontend.'
 		]
@@ -105,12 +103,12 @@ spec:
 		gain: [
 			'Les Pods peuvent mourir et être remplacés sans que personne ne mette à jour une IP nulle part.',
 			'Déployer une nouvelle image, c’est un seul changement sur le Deployment, et l’ancien ReplicaSet est gardé pour revenir en arrière avec `kubectl rollout undo`.',
-			'Les labels sont souples : un Service peut couvrir les Pods de deux Deployments, c’est comme ça qu’on construit un canary.'
+			'Un Service peut sélectionner les Pods de deux Deployments, et c’est ainsi qu’on construit un canary.'
 		],
 		cost: [
-			'Les labels sont une colle lâche. Une faute de frappe dans un selector échoue en silence : le Service n’a simplement aucun Pod derrière.',
-			'Le selector d’un Deployment ne peut pas changer après sa création. Prévois tes labels dès le départ, ou supprime et recrée.',
-			'Trois objets pour une appli web, plus les couches entre eux, ça fait plus d’endroits où chercher quand le trafic n’arrive pas.'
+			'Une faute de frappe dans un selector ne lève aucune erreur. Le Service n’a simplement aucun Pod derrière lui.',
+			'Le selector d’un Deployment ne peut pas changer après sa création. Pour le changer, tu supprimes le Deployment et tu le recrées.',
+			'Quand le trafic n’arrive pas, tu vérifies trois objets (Deployment, Pods, Service) et les labels qui les relient.'
 		]
 	},
 	task: {
@@ -118,7 +116,7 @@ spec:
 		hint: 'Le Service ne trouve les Pods que par son selector, et n’utilise que les Pods prêts.',
 		answer: [
 			'Compare le selector du Service (`kubectl get svc shop -o yaml`) aux labels des Pods (`kubectl get pods --show-labels`). Une faute comme `app: shop` contre `app: shopp`, ou une clé en trop dans le selector, donne zéro correspondance.',
-			'La readiness n’est pas la cause ici : un Pod pas prêt apparaît quand même dans l’EndpointSlice, marqué `ready: false`. Une fois le selector corrigé, vérifie que les Pods sont **Ready** (la colonne READY), pas seulement Running. Les Pods pas prêts ne reçoivent pas de trafic.',
+			'Un Pod pas prêt apparaît quand même dans l’EndpointSlice, marqué `ready: false`, donc la readiness n’explique pas zéro endpoint. Une fois le selector corrigé, regarde la colonne READY de `kubectl get pods` : un Pod peut être Running sans être **Ready**. Le Service n’envoie aucun trafic à un Pod pas prêt.',
 			'Enfin, vérifie que le `targetPort` du Service correspond au port sur lequel le conteneur écoute vraiment.'
 		]
 	},
@@ -152,7 +150,10 @@ spec:
 			why: '`ClusterIP` est le défaut : une IP virtuelle joignable seulement depuis le cluster. `NodePort` et `LoadBalancer` s’appuient dessus pour atteindre l’extérieur.'
 		}
 	],
-	takeaway: 'Les Pods vont et viennent. Un Deployment garde le bon nombre, un Service garde le nom stable, et les labels sont la seule chose qui les relie.',
+	recall: {
+		q: 'Un Service sélectionne `app: shop`, et ses Pods portent `app: shopp`. Combien d’endpoints reçoit le Service, et quelle erreur vois-tu ?',
+		a: 'Zéro endpoint, et aucune erreur. Un Service ne trouve ses Pods que par son label selector, donc la faute de frappe le laisse sans aucun Pod.'
+	},
 	sources: [
 		{ title: 'Doc Kubernetes, Pods', url: 'https://kubernetes.io/docs/concepts/workloads/pods/' },
 		{ title: 'Doc Kubernetes, Deployments', url: 'https://kubernetes.io/docs/concepts/workloads/controllers/deployment/' },

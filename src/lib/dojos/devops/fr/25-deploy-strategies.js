@@ -4,20 +4,18 @@ const DEMO = 'https://github.com/argoproj/rollouts-demo/blob/4e8c844fe9e23b7586f
 export default {
 	slug: 'deploy-strategies',
 	part: 'CI/CD',
-	title: 'Les stratégies de déploiement : comment la nouvelle version rencontre les vrais utilisateurs',
+	title: 'Les stratégies de déploiement : remplacer la version en production',
 	minutes: 10,
 	hook: [
 		'Vendredi, 18 h. Tu arrêtes le service, tu copies la nouvelle version, tu le relances. Pendant trente secondes le site est coupé. Si la nouvelle version est cassée, elle est cassée **pour tout le monde**, et revenir en arrière veut dire tout refaire, à la main, dans l’urgence.',
-		'Le pipeline sait maintenant construire et tester chaque changement. La dernière question, c’est **comment** la nouvelle version remplace l’ancienne en production. Il y a quelques réponses connues, et chacune arbitre différemment entre vitesse, coût et risque.',
-		'Aujourd’hui : recreate, rolling, blue-green, canary, feature flags, et la seule chose dont toutes les stratégies ont besoin : un **rollback** que tu as déjà répété.'
+		'Le pipeline sait maintenant construire et tester chaque changement. La stratégie décide comment la nouvelle version remplace l’ancienne en production. Les stratégies diffèrent par la coupure, par les serveurs en plus, et par le nombre d’utilisateurs qu’une mauvaise version atteint.',
+		'Chaque stratégie a aussi besoin d’un rollback, un retour à la dernière version qui marchait, et tu devrais le lancer une fois avant d’en avoir besoin.'
 	],
 	terms: [
-		{ term: 'Recreate', def: 'Arrêter toutes les anciennes copies, puis démarrer les nouvelles. Simple, avec une coupure entre les deux.' },
-		{ term: 'Rolling update', def: 'Remplacer les copies quelques-unes à la fois. Pas de coupure, mais l’ancienne et la nouvelle version servent les utilisateurs au même moment.' },
-		{ term: 'Blue-green', def: 'Faire tourner la nouvelle version (green) à côté de celle en ligne (blue), puis basculer le routeur. Rebasculer, c’est le rollback.' },
+		{ term: 'Rolling update', def: 'Remplacer les copies quelques-unes à la fois. Il n’y a pas de coupure, et l’ancienne et la nouvelle version servent les utilisateurs au même moment.' },
+		{ term: 'Blue-green', def: 'Faire tourner la nouvelle version (green) à côté de celle en ligne (blue), puis basculer le routeur. Pour le rollback, tu rebascules le routeur vers blue.' },
 		{ term: 'Canary', def: 'Envoyer une petite part du vrai trafic vers la nouvelle version, l’observer, puis augmenter par paliers.' },
-		{ term: 'Feature flag', def: 'Un interrupteur dans le code qui active ou désactive une fonctionnalité sans nouveau déploiement. Il sépare **déployer** du code et **mettre en service** une fonctionnalité.' },
-		{ term: 'Rollback', def: 'Revenir à la dernière version qui marchait. Chaque stratégie le rend plus rapide ou plus lent.' }
+		{ term: 'Feature flag', def: 'Un interrupteur dans le code qui active ou désactive une fonctionnalité sans nouveau déploiement. Déployer met le code sur les serveurs, et **mettre en service** active la fonctionnalité pour les utilisateurs.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,22 +23,22 @@ export default {
 			{
 				add: ['v1["v1 en ligne sur 4 serveurs"] --> rec["Recreate : arrêter toute la v1, démarrer la v2"]'],
 				highlight: ['v1', 'rec'],
-				note: '**Recreate**, c’est ce que tu faisais à la main. Facile à comprendre : une seule version tourne à la fois. Le prix, c’est un trou sans service. Kubernetes, que tu découvres au jour 31, le propose de base sous le nom `Recreate`.'
+				note: 'Avec la stratégie recreate, tu arrêtes toutes les anciennes copies puis tu démarres les nouvelles, comme tu le faisais à la main. Une seule version tourne à la fois, et les utilisateurs n’ont aucun service entre les deux. Kubernetes, que tu découvres au jour 31, le propose de base sous le nom `Recreate`.'
 			},
 			{
 				add: ['v1 --> roll["Rolling : remplacer 1 serveur à la fois"]'],
 				highlight: ['roll'],
-				note: '**Rolling** est ce que Kubernetes fait par défaut : pendant la mise à jour, au plus 25 % des copies sont arrêtées et au plus 25 % de copies en plus sont démarrées. Pas de coupure, mais pendant un moment **la v1 et la v2 répondent toutes les deux**, donc elles doivent être compatibles.'
+				note: 'Kubernetes fait un rolling update par défaut : pendant la mise à jour, au plus 25 % des copies sont arrêtées et au plus 25 % de copies en plus sont démarrées. Il n’y a pas de coupure, mais pendant un moment **la v1 et la v2 répondent toutes les deux**, donc elles doivent être compatibles.'
 			},
 			{
 				add: ['v1 --> bg["Blue-green : la v2 à côté de la v1, basculer le routeur"]'],
 				highlight: ['bg'],
-				note: '**Blue-green** garde deux environnements complets. Tu testes green, puis tu bascules le routeur. Le rollback, c’est rebasculer. Le prix : le double de capacité, et un schéma de base de données qui marche pour les deux versions.'
+				note: 'Blue-green garde deux environnements complets. Tu testes green, puis tu bascules le routeur, et pour le rollback tu le rebascules vers blue. Tu paies **le double de capacité**, et le schéma de base de données doit marcher pour les deux versions.'
 			},
 			{
 				add: ['v1 --> can["Canary : 20 pour cent vers la v2, observer, puis plus"]'],
 				highlight: ['can'],
-				note: '**Canary** envoie d’abord une petite part des vrais utilisateurs vers la v2. Si les erreurs montent, seule cette part est touchée, et tu renvoies tout le monde en arrière. Il faut de bonnes métriques, sinon tu ne surveilles rien.'
+				note: 'Un canary envoie d’abord une petite part des vrais utilisateurs, ici 20 %, vers la v2. Si les erreurs montent, seule cette part est touchée, et tu renvoies tout le monde sur la v1. Il te faut des métriques qui montrent si la v2 fait pire que la v1.'
 			},
 			{
 				add: [
@@ -50,7 +48,7 @@ export default {
 					'ff["Feature flag : code déployé éteint, activé plus tard"]'
 				],
 				highlight: ['rb', 'ff'],
-				note: 'Un **feature flag** joue à un autre niveau : le code est déployé mais éteint, et tu l’actives avec un interrupteur, pour tout le monde ou pour quelques utilisateurs. Et quelle que soit la stratégie, le **rollback** doit tenir en une commande, testée avant d’en avoir besoin.'
+				note: 'Un **feature flag** agit dans le code : le code est déployé mais éteint, et tu l’actives avec un interrupteur, pour tout le monde ou pour quelques utilisateurs. Quelle que soit la stratégie, le rollback devrait tenir en une commande, que tu as testée avant d’en avoir besoin.'
 			}
 		]
 	},
@@ -79,11 +77,11 @@ spec:
       - setWeight: 80
       - pause: {duration: 10}`,
 		notes: [
-			'Tu découvres Kubernetes au jour 31. Pour l’instant, lis ça comme « faire tourner 5 copies de l’application ». [Argo Rollouts](https://argoproj.github.io/argo-rollouts/) est un module Kubernetes qui ajoute le blue-green et le canary au rolling update intégré.',
-			'`setWeight: 20` envoie 20 % vers la nouvelle version. Sans routeur de trafic, Argo Rollouts y arrive [en comptant les copies](https://argoproj.github.io/argo-rollouts/features/canary/) : 20 % de 5 copies, c’est **1 nouvelle copie et 4 anciennes**.',
-			'`pause: {}` n’a pas de durée, donc le rollout **attend indéfiniment** qu’un humain lance `kubectl argo rollouts promote canary-demo` (la ligne de commande d’Argo Rollouts). C’est ton moment pour regarder les dashboards. Les pauses suivantes durent 10 secondes chacune.',
-			'`canaryService` désigne une adresse stable (un Service Kubernetes) qui n’envoie le trafic qu’aux nouvelles copies, pour que tu puisses tester la v2 directement. Si la v2 a l’air mauvaise, [`kubectl argo rollouts abort`](https://argoproj.github.io/argo-rollouts/generated/kubectl-argo-rollouts/kubectl-argo-rollouts_abort/) annule les étapes et la version précédente redevient active. Mais le Rollout décrit toujours la v2 : remets-y l’ancienne version, sinon il retente la v2.',
-			'Le même dépôt a une [version blue-green](https://github.com/argoproj/rollouts-demo/blob/4e8c844fe9e23b7586f95b5f6b5365693cf318ad/examples/blue-green/bluegreen-rollout.yaml#L30-L34) : un `activeService` pour les utilisateurs, un `previewService` pour tester green, et `autoPromotionEnabled: false` pour que la bascule attende un humain.'
+			'Tu découvres Kubernetes au jour 31. Pour l’instant, lis la ligne 6 comme « faire tourner 5 copies de l’application ». [Argo Rollouts](https://argoproj.github.io/argo-rollouts/) est un module Kubernetes qui ajoute le blue-green et le canary au rolling update intégré.',
+			'La ligne 12, `setWeight: 20`, envoie 20 % vers la nouvelle version. Sans routeur de trafic, Argo Rollouts y arrive [en comptant les copies](https://argoproj.github.io/argo-rollouts/features/canary/) : 20 % de 5 copies, c’est **1 nouvelle copie et 4 anciennes**.',
+			'La ligne 13, `pause: {}`, n’a pas de durée, donc le rollout **attend indéfiniment** qu’un humain lance `kubectl argo rollouts promote canary-demo` (la ligne de commande d’Argo Rollouts). Tu regardes les dashboards avant de la lancer. Les pauses suivantes, aux lignes 15, 17 et 19, durent 10 secondes chacune.',
+			'La ligne 10, `canaryService`, désigne une adresse stable (un Service Kubernetes) qui n’envoie le trafic qu’aux nouvelles copies, pour que tu puisses tester la v2 directement. Si la v2 a l’air mauvaise, [`kubectl argo rollouts abort`](https://argoproj.github.io/argo-rollouts/generated/kubectl-argo-rollouts/kubectl-argo-rollouts_abort/) annule les étapes et remet la version précédente en service. Mais le Rollout décrit toujours la v2 : remets-y l’ancienne version, sinon il retente la v2.',
+			'Le même dépôt a une [version blue-green](https://github.com/argoproj/rollouts-demo/blob/4e8c844fe9e23b7586f95b5f6b5365693cf318ad/examples/blue-green/bluegreen-rollout.yaml#L30-L34), avec un `activeService` pour les utilisateurs, un `previewService` pour tester green, et `autoPromotionEnabled: false` pour que la bascule attende un humain.'
 		]
 	},
 	tradeoff: {
@@ -100,12 +98,12 @@ spec:
 	},
 	task: {
 		prompt: 'Ton application web tourne sur 4 serveurs derrière un load balancer. La prochaine version ajoute une colonne à la table `orders` et commence à y écrire. Choisis une stratégie, et prévois le changement de base de données pour que **le rollback reste possible**.',
-		hint: 'Pendant un rolling update ou un canary, la v1 et la v2 tournent en même temps sur la même base. Que devient la v1 si le schéma change sous ses pieds ?',
+		hint: 'Pendant un rolling update ou un canary, la v1 et la v2 tournent en même temps sur la même base. Qu’arrive-t-il à la v1 si le schéma change pendant qu’elle tourne ?',
 		answer: [
 			'Découpe en deux déploiements. D’abord : une migration qui **ajoute** seulement la colonne (nullable ou avec une valeur par défaut). La v1 l’ignore, rien ne casse, et tu as un point de rollback.',
-			'Ensuite : déploie la v2, qui écrit dans la colonne, en **rolling** ou en **canary**. Si la v2 se comporte mal, fais un rollback de l’application seulement. La colonne reste, la v1 marche toujours.',
+			'Ensuite : déploie la v2, qui écrit dans la colonne, en **rolling** ou en canary. Si la v2 se comporte mal, fais un rollback de l’application seulement. La colonne reste, la v1 marche toujours.',
 			'Ne supprime ni ne renomme jamais une colonne dans la version qui arrête de l’utiliser. Attends qu’aucune version en service n’en ait besoin.',
-			'Blue-green ne te sauve pas ici : blue et green partagent en général la base, donc la même règle s’applique.'
+			'Blue-green demande les mêmes deux étapes : blue et green partagent en général la base.'
 		]
 	},
 	quiz: [
@@ -143,7 +141,10 @@ spec:
 			why: 'Un flag sépare le déploiement (le code est sur les serveurs) de la mise en service (les utilisateurs ont la fonctionnalité). Tu peux l’allumer, ou l’éteindre, sans toucher au pipeline.'
 		}
 	],
-	takeaway: 'Recreate est simple avec une coupure, rolling n’en a pas mais mélange les versions, blue-green bascule avec un retour instantané, canary teste sur quelques vrais utilisateurs. Quel que soit ton choix, garde les deux versions compatibles et répète le rollback.',
+	recall: {
+		q: 'Dans le canary Argo Rollouts à 5 copies, que font `setWeight: 20` puis `pause: {}` ?',
+		a: 'Ils font tourner 1 nouvelle copie et 4 anciennes, donc environ 20 % du trafic arrive sur la v2. Le rollout attend ensuite qu’un humain lance `kubectl argo rollouts promote canary-demo`.'
+	},
 	sources: [
 		{ title: 'Doc Kubernetes, Deployments : stratégie et rollback', url: 'https://kubernetes.io/docs/concepts/workloads/controllers/deployment/' },
 		{ title: 'Martin Fowler, Blue Green Deployment', url: 'https://martinfowler.com/bliki/BlueGreenDeployment.html' },

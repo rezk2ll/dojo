@@ -4,19 +4,17 @@ const TF = 'https://github.com/hashicorp-education/learn-terraform-get-started-a
 export default {
 	slug: 'terraform',
 	part: 'Infrastructure as code',
-	title: 'Terraform: describe it, plan it, apply it',
+	title: 'Terraform: plan and apply',
 	minutes: 10,
 	hook: [
 		'Yesterday you clicked a VPC, two subnets and an instance into the AWS console. Next week you need the same thing for staging. Do you remember every click?',
-		'Ansible could call the AWS API, task by task. But a playbook is a list of **steps**. Delete a task and the thing it created stays. Nothing tracks what exists.',
-		'**Terraform** works the other way. You write what should exist. It compares that with what does exist, shows you the difference as a **plan**, and only acts when you say yes.'
+		'Ansible could call the AWS API, task by task. But a playbook is a list of **steps**. Delete a task and the thing it created stays. No file records what the playbook created.',
+		'With Terraform, you write what should exist. Terraform compares that with what does exist, shows you the difference as a **plan**, and acts only when you type yes.'
 	],
 	terms: [
-		{ term: 'Provider', def: 'A plugin that talks to one API: AWS, GitHub, Cloudflare. `terraform init` downloads it and records its exact version in `.terraform.lock.hcl`.' },
 		{ term: 'Resource', def: 'One thing Terraform manages, like `resource "aws_instance" "app_server"`: a type, a local name, and its arguments.' },
 		{ term: 'Data source', def: 'A read-only lookup, like `data "aws_ami" "ubuntu"`: find something that exists, without managing it.' },
 		{ term: 'Plan', def: '`terraform plan`: compare the configuration with what exists, and list the changes. It changes nothing.' },
-		{ term: 'Apply', def: '`terraform apply`: show the plan, ask for approval, then make the changes in dependency order.' },
 		{ term: 'Dependency graph', def: 'Who must exist before whom. Terraform builds it from the references between blocks.' }
 	],
 	diagram: {
@@ -25,7 +23,7 @@ export default {
 			{
 				add: ['code["main.tf: what should exist"] --> init["terraform init: download the AWS provider"]'],
 				highlight: ['code', 'init'],
-				note: 'You write **declarative** code: the end state, not the steps. `init` fetches the providers the code needs. Run it once per working directory, and again when providers or modules change.'
+				note: 'You write **declarative** code: the end state, not the steps. `init` downloads the providers the code needs, plugins that each talk to one API, and records their exact versions in `.terraform.lock.hcl`. Run it once per working directory, and again when providers or modules change.'
 			},
 			{
 				add: [
@@ -35,7 +33,7 @@ export default {
 					'real -.->|read current objects| plan'
 				],
 				highlight: ['plan', 'real'],
-				note: '`plan` reads the current state of what Terraform already manages, compares it with your code, and works out the difference. **Nothing changes yet.**'
+				note: '`plan` reads the current state of what Terraform already manages, compares it with your code, and works out the difference. It changes **nothing** in AWS.'
 			},
 			{
 				add: [
@@ -54,7 +52,7 @@ export default {
 			{
 				add: ['plan -->|"+ create, ~ update, - destroy"| diff["Execution plan"]', 'diff --> apply["terraform apply"]', 'apply --> real'],
 				highlight: ['diff', 'apply'],
-				note: 'The plan uses symbols: `+` create, `~` update in place, `-` destroy, `-/+` destroy and recreate. Read it like a `git diff` of your infrastructure. Then `apply` asks "yes?" and does it.'
+				note: 'The plan uses symbols: `+` create, `~` update in place, `-` destroy, `-/+` destroy and recreate. Read it like a `git diff` of your infrastructure. Then `apply` shows the plan, asks for `yes`, and makes the changes in dependency order.'
 			}
 		]
 	},
@@ -103,22 +101,22 @@ resource "aws_instance" "app_server" {
   }
 }`,
 		notes: [
-			'This is HashiCorp\'s own getting-started tutorial. Every noun from yesterday is here: a Region, a VPC, subnets in AZs, a security group, an instance.',
-			'The `data` block **looks up** the newest Ubuntu image from Canonical. The `resource` block **creates** an instance from it. Data is read, resources are managed.',
-			'`data.aws_ami.ubuntu.id` and `module.vpc.private_subnets[0]` are references. They are how Terraform knows the order. You rarely need `depends_on`.',
-			'The provider version is constrained in [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-get-started-aws/blob/3f8aeea8095ebad0cc0e5c32efb8c5ea4a9fc090/terraform.tf#L11-L16) (`~> 5.92`), and the repo commits its `.terraform.lock.hcl`, as the docs recommend. Same code, same provider, on every laptop and in CI.'
+			'HashiCorp\'s getting-started tutorial uses yesterday\'s nouns. Line 2 sets the Region, lines 16 to 27 build a VPC with subnets in AZs, and lines 29 to 39 an instance with a security group.',
+			'Lines 5 to 14, the `data` block, **look up** the newest Ubuntu image from Canonical. Lines 29 to 39, the `resource` block, create an instance from it. Terraform only reads a data source, but it creates, updates and destroys a resource.',
+			'Lines 30 and 34 hold references: `data.aws_ami.ubuntu.id` and `module.vpc.private_subnets[0]`. Terraform orders the work from them, so you rarely need `depends_on`.',
+			'The provider version is constrained in [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-get-started-aws/blob/3f8aeea8095ebad0cc0e5c32efb8c5ea4a9fc090/terraform.tf#L11-L16) (`~> 5.92`), and the repo commits its `.terraform.lock.hcl`, as the docs recommend. Every laptop and the CI then run the same provider version.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'You see every change before it happens. `plan` output is a perfect thing to paste into a pull request.',
-			'Remove a block and the plan proposes destroying it. The code is the full list of what Terraform manages, nothing left behind.',
-			'One tool, one language for hundreds of APIs: AWS, DNS, GitHub, monitoring.'
+			'You see every change before it happens, and you can paste the `plan` output into a pull request.',
+			'If you remove a block, the plan proposes destroying the resource, so nothing Terraform created is left behind.',
+			'The same tool and language drive hundreds of APIs: AWS, DNS, GitHub, monitoring.'
 		],
 		cost: [
-			'Terraform must remember what it created. That memory, the **state**, is a file you now have to protect (tomorrow\'s chapter).',
-			'Some changes cannot be done in place. A `-/+` on a database means destroy and recreate: read the plan before you type yes.',
-			'Terraform builds infrastructure, it does not configure inside the servers well. Many teams use Terraform for the instance and Ansible for what runs on it.'
+			'Terraform records what it created in a **state** file, and you now have to protect that file (tomorrow\'s chapter).',
+			'A `-/+` on a database means Terraform destroys it and creates a new one, so read the plan before you type yes.',
+			'Terraform creates the servers but is weak at configuring what runs inside them. Many teams use Terraform for the instance and Ansible for what runs on it.'
 		]
 	},
 	task: {
@@ -166,7 +164,10 @@ resource "aws_instance" "app_server" {
 			why: '`-/+` means Terraform destroys the resource and then creates a replacement, usually because a changed argument cannot be updated in place. Anything stored on that instance goes with it.'
 		}
 	],
-	takeaway: 'Terraform is declarative: you write what should exist, `plan` shows the difference, `apply` makes it real in the order the references imply. Read every plan like a diff.',
+	recall: {
+		q: 'What does `terraform plan` compare, and which symbol in its output means a resource will be destroyed and recreated?',
+		a: 'It compares your configuration with the current state of what Terraform manages, and changes nothing. `-/+` means destroy and recreate, and anything stored on that resource goes with it.'
+	},
 	sources: [
 		{ title: 'Terraform docs, What is Terraform?', url: 'https://developer.hashicorp.com/terraform/intro' },
 		{ title: 'Terraform docs, Providers', url: 'https://developer.hashicorp.com/terraform/language/providers' },

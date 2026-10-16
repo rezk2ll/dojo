@@ -4,19 +4,18 @@ const MOD = 'https://github.com/hashicorp-education/learn-terraform-modules-use/
 export default {
 	slug: 'terraform-state-and-modules',
 	part: 'L’infrastructure as code',
-	title: 'State et modules Terraform : partager la mémoire, réutiliser le code',
+	title: 'State, backends et modules Terraform',
 	minutes: 10,
 	hook: [
 		'Tu as lancé `terraform apply` depuis ton portable. Un fichier est apparu à côté de ton code : `terraform.tfstate`. Ton collègue clone le repo et lance `plan`. Terraform veut **tout recréer**.',
-		'Son clone n’a pas de fichier de state. Pour son Terraform, rien n’existe encore. Si vous faites un apply en même temps, deux écrivains se battent pour une seule infrastructure.',
-		'Aujourd’hui : mettre le state là où toute l’équipe et la CI peuvent l’atteindre, avec un **verrou**. Puis arrêter de copier-coller le code du VPC, et appeler un **module** à la place.'
+		'Son clone n’a pas de fichier de state. Pour son Terraform, rien n’existe encore. Si vous faites un apply en même temps, les deux exécutions modifient les mêmes resources AWS sans rien savoir l’une de l’autre.',
+		'Tu ranges le state là où toute l’équipe et la CI peuvent l’atteindre, avec un **verrou**. Le code du VPC que tu copiais d’un projet à l’autre part dans un module que chaque projet appelle.'
 	],
 	terms: [
-		{ term: 'State', def: 'La mémoire de Terraform : quel objet réel correspond à quel bloc. Un fichier JSON, `terraform.tfstate` par défaut. Ne l’édite jamais à la main.' },
+		{ term: 'State', def: 'L’enregistrement qui relie chaque objet réel à son bloc. Un fichier JSON, `terraform.tfstate` par défaut. Ne l’édite jamais à la main.' },
 		{ term: 'Backend', def: 'Là où le state est stocké. En local par défaut. Un backend distant, comme un bucket S3 ou HCP Terraform, permet à l’équipe de partager un seul state.' },
 		{ term: 'Verrou de state', def: 'Si le backend gère le verrou (et qu’il est activé), Terraform le prend automatiquement à chaque opération qui pourrait écrire le state. Un deuxième `apply` attend ou échoue au lieu d’écraser le premier.' },
-		{ term: 'Module', def: 'Un dossier de code Terraform que tu appelles avec un bloc `module`. Ton propre dossier est le **root module**, ceux que tu appelles sont des **child modules**.' },
-		{ term: 'Drift', def: 'L’infrastructure réelle ne correspond plus au state, en général parce que quelqu’un l’a modifiée à la main dans la console.' }
+		{ term: 'Module', def: 'Un dossier de code Terraform que tu appelles avec un bloc `module`. Ton propre dossier est le root module, et ceux que tu appelles sont des **child modules**.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -24,7 +23,7 @@ export default {
 			{
 				add: ['you["Toi : terraform apply"] --> st["terraform.tfstate sur ton portable"]', 'mate["Collègue : terraform plan"] -.->|ne le voit pas| st'],
 				highlight: ['st'],
-				note: 'Un state local, ça va quand tu es seul. En équipe c’est un piège : le state vit sur **un seul portable**, et perdre ce fichier veut dire que Terraform oublie ce qu’il a construit.'
+				note: 'Un state local marche quand tu es seul. En équipe, le state vit sur **un seul portable** : ton collègue ne le voit pas, et perdre ce fichier veut dire que Terraform oublie ce qu’il a construit.'
 			},
 			{
 				add: [
@@ -43,7 +42,7 @@ export default {
 					'root --> ec2m["module ec2_instances, count = 2"]'
 				],
 				highlight: ['root', 'vpcm', 'ec2m'],
-				note: 'Un **module**, c’est une fonction pour l’infrastructure. Tu passes des entrées (CIDR, AZ) et tu récupères des sorties (ids de subnets). Fixe une version pour qu’une nouvelle release ne change pas ton réseau au prochain `init`.'
+				note: 'Un **module** marche comme une fonction. Tu passes des entrées (CIDR, AZ) et tu récupères des sorties (ids de subnets). Fixe une version pour qu’une nouvelle release ne change pas ton réseau au prochain `init`.'
 			},
 			{
 				add: [
@@ -54,7 +53,7 @@ export default {
 					'aws -.->|"terraform plan -refresh-only"| s3b'
 				],
 				highlight: ['con', 'aws'],
-				note: '**Drift** : AWS ne correspond plus au state. `terraform plan -refresh-only` montre ce qui a changé hors de Terraform sans rien toucher. Ensuite tu choisis : remettre ce que dit le code avec un `apply` normal, ou écrire le changement dans le code.'
+				note: 'Quelqu’un a modifié AWS à la main, donc AWS ne correspond plus au state : c’est le **drift**. `terraform plan -refresh-only` montre ce qui a changé hors de Terraform sans rien toucher. Ensuite tu choisis : remettre ce que dit le code avec un `apply` normal, ou écrire le changement dans le code.'
 			}
 		]
 	},
@@ -97,22 +96,22 @@ module "ec2_instances" {
   }
 }`,
 		notes: [
-			'Quinze lignes remplacent les centaines de lignes de tables de routage, gateways et subnets qui sont dans [terraform-aws-modules/vpc](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest). Tu passes des entrées, le module construit le réseau.',
-			'`version = "3.18.1"` fixe la version du module. La doc recommande de contraindre les versions. Attention : `version` ne marche que pour les modules d’un registry, pas pour les dossiers locaux.',
-			'`count = 2` appelle le même module deux fois : deux instances, un seul bloc. `module.vpc.default_security_group_id` est une **sortie** de module utilisée comme entrée d’un autre module, et elle ordonne le travail.',
+			'Les lignes 1 à 15 remplacent les centaines de lignes de tables de routage, gateways et subnets qui sont dans [terraform-aws-modules/vpc](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest). Tu passes des entrées, et le module construit le réseau.',
+			'Ligne 3, `version = "3.18.1"` fixe la version du module. La doc recommande de contraindre les versions. `version` ne marche que pour les modules d’un registry, pas pour les dossiers locaux.',
+			'Ligne 20, `count = 2` appelle le même module deux fois : deux instances, un seul bloc. Ligne 26, `module.vpc.default_security_group_id` est une **sortie** de module utilisée comme entrée d’un autre module, et elle ordonne le travail.',
 			'Le [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-modules-use/blob/753518c20cdca94c67e1f0e2890e71f6a96af262/terraform.tf#L4-L12) d’à côté a un bloc `cloud` en commentaire : décommente-le, lance `terraform init`, et le state vit dans HCP Terraform au lieu de ton portable.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'State distant avec verrou : toute l’équipe et la CI travaillent sur une seule vérité, et deux apply ne peuvent pas écrire en même temps.',
+			'Avec un state distant et un verrou, toute l’équipe et la CI utilisent un seul fichier de state, et deux apply ne peuvent pas l’écrire en même temps.',
 			'Les modules te donnent un VPC relu et testé en quelques lignes, identique dans chaque environnement.',
 			'Un bucket de state versionné te permet de récupérer un ancien state après une erreur.'
 		],
 		cost: [
 			'Le state peut contenir des secrets **en clair**, comme des mots de passe de base de données. Le bucket doit être chiffré et son accès restreint.',
-			'Un module, c’est la conception de quelqu’un d’autre. Une montée de version majeure peut renommer des resources et proposer de les détruire : lis le plan.',
-			'Une exécution plantée peut laisser un verrou derrière elle. `terraform force-unlock` le libère, mais utilise-le seulement sur ton propre verrou, sinon tu as deux écrivains.'
+			'Un module public suit les choix de ses auteurs. Une montée de version majeure peut renommer des resources et proposer de les détruire : lis le plan.',
+			'Une exécution plantée peut laisser un verrou derrière elle. `terraform force-unlock` le libère, mais utilise-le seulement sur ton propre verrou, sinon deux exécutions peuvent écrire le state en même temps.'
 		]
 	},
 	task: {
@@ -136,7 +135,7 @@ module "ec2_instances" {
 				'AWS rejette les appels d’API du deuxième ingénieur, parce que le premier possède déjà ces resources'
 			],
 			answer: 1,
-			why: 'Le state est la façon dont Terraform relie les blocs aux objets réels. Deux copies, ce sont deux mémoires différentes. Un backend distant partagé avec verrou donne une seule mémoire et un seul écrivain à la fois.'
+			why: 'Le state est la façon dont Terraform relie les blocs aux objets réels. Avec deux copies, chaque state ignore ce que l’autre ingénieur a créé. Un backend distant partagé avec verrou donne un seul state et un seul écrivain à la fois.'
 		},
 		{
 			q: 'Que fait `terraform apply -refresh-only` ?',
@@ -161,7 +160,10 @@ module "ec2_instances" {
 			why: 'Le verrou est opt-in pour le backend S3, et `use_lockfile` vaut `false` par défaut. L’ancienne option `dynamodb_table` est dépréciée. `encrypt` protège le state au repos mais ne le verrouille pas.'
 		}
 	],
-	takeaway: 'Le state est la mémoire de Terraform : garde-en une seule copie, distante, verrouillée, chiffrée et versionnée. Les modules sont des briques réutilisables à version fixée. Le drift, c’est la console qui passe derrière ton code, et `plan -refresh-only` le trouve.',
+	recall: {
+		q: 'Ton équipe garde le state Terraform dans le backend S3. Quel réglage empêche deux apply d’écrire en même temps, et quelle commande montre les changements faits à la main dans la console ?',
+		a: '`use_lockfile = true` active le verrou, désactivé par défaut, donc un deuxième apply attend ou échoue. `terraform plan -refresh-only` montre le drift sans rien changer.'
+	},
 	sources: [
 		{ title: 'Doc Terraform, State', url: 'https://developer.hashicorp.com/terraform/language/state' },
 		{ title: 'Doc Terraform, State locking', url: 'https://developer.hashicorp.com/terraform/language/state/locking' },

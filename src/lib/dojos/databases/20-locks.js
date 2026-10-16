@@ -2,7 +2,6 @@ const PG = 'https://github.com/postgres/postgres/blob/92d47d544bf64274b6a7aa8775
 const DEADLOCK = `${PG}/src/backend/storage/lmgr/deadlock.c`;
 const README = `${PG}/src/backend/storage/lmgr/README`;
 const MVCC = `${PG}/doc/src/sgml/mvcc.sgml`;
-const CONFIG = `${PG}/doc/src/sgml/config.sgml`;
 
 /** @type {import('../../content.js').Chapter} */
 export default {
@@ -12,13 +11,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'A refund job moves money from account A to account B. At the same moment, a transfer moves money from B to A. Both hang for a second, then one fails with **`ERROR: deadlock detected`**. Nobody wrote a lock in the code.',
-		'MVCC (day 18) lets readers and writers pass each other. **Two writers on the same row still take turns.** Every UPDATE or DELETE takes a row lock, held until the transaction ends. The next writer on that row waits.',
-		'Waiting is fine until two transactions wait for each other. Each holds one row and wants the other\'s. **Neither can move.** PostgreSQL notices, aborts one of them, and the other goes on. This chapter is about how it notices, and the one habit that stops it from happening at all.'
+		'MVCC (day 18) lets readers and writers pass each other, but **two writers on the same row still take turns**. Every UPDATE or DELETE takes a row lock, held until the transaction ends. The next writer on that row waits.',
+		'A deadlock happens when two transactions wait for each other: each holds one row and wants the other\'s. PostgreSQL notices after about one second, aborts one of them, and the other goes on. Taking row locks in one fixed order prevents the deadlock.'
 	],
 	terms: [
 		{ term: 'Row lock', def: 'Taken by UPDATE, DELETE and SELECT FOR UPDATE on each row they touch. It blocks other writers and lockers of that row, never plain readers. Released when the transaction ends.' },
-		{ term: 'SELECT FOR UPDATE', def: 'Reads rows and locks them as if you were about to update them. Others who want to change or lock those rows wait until your transaction ends.' },
-		{ term: 'Lock queue', def: 'Each locked object has a wait queue. Conflicting requests are granted in order of arrival, so a waiter can also block everyone who comes after it.' },
 		{ term: 'Deadlock', def: 'Two or more transactions each hold a lock that another one wants. None can proceed until one is aborted.' },
 		{ term: 'deadlock_timeout', def: 'How long a waiting transaction sleeps before it checks for a deadlock. One second by default.' },
 		{ term: 'lock_timeout', def: 'Aborts a statement that waits longer than this for any lock. Off (zero) by default, so a wait can last forever.' }
@@ -29,27 +26,27 @@ export default {
 			{
 				add: ['t1["Tx 1: UPDATE account 11111"] -->|"holds row lock"| r1[("row 11111")]', 't2["Tx 2: UPDATE account 22222"] -->|"holds row lock"| r2[("row 22222")]'],
 				highlight: ['t1', 't2'],
-				note: '**Each takes a row.** The docs\' example: transaction 1 updates account 11111, transaction 2 updates account 22222. Each UPDATE takes a row-level lock on its row. No conflict yet, both succeed.'
+				note: 'The docs\' example: transaction 1 updates account 11111, and transaction 2 updates account 22222. Each UPDATE takes a row-level lock on its row. There is no conflict yet, and both succeed.'
 			},
 			{
 				add: ['t2 -.->|"waits for"| r1'],
 				highlight: ['r1'],
-				note: '**One waits.** Transaction 2 now updates 11111 too. That row is locked by transaction 1, so transaction 2 waits for it to commit or roll back. Waiting is normal: most waits end as soon as the other transaction finishes.'
+				note: 'Transaction 2 now updates 11111 too. That row is locked by transaction 1, so transaction 2 waits for it to commit or roll back. Most waits end as soon as the other transaction finishes.'
 			},
 			{
 				add: ['t1 -.->|"waits for"| r2'],
 				highlight: ['r2'],
-				note: '**A cycle.** Transaction 1 now updates 22222, which transaction 2 holds. Transaction 1 waits for 2, and 2 waits for 1. "So long as no deadlock situation is detected", a lock wait lasts indefinitely. Here nothing will ever release.'
+				note: 'Transaction 1 now updates 22222, which transaction 2 holds. Transaction 1 waits for 2, and 2 waits for 1: a cycle. The docs: a lock wait lasts indefinitely "so long as no deadlock situation is detected", and here neither transaction will release its lock.'
 			},
 			{
 				add: ['det["Deadlock check after deadlock_timeout"] -->|"finds the cycle, aborts one"| t1'],
 				highlight: ['det'],
-				note: '**PostgreSQL breaks it.** After waiting `deadlock_timeout` (1 second by default), the waiter looks for a cycle in the graph of who waits for whom. It finds one, so it cancels its own lock request and its transaction fails with `deadlock detected`. The other one gets the lock and goes on. Which one fails is "difficult to predict and should not be relied upon".'
+				note: 'After waiting `deadlock_timeout` (1 second by default), the waiter looks for a cycle in the graph of who waits for whom. It finds one, so it cancels its own lock request, and its transaction fails with `deadlock detected`. The other one gets the lock and goes on. Which one fails is "difficult to predict and should not be relied upon".'
 			},
 			{
 				add: ['order["Fix: every transaction locks 11111, then 22222"] -.-> r1'],
 				highlight: ['order'],
-				note: '**Lock in one order.** If both transactions had updated the rows in the same order, the second would simply have waited at the first row, and no cycle could form. The docs call this "the best defense against deadlocks".'
+				note: 'If both transactions had updated the rows in the same order, the second would have waited at the first row, and no cycle could form. The docs call this "the best defense against deadlocks".'
 			}
 		]
 	},
@@ -101,23 +98,23 @@ DeadLockCheck(PGPROC *proc)
 			 errdetail_log("%s", logbuf.data),
 			 errhint("See server log for query details.")));`,
 		notes: [
-			'**Wait first, check later.** The lock manager uses ["optimistic waiting"](' + README + '#L346-L360): a process that cannot get a lock goes to sleep without any check, and sets a timer. Only if the timer fires does it run this code. Most waits end before that, so they never pay for the check. The [config docs](' + CONFIG + '#L11255-L11270) give the default, one second, and suggest it "should exceed your typical transaction time".',
-			'**The waits-for graph.** The [README](' + README + '#L393-L410) draws an edge from A to B "if A waits for B". "There is a deadlock condition if and only if the WFG contains a cycle." To break it, PostgreSQL cancels the lock request of the process that ran the check: "it\'s sufficient to cancel one request to remove the cycle".',
-			'**Sometimes nobody dies.** If A only waits because it is queued behind B, that is a ["soft" edge](' + README + '#L428-L442), and reordering the wait queue can remove the cycle. In the [lines skipped here](' + DEADLOCK + '#L248-L277), the code rebuilds the wait queues and returns `DS_SOFT_DEADLOCK`. Only when no order works does it return `DS_HARD_DEADLOCK`, and the transaction is aborted.',
-			'**What you see.** [`DeadLockReport`](' + DEADLOCK + '#L1106-L1112) writes one line per process: "Process %d waits for %s on %s; blocked by process %d." The error code is `40P01`, the one Synapse retries (day 19). The [docs](' + MVCC + '#L1491-L1501) say retrying is the fallback when you cannot guarantee a consistent lock order.'
+			'A process that cannot get a lock goes to sleep without any check and sets a timer, which the README calls ["optimistic waiting"](' + README + '#L346-L360). Only if the timer fires does it run `DeadLockCheck` (lines 6 to 35). Most waits end before that, so they never pay for the check. The config docs give the default, one second, and suggest it "should exceed your typical transaction time".',
+			'The [README](' + README + '#L393-L410) draws an edge in the waits-for graph (WFG) from A to B "if A waits for B", and "There is a deadlock condition if and only if the WFG contains a cycle." To break it, PostgreSQL cancels the lock request of the process that ran the check: "it\'s sufficient to cancel one request to remove the cycle".',
+			'If A only waits because it is queued behind B, the README calls that a ["soft" edge](' + README + '#L428-L442), and reordering the wait queue can remove the cycle. In lines skipped here, the code rebuilds the wait queues, and line 30 returns `DS_SOFT_DEADLOCK`: no transaction is aborted. Only when no order works does line 25 return `DS_HARD_DEADLOCK`, and the caller aborts the transaction.',
+			'Lines 37 to 42 raise the error, and `DeadLockReport` writes one line per process: "Process %d waits for %s on %s; blocked by process %d." The error code is `40P01`, the one Synapse retries (day 19). The [docs](' + MVCC + '#L1491-L1501) say retrying is the fallback when you cannot guarantee a consistent lock order.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Row locks are automatic: two UPDATEs on the same row never interleave, and the second one works on the committed result of the first.',
 			'Plain SELECTs never take row locks, so locks only slow down writers on the same rows.',
-			'Deadlocks do not hang forever. PostgreSQL finds the cycle and aborts one transaction so the rest can finish.'
+			'PostgreSQL finds a deadlock cycle after `deadlock_timeout` and aborts one transaction, so the others can finish.'
 		],
 		cost: [
-			'Every lock is held until the transaction ends. A slow transaction, or one waiting on user input, makes every other writer of those rows wait.',
-			'A wait has no limit by default. Without `lock_timeout`, one stuck transaction can pile up a queue of requests behind it.',
+			'Every lock is held until the transaction ends, so a slow transaction, or one waiting on user input, makes every other writer of those rows wait.',
+			'With `lock_timeout` at zero (the default), a wait has no limit, and one stuck transaction can pile up a queue of requests behind it.',
 			'Deadlock detection costs one `deadlock_timeout` of waiting, then one aborted transaction you must retry.',
-			'SELECT FOR UPDATE makes contention explicit: correct, but every caller that locks the same rows now runs one at a time.'
+			'With SELECT FOR UPDATE, every caller that locks the same rows runs one at a time.'
 		]
 	},
 	task: {
@@ -166,7 +163,10 @@ DeadLockCheck(PGPROC *proc)
 			why: 'A deadlock needs a cycle, and a cycle needs two transactions taking locks in opposite orders. With one global order, the second transaction waits at the first lock and no cycle can form.'
 		}
 	],
-	takeaway: 'Writers on the same row take turns, and locks last until commit. Keep transactions short, take locks in one fixed order, set a lock_timeout, and retry the rare deadlock.',
+	recall: {
+		q: 'A transfer from A to B and one from B to A sometimes fail with `deadlock detected`. Why, and what change stops it?',
+		a: 'Each transfer locks one account row and waits for the row the other holds. Lock the two rows in one fixed order, for example the lower account number first, so the second transfer waits at the first row.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Explicit Locking', url: 'https://www.postgresql.org/docs/18/explicit-locking.html' },
 		{ title: 'PostgreSQL docs, Lock Management settings', url: 'https://www.postgresql.org/docs/18/runtime-config-locks.html' },

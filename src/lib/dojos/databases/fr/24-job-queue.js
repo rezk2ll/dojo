@@ -10,15 +10,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'Tu envoies les emails de bienvenue depuis un job en arrière-plan. Tu lances un second worker pour aller plus vite, et **chaque nouvel utilisateur reçoit maintenant deux emails**. Les deux workers ont lancé `SELECT ... WHERE state = \'available\' LIMIT 1` et ont eu la même ligne.',
-		'Alors tu ajoutes `FOR UPDATE`. Les doublons s’arrêtent, mais **le second worker attend maintenant le verrou du premier** au lieu de prendre le job suivant. Dix workers deviennent un worker et neuf personnes qui font la queue.',
-		'PostgreSQL a une clause faite pour ça : `FOR UPDATE SKIP LOCKED`. **Chaque worker verrouille les jobs qu’il peut prendre tout de suite et passe à côté de ceux qu’un autre worker tient.** C’est grâce à cette seule clause que des bibliothèques comme Oban, River et solid_queue font tourner une vraie file de jobs dans la base que tu as déjà.'
+		'Alors tu ajoutes `FOR UPDATE`. Les doublons s’arrêtent, mais **le second worker attend maintenant le verrou du premier** au lieu de prendre le job suivant. Avec dix workers, un seul travaille et les neuf autres attendent son verrou.',
+		'PostgreSQL a une clause faite pour ça : `FOR UPDATE SKIP LOCKED`. **Chaque worker verrouille les jobs qu’il peut prendre tout de suite et passe à côté de ceux qu’un autre worker tient.** Oban, River et solid_queue s’en servent pour faire tourner une file de jobs dans la base que tu as déjà.'
 	],
 	terms: [
-		{ term: 'Ligne de job', def: 'Une unité de travail stockée comme une ligne : quoi lancer, ses arguments, un état (`available`, `executing`, `completed`), les essais et des horodatages.' },
 		{ term: 'SKIP LOCKED', def: 'Une option de verrouillage pour SELECT : les lignes qu’une autre transaction a verrouillées sont laissées hors du résultat au lieu d’être attendues.' },
 		{ term: 'Prise en charge', def: 'Faire passer un job de `available` à `executing` et noter qui l’a pris, dans une transaction courte, pour qu’aucun autre worker ne le prenne.' },
 		{ term: 'Sauvetage', def: 'Remettre un job en `available` quand son worker est mort pendant qu’il était `executing`. On le trouve à son âge : il tourne depuis bien trop longtemps.' },
-		{ term: 'LISTEN / NOTIFY', def: 'La messagerie intégrée de PostgreSQL. Une session qui a lancé `LISTEN chan` reçoit un message quand quelqu’un valide un `NOTIFY chan`.' },
 		{ term: 'Mise en file transactionnelle', def: 'Insérer le job dans la même transaction que les données qu’il concerne. Si la transaction est annulée, le job n’a jamais existé.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['jobs[("oban_jobs : 1, 2, 3, 4 disponibles")]', 'w1["Worker A : SELECT ... LIMIT 2 FOR UPDATE SKIP LOCKED"] -->|"verrouille 1, 2"| jobs'],
 				highlight: ['w1', 'jobs'],
-				note: '**Le worker A prend ce dont il a besoin.** Il demande deux jobs disponibles par ordre de priorité et les verrouille. Dans la même transaction, il les passe en `executing`, ajoute un à `attempt`, et valide. Le verrou dure quelques millisecondes, pas la durée du job.'
+				note: 'Le worker A demande deux jobs disponibles par ordre de priorité et les verrouille. Dans la même transaction, il les passe en `executing`, ajoute un à `attempt`, et valide. Le verrou dure quelques millisecondes, pas la durée du job.'
 			},
 			{
 				add: ['w2["Worker B : même requête, au même moment"] -->|"saute 1, 2, verrouille 3, 4"| jobs'],
 				highlight: ['w2'],
-				note: '**Le worker B n’attend pas.** Les lignes 1 et 2 sont verrouillées par A, donc SKIP LOCKED les laisse de côté et B obtient 3 et 4. Sans SKIP LOCKED, B bloquerait sur la ligne 1 jusqu’au commit de A, puis la trouverait plus `available`.'
+				note: 'Le worker B n’attend pas. Les lignes 1 et 2 sont verrouillées par A, donc SKIP LOCKED les laisse de côté et B obtient 3 et 4. Sans SKIP LOCKED, B bloquerait sur la ligne 1 jusqu’au commit de A, puis la trouverait plus `available`.'
 			},
 			{
 				add: ['w1 -->|"UPDATE state = completed"| done["Job terminé"]', 'w2 -.->|"plante en pleine exécution"| stuck["Job 3 coincé en executing"]'],
 				highlight: ['done', 'stuck'],
-				note: '**Terminer, c’est un UPDATE de plus.** A marque ses jobs `completed`. Le processus de B meurt en plein job. Le job 3 n’est plus verrouillé (la prise en charge est déjà validée), mais il dit toujours `executing`, donc personne ne le prendra.'
+				note: 'A marque ses jobs `completed` avec un UPDATE de plus. Le processus de B meurt en plein job. Le job 3 n’est plus verrouillé (la prise en charge est déjà validée), mais il dit toujours `executing`, donc personne ne le prendra.'
 			},
 			{
 				add: ['res["Sauvetage : executing et attempted_at plus vieux que la limite"] --> stuck', 'stuck -->|"retour en available"| jobs'],
 				highlight: ['res'],
-				note: '**Un balayeur le remet en place.** Une requête périodique trouve les jobs `executing` depuis trop longtemps et les remet en `available`, ou en `discarded` s’ils ont épuisé leurs essais. C’est pour ça qu’un job doit supporter de tourner deux fois (jour 23).'
+				note: 'Une requête de sauvetage périodique trouve les jobs `executing` depuis trop longtemps et les remet en `available`, ou en `discarded` s’ils ont épuisé leurs essais. Le job 3 peut alors tourner une seconde fois, donc un job doit être idempotent (jour 23).'
 			},
 			{
 				add: ['ins["Appli : INSERT du job + NOTIFY, puis COMMIT"] -->|"réveil"| w1'],
 				highlight: ['ins'],
-				note: '**Pas besoin d’interroger chaque seconde.** L’appli peut lancer `NOTIFY` quand elle insère un job, et les workers inactifs qui font `LISTEN` se réveillent tout de suite. PostgreSQL ne livre le message qu’au commit de la transaction qui insère, donc un worker ne se réveille jamais pour un job annulé.'
+				note: 'Les workers n’ont pas besoin d’interroger la table chaque seconde. L’appli peut lancer `NOTIFY` quand elle insère un job, et les workers inactifs qui ont lancé `LISTEN` se réveillent tout de suite. PostgreSQL ne livre le message qu’au commit de la transaction qui insère, donc un worker ne se réveille jamais pour un job annulé.'
 			}
 		]
 	},
@@ -95,24 +93,24 @@ export default {
     end)
   end`,
 		notes: [
-			'**Autant de jobs que de places libres.** `demand` est la limite de la file moins les jobs qui tournent déjà sur ce nœud. La sous-requête en demande exactement autant, par ordre de priorité, et les verrouille avec `FOR UPDATE SKIP LOCKED`. La [doc de SELECT](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE) cite cet usage : SKIP LOCKED « can be used to avoid lock contention with multiple consumers accessing a queue-like table. » (évite la contention entre plusieurs consommateurs d’une table en forme de file).',
-			'**Prendre et verrouiller en une instruction.** L’UPDATE extérieur remplit `state`, `attempted_at` et `attempted_by`, et ajoute un à `attempt`, pour les ids que renvoie le CTE. La transaction se termine juste après. Le verrou de ligne ne servait qu’à empêcher deux workers de prendre le même job. Ensuite, c’est l’état `executing` qui dit à qui il appartient.',
-			'**Pourquoi un CTE et pas une sous-requête.** Le commentaire explique qu’une boucle imbriquée pourrait lancer la sous-requête LIMIT plus d’une fois et mettre à jour plus de lignes que demandé. PostgreSQL n’intègre jamais un CTE qui verrouille des lignes : [`contain_dml`](' + PGSRC + '#L1070-L1097) considère qu’un SELECT avec `FOR UPDATE` a des effets de bord, et la [vérification d’intégration](' + PGSRC + '#L960-L968) les refuse. Le sous-ensemble est donc calculé une seule fois.',
-			'**Les workers plantés se trouvent à leur âge.** [`rescue_jobs`](' + BASIC + '#L194-L214) cherche `state == "executing" and attempted_at < cut`. Les jobs qui ont encore des essais repassent en `available` ; les autres deviennent `discarded`. Un job peut donc tourner deux fois : une fois dans le worker planté, une fois après le sauvetage.',
-			'**NOTIFY a ses limites.** Le [notifier Postgres](' + OBAN + '/notifiers/postgres.ex#L6-L11) d’Oban prévient qu’il « doesn\'t work with connection poolers like [PgBouncer][pgb] when configured in _transaction_ or _statement_ mode » (ne marche pas derrière PgBouncer en mode transaction ou statement) (jour 25). La [doc de NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) ajoute qu’un payload « must be shorter than 8000 bytes » (doit faire moins de 8000 octets) par défaut.'
+			'La ligne 2 calcule `demand` : la limite de la file moins les jobs qui tournent déjà sur ce nœud. Les lignes 4 à 11 en demandent exactement autant, par ordre de priorité, et les verrouillent avec `FOR UPDATE SKIP LOCKED`. La [doc de SELECT](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE) cite cet usage : SKIP LOCKED évite la contention entre plusieurs consommateurs d’une table en forme de file.',
+			'Les lignes 28 à 34 prennent les jobs en un seul UPDATE : il remplit `state`, `attempted_at` et `attempted_by`, et ajoute un à `attempt`, pour les ids que renvoie le CTE. La transaction se termine juste après, ligne 37. Le verrou de ligne ne servait qu’à empêcher deux workers de prendre le même job. Ensuite, l’état `executing` dit à qui il appartient.',
+			'Les lignes 13 à 16 expliquent le CTE : une boucle imbriquée pourrait lancer la sous-requête LIMIT plus d’une fois et mettre à jour plus de lignes que demandé. PostgreSQL n’intègre jamais un CTE qui verrouille des lignes : [`contain_dml`](' + PGSRC + '#L1070-L1097) considère qu’un SELECT avec `FOR UPDATE` a des effets de bord, et la vérification d’intégration les refuse. PostgreSQL calcule alors le sous-ensemble une seule fois.',
+			'[`rescue_jobs`](' + BASIC + '#L194-L214) repère les workers plantés à l’âge de leurs jobs : il cherche `state == "executing" and attempted_at < cut`. Les jobs qui ont encore des essais repassent en `available` ; il met les autres en `discarded`. Un job peut donc tourner deux fois : une fois dans le worker planté, une fois après le sauvetage.',
+			'Le [notifier Postgres](' + OBAN + '/notifiers/postgres.ex#L6-L11) d’Oban prévient qu’il ne marche pas derrière un pooler comme PgBouncer en mode transaction ou statement (jour 25). La doc de NOTIFY ajoute qu’un payload doit faire moins de 8000 octets par défaut.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Un système de moins à faire tourner, sauvegarder et surveiller. La file est dans la base que tu as déjà, avec ses sauvegardes et son failover.',
+			'Tu ne fais tourner aucun broker à part : la file est dans la base que tu as déjà, avec ses sauvegardes et son failover.',
 			'Mise en file transactionnelle : insère la commande et son job « envoyer le reçu » dans une seule transaction. Soit les deux existent, soit aucun, donc pas d’email pour une commande annulée.',
-			'Les jobs sont des lignes. Tu peux les interroger, les compter par état, les relancer avec un UPDATE, et les joindre à tes propres tables pour déboguer.'
+			'Chaque job est une ligne, donc tu peux interroger les jobs, les compter par état, les relancer avec un UPDATE, et les joindre à tes propres tables pour déboguer.'
 		],
 		cost: [
 			'Chaque job, c’est au moins un insert et deux updates, et chaque update laisse une ligne morte (jour 16). Une table de file chargée a besoin qu’autovacuum suive, sinon les parcours ralentissent.',
-			'Le débit est plafonné par un seul primaire. Un broker conçu pour les flux passe à l’échelle autrement dès qu’il te faut des débits très élevés ou beaucoup de consommateurs par message.',
+			'Chaque prise en charge et chaque update passent par un seul primaire, qui plafonne le débit. Un broker conçu pour les flux passe à l’échelle autrement dès qu’il te faut des débits très élevés ou beaucoup de consommateurs par message.',
 			'Une transaction longue n’importe où dans la base retient vacuum, donc la table de file gonfle même si la file elle-même va bien.',
-			'Au moins une fois, pas exactement une fois : un job sauvé peut avoir déjà fait une partie de son travail. Les jobs doivent être idempotents (jour 23).'
+			'Un job tourne au moins une fois, et parfois deux : un job sauvé peut avoir déjà fait une partie de son travail. Les jobs doivent être idempotents (jour 23).'
 		]
 	},
 	task: {
@@ -160,8 +158,12 @@ export default {
 			why: 'La doc de NOTIFY dit que les événements « are not delivered until and unless the transaction is committed » (ne sont livrés que si la transaction est validée). Ça colle à la mise en file transactionnelle : un job annulé n’a jamais existé, et personne n’est réveillé pour lui.'
 		}
 	],
-	takeaway: 'Une file de jobs dans Postgres, c’est une table, une prise en charge courte avec `FOR UPDATE SKIP LOCKED`, une colonne d’état, et un sauvetage pour les workers plantés ; ça suffit tant qu’un seul primaire tient la charge.',
+	recall: {
+		q: 'Dix workers prennent des jobs dans la même table. Quelle clause laisse chacun prendre des jobs différents sans attendre, et combien de temps tient-il le verrou de ligne ?',
+		a: '`FOR UPDATE SKIP LOCKED`. Le verrou ne dure que la courte transaction de prise en charge qui met `state = \'executing\'` ; le job tourne ensuite hors de toute transaction.'
+	},
 	sources: [
+		{ title: 'PostgreSQL source, subselect.c: the CTE inlining check', url: `${PGSRC}#L960-L968` },
 		{ title: 'PostgreSQL docs, SELECT: the locking clause', url: 'https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE' },
 		{ title: 'PostgreSQL docs, NOTIFY', url: 'https://www.postgresql.org/docs/current/sql-notify.html' },
 		{ title: 'Oban docs, Oban.Notifiers.Postgres', url: 'https://oban.hexdocs.pm/Oban.Notifiers.Postgres.html' }

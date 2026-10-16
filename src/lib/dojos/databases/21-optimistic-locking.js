@@ -9,15 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Two support agents open the same customer record. One fixes the phone number, the other fixes the address. Both click Save. **The second save silently wipes the first fix**, and nobody sees an error.',
-		'That is a lost update. A row lock (day 20) would stop it, but **you cannot hold a lock while a person stares at a form for five minutes**. The lock would live across two HTTP requests, and every other writer would queue behind a coffee break.',
-		'Optimistic locking bets that conflicts are rare. **Each row carries a version number. A write only succeeds if the version is still the one you read**. If someone got there first, your UPDATE touches zero rows, and the app knows it lost the race.'
+		'Here the later write overwrote the earlier one: a lost update. A row lock (day 20) would stop it, but the agent keeps the form open for five minutes. The lock would have to last across two HTTP requests, and every other writer of that row would wait the whole time.',
+		'With optimistic locking, each row carries a version number. **A write succeeds only if the version is still the one you read.** If someone saved first, your UPDATE changes zero rows, and the app knows its copy is stale.'
 	],
 	terms: [
 		{ term: 'Lost update', def: 'Two writers read the same row, both change it, and the later write overwrites the earlier one as if it never happened.' },
 		{ term: 'Version column', def: 'An integer stored on the row (Rails calls it `lock_version`). Every successful update adds one to it.' },
 		{ term: 'Compare-and-set', def: 'An UPDATE whose WHERE clause includes the value you expect. It writes only if the row still holds that value, in one atomic statement.' },
-		{ term: 'Stale object', def: 'A copy of a row in memory whose version no longer matches the database. Saving it must fail rather than overwrite.' },
-		{ term: 'Pessimistic lock', def: 'The opposite bet: take a row lock with `SELECT ... FOR UPDATE` before changing it, so others wait instead of failing (day 20).' }
+		{ term: 'Stale object', def: 'A copy of a row in memory whose version no longer matches the database. Saving it must fail rather than overwrite.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,22 +24,22 @@ export default {
 			{
 				add: ['a["Agent A reads id 1"] -->|"lock_version = 3"| row[("customers row")]', 'b["Agent B reads id 1"] -->|"lock_version = 3"| row'],
 				highlight: ['a', 'b', 'row'],
-				note: '**Both read version 3.** No lock is taken. Each agent keeps the version it saw, in memory or in a hidden form field. They can now edit for as long as they like.'
+				note: 'Both agents read version 3, and no lock is taken. Each agent keeps the version it saw, in memory or in a hidden form field. They can now edit for as long as they like.'
 			},
 			{
 				add: ['a -->|"UPDATE ... SET lock_version = 4 WHERE id = 1 AND lock_version = 3"| row'],
 				highlight: ['a', 'row'],
-				note: '**A saves first.** The WHERE clause still matches, so the row is updated and the version moves to 4. The database reports one row affected. That count is the whole signal.'
+				note: 'A saves first. The WHERE clause still matches, so the row is updated and the version moves to 4. The database reports one row affected, and Rails reads only that count to know the save worked.'
 			},
 			{
 				add: ['b -->|"same UPDATE, WHERE lock_version = 3"| row', 'row -->|"0 rows"| err["StaleObjectError"]'],
 				highlight: ['b', 'err'],
-				note: '**B saves with an old version.** The row now says 4, so the WHERE clause matches nothing and zero rows change. Rails turns that zero into `ActiveRecord::StaleObjectError`. B\'s change is not written.'
+				note: 'B saves with version 3. The row now says 4, so the WHERE clause matches nothing and zero rows change. Rails turns that zero into `ActiveRecord::StaleObjectError`, and B\'s address fix is not written.'
 			},
 			{
 				add: ['err --> retry["Reload, merge or ask the user, then try again"]'],
 				highlight: ['retry'],
-				note: '**The app decides.** The database only refused the write. Your code reloads the row, then retries, merges the two edits, or shows B what changed. Nothing waited, and A\'s fix survived.'
+				note: 'The database only refused the write. Your code reloads the row, then retries, merges the two edits, or shows B what changed. Nobody waited on a lock, and A\'s fix is still in the row.'
 			}
 		]
 	},
@@ -96,23 +95,23 @@ export default {
           super.merge(locking_column => _lock_value_for_database(locking_column))
         end`,
 		notes: [
-			'**The old version goes into the WHERE.** [`_query_constraints_hash`](' + OPT + '#L189-L194) adds `lock_version => <value read>` next to the primary key. [`_build_update_manager`](' + RAILS + '/persistence.rb#L289-L303) turns those constraints into the WHERE clause, while the SET list carries the version plus one. One statement checks and writes.',
-			'**Zero rows means you lost.** The code does not read the row again to compare. It trusts the count the database returns: anything other than 1 raises `StaleObjectError`, and the `rescue` puts the in-memory version back so a retry starts clean. [`destroy_row`](' + OPT + '#L166-L174) applies the same rule to deletes.',
-			'**Why the check cannot race.** In PostgreSQL\'s Read Committed mode, a second UPDATE on a row being changed waits for the first to finish. Then, as the [isolation docs](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED) say, "The search condition of the command (the WHERE clause) is re-evaluated to see if the updated version of the row still matches the search condition." Version 3 no longer matches, so B updates nothing.',
-			'**Across HTTP requests, carry the version.** The [module comment](' + OPT + '#L42-L43) is plain about it: "To make it work across all web requests, the recommended approach is to add +lock_version+ as a hidden field to your form." Without that field, the second request reloads the row, reads the new version, and the check passes.',
-			'**Bulk writes skip the check.** [`update_all`](' + RAILS + '/relation.rb#L620-L629) with a hash bumps `lock_version` so open forms go stale, but it adds no version to its WHERE clause. It never raises `StaleObjectError`. Given a raw SQL string, it does not even bump the version.'
+			'Lines 41 to 46 put the old version into the WHERE: `_query_constraints_hash` adds `lock_version => <value read>` next to the primary key. Line 21 sets the version plus one for the SET list. [`_build_update_manager`](' + RAILS + '/persistence.rb#L289-L303) turns the constraints into the WHERE clause, so one statement checks and writes.',
+			'Lines 28 to 30 trust the count the database returns: anything other than 1 raises `StaleObjectError`. The code does not read the row again to compare. Lines 35 to 37 put the in-memory version back, so a retry starts from the version that was read. [`destroy_row`](' + OPT + '#L166-L174) applies the same rule to deletes.',
+			'Two saves cannot both pass the check. In PostgreSQL\'s Read Committed mode, a second UPDATE on a row being changed waits for the first to finish. Then, from the [isolation docs](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED): "The search condition of the command (the WHERE clause) is re-evaluated to see if the updated version of the row still matches the search condition." Version 3 no longer matches, so B updates nothing.',
+			'Across HTTP requests, the form must carry the version. The [module comment](' + OPT + '#L42-L43): "To make it work across all web requests, the recommended approach is to add +lock_version+ as a hidden field to your form." Without that field, the second request reloads the row, reads the new version, and the check passes.',
+			'Bulk writes skip the check. [`update_all`](' + RAILS + '/relation.rb#L620-L629) with a hash bumps `lock_version` so open forms go stale, but it adds no version to its WHERE clause. It never raises `StaleObjectError`. Given a raw SQL string, it does not even bump the version.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'No lock is held between read and write, so a user can keep a form open for an hour and nobody waits on them.',
-			'Lost updates become loud: the late writer gets an error it can show, instead of quietly erasing someone else\'s work.',
+			'The late writer gets an error it can show, instead of quietly erasing someone else\'s work.',
 			'It costs one integer column and one extra condition in the WHERE clause. It works with any isolation level and any connection pooler.'
 		],
 		cost: [
 			'Under heavy contention most writes fail and retry. A hot row (a stock counter, a balance) does better with a row lock or an atomic `UPDATE ... SET n = n - 1`.',
-			'The failure reaches the user or the caller. Someone must decide what a conflict means: retry, merge, or show both versions.',
-			'Every write path must go through the check. A raw SQL update, a bulk `update_all`, or a second app that ignores the column quietly brings lost updates back.'
+			'The `StaleObjectError` reaches the user or the caller. Someone must decide what a conflict means: retry, merge, or show both versions.',
+			'Every write path must go through the check. A raw SQL update, a bulk `update_all`, or a second app that ignores the column can still overwrite a newer row.'
 		]
 	},
 	task: {
@@ -157,10 +156,13 @@ export default {
 				'The version column overflows quickly and the row becomes read only'
 			],
 			answer: 1,
-			why: 'Optimistic locking is cheap only when conflicts are rare. On a hot row nearly every writer loses the race and retries. An atomic `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` needs no version at all.'
+			why: 'On a hot row nearly every writer finds a newer version, gets zero rows, and retries. An atomic `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` needs no version at all.'
 		}
 	],
-	takeaway: 'Put the version you read into the WHERE clause of your UPDATE: one row changed means you won, zero means someone else wrote first and your code must decide what to do.',
+	recall: {
+		q: 'Rails sends `UPDATE ... WHERE id = 1 AND lock_version = 3` and the database reports 0 rows. What happened, and what must the app do?',
+		a: 'Another writer saved first and moved the row past version 3. Rails raises `StaleObjectError`, and the app reloads the row, then retries, merges, or shows the user what changed.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Transaction Isolation', url: 'https://www.postgresql.org/docs/current/transaction-iso.html' },
 		{ title: 'Rails API, ActiveRecord::Locking::Optimistic', url: 'https://api.rubyonrails.org/classes/ActiveRecord/Locking/Optimistic.html' },

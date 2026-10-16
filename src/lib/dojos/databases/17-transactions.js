@@ -7,16 +7,15 @@ const TCOP = 'https://github.com/postgres/postgres/blob/92d47d544bf64274b6a7aa87
 export default {
 	slug: 'transactions',
 	part: 'Many at once',
-	title: 'All or nothing',
+	title: 'Transactions and savepoints',
 	minutes: 10,
 	hook: [
 		'A checkout view saves the order, then lowers the stock. The second query fails on a constraint. The customer sees an error page, and **the order is in the database anyway**, with no stock taken.',
-		'That is autocommit at work. Django\'s docs say it plainly: "Each query is immediately committed to the database, unless a transaction is active." **Two queries are two separate commits**, and the first one does not wait to see how the second goes.',
-		'A transaction makes several steps one: **all of them happen, or none do**. Nobody else sees the steps in between. This chapter is about how to open one, how to undo part of one with a savepoint, and what your ORM does for you when you write `atomic` or `transaction`.'
+		'Django runs in autocommit mode by default. Its docs: "Each query is immediately committed to the database, unless a transaction is active." So **the two queries are two separate commits**, and the first one is kept whatever happens to the second.',
+		'A transaction groups several statements: either all of them are committed, or none are. Other sessions see none of the changes until COMMIT. In Django, `transaction.atomic()` opens one, and a nested `atomic` block takes a savepoint inside it.'
 	],
 	terms: [
 		{ term: 'Transaction', def: 'A group of statements the database treats as one unit. It ends with COMMIT (keep everything) or ROLLBACK (keep nothing).' },
-		{ term: 'Atomicity', def: 'From the point of view of other transactions, the group happens completely or not at all. A crash halfway leaves no trace of the first half.' },
 		{ term: 'Autocommit', def: 'With no BEGIN, PostgreSQL wraps each statement in its own transaction and commits it if it succeeds. Django runs in this mode by default.' },
 		{ term: 'Savepoint', def: 'A marker inside a transaction. ROLLBACK TO undoes what came after it and keeps what came before, without ending the transaction.' },
 		{ term: 'Aborted transaction', def: 'After an error inside a transaction, PostgreSQL refuses every further statement until you ROLLBACK, or ROLLBACK TO a savepoint.' }
@@ -27,27 +26,27 @@ export default {
 			{
 				add: ['begin["BEGIN"] --> debit["UPDATE accounts: Alice minus 100"]', 'debit --> credit["UPDATE accounts: Bob plus 100"]'],
 				highlight: ['begin', 'debit', 'credit'],
-				note: '**The transfer.** The PostgreSQL tutorial uses this example: money leaves Alice\'s account and reaches Bob\'s. Two separate UPDATEs. Between them, the database is in a state nobody should see: the money has left and not arrived.'
+				note: 'The PostgreSQL tutorial uses this example: money leaves Alice\'s account and reaches Bob\'s, in two separate UPDATEs. Between them, the money has left Alice and not reached Bob. No other session should see that state.'
 			},
 			{
 				add: ['credit --> commit["COMMIT: both changes visible at once"]'],
 				highlight: ['commit'],
-				note: '**Commit.** Until COMMIT, other sessions see neither update. After it, they see both at the same moment. The tutorial: the updates "are invisible to other transactions until the transaction completes, whereupon all the updates become visible simultaneously".'
+				note: 'Until COMMIT, other sessions see neither update. After it, they see both at the same moment. The tutorial: the updates "are invisible to other transactions until the transaction completes, whereupon all the updates become visible simultaneously".'
 			},
 			{
 				add: ['credit -.->|"error or crash"| rollback["ROLLBACK: neither change happened"]'],
 				highlight: ['rollback'],
-				note: '**Rollback.** If anything fails before COMMIT, or you decide to stop, ROLLBACK cancels every change so far. A crash does the same: after restart (day 15), an uncommitted transaction has no effect.'
+				note: 'If anything fails before COMMIT, or you decide to stop, ROLLBACK cancels every change so far. After a crash and restart (day 15), an uncommitted transaction has no effect either.'
 			},
 			{
 				add: ['debit --> sp["SAVEPOINT before a risky step"]', 'sp -.->|"ROLLBACK TO"| debit'],
 				highlight: ['sp'],
-				note: '**Undo part of it.** A savepoint marks a point inside the transaction. ROLLBACK TO discards what came after it and keeps what came before. It is also the only way to recover a transaction that an error put in the aborted state, short of rolling back everything.'
+				note: 'A savepoint marks a point inside the transaction. ROLLBACK TO discards what came after it and keeps what came before. Short of rolling back everything, it is the only way to continue a transaction that an error put in the aborted state.'
 			},
 			{
 				add: ['auto["Autocommit: no BEGIN sent"] -->|"each statement commits on its own"| commit'],
 				highlight: ['auto'],
-				note: '**What your ORM does by default.** Without BEGIN, every statement is its own transaction. That is safe for one query and wrong for two that belong together. The fix is to open the transaction yourself: `transaction.atomic()` in Django.'
+				note: 'Without BEGIN, every statement is its own transaction. For two queries that belong together, the first can commit while the second fails. Open the transaction yourself: `transaction.atomic()` in Django.'
 			}
 		]
 	},
@@ -95,10 +94,10 @@ export default {
                     try:
                         connection.rollback()`,
 		notes: [
-			'**Outermost block: BEGIN.** When no transaction is open, `set_autocommit(False)` turns autocommit off, so the next query runs inside a transaction. When a block is already open, `connection.savepoint()` sends a SAVEPOINT instead and pushes its id on a stack. The [docs list the four cases](' + DOCS + '#L228-L233): open, create a savepoint, release or roll back to it, commit or roll back.',
-			'**Exception inside: undo just that block.** On the way out with an error, an inner block with a savepoint rolls back to it, then releases it. With no savepoint (`atomic(savepoint=False)`), it sets [`needs_rollback`](' + TX + '#L286-L294) and the whole transaction rolls back when the outermost block exits.',
-			'**Do not swallow the error inside.** The docs warn: ["Avoid catching exceptions inside atomic!"](' + DOCS + '#L165-L180) After a database error, "the transaction is broken". PostgreSQL agrees: every next statement fails with ["current transaction is aborted, commands ignored until end of transaction block"](' + TCOP + '#L1136-L1140). Catch the error around an inner `atomic` block, which rolls back to its savepoint first.',
-			'**Rollback undoes rows, not your code.** "The values of a model\'s fields won\'t be reverted when a transaction rollback happens" ([docs](' + DOCS + '#L192-L194)). For an email, a cache write or a job, use `on_commit`: callbacks run after a successful commit, and on rollback they are ["discarded, and never called"](' + DOCS + '#L327-L330).'
+			'Lines 16 to 20 run when no transaction is open: `set_autocommit(False)` turns autocommit off, so the next query runs inside a transaction. Lines 11 to 13 run when a block is already open: `connection.savepoint()` sends a SAVEPOINT and pushes its id on a stack. The [docs list the four cases](' + DOCS + '#L228-L233): open, create a savepoint, release or roll back to it, commit or roll back.',
+			'Lines 26 to 33 handle an error in an inner block: with a savepoint, line 33 rolls back to it, then releases it. With no savepoint (`atomic(savepoint=False)`), line 30 sets `needs_rollback`, and the whole transaction rolls back when the outermost block exits (line 38).',
+			'The docs warn: ["Avoid catching exceptions inside atomic!"](' + DOCS + '#L165-L180) After a database error, "the transaction is broken". PostgreSQL then fails every next statement with "current transaction is aborted, commands ignored until end of transaction block". Catch the error around an inner `atomic` block, which rolls back to its savepoint first.',
+			'A rollback undoes rows in the database and leaves your Python objects as they are: "The values of a model\'s fields won\'t be reverted when a transaction rollback happens" ([docs](' + DOCS + '#L192-L194)). For an email, a cache write or a job, use `on_commit`. Its callbacks run after a successful commit, and on rollback they are "discarded, and never called".'
 		]
 	},
 	tradeoff: {
@@ -110,8 +109,8 @@ export default {
 		cost: [
 			'An open transaction holds the row locks it took and can keep old row versions alive. Keep it short, or VACUUM falls behind (day 16).',
 			'Wrapping every request in one transaction (Django\'s `ATOMIC_REQUESTS`) is simple, but the docs warn it "makes it inefficient when traffic increases".',
-			'A transaction covers only the database. An email sent or an API called inside it is not undone by ROLLBACK.',
-			'Each nested block adds queries: a SAVEPOINT on the way in, a RELEASE on the way out. That is why `atomic(savepoint=False)` exists, at the price of coarser error handling.'
+			'ROLLBACK does not undo an email sent or an API called inside the transaction.',
+			'Each nested block adds two queries: a SAVEPOINT on the way in, a RELEASE on the way out. `atomic(savepoint=False)` skips them, and then an error in that block rolls back the whole transaction.'
 		]
 	},
 	task: {
@@ -160,10 +159,14 @@ export default {
 			why: 'ROLLBACK only undoes database changes. `on_commit` callbacks run after a successful commit and are discarded on rollback, so the email goes out only if the order really exists.'
 		}
 	],
-	takeaway: 'When two writes belong together, put them in one transaction yourself. Catch errors outside the block, and do side effects after the commit.',
+	recall: {
+		q: 'Django runs in autocommit. A view saves an order, then the stock update fails. How do you keep the order from being committed alone?',
+		a: 'Wrap both writes in `transaction.atomic()`. The error rolls back the whole transaction, so neither row is committed. Catch the error outside the block.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Tutorial: Transactions', url: 'https://www.postgresql.org/docs/18/tutorial-transactions.html' },
 		{ title: 'PostgreSQL docs, SAVEPOINT', url: 'https://www.postgresql.org/docs/18/sql-savepoint.html' },
-		{ title: 'Django docs, Database transactions', url: 'https://docs.djangoproject.com/en/stable/topics/db/transactions/' }
+		{ title: 'Django docs, Database transactions', url: 'https://docs.djangoproject.com/en/stable/topics/db/transactions/' },
+		{ title: 'PostgreSQL source, postgres.c (aborted transaction error)', url: `${TCOP}#L1136-L1140` }
 	]
 };

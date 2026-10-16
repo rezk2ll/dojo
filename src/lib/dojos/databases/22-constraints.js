@@ -6,20 +6,18 @@ const PGDOC = 'https://www.postgresql.org/docs/current/ddl-constraints.html';
 export default {
 	slug: 'constraints',
 	part: 'Many at once',
-	title: 'Constraints as the last guard',
+	title: 'Constraints: UNIQUE, CHECK and exclusion',
 	minutes: 10,
 	hook: [
 		'Your `User` model says `validates :email, uniqueness: true`. The tests pass. Then support finds **two accounts with the same email**, created 40 milliseconds apart by a double click on "Sign up".',
-		'The validation is not broken. It runs a SELECT, finds nothing, and lets the INSERT go. **The second request ran the same SELECT before the first INSERT committed**, so it found nothing too. A check in the app and the write that follows are two steps, and another request fits between them.',
-		'The database can make the rule one step. **A constraint is checked inside the write itself**, under the database\'s own locks, so no request can slip in between. Validations stay for friendly error messages. Constraints are what actually hold.'
+		'The validation runs a SELECT, finds nothing, and lets the INSERT go. **The second request ran the same SELECT before the first INSERT committed**, so it found nothing too. The SELECT in the app and the INSERT that follows are two steps, and another request fits between them.',
+		'PostgreSQL checks a constraint inside the write itself, under its own locks, so no request can slip in between. Keep the validation for a friendly error message, and let a unique index reject the duplicate.'
 	],
 	terms: [
 		{ term: 'Check-then-act race', def: 'Code reads to decide ("is this email free?"), then writes. Another writer can change the answer between the read and the write.' },
 		{ term: 'UNIQUE', def: 'No two rows share the same value in these columns. PostgreSQL enforces it with a unique B-tree index.' },
 		{ term: 'CHECK', def: 'A boolean expression on one row, tested on every insert and update: `price > 0`, `ends_at > starts_at`.' },
-		{ term: 'FOREIGN KEY', def: 'A value must exist as a key in another table. Stops orphans: no order for a customer that is not there.' },
-		{ term: 'Exclusion constraint', def: 'A generalised UNIQUE: no two rows may match on all the listed operators. With `&&` on a range, it means "no two bookings overlap".' },
-		{ term: 'SQLSTATE', def: 'The five-character error code PostgreSQL returns: `23505` unique, `23514` check, `23503` foreign key, `23P01` exclusion.' }
+		{ term: 'Exclusion constraint', def: 'A generalised UNIQUE: no two rows may match on all the listed operators. With `&&` on a range, it means "no two bookings overlap".' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -27,22 +25,22 @@ export default {
 			{
 				add: ['r1["Request 1: SELECT 1 FROM users WHERE email = ?"] --> none["No row found"]', 'r2["Request 2: same SELECT, a few ms later"] --> none'],
 				highlight: ['r1', 'r2', 'none'],
-				note: '**Both checks pass.** Neither request has written yet, so both SELECTs find nothing. Under Read Committed (day 19) each sees only what was committed when it ran. The validation has no way to know a twin is in flight.'
+				note: 'Both checks pass. Neither request has written yet, so both SELECTs find nothing. Under Read Committed (day 19) each sees only what was committed when it ran, so neither can see the other request\'s row.'
 			},
 			{
 				add: ['none --> ins1["Request 1: INSERT, commits"]', 'none --> ins2["Request 2: INSERT"]', 'ins1 --> users[("users")]'],
 				highlight: ['ins1', 'ins2'],
-				note: '**Both go on to write.** Without a constraint, both rows land and you have a duplicate. Nothing failed, so nothing was logged. You find out weeks later from a confused customer.'
+				note: 'Both requests go on to INSERT. Without a constraint, both rows land and you have a duplicate. Nothing failed, so nothing was logged. You find out weeks later from a confused customer.'
 			},
 			{
 				add: ['users --> idx["Unique index on email"]', 'ins2 --> idx', 'idx -->|"SQLSTATE 23505"| err["ActiveRecord::RecordNotUnique"]'],
 				highlight: ['idx', 'err'],
-				note: '**With a unique index, the second INSERT fails.** It must place its key in the index, finds the same key (waiting first if the other insert has not committed yet), and gets a `duplicate key` error. Rails turns code `23505` into `RecordNotUnique`.'
+				note: 'With a unique index, the second INSERT fails. It must place its key in the index, finds the same key (waiting first if the other insert has not committed yet), and gets a `duplicate key` error. Rails turns code `23505` into `RecordNotUnique`.'
 			},
 			{
 				add: ['err --> msg["Rescue it: show \'email already taken\'"]'],
 				highlight: ['msg'],
-				note: '**Handle the error like a validation.** The app catches the exception and shows the same message the validation would have shown. The validation still catches the common case early. The index catches the race.'
+				note: 'The app catches the exception and shows the same "email already taken" message the validation would have shown. The validation still catches the common case before the INSERT, and the index catches the race.'
 			}
 		]
 	},
@@ -82,22 +80,22 @@ export default {
                              deferrable: :immediate
     end`,
 		notes: [
-			'**One version number per object.** A journal is one entry in a work package\'s history. The [unique index](' + OP + '/db/migrate/tables/journals.rb#L48-L49) on `(journable_type, journable_id, version)` means two saves racing on the same work package cannot both write version 7. One of them gets `23505`.',
-			'**Why the CHECK spells out `IS NOT NULL`.** `isempty(NULL)` is NULL, and the [docs](' + PGDOC + '#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) are clear about what that means: "a check constraint is satisfied if the check expression evaluates to true or the null value." Without the second half, a row with no period at all would pass.',
-			'**The exclusion constraint keeps history in a line.** No two journals of the same object may have overlapping `validity_period`s. The [docs](' + PGDOC + '#DDL-CONSTRAINTS-EXCLUSION) define it: "if any two rows are compared on the specified columns or expressions using the specified operators, at least one of these operator comparisons will return false or null." Comparing plain ids with `=` in a GiST index needs the [`btree_gist`](' + OP + '/db/migrate/extensions/btree_gist.rb#L32-L34) extension, which OpenProject installs.',
-			'**The app closes the old period first.** When a new journal is written, [`update_predecessor_sql`](' + OP + '/app/services/journals/create_service.rb#L405-L417) ends the previous one with `tstzrange(lower(validity_period), ..., \'[)\')`. The upper bound is excluded, so the old and the new period touch without overlapping. `deferrable: :immediate` makes Rails emit `DEFERRABLE INITIALLY IMMEDIATE`: checked after each statement unless a transaction runs `SET CONSTRAINTS ... DEFERRED`.',
-			'**Rails names the failures.** The PostgreSQL adapter maps each SQLSTATE to its own exception: [`RecordNotUnique`, `InvalidForeignKey`, `CheckViolation`, `ExclusionViolation`](' + RAILS + '/connection_adapters/postgresql_adapter.rb#L991-L1004) and more. You can rescue exactly the one you expect and let the others crash loudly.'
+			'Lines 15 and 16 give each object one row per version number. A journal is one entry in a work package\'s history. The [unique index](' + OP + '/db/migrate/tables/journals.rb#L48-L49) on `(journable_type, journable_id, version)` means two saves racing on the same work package cannot both write version 7. One of them gets `23505`.',
+			'Line 23 spells out `IS NOT NULL` because `isempty(NULL)` is NULL. The [docs](' + PGDOC + '#DDL-CONSTRAINTS-CHECK-CONSTRAINTS): "a check constraint is satisfied if the check expression evaluates to true or the null value." Without the second half, a row with no period at all would pass.',
+			'Lines 26 to 29 forbid two journals of the same object from having overlapping `validity_period`s. The docs define an exclusion constraint: "if any two rows are compared on the specified columns or expressions using the specified operators, at least one of these operator comparisons will return false or null." Comparing plain ids with `=` in a GiST index needs the [`btree_gist`](' + OP + '/db/migrate/extensions/btree_gist.rb#L32-L34) extension, which OpenProject installs.',
+			'When a new journal is written, [`update_predecessor_sql`](' + OP + '/app/services/journals/create_service.rb#L405-L417) first ends the previous one with `tstzrange(lower(validity_period), ..., \'[)\')`. The upper bound is excluded, so the old and the new period touch without overlapping. On line 29, `deferrable: :immediate` makes Rails emit `DEFERRABLE INITIALLY IMMEDIATE`: checked after each statement unless a transaction runs `SET CONSTRAINTS ... DEFERRED`.',
+			'The Rails PostgreSQL adapter maps each SQLSTATE (`23505` unique, `23514` check, `23503` foreign key, `23P01` exclusion) to its own exception: [`RecordNotUnique`, `InvalidForeignKey`, `CheckViolation`, `ExclusionViolation`](' + RAILS + '/connection_adapters/postgresql_adapter.rb#L991-L1004) and more. You can rescue exactly the one you expect and let the others crash with a stack trace.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'The rule holds for every writer: two app servers, a background job, a console session, a script someone runs at 2 a.m.',
-			'Races become errors instead of bad data. A failed insert is visible in the logs; a duplicate row is not.',
-			'Constraints document the data. The Rails docs on `validates_uniqueness_of` give the fix in one line: "The best way to work around this problem is to add a unique index to the database table".'
+			'The second writer in a race gets an error instead of writing a duplicate. A failed insert shows up in the logs; a duplicate row does not.',
+			'The Rails docs on `validates_uniqueness_of` recommend the same fix: "The best way to work around this problem is to add a unique index to the database table".'
 		],
 		cost: [
 			'Each constraint costs work on every write, and UNIQUE and EXCLUDE each maintain an index. A foreign key also needs an index on the referencing side, which PostgreSQL does not create for you.',
-			'A CHECK sees one row only. The docs warn that "PostgreSQL does not support CHECK constraints that reference table data other than the new or updated row being checked."',
+			'A CHECK sees only the row being written. The docs: "PostgreSQL does not support CHECK constraints that reference table data other than the new or updated row being checked."',
 			'Adding a constraint to a big live table scans it under a lock. That needs the careful steps of day 26.',
 			'The app must catch the database error and turn it into a message. Otherwise users get a 500 page instead of "already taken".'
 		]
@@ -147,7 +145,10 @@ export default {
 			why: 'The rule compares a row with other rows. A CHECK sees one row, and a subquery inside it is not supported. An exclusion constraint compares the new row with existing ones through its index.'
 		}
 	],
-	takeaway: 'An app-side check and the write after it are two steps that another request can split; put the rule in a constraint so the database checks it inside the write, and turn its error into a friendly message.',
+	recall: {
+		q: 'Two sign-ups with the same email arrive 40 ms apart, and the model has `validates :email, uniqueness: true`. What stops the duplicate, and what does the second request get?',
+		a: 'A unique index on `email`. The second INSERT fails with SQLSTATE `23505`, Rails raises `ActiveRecord::RecordNotUnique`, and the app rescues it to show "email already taken".'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Constraints', url: PGDOC },
 		{ title: 'PostgreSQL docs, Range Types: constraints on ranges', url: 'https://www.postgresql.org/docs/current/rangetypes.html#RANGETYPES-CONSTRAINT' },

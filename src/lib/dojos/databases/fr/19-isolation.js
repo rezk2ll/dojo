@@ -11,13 +11,10 @@ export default {
 	minutes: 10,
 	hook: [
 		'Il reste un article en stock. Deux clients cliquent sur « acheter » dans la même seconde. Chaque paiement lit `stock = 1`, conclut qu’il y en a assez, et écrit `stock = 0`. **Les deux commandes passent. Tu as vendu un article deux fois.**',
-		'Chaque paiement tournait dans une transaction. Rien n’a échoué, rien n’est à moitié fait. Le problème est entre les deux : **chacun a agi sur une valeur que l’autre allait changer**. L’atomicité (jour 17) ne couvre pas ça. L’isolation, si.',
-		'PostgreSQL te donne trois niveaux : **Read Committed** (par défaut), **Repeatable Read** et **Serializable**. Plus le niveau est strict, plus la base attrape de ces courses. Le revers : quand elle en attrape une, elle **annule ta transaction**, et ton code doit la relancer.'
+		'Chaque paiement tournait dans une transaction, et rien n’a échoué ni n’est resté à moitié fait. Le problème est entre les deux : **chacun a agi sur une valeur que l’autre allait changer**. L’atomicité (jour 17) ne couvre pas ça. Le niveau d’isolation décide de ce qu’une transaction voit des autres, et des courses que PostgreSQL arrête.',
+		'PostgreSQL a trois niveaux. Read Committed, le défaut, prend un nouveau snapshot (jour 18) à chaque instruction. Repeatable Read garde le snapshot de la première instruction pendant toute la transaction, et Serializable suit en plus ce que chaque transaction a lu. Quand un niveau plus strict attrape une course, il **annule ta transaction**, et ton code doit la relancer.'
 	],
 	terms: [
-		{ term: 'Read Committed', def: 'Le niveau par défaut. Chaque instruction prend un nouveau snapshot (jour 18), donc deux SELECT dans une même transaction peuvent voir des données différentes.' },
-		{ term: 'Repeatable Read', def: 'Un seul snapshot pour toute la transaction, pris à sa première instruction. Modifier une ligne qui a changé depuis échoue avec une erreur de sérialisation.' },
-		{ term: 'Serializable', def: 'Repeatable Read, plus le suivi de qui a lu quoi. Si le résultat ne peut pas venir d’une exécution des transactions une par une, l’une d’elles échoue.' },
 		{ term: 'Mise à jour perdue', def: 'Deux transactions lisent une valeur, en calculent une nouvelle dans l’appli, et la réécrivent. La deuxième écriture efface la première sans rien dire.' },
 		{ term: 'Write skew', def: 'Deux transactions lisent les mêmes lignes, vérifient une règle, et chacune écrit une ligne différente. Chaque écriture est correcte seule. Ensemble, elles cassent la règle.' },
 		{ term: 'Échec de sérialisation', def: 'L’erreur que PostgreSQL lève pour empêcher une anomalie, toujours avec le SQLSTATE 40001. La solution : annuler et relancer toute la transaction.' }
@@ -28,27 +25,27 @@ export default {
 			{
 				add: ['rc["Read Committed (défaut) : nouveau snapshot par instruction"] -->|"lire dans l’appli, réécrire"| lost["Mise à jour perdue : les deux committent, une écriture disparaît"]'],
 				highlight: ['rc', 'lost'],
-				note: '**Le niveau par défaut laisse passer.** Chaque paiement lance `SELECT stock`, puis `UPDATE ... SET stock = 0`. Le deuxième UPDATE attend le commit du premier, puis applique sa propre valeur par-dessus. Les deux réussissent. Read Committed est « fast and simple to use » (rapide et simple), mais la doc dit qu’il « is not sufficient for all cases » (ne suffit pas dans tous les cas).'
+				note: 'Chaque paiement lance `SELECT stock`, puis `UPDATE ... SET stock = 0`. Le deuxième UPDATE attend le commit du premier, puis applique sa propre valeur par-dessus, et les deux réussissent. Read Committed est « fast and simple to use » (rapide et simple), mais la doc dit qu’il « is not sufficient for all cases » (ne suffit pas dans tous les cas).'
 			},
 			{
 				add: ['rr["Repeatable Read : un snapshot par transaction"] -->|"ligne changée depuis mon snapshot"| err1["ERROR 40001 : could not serialize access due to concurrent update"]'],
 				highlight: ['rr', 'err1'],
-				note: '**Repeatable Read l’attrape.** Le snapshot du deuxième paiement montre `stock = 1`, mais au moment de son update, une autre transaction a modifié la ligne et committé. Au lieu d’écrire par-dessus, PostgreSQL annule la deuxième transaction. La doc : une telle transaction « cannot modify or lock rows changed by other transactions after the repeatable read transaction began » (ne peut ni modifier ni verrouiller des lignes changées par d’autres après son début).'
+				note: 'En Repeatable Read, le snapshot du deuxième paiement montre `stock = 1`. Au moment de son update, une autre transaction a déjà modifié la ligne et committé, donc PostgreSQL annule la deuxième transaction au lieu d’écrire par-dessus. La doc : une telle transaction « cannot modify or lock rows changed by other transactions after the repeatable read transaction began » (ne peut ni modifier ni verrouiller des lignes changées par d’autres après son début).'
 			},
 			{
 				add: ['rr -.->|"lignes différentes écrites"| skew["Write skew : toujours permis"]'],
 				highlight: ['skew'],
-				note: '**Ce qu’il rate.** L’exemple de la doc : la transaction A additionne les lignes de la classe 1 et insère le total comme ligne de classe 2. B additionne la classe 2 et insère dans la classe 1. Elles écrivent des lignes différentes, donc aucun conflit d’update. En Repeatable Read, « both would be allowed to commit » (les deux pourraient committer), avec un résultat qu’aucun ordre une par une ne donnerait.'
+				note: 'Repeatable Read rate le write skew. L’exemple de la doc : la transaction A additionne les lignes de la classe 1 et insère le total comme ligne de classe 2, et B additionne la classe 2 et insère dans la classe 1. Elles écrivent des lignes différentes, donc il n’y a aucun conflit d’update. En Repeatable Read, « both would be allowed to commit » (les deux pourraient committer), avec un résultat qu’aucun ordre une par une ne donnerait.'
 			},
 			{
 				add: ['ser["Serializable : suit les dépendances lecture/écriture"] -->|"aucun ordre sériel ne colle"| err2["ERROR 40001 : read/write dependencies among transactions"]'],
 				highlight: ['ser', 'err2'],
-				note: '**Serializable attrape ça aussi.** Il marche comme Repeatable Read, mais note aussi ce que chaque transaction a lu. Quand les commits ne peuvent correspondre à aucun ordre une par une, une transaction échoue. Ce suivi « does not introduce any blocking beyond that present in repeatable read » (n’ajoute aucun blocage par rapport à Repeatable Read), mais il a un coût.'
+				note: 'Serializable marche comme Repeatable Read, mais note aussi ce que chaque transaction a lu. Quand les commits ne peuvent correspondre à aucun ordre une par une, une transaction échoue. Ce suivi « does not introduce any blocking beyond that present in repeatable read » (n’ajoute aucun blocage par rapport à Repeatable Read), mais il a un coût.'
 			},
 			{
 				add: ['err1 --> retry["Annuler, relancer toute la transaction"]', 'err2 --> retry'],
 				highlight: ['retry'],
-				note: '**Ensuite, tu relances.** Avec les deux niveaux, il faut « be prepared to retry transactions due to serialization failures » (être prêt à relancer les transactions après un échec de sérialisation). Relance **toute** la transaction, lectures comprises : la deuxième fois, son snapshot contient déjà l’autre commit, donc elle décide sur des données fraîches.'
+				note: 'La doc : avec les deux niveaux, il faut « be prepared to retry transactions due to serialization failures » (être prêt à relancer les transactions après un échec de sérialisation). Relance **toute** la transaction, lectures comprises. La deuxième fois, son snapshot contient déjà l’autre commit, donc elle décide sur des données fraîches.'
 			}
 		]
 	},
@@ -98,23 +95,23 @@ export default {
                             continue
                     raise`,
 		notes: [
-			'**Un défaut plus strict.** Synapse ne garde pas le Read Committed de PostgreSQL. Son moteur [définit REPEATABLE READ](' + ENGINE + '#L88-L95) comme `default_isolation_level`, et [l’applique à chaque nouvelle connexion](' + ENGINE + '#L191-L192). Chaque transaction qu’il lance peut donc subir un échec de sérialisation, et chacune passe par cette boucle.',
-			'**Ce qui se relance.** Malgré son nom, [`is_deadlock`](' + ENGINE + '#L224-L229) renvoie vrai pour deux codes : `40001` (serialization_failure) et `40P01` (deadlock_detected). C’est la liste que [recommande la doc de PostgreSQL](' + MVCC + '#L1776-L1790) : 40001 toujours, et « It may also be advisable to retry deadlock failures. » (il peut être utile de relancer aussi les deadlocks).',
-			'**Relancer toute la fonction.** Sur ces erreurs, la boucle annule, puis rappelle `func` depuis le début, jusqu’à 5 tentatives en tout, puis abandonne et lève l’erreur. C’est ce que dit la doc : « abort the current transaction and retry the whole transaction from the beginning. The second time through, the transaction will see the previously-committed change » (annule et relance toute la transaction depuis le début, la deuxième fois elle verra le changement committé, [source](' + MVCC + '#L549-L554)).',
-			'**La fonction doit supporter deux passages.** La docstring le dit : « The given func may be called multiple times under certain failure modes. » (la fonction peut être appelée plusieurs fois dans certains cas d’échec). Les effets hors de la base, comme envoyer un message, doivent attendre le commit, sinon ils ont lieu une fois par tentative.'
+			'Synapse remplace le Read Committed de PostgreSQL : son moteur [définit REPEATABLE READ](' + ENGINE + '#L88-L95) comme `default_isolation_level` et l’applique à chaque nouvelle connexion. Chaque transaction qu’il lance peut donc subir un échec de sérialisation, et chacune passe par cette boucle.',
+			'La ligne 21 décide de ce qui se relance. Malgré son nom, [`is_deadlock`](' + ENGINE + '#L224-L229) renvoie vrai pour deux codes : `40001` (serialization_failure) et `40P01` (deadlock_detected). La doc de PostgreSQL recommande la même liste : 40001 toujours, et « It may also be advisable to retry deadlock failures. » (il peut être utile de relancer aussi les deadlocks).',
+			'Les lignes 28 à 30 annulent, et la ligne 39 continue la boucle, qui rappelle `func` depuis le début (ligne 15), jusqu’à 5 tentatives en tout (ligne 10). Après la dernière, la ligne 40 lève l’erreur. La doc : « abort the current transaction and retry the whole transaction from the beginning. The second time through, the transaction will see the previously-committed change » (annule et relance toute la transaction depuis le début, la deuxième fois elle verra le changement committé, [source](' + MVCC + '#L549-L554)).',
+			'Les lignes 3 à 7 préviennent que la fonction doit supporter deux passages : « The given func may be called multiple times under certain failure modes. » (la fonction peut être appelée plusieurs fois dans certains cas d’échec). Les effets hors de la base, comme envoyer un message, doivent attendre le commit, sinon ils ont lieu une fois par tentative.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Repeatable Read arrête les mises à jour perdues sans changer la requête : le deuxième écrivain échoue au lieu d’écraser.',
 			'Serializable te laisse raisonner sur chaque transaction seule : si elle est juste quand elle tourne seule, elle est juste dans n’importe quel mélange, ou elle ne committe pas.',
-			'Aucun des deux niveaux ne fait attendre les lecteurs. En Serializable, les verrous de prédicat « do not cause any blocking » (ne bloquent rien).'
+			'Aucun des deux niveaux ne fait attendre les lecteurs : en Serializable, les verrous de prédicat « do not cause any blocking » (ne bloquent rien).'
 		],
 		cost: [
 			'Chaque transaction en Repeatable Read ou Serializable peut échouer avec 40001, donc chaque appel a besoin d’une boucle de relance autour de toute la transaction.',
 			'Les relances coûtent du travail et de la latence, et sous forte concurrence la même transaction peut échouer plusieurs fois.',
 			'Serializable suit les lectures, ce qui coûte de la mémoire et du CPU, et ses verrous de lecture « often need to be kept past transaction commit » (doivent souvent survivre au commit).',
-			'Read Committed ne te demande jamais de relancer, donc les courses qu’il laisse passer se voient comme des données fausses, pas comme des erreurs.'
+			'Read Committed ne lève jamais 40001, donc une mise à jour perdue passe inaperçue : le stock est faux et aucune erreur n’apparaît dans les logs.'
 		]
 	},
 	task: {
@@ -122,7 +119,7 @@ export default {
 		hint: 'Chaque transaction modifie une ligne différente. Quel niveau regarde au-delà des conflits sur une ligne ?',
 		answer: [
 			'Read Committed : les deux comptent 2, les deux modifient leur propre ligne. Aucun conflit sur une ligne, les deux committent. La boutique n’a plus aucun admin.',
-			'Repeatable Read : pareil. Chaque snapshot montre 2 admins, et les deux UPDATE touchent des lignes différentes, donc pas de 40001. C’est un write skew.',
+			'Repeatable Read : les deux committent aussi. Chaque snapshot montre 2 admins, et les deux UPDATE touchent des lignes différentes, donc pas de 40001. C’est un write skew.',
 			'Serializable : chacune a lu les lignes que l’autre a écrites. Aucun ordre sériel ne donne « zéro admin », donc l’une des deux échoue avec 40001. À la relance, elle compte 1 et refuse.',
 			'Boucle de relance : `for attempt in 1..5: BEGIN ISOLATION LEVEL SERIALIZABLE; run the whole function; COMMIT; return`. Sur SQLSTATE 40001 (et 40P01) : ROLLBACK, attends éventuellement un peu, recommence. Après la dernière tentative, lève l’erreur.',
 			'Sans Serializable, verrouille ce que la règle lit : `SELECT ... FROM users WHERE admin FOR UPDATE` fait attendre le deuxième admin jusqu’à ce que le premier ait fini (jour 20).'
@@ -163,10 +160,14 @@ export default {
 			why: 'C’est un write skew. Il n’y a de conflit sur aucune ligne, donc Repeatable Read laisse les deux committer. Serializable suit les dépendances lecture/écriture et en fait échouer une. Les verrous explicites marchent aussi, mais ce n’est pas le seul moyen.'
 		}
 	],
-	takeaway: 'Read Committed laisse passer les courses sous forme de données fausses. Repeatable Read et Serializable les transforment en erreurs 40001. Choisis un niveau plus strict, et entoure chaque transaction d’une boucle qui la relance en entier.',
+	recall: {
+		q: 'Deux admins retirent leur propre rôle d’admin en même temps, et la boutique finit sans aucun admin. Quel niveau d’isolation l’empêche, et que doit faire ton code ensuite ?',
+		a: 'Serializable. Il fait échouer l’une des deux transactions avec le SQLSTATE 40001, et ton code annule puis relance toute la transaction, qui compte alors 1 admin et refuse.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Transaction Isolation', url: 'https://www.postgresql.org/docs/18/transaction-iso.html' },
 		{ title: 'PostgreSQL docs, Serialization Failure Handling', url: 'https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html' },
-		{ title: 'PostgreSQL docs, SET TRANSACTION', url: 'https://www.postgresql.org/docs/18/sql-set-transaction.html' }
+		{ title: 'PostgreSQL docs, SET TRANSACTION', url: 'https://www.postgresql.org/docs/18/sql-set-transaction.html' },
+		{ title: 'Synapse, engines/postgres.py (isolation level set on each new connection)', url: `${ENGINE}#L191-L192` }
 	]
 };

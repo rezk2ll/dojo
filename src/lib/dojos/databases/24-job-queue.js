@@ -10,15 +10,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'You send welcome emails from a background job. You start a second worker to go faster, and **every new user now gets two emails**. Both workers ran `SELECT ... WHERE state = \'available\' LIMIT 1` and got the same row.',
-		'So you add `FOR UPDATE`. The duplicates stop, but **the second worker now waits on the first one\'s lock** instead of taking the next job. Ten workers become one worker and nine people standing in a queue.',
-		'PostgreSQL has a clause made for this: `FOR UPDATE SKIP LOCKED`. **Each worker locks the jobs it can get right now and walks past the ones another worker holds.** That one clause is why libraries such as Oban, River and solid_queue can run a real job queue inside the database you already have.'
+		'So you add `FOR UPDATE`. The duplicates stop, but **the second worker now waits on the first one\'s lock** instead of taking the next job. With ten workers, one works and nine wait on its lock.',
+		'PostgreSQL has a clause made for this: `FOR UPDATE SKIP LOCKED`. **Each worker locks the jobs it can get right now and walks past the ones another worker holds.** Oban, River and solid_queue use this clause to run a job queue inside the database you already have.'
 	],
 	terms: [
-		{ term: 'Job row', def: 'One unit of work stored as a row: what to run, its arguments, a state (`available`, `executing`, `completed`), attempts and timestamps.' },
 		{ term: 'SKIP LOCKED', def: 'A locking option for SELECT: rows that another transaction has locked are left out of the result instead of waited for.' },
 		{ term: 'Claim', def: 'Moving a job from `available` to `executing` and recording who took it, in one short transaction, so no other worker picks it.' },
 		{ term: 'Rescue', def: 'Putting a job back to `available` when its worker died while it was `executing`. Found by age: it has been running far too long.' },
-		{ term: 'LISTEN / NOTIFY', def: 'PostgreSQL\'s built-in messaging. A session that ran `LISTEN chan` gets a message when anyone commits a `NOTIFY chan`.' },
 		{ term: 'Transactional enqueue', def: 'Inserting the job in the same transaction as the data it is about. If the transaction rolls back, the job never existed.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['jobs[("oban_jobs: 1, 2, 3, 4 available")]', 'w1["Worker A: SELECT ... LIMIT 2 FOR UPDATE SKIP LOCKED"] -->|"locks 1, 2"| jobs'],
 				highlight: ['w1', 'jobs'],
-				note: '**Worker A takes what it needs.** It asks for two available jobs in priority order and locks them. In the same transaction it sets them to `executing`, adds one to `attempt`, and commits. The lock lasts milliseconds, not the length of the job.'
+				note: 'Worker A asks for two available jobs in priority order and locks them. In the same transaction it sets them to `executing`, adds one to `attempt`, and commits. The lock lasts milliseconds, not the length of the job.'
 			},
 			{
 				add: ['w2["Worker B: same query, at the same moment"] -->|"skips 1, 2, locks 3, 4"| jobs'],
 				highlight: ['w2'],
-				note: '**Worker B does not wait.** Rows 1 and 2 are locked by A, so SKIP LOCKED leaves them out and B gets 3 and 4. Without SKIP LOCKED, B would block on row 1 until A commits, then find it no longer `available`.'
+				note: 'Worker B does not wait. Rows 1 and 2 are locked by A, so SKIP LOCKED leaves them out and B gets 3 and 4. Without SKIP LOCKED, B would block on row 1 until A commits, then find it no longer `available`.'
 			},
 			{
 				add: ['w1 -->|"UPDATE state = completed"| done["Job finished"]', 'w2 -.->|"crashes while executing"| stuck["Job 3 stuck in executing"]'],
 				highlight: ['done', 'stuck'],
-				note: '**Finishing is one more UPDATE.** A marks its jobs `completed`. B\'s process dies mid-job. Job 3 is no longer locked (the claim already committed), but it still says `executing`, so nobody will pick it.'
+				note: 'A marks its jobs `completed` with one more UPDATE. B\'s process dies mid-job. Job 3 is no longer locked (the claim already committed), but it still says `executing`, so nobody will pick it.'
 			},
 			{
 				add: ['res["Rescue: executing and attempted_at older than the cutoff"] --> stuck', 'stuck -->|"back to available"| jobs'],
 				highlight: ['res'],
-				note: '**A sweeper puts it back.** A periodic query finds jobs that have been `executing` for too long and resets them to `available`, or to `discarded` if they used all their attempts. That is why jobs must be safe to run twice (day 23).'
+				note: 'A periodic rescue query finds jobs that have been `executing` for too long and resets them to `available`, or to `discarded` if they used all their attempts. Job 3 can then run a second time, so jobs must be idempotent (day 23).'
 			},
 			{
 				add: ['ins["App: INSERT job + NOTIFY, then COMMIT"] -->|"wake up"| w1'],
 				highlight: ['ins'],
-				note: '**No need to poll every second.** The app can `NOTIFY` when it inserts a job, and idle workers that `LISTEN` wake up at once. PostgreSQL delivers the message only when the inserting transaction commits, so a worker never wakes for a job that was rolled back.'
+				note: 'Workers do not need to poll every second. The app can run `NOTIFY` when it inserts a job, and idle workers that ran `LISTEN` wake up at once. PostgreSQL delivers the message only when the inserting transaction commits, so a worker never wakes for a job that was rolled back.'
 			}
 		]
 	},
@@ -95,24 +93,24 @@ export default {
     end)
   end`,
 		notes: [
-			'**Only as many jobs as free slots.** `demand` is the queue\'s limit minus the jobs already running in this node. The subquery asks for exactly that many, in priority order, and locks them with `FOR UPDATE SKIP LOCKED`. The [SELECT docs](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE) name this use: SKIP LOCKED "can be used to avoid lock contention with multiple consumers accessing a queue-like table."',
-			'**Claim and lock in one statement.** The outer UPDATE sets `state`, `attempted_at` and `attempted_by`, and adds one to `attempt`, for the ids the CTE returned. The transaction ends right after. The row lock was only needed to stop two workers from claiming the same job. From then on the `executing` state says who owns it.',
-			'**Why a CTE and not a subquery.** The comment says a nested loop could run the LIMIT subquery more than once and update more rows than asked. PostgreSQL never inlines a CTE that locks rows: [`contain_dml`](' + PGSRC + '#L1070-L1097) treats a SELECT with `FOR UPDATE` as having side effects, and the [inlining check](' + PGSRC + '#L960-L968) refuses those. So the subset is computed once.',
-			'**Crashed workers are found by age.** [`rescue_jobs`](' + BASIC + '#L194-L214) looks for `state == "executing" and attempted_at < cut`. Jobs with attempts left go back to `available`; the rest become `discarded`. A job can therefore run twice: once in the crashed worker, once after the rescue.',
-			'**NOTIFY has limits.** Oban\'s [Postgres notifier](' + OBAN + '/notifiers/postgres.ex#L6-L11) warns that it "doesn\'t work with connection poolers like [PgBouncer][pgb] when configured in _transaction_ or _statement_ mode" (day 25). The [NOTIFY docs](https://www.postgresql.org/docs/current/sql-notify.html) add that a payload "must be shorter than 8000 bytes" by default.'
+			'Line 2 sets `demand` to the queue\'s limit minus the jobs already running in this node. Lines 4 to 11 ask for exactly that many, in priority order, and lock them with `FOR UPDATE SKIP LOCKED`. The [SELECT docs](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE) name this use: SKIP LOCKED "can be used to avoid lock contention with multiple consumers accessing a queue-like table."',
+			'Lines 28 to 34 claim the jobs in one UPDATE: it sets `state`, `attempted_at` and `attempted_by`, and adds one to `attempt`, for the ids the CTE returned. The transaction ends right after, on line 37. The row lock was only needed to stop two workers from claiming the same job. From then on the `executing` state says who owns it.',
+			'Lines 13 to 16 explain the CTE: a nested loop could run the LIMIT subquery more than once and update more rows than asked. PostgreSQL never inlines a CTE that locks rows: [`contain_dml`](' + PGSRC + '#L1070-L1097) treats a SELECT with `FOR UPDATE` as having side effects, and the inlining check refuses those. PostgreSQL then computes the subset once.',
+			'[`rescue_jobs`](' + BASIC + '#L194-L214) finds crashed workers by age: it looks for `state == "executing" and attempted_at < cut`. Jobs with attempts left go back to `available`; the others are set to `discarded`. A job can therefore run twice: once in the crashed worker, once after the rescue.',
+			'Oban\'s [Postgres notifier](' + OBAN + '/notifiers/postgres.ex#L6-L11) warns that it "doesn\'t work with connection poolers like [PgBouncer][pgb] when configured in _transaction_ or _statement_ mode" (day 25). The NOTIFY docs add that a payload "must be shorter than 8000 bytes" by default.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'One system less to run, back up and monitor. The queue is in the database you already have, with its backups and its failover.',
+			'You run no separate broker: the queue is in the database you already have, with its backups and its failover.',
 			'Transactional enqueue: insert the order and its "send receipt" job in one transaction. Either both exist or neither does, so there is no email for an order that rolled back.',
-			'Jobs are rows. You can query them, count them by state, retry them with an UPDATE, and join them to your own tables to debug.'
+			'Each job is a row, so you can query jobs, count them by state, retry them with an UPDATE, and join them to your own tables to debug.'
 		],
 		cost: [
 			'Every job is at least an insert and two updates, and each update leaves a dead row (day 16). A busy queue table needs autovacuum to keep up, or scans slow down.',
-			'Throughput is capped by one primary. A broker built for streams scales differently once you need very high rates or many consumers per message.',
+			'Every claim and every update goes to one primary, which caps throughput. A broker built for streams scales differently once you need very high rates or many consumers per message.',
 			'A long-running transaction anywhere in the database holds back vacuum, so the queue table bloats even if the queue itself is healthy.',
-			'At-least-once, not exactly-once: a rescued job may already have done part of its work. Jobs must be idempotent (day 23).'
+			'A job runs at least once, and sometimes twice: a rescued job may already have done part of its work. Jobs must be idempotent (day 23).'
 		]
 	},
 	task: {
@@ -160,8 +158,12 @@ export default {
 			why: 'The NOTIFY docs say events "are not delivered until and unless the transaction is committed". That matches transactional enqueue: a rolled-back job never existed, and nobody is woken for it.'
 		}
 	],
-	takeaway: 'A Postgres job queue is a table, a short claim with `FOR UPDATE SKIP LOCKED`, a state column, and a rescue for crashed workers; it is enough until one primary cannot keep up.',
+	recall: {
+		q: 'Ten workers claim jobs from the same table. Which clause lets each one take different jobs without waiting, and how long does it hold the row lock?',
+		a: '`FOR UPDATE SKIP LOCKED`. The lock lasts only for the short claim transaction that sets `state = \'executing\'`; the job then runs outside any transaction.'
+	},
 	sources: [
+		{ title: 'PostgreSQL source, subselect.c: the CTE inlining check', url: `${PGSRC}#L960-L968` },
 		{ title: 'PostgreSQL docs, SELECT: the locking clause', url: 'https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE' },
 		{ title: 'PostgreSQL docs, NOTIFY', url: 'https://www.postgresql.org/docs/current/sql-notify.html' },
 		{ title: 'Oban docs, Oban.Notifiers.Postgres', url: 'https://oban.hexdocs.pm/Oban.Notifiers.Postgres.html' }

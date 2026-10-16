@@ -9,15 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Deux agents du support ouvrent la même fiche client. L’un corrige le téléphone, l’autre l’adresse. Les deux cliquent sur Enregistrer. **Le second enregistrement efface en silence la première correction**, et personne ne voit d’erreur.',
-		'C’est une mise à jour perdue. Un verrou de ligne (jour 20) l’empêcherait, mais **tu ne peux pas garder un verrou pendant qu’une personne fixe un formulaire pendant cinq minutes**. Le verrou vivrait sur deux requêtes HTTP, et tous les autres écrivains feraient la queue derrière une pause café.',
-		'Le verrouillage optimiste parie que les conflits sont rares. **Chaque ligne porte un numéro de version. Une écriture ne réussit que si la version est toujours celle que tu as lue**. Si quelqu’un est passé avant toi, ton UPDATE ne touche aucune ligne, et l’appli sait qu’elle a perdu la course.'
+		'L’écriture la plus tardive a écrasé la première : on appelle ça une mise à jour perdue. Un verrou de ligne (jour 20) l’empêcherait, mais l’agent garde le formulaire ouvert cinq minutes. Le verrou devrait tenir sur deux requêtes HTTP, et tous les autres écrivains de cette ligne attendraient pendant tout ce temps.',
+		'Avec le verrouillage optimiste, chaque ligne porte un numéro de version. **Une écriture ne réussit que si la version est toujours celle que tu as lue.** Si quelqu’un a enregistré avant toi, ton UPDATE ne modifie aucune ligne, et l’appli sait que sa copie est périmée.'
 	],
 	terms: [
 		{ term: 'Mise à jour perdue', def: 'Deux écrivains lisent la même ligne, la modifient tous les deux, et l’écriture la plus tardive écrase la première comme si elle n’avait jamais eu lieu.' },
 		{ term: 'Colonne de version', def: 'Un entier stocké sur la ligne (Rails l’appelle `lock_version`). Chaque mise à jour réussie lui ajoute un.' },
 		{ term: 'Compare-and-set', def: 'Un UPDATE dont la clause WHERE contient la valeur attendue. Il n’écrit que si la ligne a toujours cette valeur, en une seule instruction atomique.' },
-		{ term: 'Objet périmé', def: 'Une copie d’une ligne en mémoire dont la version ne correspond plus à la base. L’enregistrer doit échouer plutôt qu’écraser.' },
-		{ term: 'Verrou pessimiste', def: 'Le pari inverse : prendre un verrou de ligne avec `SELECT ... FOR UPDATE` avant de la modifier, pour que les autres attendent au lieu d’échouer (jour 20).' }
+		{ term: 'Objet périmé', def: 'Une copie d’une ligne en mémoire dont la version ne correspond plus à la base. L’enregistrer doit échouer plutôt qu’écraser.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,22 +24,22 @@ export default {
 			{
 				add: ['a["L’agent A lit id 1"] -->|"lock_version = 3"| row[("ligne customers")]', 'b["L’agent B lit id 1"] -->|"lock_version = 3"| row'],
 				highlight: ['a', 'b', 'row'],
-				note: '**Les deux lisent la version 3.** Aucun verrou n’est pris. Chaque agent garde la version qu’il a vue, en mémoire ou dans un champ caché du formulaire. Ils peuvent maintenant éditer aussi longtemps qu’ils veulent.'
+				note: 'Les deux agents lisent la version 3, sans prendre de verrou. Chacun garde la version qu’il a vue, en mémoire ou dans un champ caché du formulaire. Ils peuvent maintenant éditer aussi longtemps qu’ils veulent.'
 			},
 			{
 				add: ['a -->|"UPDATE ... SET lock_version = 4 WHERE id = 1 AND lock_version = 3"| row'],
 				highlight: ['a', 'row'],
-				note: '**A enregistre en premier.** La clause WHERE correspond toujours, donc la ligne est mise à jour et la version passe à 4. La base répond une ligne modifiée. Ce compte est tout le signal.'
+				note: 'A enregistre en premier. La clause WHERE correspond toujours, donc la base met la ligne à jour et la version passe à 4. Elle répond une ligne modifiée, et Rails ne lit que ce compte pour savoir que l’enregistrement a marché.'
 			},
 			{
 				add: ['b -->|"même UPDATE, WHERE lock_version = 3"| row', 'row -->|"0 ligne"| err["StaleObjectError"]'],
 				highlight: ['b', 'err'],
-				note: '**B enregistre avec une vieille version.** La ligne dit maintenant 4, donc la clause WHERE ne trouve rien et aucune ligne ne change. Rails transforme ce zéro en `ActiveRecord::StaleObjectError`. La modification de B n’est pas écrite.'
+				note: 'B enregistre avec la version 3. La ligne dit maintenant 4, donc la clause WHERE ne trouve rien et aucune ligne ne change. Rails transforme ce zéro en `ActiveRecord::StaleObjectError`, et la correction d’adresse de B n’est pas écrite.'
 			},
 			{
 				add: ['err --> retry["Recharger, fusionner ou demander à l’utilisateur, puis réessayer"]'],
 				highlight: ['retry'],
-				note: '**L’appli décide.** La base a seulement refusé l’écriture. Ton code recharge la ligne, puis réessaie, fusionne les deux modifications, ou montre à B ce qui a changé. Personne n’a attendu, et la correction de A a survécu.'
+				note: 'La base a seulement refusé l’écriture. Ton code recharge la ligne, puis réessaie, fusionne les deux modifications, ou montre à B ce qui a changé. Personne n’a attendu de verrou, et la correction de A est toujours dans la ligne.'
 			}
 		]
 	},
@@ -96,23 +95,23 @@ export default {
           super.merge(locking_column => _lock_value_for_database(locking_column))
         end`,
 		notes: [
-			'**L’ancienne version va dans le WHERE.** [`_query_constraints_hash`](' + OPT + '#L189-L194) ajoute `lock_version => <value read>` à côté de la clé primaire. [`_build_update_manager`](' + RAILS + '/persistence.rb#L289-L303) transforme ces contraintes en clause WHERE, pendant que la liste SET porte la version plus un. Une seule instruction vérifie et écrit.',
-			'**Zéro ligne, tu as perdu.** Le code ne relit pas la ligne pour comparer. Il fait confiance au compte que renvoie la base : tout ce qui n’est pas 1 lève `StaleObjectError`, et le `rescue` remet la version en mémoire, pour qu’un nouvel essai reparte propre. [`destroy_row`](' + OPT + '#L166-L174) applique la même règle aux suppressions.',
-			'**Pourquoi la vérification ne peut pas se faire doubler.** En Read Committed, le mode par défaut de PostgreSQL, un second UPDATE sur une ligne en cours de modification attend que le premier finisse. Ensuite, comme le dit la [doc sur l’isolation](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED) : « The search condition of the command (the WHERE clause) is re-evaluated to see if the updated version of the row still matches the search condition. » (la clause WHERE est réévaluée sur la nouvelle version de la ligne). La version 3 ne correspond plus, donc B ne met rien à jour.',
-			'**Entre deux requêtes HTTP, transporte la version.** Le [commentaire du module](' + OPT + '#L42-L43) le dit franchement : « To make it work across all web requests, the recommended approach is to add +lock_version+ as a hidden field to your form. » (pour que ça marche entre les requêtes web, ajoute `lock_version` en champ caché du formulaire). Sans ce champ, la seconde requête recharge la ligne, lit la nouvelle version, et la vérification passe.',
-			'**Les écritures en masse sautent la vérification.** [`update_all`](' + RAILS + '/relation.rb#L620-L629) avec un hash incrémente `lock_version` pour que les formulaires ouverts deviennent périmés, mais il n’ajoute aucune version à sa clause WHERE. Il ne lève jamais `StaleObjectError`. Avec une chaîne SQL brute, il n’incrémente même pas la version.'
+			'Les lignes 41 à 46 mettent l’ancienne version dans le WHERE : `_query_constraints_hash` ajoute `lock_version => <value read>` à côté de la clé primaire. La ligne 21 met la version plus un dans la liste SET. [`_build_update_manager`](' + RAILS + '/persistence.rb#L289-L303) transforme les contraintes en clause WHERE, et une seule instruction vérifie et écrit.',
+			'Les lignes 28 à 30 font confiance au compte que renvoie la base : tout ce qui n’est pas 1 lève `StaleObjectError`. Le code ne relit pas la ligne pour comparer. Les lignes 35 à 37 remettent la version en mémoire, pour qu’un nouvel essai reparte de la version lue. [`destroy_row`](' + OPT + '#L166-L174) applique la même règle aux suppressions.',
+			'Deux enregistrements ne peuvent pas passer la vérification tous les deux. En Read Committed, le mode par défaut de PostgreSQL, un second UPDATE sur une ligne en cours de modification attend que le premier finisse. Ensuite, d’après la [doc sur l’isolation](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED), PostgreSQL réévalue la clause WHERE sur la nouvelle version de la ligne. La version 3 ne correspond plus, donc B ne met rien à jour.',
+			'Entre deux requêtes HTTP, le formulaire doit transporter la version. Le [commentaire du module](' + OPT + '#L42-L43) recommande d’ajouter `lock_version` en champ caché du formulaire. Sans ce champ, la seconde requête recharge la ligne, lit la nouvelle version, et la vérification passe.',
+			'Les écritures en masse sautent la vérification. [`update_all`](' + RAILS + '/relation.rb#L620-L629) avec un hash incrémente `lock_version` pour périmer les formulaires ouverts, mais il n’ajoute aucune version à sa clause WHERE. Il ne lève jamais `StaleObjectError`. Avec une chaîne SQL brute, il n’incrémente même pas la version.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Aucun verrou n’est tenu entre la lecture et l’écriture, donc un utilisateur peut garder un formulaire ouvert une heure sans que personne ne l’attende.',
-			'Les mises à jour perdues deviennent bruyantes : l’écrivain en retard reçoit une erreur qu’il peut afficher, au lieu d’effacer en silence le travail d’un autre.',
+			'L’écrivain en retard reçoit une erreur qu’il peut afficher, au lieu d’effacer en silence le travail d’un autre.',
 			'Ça coûte une colonne entière et une condition de plus dans la clause WHERE. Ça marche avec tous les niveaux d’isolation et tous les poolers de connexions.'
 		],
 		cost: [
 			'Sous forte contention, la plupart des écritures échouent et réessaient. Une ligne chaude (un stock, un solde) s’en sort mieux avec un verrou de ligne ou un `UPDATE ... SET n = n - 1` atomique.',
-			'L’échec remonte jusqu’à l’utilisateur ou l’appelant. Quelqu’un doit décider ce que veut dire un conflit : réessayer, fusionner, ou montrer les deux versions.',
-			'Chaque chemin d’écriture doit passer par la vérification. Un UPDATE en SQL brut, un `update_all` en masse, ou une seconde appli qui ignore la colonne ramène en silence les mises à jour perdues.'
+			'Le `StaleObjectError` remonte jusqu’à l’utilisateur ou l’appelant. Quelqu’un doit décider ce que veut dire un conflit : réessayer, fusionner, ou montrer les deux versions.',
+			'Chaque chemin d’écriture doit passer par la vérification. Un UPDATE en SQL brut, un `update_all` en masse, ou une seconde appli qui ignore la colonne peut encore écraser une ligne plus récente.'
 		]
 	},
 	task: {
@@ -157,10 +156,13 @@ export default {
 				'La colonne de version déborde vite et la ligne passe en lecture seule'
 			],
 			answer: 1,
-			why: 'Le verrouillage optimiste n’est bon marché que si les conflits sont rares. Sur une ligne chaude, presque chaque écrivain perd la course et réessaie. Un `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` atomique n’a besoin d’aucune version.'
+			why: 'Sur une ligne chaude, presque chaque écrivain trouve une version plus récente, obtient zéro ligne et réessaie. Un `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` atomique n’a besoin d’aucune version.'
 		}
 	],
-	takeaway: 'Mets la version que tu as lue dans la clause WHERE de ton UPDATE : une ligne modifiée, tu as gagné ; zéro, quelqu’un a écrit avant toi et ton code doit décider quoi faire.',
+	recall: {
+		q: 'Rails envoie `UPDATE ... WHERE id = 1 AND lock_version = 3` et la base répond 0 ligne. Que s’est-il passé, et que doit faire l’appli ?',
+		a: 'Un autre écrivain a enregistré avant et a fait passer la ligne au-delà de la version 3. Rails lève `StaleObjectError`, et l’appli recharge la ligne, puis réessaie, fusionne, ou montre à l’utilisateur ce qui a changé.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Transaction Isolation', url: 'https://www.postgresql.org/docs/current/transaction-iso.html' },
 		{ title: 'Rails API, ActiveRecord::Locking::Optimistic', url: 'https://api.rubyonrails.org/classes/ActiveRecord/Locking/Optimistic.html' },

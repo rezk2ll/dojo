@@ -4,19 +4,17 @@ const TF = 'https://github.com/hashicorp-education/learn-terraform-get-started-a
 export default {
 	slug: 'terraform',
 	part: 'L’infrastructure as code',
-	title: 'Terraform : décrire, planifier, appliquer',
+	title: 'Terraform : plan et apply',
 	minutes: 10,
 	hook: [
 		'Hier tu as créé un VPC, deux subnets et une instance à la souris dans la console AWS. La semaine prochaine il te faut la même chose pour la préprod. Tu te souviens de chaque clic ?',
-		'Ansible pourrait appeler l’API AWS, tâche par tâche. Mais un playbook est une liste d’**étapes**. Supprime une tâche et ce qu’elle a créé reste là. Rien ne garde la trace de ce qui existe.',
-		'**Terraform** marche dans l’autre sens. Tu écris ce qui doit exister. Il compare avec ce qui existe, te montre la différence sous forme de **plan**, et n’agit que quand tu dis oui.'
+		'Ansible pourrait appeler l’API AWS, tâche par tâche. Mais un playbook est une liste d’**étapes**. Supprime une tâche et ce qu’elle a créé reste là. Aucun fichier ne note ce que le playbook a créé.',
+		'Avec Terraform, tu écris ce qui doit exister. Terraform le compare avec ce qui existe, te montre la différence sous forme de **plan**, et n’agit que quand tu tapes yes.'
 	],
 	terms: [
-		{ term: 'Provider', def: 'Un plugin qui parle à une API : AWS, GitHub, Cloudflare. `terraform init` le télécharge et note sa version exacte dans `.terraform.lock.hcl`.' },
 		{ term: 'Resource', def: 'Une chose que Terraform gère, comme `resource "aws_instance" "app_server"` : un type, un nom local, et ses arguments.' },
 		{ term: 'Data source', def: 'Une lecture seule, comme `data "aws_ami" "ubuntu"` : trouver quelque chose qui existe, sans le gérer.' },
 		{ term: 'Plan', def: '`terraform plan` : compare la configuration avec ce qui existe, et liste les changements. Il ne change rien.' },
-		{ term: 'Apply', def: '`terraform apply` : affiche le plan, demande ton accord, puis fait les changements dans l’ordre des dépendances.' },
 		{ term: 'Graphe de dépendances', def: 'Qui doit exister avant qui. Terraform le construit à partir des références entre les blocs.' }
 	],
 	diagram: {
@@ -25,7 +23,7 @@ export default {
 			{
 				add: ['code["main.tf : ce qui doit exister"] --> init["terraform init : télécharge le provider AWS"]'],
 				highlight: ['code', 'init'],
-				note: 'Tu écris du code **déclaratif** : l’état final, pas les étapes. `init` récupère les providers dont le code a besoin. Lance-le une fois par répertoire de travail, et à nouveau quand les providers ou les modules changent.'
+				note: 'Tu écris du code **déclaratif** : l’état final, pas les étapes. `init` télécharge les providers dont le code a besoin, des plugins qui parlent chacun à une API, et note leur version exacte dans `.terraform.lock.hcl`. Lance-le une fois par répertoire de travail, et à nouveau quand les providers ou les modules changent.'
 			},
 			{
 				add: [
@@ -35,7 +33,7 @@ export default {
 					'real -.->|lit les objets actuels| plan'
 				],
 				highlight: ['plan', 'real'],
-				note: '`plan` lit l’état actuel de ce que Terraform gère déjà, le compare avec ton code, et calcule la différence. **Rien ne change encore.**'
+				note: '`plan` lit l’état actuel de ce que Terraform gère déjà, le compare avec ton code, et calcule la différence. Il ne change **rien** dans AWS.'
 			},
 			{
 				add: [
@@ -54,7 +52,7 @@ export default {
 			{
 				add: ['plan -->|"+ créer, ~ modifier, - détruire"| diff["Plan d’exécution"]', 'diff --> apply["terraform apply"]', 'apply --> real'],
 				highlight: ['diff', 'apply'],
-				note: 'Le plan utilise des symboles : `+` créer, `~` modifier sur place, `-` détruire, `-/+` détruire puis recréer. Lis-le comme un `git diff` de ton infrastructure. Ensuite `apply` demande « yes ? » et le fait.'
+				note: 'Le plan utilise des symboles : `+` créer, `~` modifier sur place, `-` détruire, `-/+` détruire puis recréer. Lis-le comme un `git diff` de ton infrastructure. Ensuite `apply` affiche le plan, attend ton `yes`, et fait les changements dans l’ordre des dépendances.'
 			}
 		]
 	},
@@ -103,22 +101,22 @@ resource "aws_instance" "app_server" {
   }
 }`,
 		notes: [
-			'C’est le tutoriel de démarrage de HashiCorp lui-même. Chaque nom d’hier y est : une Region, un VPC, des subnets dans des AZ, un security group, une instance.',
-			'Le bloc `data` **cherche** l’image Ubuntu la plus récente de Canonical. Le bloc `resource` **crée** une instance à partir d’elle. Les data sont lues, les resources sont gérées.',
-			'`data.aws_ami.ubuntu.id` et `module.vpc.private_subnets[0]` sont des références. C’est comme ça que Terraform connaît l’ordre. Tu as rarement besoin de `depends_on`.',
-			'La version du provider est contrainte dans [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-get-started-aws/blob/3f8aeea8095ebad0cc0e5c32efb8c5ea4a9fc090/terraform.tf#L11-L16) (`~> 5.92`), et le repo committe son `.terraform.lock.hcl`, comme la doc le recommande. Même code, même provider, sur chaque portable et en CI.'
+			'Le tutoriel de démarrage de HashiCorp reprend les noms d’hier. La ligne 2 fixe la Region, les lignes 16 à 27 montent un VPC avec des subnets dans des AZ, et les lignes 29 à 39 une instance avec un security group.',
+			'Les lignes 5 à 14, le bloc `data`, **cherchent** l’image Ubuntu la plus récente de Canonical. Les lignes 29 à 39, le bloc `resource`, créent une instance à partir d’elle. Terraform ne fait que lire une data source, alors qu’il crée, modifie et détruit une resource.',
+			'Les lignes 30 et 34 contiennent des références : `data.aws_ami.ubuntu.id` et `module.vpc.private_subnets[0]`. Terraform en déduit l’ordre du travail, donc tu as rarement besoin de `depends_on`.',
+			'La version du provider est contrainte dans [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-get-started-aws/blob/3f8aeea8095ebad0cc0e5c32efb8c5ea4a9fc090/terraform.tf#L11-L16) (`~> 5.92`), et le repo committe son `.terraform.lock.hcl`, comme la doc le recommande. Chaque portable et la CI utilisent alors la même version du provider.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Tu vois chaque changement avant qu’il arrive. La sortie de `plan` est parfaite à coller dans une pull request.',
-			'Supprime un bloc et le plan propose de le détruire. Le code est la liste complète de ce que Terraform gère, rien n’est oublié derrière.',
-			'Un outil, un langage pour des centaines d’API : AWS, DNS, GitHub, monitoring.'
+			'Tu vois chaque changement avant qu’il arrive, et tu peux coller la sortie de `plan` dans une pull request.',
+			'Si tu supprimes un bloc, le plan propose de détruire la resource : rien de ce que Terraform a créé ne reste oublié.',
+			'Le même outil et le même langage pilotent des centaines d’API : AWS, DNS, GitHub, monitoring.'
 		],
 		cost: [
-			'Terraform doit se souvenir de ce qu’il a créé. Cette mémoire, le **state**, est un fichier que tu dois maintenant protéger (le chapitre de demain).',
-			'Certains changements ne se font pas sur place. Un `-/+` sur une base de données veut dire détruire et recréer : lis le plan avant de taper yes.',
-			'Terraform construit l’infrastructure, il configure mal l’intérieur des serveurs. Beaucoup d’équipes utilisent Terraform pour l’instance et Ansible pour ce qui tourne dessus.'
+			'Terraform note ce qu’il a créé dans un fichier de **state**, et tu dois maintenant protéger ce fichier (le chapitre de demain).',
+			'Un `-/+` sur une base de données veut dire que Terraform la détruit et en crée une nouvelle : lis le plan avant de taper yes.',
+			'Terraform crée les serveurs, mais configure mal ce qui tourne dedans. Beaucoup d’équipes utilisent Terraform pour l’instance et Ansible pour ce qui tourne dessus.'
 		]
 	},
 	task: {
@@ -166,7 +164,10 @@ resource "aws_instance" "app_server" {
 			why: '`-/+` veut dire que Terraform détruit la resource puis en crée une de remplacement, en général parce qu’un argument modifié ne peut pas être changé sur place. Tout ce qui est stocké sur cette instance part avec.'
 		}
 	],
-	takeaway: 'Terraform est déclaratif : tu écris ce qui doit exister, `plan` montre la différence, `apply` la rend réelle dans l’ordre que dictent les références. Lis chaque plan comme un diff.',
+	recall: {
+		q: 'Que compare `terraform plan`, et quel symbole de sa sortie annonce qu’une resource sera détruite puis recréée ?',
+		a: 'Il compare ta configuration avec l’état actuel de ce que Terraform gère, et ne change rien. `-/+` veut dire détruire puis recréer, et tout ce qui est stocké sur cette resource part avec.'
+	},
 	sources: [
 		{ title: 'Doc Terraform, What is Terraform?', url: 'https://developer.hashicorp.com/terraform/intro' },
 		{ title: 'Doc Terraform, Providers', url: 'https://developer.hashicorp.com/terraform/language/providers' },

@@ -4,19 +4,18 @@ const MOD = 'https://github.com/hashicorp-education/learn-terraform-modules-use/
 export default {
 	slug: 'terraform-state-and-modules',
 	part: 'Infrastructure as code',
-	title: 'Terraform state and modules: share the memory, reuse the code',
+	title: 'Terraform state, backends and modules',
 	minutes: 10,
 	hook: [
 		'You ran `terraform apply` from your laptop. A file appeared next to your code: `terraform.tfstate`. Your teammate clones the repo and runs `plan`. Terraform wants to **create everything again**.',
-		'His clone has no state file. To his Terraform, nothing exists yet. If you both apply at the same time, two writers fight over one infrastructure.',
-		'Today: put the state where the whole team and CI can reach it, with a **lock**. Then stop copy-pasting VPC code, and call a **module** instead.'
+		'His clone has no state file. To his Terraform, nothing exists yet. If you both apply at the same time, both runs change the same AWS resources and neither knows about the other.',
+		'You put the state where the whole team and CI can reach it, with a **lock**. The VPC code you used to copy between projects goes into a module that each project calls.'
 	],
 	terms: [
-		{ term: 'State', def: 'Terraform\'s memory: which real object belongs to which block. A JSON file, `terraform.tfstate` by default. Never edit it by hand.' },
+		{ term: 'State', def: 'The record of which real object belongs to which block. A JSON file, `terraform.tfstate` by default. Never edit it by hand.' },
 		{ term: 'Backend', def: 'Where the state is stored. Local by default. A remote backend, like an S3 bucket or HCP Terraform, lets the team share one state.' },
 		{ term: 'State lock', def: 'If the backend supports locking (and it is turned on), Terraform takes it automatically on every operation that could write state. A second `apply` waits or fails instead of writing over the first.' },
-		{ term: 'Module', def: 'A folder of Terraform code you call with a `module` block. Your own folder is the **root module**, the ones you call are **child modules**.' },
-		{ term: 'Drift', def: 'The real infrastructure no longer matches the state, usually because someone changed it by hand in the console.' }
+		{ term: 'Module', def: 'A folder of Terraform code you call with a `module` block. Your own folder is the root module, and the ones you call are **child modules**.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -24,7 +23,7 @@ export default {
 			{
 				add: ['you["You: terraform apply"] --> st["terraform.tfstate on your laptop"]', 'mate["Teammate: terraform plan"] -.->|cannot see it| st'],
 				highlight: ['st'],
-				note: 'A local state is fine alone. In a team it is a trap: the state lives on **one laptop**, and losing that file means Terraform forgets what it built.'
+				note: 'A local state works when you are alone. In a team, the state lives on **one laptop**: your teammate cannot see it, and losing that file means Terraform forgets what it built.'
 			},
 			{
 				add: [
@@ -43,7 +42,7 @@ export default {
 					'root --> ec2m["module ec2_instances, count = 2"]'
 				],
 				highlight: ['root', 'vpcm', 'ec2m'],
-				note: 'A **module** is a function for infrastructure. You pass inputs (CIDR, AZs) and get outputs (subnet ids). Pin a version so a new release does not change your network on the next `init`.'
+				note: 'A **module** works like a function. You pass inputs (CIDR, AZs) and get outputs (subnet ids). Pin a version so a new release does not change your network on the next `init`.'
 			},
 			{
 				add: [
@@ -54,7 +53,7 @@ export default {
 					'aws -.->|"terraform plan -refresh-only"| s3b'
 				],
 				highlight: ['con', 'aws'],
-				note: '**Drift**: AWS no longer matches the state. `terraform plan -refresh-only` shows what changed outside Terraform without touching anything. Then you choose: bring AWS back to what the code says with a normal `apply`, or write the change into the code.'
+				note: 'Someone changed AWS by hand, so AWS no longer matches the state: this is **drift**. `terraform plan -refresh-only` shows what changed outside Terraform without touching anything. Then you choose: bring AWS back to what the code says with a normal `apply`, or write the change into the code.'
 			}
 		]
 	},
@@ -97,22 +96,22 @@ module "ec2_instances" {
   }
 }`,
 		notes: [
-			'Fifteen lines replace the hundreds of lines of route tables, gateways and subnets inside [terraform-aws-modules/vpc](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest). You pass inputs, the module builds the network.',
-			'`version = "3.18.1"` pins the module. The docs recommend constraining versions. Note that `version` only works for modules from a registry, not for local folders.',
-			'`count = 2` calls the same module twice: two instances, one block. `module.vpc.default_security_group_id` is a module **output** used as another module\'s input, and it orders the work.',
+			'Lines 1 to 15 replace the hundreds of lines of route tables, gateways and subnets inside [terraform-aws-modules/vpc](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest). You pass inputs, and the module builds the network.',
+			'Line 3, `version = "3.18.1"`, pins the module. The docs recommend constraining versions. `version` only works for modules from a registry, not for local folders.',
+			'Line 20, `count = 2`, calls the same module twice: two instances, one block. On line 26, `module.vpc.default_security_group_id` is a module **output** used as another module\'s input, and it orders the work.',
 			'The [`terraform.tf`](https://github.com/hashicorp-education/learn-terraform-modules-use/blob/753518c20cdca94c67e1f0e2890e71f6a96af262/terraform.tf#L4-L12) next to it has a commented `cloud` block: uncomment it, run `terraform init`, and the state lives in HCP Terraform instead of on your laptop.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Remote state with a lock: the whole team and CI work on one truth, and two applies cannot write at once.',
+			'With a remote state and a lock, the whole team and CI use one state file, and two applies cannot write it at once.',
 			'Modules give you a reviewed, tested VPC in a few lines, the same in every environment.',
 			'A versioned state bucket lets you get back an older state after a mistake.'
 		],
 		cost: [
 			'The state can hold secrets **in plain text**, like database passwords. The bucket needs encryption and tight access.',
-			'A module is someone else\'s design. A major version bump can rename resources and propose destroying them: read the plan.',
-			'A crashed run can leave a lock behind. `terraform force-unlock` fixes it, but only use it on your own lock, or you get two writers.'
+			'A public module follows its authors\' design. A major version bump can rename resources and propose destroying them: read the plan.',
+			'A crashed run can leave a lock behind. `terraform force-unlock` removes it, but only use it on your own lock, or two runs can write the state at once.'
 		]
 	},
 	task: {
@@ -136,7 +135,7 @@ module "ec2_instances" {
 				'AWS rejects the second engineer\'s API calls, because the first one already owns those resources'
 			],
 			answer: 1,
-			why: 'State is how Terraform maps blocks to real objects. Two copies mean two different memories. A shared remote backend with locking gives one memory and one writer at a time.'
+			why: 'State is how Terraform maps blocks to real objects. With two copies, each state misses what the other engineer created. A shared remote backend with locking gives one state and one writer at a time.'
 		},
 		{
 			q: 'What does `terraform apply -refresh-only` do?',
@@ -161,7 +160,10 @@ module "ec2_instances" {
 			why: 'Locking is opt-in for the S3 backend, and `use_lockfile` defaults to `false`. The older `dynamodb_table` option is deprecated. `encrypt` protects the state at rest but does not lock it.'
 		}
 	],
-	takeaway: 'State is Terraform\'s memory: keep one copy, remote, locked, encrypted and versioned. Modules are reusable, pinned building blocks. Drift is the console sneaking past your code, and `plan -refresh-only` finds it.',
+	recall: {
+		q: 'Your team keeps Terraform state in the S3 backend. Which setting stops two applies from writing at once, and which command shows changes made by hand in the console?',
+		a: '`use_lockfile = true` turns on locking, which is off by default, so a second apply waits or fails. `terraform plan -refresh-only` shows the drift without changing anything.'
+	},
 	sources: [
 		{ title: 'Terraform docs, State', url: 'https://developer.hashicorp.com/terraform/language/state' },
 		{ title: 'Terraform docs, State locking', url: 'https://developer.hashicorp.com/terraform/language/state/locking' },

@@ -4,7 +4,7 @@ const OPENSSL = 'https://github.com/openssl/openssl';
 export default {
 	slug: 'wrong-default',
 	part: 'Logic',
-	title: 'A 16-byte key, used as 8',
+	title: 'CAST5 CFB and OFB default to an 8-byte key',
 	minutes: 10,
 	hook: [
 		'A fuzzing report on OpenSSL encrypted the same 16 bytes with `EVP_cast5_cfb()`, the same 16-byte key and the same IV, on two versions. OpenSSL 1.1.1f printed `62 F5 FE 05 ...`, which matched Crypto++. The master branch printed `CF 90 97 8A ...`.',
@@ -13,7 +13,7 @@ export default {
 	terms: [
 		{ term: 'CAST5', def: 'A block cipher with 64-bit blocks and keys of 5 to 16 bytes. Its normal key is 16 bytes (128 bits).' },
 		{ term: 'Provider', def: 'In OpenSSL 3, the module that implements an algorithm. `legacyprov.c` maps names such as "CAST5-CFB" to these function tables.' },
-		{ term: '`IMPLEMENT_var_keylen_cipher`', def: 'Macro arguments, in order: algorithm, upper-case name, mode, upper-case mode, flags, key bits, block bits, IV bits, block or stream. Key bits become the default key length and the table name, as in `cast5128cbc_functions`.' }
+		{ term: '`IMPLEMENT_var_keylen_cipher`', def: 'Macro arguments, in order: algorithm, upper-case name, mode, upper-case mode, flags, key bits, block bits, IV bits, block or stream. The key bits set the default key length and appear in the table name, as in `cast5128cbc_functions`.' }
 	],
 	bug: {
 		title: 'Fix incorrect default keysize for CAST ofb and cfb modes.',
@@ -66,10 +66,10 @@ IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 64, 8, 64, st
 +/* cast5128cfb64_functions */
 +IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 128, 8, 64, stream)`,
 		notes: [
-			'**Two modes, a different key size.** ECB and CBC pass 128 as the key bits. OFB and CFB pass 64. The cipher is the same in all four modes, so the default key length should be the same too. The commit: "It was incorrectly using 8 bytes instead of 16 as the default."',
-			'**What the reproducer did.** With a default of 64 bits, the context expects an 8-byte key, and only the first 8 bytes of the 16-byte key are used. The fuzzer’s key was sixteen `0x20` bytes except byte 11, which was `0xff`. That byte was past the first 8, so master encrypted with a different key than 1.1.1f and printed different bytes.',
-			'**Why the tests missed it.** The commit: "evp_test.c hides this issue as it always calls EVP_CIPHER_CTX_set_key_length() before using EVP_CipherInit_ex(...., key, ..)." Any caller that sets the length explicitly gets the right key, so only callers relying on the default saw it.',
-			'**The fix and how it was found.** OFB and CFB now pass 128 like ECB and CBC, and the tables are renamed to `cast5128ofb64_functions` and `cast5128cfb64_functions` in `legacyprov.c` too. Issue #11459 was "a reproducer for OSS-Fuzz bug" comparing outputs, and the fix "was verified by expanding the macros used in e_cast.c".'
+			'Lines 28 and 30 (ECB and CBC) pass 128 as the key bits. Lines 32 and 34 (OFB and CFB) pass 64. The cipher is the same in all four modes, so the default key length should be the same too. The commit: "It was incorrectly using 8 bytes instead of 16 as the default."',
+			'With a default of 64 bits, the context expects an 8-byte key, and only the first 8 bytes of the 16-byte key are used. The fuzzer’s key was sixteen `0x20` bytes except byte 11, which was `0xff`. That byte was past the first 8, so master encrypted with a different key than 1.1.1f and printed different bytes.',
+			'The commit explains why the tests passed: "evp_test.c hides this issue as it always calls EVP_CIPHER_CTX_set_key_length() before using EVP_CipherInit_ex(...., key, ..)." Any caller that sets the length explicitly gets the right key. Only callers that rely on the default got the 8-byte key.',
+			'The fix makes lines 32 and 34 pass 128, like ECB and CBC. It renames the tables to `cast5128ofb64_functions` and `cast5128cfb64_functions`, in `legacyprov.c` too. Issue #11459 was "a reproducer for OSS-Fuzz bug" that compared outputs. The fix "was verified by expanding the macros used in e_cast.c".'
 		]
 	},
 	quiz: [
@@ -102,7 +102,10 @@ IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 64, 8, 64, st
 			why: 'A round trip passes even with the wrong default, because encrypt and decrypt use the same 8 bytes. Checking the default itself, or comparing output with another library, finds it.'
 		}
 	],
-	takeaway: 'When several declarations of the same thing differ only in one argument, line them up and check every column that should match. Test defaults by not setting them, because tests that always pass the value never use the default.',
+	recall: {
+		q: 'Which argument was wrong in the CAST5 OFB and CFB lines, and why did `evp_test.c` not see it?',
+		a: 'The key bits: 64 instead of 128, so the default key was 8 bytes. `evp_test.c` always calls `EVP_CIPHER_CTX_set_key_length()` first, so it never used the default.'
+	},
 	sources: [
 		{ title: 'openssl issue #11459', url: `${OPENSSL}/issues/11459` },
 		{ title: 'openssl pull request #11707', url: `${OPENSSL}/pull/11707` }

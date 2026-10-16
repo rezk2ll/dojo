@@ -5,7 +5,7 @@ const PR = `${REQ}/pull/613`;
 export default {
 	slug: 'shallow-copy',
 	part: 'La logique',
-	title: 'Une session change toutes les sessions',
+	title: 'Un dict d’en-têtes partagé par toutes les sessions',
 	minutes: 10,
 	hook: [
 		'Dans requests 0.12.1, une `Session` lit ses réglages dans `self.config`. Les en-têtes HTTP par défaut y sont rangés sous `base_headers`, un dict avec `User-Agent`, `Accept-Encoding` et `Accept`.',
@@ -57,10 +57,10 @@ export default {
 
          self.init_poolmanager()`,
 		notes: [
-			'**Le dict extérieur est neuf, l’intérieur non.** `config or {}` donne à chaque session son propre dict `config`. La boucle y recopie ensuite les valeurs par défaut, clé par clé. Pour `base_headers`, la valeur `v` est un dict, et `setdefault` range ce même objet. Le `config[\'base_headers\']` de chaque session est l’unique dict de `defaults`.',
-			'**Pourquoi les nombres et les booléens allaient bien.** La plupart des valeurs par défaut sont des int, des booléens ou `None`, comme `max_redirects = 30`. Le code qui les change affecte une nouvelle valeur à la clé du `config` de la session, donc les autres sessions gardent 30. Seul le dict est modifié sur place, donc seul le dict fuit.',
-			'**Le correctif.** `deepcopy(v)` donne à chaque session sa propre copie de chaque valeur par défaut, dont un nouveau dict `base_headers`. Le message du commit donne la raison : "Since base_headers is a dictionary, it\'s reference was shared with all instances of Session objects."',
-			'**La pull request.** Le correctif vient de la [pull request #613](' + PR + '), qui dit : "This patch deep copies all config options. Using deepcopy here should not incur a large performance penalty." (le coût de `deepcopy` reste faible ici).'
+			'La ligne 20 donne à chaque session son propre dict `config`. Les lignes 25 et 26 y recopient ensuite les valeurs par défaut, clé par clé. Pour `base_headers`, la valeur `v` est un dict, et `setdefault` range ce même objet. Le `config[\'base_headers\']` de chaque session est donc **l’unique dict de `defaults`**.',
+			'La plupart des valeurs par défaut sont des int, des booléens ou `None`, comme `max_redirects = 30`. Pour les changer, le code affecte une nouvelle valeur à la clé du `config` de la session, et les autres sessions gardent 30. `base_headers` est la seule valeur que le code modifie sur place, en écrivant une clé dedans, et chaque session voit cette écriture.',
+			'Dans le correctif, `deepcopy(v)` à la ligne 26 donne à chaque session sa propre copie de chaque valeur par défaut, dont un nouveau dict `base_headers`. Le message du commit donne la raison : "Since base_headers is a dictionary, it\'s reference was shared with all instances of Session objects."',
+			'La [pull request #613](' + PR + ') dit : "This patch deep copies all config options. Using deepcopy here should not incur a large performance penalty." Selon elle, `deepcopy` coûte peu ici.'
 		]
 	},
 	quiz: [
@@ -93,7 +93,10 @@ export default {
 			why: 'Le bug n’apparaît qu’entre deux objets. Une session seule a toujours l’air correcte. Une `config` à soi sans `base_headers` reçoit quand même le dict partagé.'
 		}
 	],
-	takeaway: 'Quand tu remplis un objet depuis un dict de valeurs par défaut au niveau du module, regarde si une valeur est une liste ou un dict. Copie ces valeurs, et teste en modifiant une instance puis en lisant une autre.',
+	recall: {
+		q: 'Dans requests 0.12.1, pourquoi régler un `User-Agent` dans les `base_headers` d’une session le changeait-il pour toutes les sessions ?',
+		a: '`self.config.setdefault(k, v)` rangeait le même dict `base_headers`, celui du module `defaults`, dans le `config` de chaque session. Le correctif range `deepcopy(v)`, et chaque session a son propre dict.'
+	},
 	sources: [
 		{ title: 'requests, pull request #613', url: PR },
 		{ title: 'Le commit du correctif', url: `${REQ}/commit/973e9cb54826062328f1c8650630819205ccfe8e` }

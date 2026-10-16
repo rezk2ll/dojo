@@ -13,7 +13,7 @@ export default {
 	terms: [
 		{ term: 'Façade', def: 'Une classe Laravel aux méthodes statiques, qui transmet chaque appel à un objet tiré du conteneur de services.' },
 		{ term: 'Singleton', def: 'Un objet que le conteneur crée une fois et rend à chaque appelant jusqu’à la fin du processus.' },
-		{ term: 'tap()', def: 'Un helper Laravel. `tap($value, $callback)` appelle le callback avec la valeur, puis renvoie la valeur.' }
+		{ term: 'tap()', def: 'Le helper Laravel `tap($value, $callback)` appelle le callback avec la valeur, puis renvoie la valeur.' }
 	],
 	bug: {
 		title: '[13.x] Fix `Notification::locale()` being applied to later notifications (#61959)',
@@ -59,10 +59,10 @@ public function locale($locale)
 +        });
      }`,
 		notes: [
-			'**Un appelant écrit, tous les appelants lisent.** `locale()` range la valeur dans `$this->locale` et renvoie le manager. Le manager est un singleton, donc ce champ est partagé par tous les `send` du processus. La ligne 19 le passe au sender à chaque envoi et ne le vide jamais.',
-			'**La séquence qui casse.** `Notification::locale(\'es\')->send($ana, ...)` met le champ à `es`. `Notification::send($bob, ...)` n’appelle pas `locale()`, donc le champ vaut toujours `es` et Bob reçoit de l’espagnol. La pull request ajoute que le sender regarde cette locale avant `HasLocalePreference`, "so it also overrides the notifiable\'s own preferred locale" (elle écrase aussi la locale préférée du destinataire).',
-			'**Le correctif.** `tap` passe la locale courante au sender, puis remet `$this->locale` à `null` avant de rendre la main. La locale ne s’applique plus qu’à l’envoi auquel elle est chaînée, "the same way `Mail::to()->locale()` works", comme le dit la pull request.',
-			'**Comment ça a été trouvé.** [La pull request #61959](' + LARAVEL + '/pull/61959) montre les trois appels ci-dessus et dit : "In a queue worker or on Octane that means unrelated users get notifications in the wrong language." Son nouveau test envoie une notification en français, puis deux autres, et vérifie que seule la première contient « bonjour ».'
+			'La ligne 24 range la valeur dans `$this->locale`, et la ligne 26 renvoie le manager. Le manager est un singleton : tous les `send` du processus lisent le champ déclaré ligne 6. La ligne 19 le passe au sender à chaque envoi et ne le vide jamais.',
+			'`Notification::locale(\'es\')->send($ana, ...)` met le champ à `es`. `Notification::send($bob, ...)` n’appelle pas `locale()`, donc le champ vaut toujours `es` et Bob reçoit de l’espagnol. La pull request ajoute que le sender regarde cette locale avant `HasLocalePreference`, "so it also overrides the notifiable\'s own preferred locale" (elle écrase aussi la locale préférée du destinataire).',
+			'Dans le correctif, `tap` passe la locale courante au sender, puis remet `$this->locale` à `null` avant de rendre la main. La locale ne vaut plus que pour l’envoi auquel elle est chaînée, "the same way `Mail::to()->locale()` works", comme le dit la pull request.',
+			'[La pull request #61959](' + LARAVEL + '/pull/61959) montre les trois appels ci-dessus et dit : "In a queue worker or on Octane that means unrelated users get notifications in the wrong language." Son nouveau test envoie une notification en français, puis deux autres, et vérifie que seule la première contient « bonjour ».'
 		]
 	},
 	quiz: [
@@ -86,7 +86,7 @@ public function locale($locale)
 				'Les tests règlent toujours la locale de l’appli en anglais d’abord'
 			],
 			answer: 1,
-			why: 'Le premier envoi est correct. La mauvaise locale apparaît à l’envoi suivant qui réutilise le même manager, donc il faut deux envois successifs dans le test.'
+			why: 'Le premier envoi part dans la locale demandée. La mauvaise locale apparaît à l’envoi suivant qui réutilise le même manager, donc il faut deux envois successifs dans le test.'
 		},
 		{
 			q: 'Une méthode fluide sur un objet partagé range une option pour l’appel suivant. Quelle conception est la plus sûre ?',
@@ -100,7 +100,10 @@ public function locale($locale)
 			why: 'Un nouvel objet par appel, ou une remise à zéro juste après l’appel, empêche l’option d’atteindre des appelants qui ne l’ont jamais demandée. Le correctif ici fait la remise à zéro.'
 		}
 	],
-	takeaway: 'Quand une méthode d’un singleton range une option comme une locale, un délai ou un destinataire, cherche où cette option est vidée. Si rien ne la vide, tous les appelants suivants du même processus la reçoivent aussi.',
+	recall: {
+		q: 'Après `Notification::locale(\'es\')->send($ana, ...)`, pourquoi le `Notification::send($bob, ...)` suivant partait-il aussi en espagnol ?',
+		a: '`locale()` rangeait `es` dans un champ du `ChannelManager`, un singleton, et `resolveNotificationSender()` passait ce champ à chaque envoi sans le vider. Le correctif utilise `tap` pour remettre `$this->locale` à `null` une fois la locale passée au sender.'
+	},
 	sources: [
 		{ title: 'laravel/framework, pull request #61959', url: `${LARAVEL}/pull/61959` },
 		{ title: 'La pull request #61904, qui a fait passer la locale à chaque envoi', url: `${LARAVEL}/pull/61904` }

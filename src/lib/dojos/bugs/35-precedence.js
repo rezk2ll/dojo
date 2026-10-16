@@ -13,7 +13,7 @@ export default {
 	],
 	terms: [
 		{ term: 'IV', def: 'Initialization vector: extra bytes a cipher mixes into the first block. CBC mode needs one exactly as long as a block, 8 bytes for DES.' },
-		{ term: 'ECB, CBC, GCM', def: 'Cipher modes. ECB uses no IV, CBC needs an IV of a fixed length, GCM accepts IVs of different lengths.' },
+		{ term: 'ECB, CBC, GCM', def: 'Three cipher modes: ECB uses no IV, CBC needs an IV of a fixed length, GCM accepts IVs of different lengths.' },
 		{ term: 'Precedence', def: 'The rules for how operators group when there are no parentheses. `a && b && c` must all be true; a parenthesis decides which part a condition belongs to.' }
 	],
 	bug: {
@@ -56,10 +56,10 @@ export default {
      return env()->ThrowError("Invalid IV length");
    }`,
 		notes: [
-			'**`iv_len > 0` belongs to the whole condition.** It sits outside every parenthesis, so it is one more term of the big `&&` chain. The error is thrown only when `iv_len > 0` is true. Any IV of 0 bytes skips the throw, whatever the cipher. The commit message names it "a misplaced parenthesis in a \'is ECB cipher?\' check".',
-			'**The numbers for `des`.** The cipher wants 8 bytes and gets 0. `8 != 0` is true. Not ECB, so the second term is true. Not GCM, so the third is true. `0 > 0` is false, so the whole `&&` is false and no error is thrown. With a 4-byte IV the last term is true and Node throws, as it should.',
-			'**The fix.** It rewrites the check as two named values: `is_gcm_mode == false && iv_len != expected_iv_len`. Every non-GCM cipher now needs exactly the length OpenSSL reports, 0 for ECB and 8 for DES-CBC, so an empty IV for `des` is rejected.',
-			'**How it got there.** The commit says the bug was "a regression introduced in commit 2996b5c (\\"crypto: Allow GCM ciphers to have a longer IV length\\") from April 2016" and that it "made it possible to use empty IVs with non-ECB ciphers". It was reported in [issue #9024](' + NODE + '/issues/9024), "require(\'crypto\') & DES inconsistent".'
+			'On line 17, `iv_len > 0` sits outside every parenthesis, so it is one more term of the `&&` chain that starts on line 15. Line 18 throws only when `iv_len > 0` is true. Any IV of 0 bytes skips the throw, whatever the cipher. The commit message names it "a misplaced parenthesis in a \'is ECB cipher?\' check".',
+			'For `des`, the cipher wants 8 bytes and gets 0. `8 != 0` is true. The cipher is not ECB, so the second term is true, and not GCM, so the third is true. `0 > 0` is false, so the whole `&&` is false and no error is thrown. With a 4-byte IV the last term is true and Node throws "Invalid IV length".',
+			'The fix rewrites the check with two named values: `is_gcm_mode == false && iv_len != expected_iv_len`. Every non-GCM cipher now needs exactly the length OpenSSL reports, 0 for ECB and 8 for DES-CBC, so an empty IV for `des` is rejected.',
+			'The commit says the bug was "a regression introduced in commit 2996b5c (\\"crypto: Allow GCM ciphers to have a longer IV length\\") from April 2016" and that it "made it possible to use empty IVs with non-ECB ciphers". It was reported in [issue #9024](' + NODE + '/issues/9024), "require(\'crypto\') & DES inconsistent".'
 		]
 	},
 	quiz: [
@@ -92,7 +92,10 @@ export default {
 			why: 'The other three cases all behave correctly with the buggy check. Only the empty IV on a non-ECB cipher reaches the broken branch.'
 		}
 	],
-	takeaway: 'When a condition mixes `&&`, `||` and `!` across several lines, give each part a name or add parentheses that show which clause each term belongs to. Then test the edge value of each term, here an IV of length 0.',
+	recall: {
+		q: 'Why did Node.js 6.7 accept an empty IV for `des` without "Invalid IV length"?',
+		a: '`iv_len > 0` sat outside the parentheses, so it joined the whole `&&` chain, and with `iv_len` at 0 the chain was false. The fix checks `is_gcm_mode == false && iv_len != expected_iv_len`, which rejects 0 bytes when DES-CBC wants 8.'
+	},
 	sources: [
 		{ title: 'node pull request #9032', url: `${NODE}/pull/9032` },
 		{ title: 'Issue #9024: DES output inconsistent', url: `${NODE}/issues/9024` }

@@ -62,10 +62,10 @@ export default {
 +		subCtx, cancel2 = context.WithCancel(ctx)
  		go func() {`,
 		notes: [
-			'**Two variables named `cancel2`.** Line 6 declares `cancel2` for the whole function. Line 16 is inside the `if` block, so its `:=` declares a second `cancel2` that lives only in that block. The goroutine on line 20 calls the inner one. The cleanup function on line 30 reads the outer one, which is still nil.',
-			'**Where it leaks.** Take the program from the hook: `Dial` passes `context.Background()`, and with no `Timeout` there is no deadline, so `cancel1` stays nil too. The cleanup calls nothing. Each helper goroutine waits for `oldCancel` or `subCtx.Done()`, and neither closes before shutdown. 1,000 dials leave 1,000 goroutines and 1,000 live contexts.',
-			'**Why a timeout hides it.** With a `Timeout`, the cleanup calls `cancel1`. `subCtx` is a child of that deadline context, so it is cancelled too, and the goroutine returns. Only dialers with `Cancel` set and no deadline keep the goroutine.',
-			'**The fix copies the branch above it.** Lines 10 and 11 already did it right: `var subCtx context.Context`, then `=`, so `cancel1` is the outer variable. The fix writes the `Cancel` branch the same way. It was found by reading the code and reported in issue [#78531](' + GO + '/issues/78531), "net: dialCtx shadow var".'
+			'Line 6 declares `cancel2` for the whole function. Line 16 is inside the `if` block, so its `:=` declares a second `cancel2` that lives only in that block. The goroutine on line 20 calls the inner one. The cleanup function on line 30 reads the outer one, which is still nil.',
+			'In the program from the hook, `Dial` passes `context.Background()`, and with no `Timeout` there is no deadline, so `cancel1` stays nil too. The cleanup then calls no function. Each helper goroutine waits for `oldCancel` or `subCtx.Done()`, and neither closes before shutdown. 1,000 dials leave 1,000 goroutines and 1,000 live contexts.',
+			'With a `Timeout`, the cleanup calls `cancel1`. `subCtx` is a child of that deadline context, so it is cancelled too, and the goroutine returns. Only dialers with `Cancel` set and no deadline keep the goroutine.',
+			'Lines 10 and 11 already use the safe form: `var subCtx context.Context`, then `=`, so `cancel1` is the outer variable. The fix writes line 16 the same way. Someone found the bug by reading the code and reported it in issue [#78531](' + GO + '/issues/78531), "net: dialCtx shadow var".'
 		]
 	},
 	quiz: [
@@ -103,7 +103,10 @@ export default {
 			why: 'In a new block, `:=` declares all the names on its left, so the outer variable is never written. Here the deadline branch two lines above shows the safe form.'
 		}
 	],
-	takeaway: 'When a function declares a variable at the top and sets it inside a block, check that the block uses `=` and not `:=`. If the line needs a new variable too, declare that one with `var` first.',
+	recall: {
+		q: 'Why does the cleanup in `dialCtx` never call `cancel2`, and how does the fix change line 16?',
+		a: 'Line 16 uses `:=` inside the `if` block, so it declares a new `cancel2` and the outer one stays nil. The fix declares `subCtx` with `var` first and assigns both with `=`.'
+	},
 	sources: [
 		{ title: 'go issue #78531', url: `${GO}/issues/78531` },
 		{ title: 'The review, CL 762780', url: 'https://go-review.googlesource.com/c/go/+/762780' }

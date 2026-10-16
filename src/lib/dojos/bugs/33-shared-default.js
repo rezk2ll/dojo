@@ -13,7 +13,7 @@ export default {
 	terms: [
 		{ term: 'Facade', def: 'A Laravel class with static methods that forward each call to one object taken from the service container.' },
 		{ term: 'Singleton', def: 'An object the container creates once and returns to every caller for the rest of the process.' },
-		{ term: 'tap()', def: 'A Laravel helper. `tap($value, $callback)` calls the callback with the value, then returns the value.' }
+		{ term: 'tap()', def: 'The Laravel helper `tap($value, $callback)` calls the callback with the value, then returns the value.' }
 	],
 	bug: {
 		title: '[13.x] Fix `Notification::locale()` being applied to later notifications (#61959)',
@@ -59,10 +59,10 @@ public function locale($locale)
 +        });
      }`,
 		notes: [
-			'**One caller writes, every caller reads.** `locale()` stores the value in `$this->locale` and returns the manager. The manager is a singleton, so that field is shared by every `send` in the process. Line 19 passes it to the sender on each send and never clears it.',
-			'**The sequence that breaks.** `Notification::locale(\'es\')->send($ana, ...)` sets the field to `es`. `Notification::send($bob, ...)` does not call `locale()`, so the field still holds `es` and Bob gets Spanish. The pull request adds that the sender checks this locale before `HasLocalePreference`, "so it also overrides the notifiable\'s own preferred locale".',
-			'**The fix.** `tap` hands the current locale to the sender, then sets `$this->locale` back to `null` before returning. The locale now applies to the one send it was chained to, "the same way `Mail::to()->locale()` works", as the pull request puts it.',
-			'**How it was found.** [Pull request #61959](' + LARAVEL + '/pull/61959) shows the three calls above and says: "In a queue worker or on Octane that means unrelated users get notifications in the wrong language." Its new test sends a French notification, then two more, and checks that only the first one contains "bonjour".'
+			'Line 24 stores the value in `$this->locale`, and line 26 returns the manager. The manager is a singleton, so every `send` in the process reads the field declared on line 6. Line 19 passes it to the sender on each send and never clears it.',
+			'`Notification::locale(\'es\')->send($ana, ...)` sets the field to `es`. `Notification::send($bob, ...)` does not call `locale()`, so the field still holds `es` and Bob gets Spanish. The pull request adds that the sender checks this locale before `HasLocalePreference`, "so it also overrides the notifiable\'s own preferred locale".',
+			'In the fix, `tap` hands the current locale to the sender, then sets `$this->locale` back to `null` before returning. The locale now applies only to the send it was chained to, "the same way `Mail::to()->locale()` works", as the pull request puts it.',
+			'[Pull request #61959](' + LARAVEL + '/pull/61959) shows the three calls above and says: "In a queue worker or on Octane that means unrelated users get notifications in the wrong language." Its new test sends a French notification, then two more, and checks that only the first one contains "bonjour".'
 		]
 	},
 	quiz: [
@@ -86,7 +86,7 @@ public function locale($locale)
 				'Tests always set the app locale to English first'
 			],
 			answer: 1,
-			why: 'The first send is correct. The wrong locale shows up on the next send that reuses the same manager, so a test needs two sends in a row.'
+			why: 'The first send uses the locale it asked for. The wrong locale shows up on the next send that reuses the same manager, so a test needs two sends in a row.'
 		},
 		{
 			q: 'A fluent method on a shared object stores an option for the next call. What is the safest design?',
@@ -100,7 +100,10 @@ public function locale($locale)
 			why: 'A new object per call, or a reset right after the call, keeps the option from reaching callers that never asked for it. The fix here does the reset.'
 		}
 	],
-	takeaway: 'When a method on a singleton stores an option such as a locale, a timeout or a recipient, check where that option is cleared. If nothing clears it, every later caller in the same process gets it too.',
+	recall: {
+		q: 'After `Notification::locale(\'es\')->send($ana, ...)`, why did the next `Notification::send($bob, ...)` also go out in Spanish?',
+		a: '`locale()` stored `es` in a field of the singleton `ChannelManager`, and `resolveNotificationSender()` passed that field on every send without clearing it. The fix uses `tap` to set `$this->locale` back to `null` after handing it to the sender.'
+	},
 	sources: [
 		{ title: 'laravel/framework pull request #61959', url: `${LARAVEL}/pull/61959` },
 		{ title: 'Pull request #61904, which started passing the locale on every send', url: `${LARAVEL}/pull/61904` }

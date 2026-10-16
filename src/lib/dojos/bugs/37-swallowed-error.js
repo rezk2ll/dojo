@@ -4,11 +4,11 @@ const CARGO = 'https://github.com/rust-lang/cargo';
 export default {
 	slug: 'swallowed-error',
 	part: 'Logic',
-	title: 'A typo that became “no such subcommand”',
+	title: 'A config parse error reported as an unknown command',
 	minutes: 10,
 	hook: [
 		'A user defines a Cargo alias in `.cargo/config` and forgets a comma: `foo = ["a" "b"]`. Running `cargo foo` prints **"error: no such subcommand: `foo`"** and suggests `doc`. Nothing mentions the config file or the syntax error.',
-		'Cargo reads optional settings through serde. For an `Option` value it first calls `has_key`, below. If `has_key` returns `false`, the value is treated as missing and becomes `None`. `get_cv` reads the config files and returns an `Err` when one of them does not parse.'
+		'Cargo reads optional settings through serde. For an `Option` value it first calls `has_key`, below. If `has_key` returns `false`, serde treats the value as missing and returns `None`. `get_cv` reads the config files and returns an `Err` when one of them does not parse.'
 	],
 	terms: [
 		{ term: 'Result', def: 'A Rust value that is either `Ok(value)` or `Err(error)`. `CargoResult<T>` is Cargo’s name for a `Result` with its error type.' },
@@ -51,10 +51,10 @@ export default {
 +            return Ok(true);
          }`,
 		notes: [
-			'**The `Err` turns into `false`.** `get_cv` returns `CargoResult<Option<ConfigValue>>`. With the missing comma, loading the config fails and it returns `Err`. `if let Ok(o_cv)` skips the block, the method reaches the last line, and returns `false`. A file that does not parse looks the same as a key that is not there.',
-			'**The path to the wrong message.** `aliased_command` in `main.rs` asks for `alias.foo`, and on an error falls back to `config.get::<Option<Vec<String>>>`. That deserializer calls `has_key`, gets `false`, and runs `visitor.visit_none()` under the comment "Treat missing values as `None`." With no alias, `foo` is an unknown command.',
-			'**The fix.** `has_key` now returns `CargoResult<bool>`. `self.get_cv(key)?` sends the parse error back to the caller, and the call site in `de.rs` becomes `has_key(&self.key, self.env_prefix_ok)?`. The `return true` lines become `Ok(true)` and the last line `Ok(false)`.',
-			'**How it was found.** [Issue #11013](' + CARGO + '/issues/11013), "Config errors with alias may not be reported", shows the missing comma and the output. [Pull request #11087](' + CARGO + '/pull/11087) says the change reaches further than aliases: "any use `Config::get<Option<…>>()` is affected if there is a malformed config."'
+			'Line 12 calls `get_cv`, which returns `CargoResult<Option<ConfigValue>>`. With the missing comma, loading the config fails and `get_cv` returns `Err`. `if let Ok(o_cv)` skips the block, and line 19 returns `false`. A file that does not parse gets the same answer as a key that is not there.',
+			'`aliased_command` in `main.rs` asks for `alias.foo`, and on an error falls back to `config.get::<Option<Vec<String>>>`. That deserializer calls `has_key`, gets `false`, and runs `visitor.visit_none()` under the comment "Treat missing values as `None`." With no alias, Cargo looks for a command named `foo` and finds none.',
+			'In the fix, `has_key` returns `CargoResult<bool>`. On line 12, `self.get_cv(key)?` sends the parse error back to the caller, and the call site in `de.rs` now reads `has_key(&self.key, self.env_prefix_ok)?`. Each `return true` is now `Ok(true)`, and line 19 is `Ok(false)`.',
+			'Issue #11013, "Config errors with alias may not be reported", shows the missing comma and the output. [Pull request #11087](' + CARGO + '/pull/11087) says the change reaches further than aliases: "any use `Config::get<Option<…>>()` is affected if there is a malformed config."'
 		]
 	},
 	quiz: [
@@ -92,7 +92,10 @@ export default {
 			why: 'The three other cases already worked before the fix. Only a file that fails to parse tells the old code and the new code apart.'
 		}
 	],
-	takeaway: 'When a function answers a yes or no question, check what it returns when it cannot find out. If `if let Ok` or `.ok()` turns an error into "no", return a `Result` and let the caller report it.',
+	recall: {
+		q: 'What did the old `has_key` return when `.cargo/config` did not parse, and why?',
+		a: '`false`. Line 12 used `if let Ok(o_cv)`, which skips the block on `Err`, so the method reached `false` on line 19. The fix returns `CargoResult<bool>` and uses `get_cv(key)?`.'
+	},
 	sources: [
 		{ title: 'cargo issue #11013', url: `${CARGO}/issues/11013` },
 		{ title: 'cargo pull request #11087', url: `${CARGO}/pull/11087` }

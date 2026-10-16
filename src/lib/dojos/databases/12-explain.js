@@ -10,13 +10,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'A page that counts users takes 1.2 seconds. Someone adds an index. Now it takes 300 ms. Better, but still slow, and nobody can say why.',
-		'Guessing is the usual next step: another index, a bigger server, a cache. **`EXPLAIN` stops the guessing.** It prints the plan PostgreSQL chose: which scans, in which order, how many rows it expected, and with `ANALYZE`, how many it really got and how many pages it touched.',
-		'Today: read a plan from the inside out, tell **estimated** from **actual**, and use **buffers** (pages read) as the number that does not lie. The plans come from GitLab\'s own database guide.'
+		'Guessing is the usual next step: another index, a bigger server, a cache. **`EXPLAIN` prints the plan PostgreSQL chose**: which scans, in which order, how many rows it expected, and with `ANALYZE`, how many it really got and how many pages it touched.',
+		'The plans below come from GitLab\'s own database guide: one count on a `users` table of about 2.5 million rows, before and after an index.'
 	],
 	terms: [
 		{ term: 'Plan node', def: 'One step of the plan: a scan, a join, a sort, an aggregate. Nodes form a tree. The innermost ones run first and pass rows up to their parent.' },
-		{ term: 'Cost', def: '`cost=startup..total`, in arbitrary units where reading one page in order is 1.0 by default. Startup is the work before the first row, total the work to return all of them. A parent\'s cost includes its children.' },
-		{ term: 'rows (estimated)', def: 'How many rows the planner expects the node to emit, after its filter. Not how many it reads.' },
 		{ term: 'EXPLAIN ANALYZE', def: 'Runs the query for real and prints, next to each estimate, the actual time in milliseconds, actual rows and loops. It really executes: an UPDATE really updates.' },
 		{ term: 'loops', def: 'How many times the node ran. Actual time and rows are averages per loop: multiply by loops to get the total.' },
 		{ term: 'Buffers', def: 'Pages of 8 kB the node touched: `hit` in PostgreSQL\'s cache, `read` from the OS or disk. Included by default with ANALYZE since PostgreSQL 18.' }
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['scan["Seq Scan on users"] -->|"rows go up"| agg["Aggregate: count(*)"]'],
 				highlight: ['scan', 'agg'],
-				note: '**Read from the inside out.** The most indented node runs first. Here a sequential scan reads `users` and hands its rows to an aggregate that counts them. GitLab\'s guide compares a plan to "nested function calls, returning their results as they unwind".'
+				note: 'You read a plan from the inside out: the most indented node runs first. Here a sequential scan reads `users` and hands its rows to an aggregate that counts them. GitLab\'s guide compares a plan to "nested function calls, returning their results as they unwind".'
 			},
 			{
 				add: ['est["Estimate: cost=0.00..844969.99 rows=56087"] -.-> scan'],
 				highlight: ['est'],
-				note: '**The estimate is what the planner believed.** The cost is in planner units, not milliseconds. `rows=56087` is how many rows it expected the scan to **emit** after the filter. Plain `EXPLAIN` stops here: it does not run anything.'
+				note: 'The estimate gives the cost in planner units, where reading one page in order counts as 1.0. `rows=56087` is how many rows it expected the scan to **emit** after the filter. Plain `EXPLAIN` stops here: it does not run anything.'
 			},
 			{
 				add: ['act["Actual: rows=51833 loops=1, 1265 ms"] -.-> scan'],
 				highlight: ['act'],
-				note: '**ANALYZE adds what really happened.** 51,833 rows against 56,087 expected: a good estimate. The PostgreSQL docs say the thing to look for first "is whether the estimated row counts are reasonably close to reality". When they are far apart, the planner has chosen a plan for the wrong number of rows (day 13).'
+				note: '`ANALYZE` runs the query and adds the actual numbers. 51,833 rows against 56,087 expected: a good estimate. The PostgreSQL docs say the thing to look for first "is whether the estimated row counts are reasonably close to reality". When they are far apart, the planner has chosen a plan for the wrong number of rows (day 13).'
 			},
 			{
 				add: ['filt["Rows Removed by Filter: 2487813"] -.-> scan'],
 				highlight: ['filt'],
-				note: '**The filter line shows the waste.** To emit 51,833 rows, the scan read about 2.5 million and threw 98% of them away. A large "Rows Removed" under a scan that returns few rows is the classic sign that an index could help.'
+				note: 'The filter line counts the rows the scan read and dropped. To emit 51,833 rows, the scan read about 2.5 million and threw 98% of them away. A large "Rows Removed" under a scan that returns few rows is the classic sign that an index could help.'
 			},
 			{
 				add: ['buf["Buffers: shared hit=202662, about 1.6 GB of pages"] -.-> agg'],
 				highlight: ['buf'],
-				note: '**Buffers count the work.** Each buffer is an 8 kB page, so 202,662 of them is about 1.6 GB touched to count 51,833 rows. Timing depends on what is cached; buffers do not. A parent\'s buffers include those of its children.'
+				note: 'Each buffer is an 8 kB page, so 202,662 of them is about 1.6 GB touched to count 51,833 rows. Timing depends on what is cached; buffers do not. A parent\'s buffers include those of its children.'
 			}
 		]
 	},
@@ -82,30 +80,30 @@ Aggregate  (cost=61002.82..61002.83 rows=1 width=8) (actual time=297.311..297.31
 Planning time: 0.191 ms
 Execution time: 297.334 ms`,
 		notes: [
-			'**The index helped, but the filter is still there.** The second plan reads the index instead of the table, yet `Rows Removed by Filter` is still about 2.5 million. The index holds every value of `twitter`, empty strings included, so the scan still walks all of them and drops the empty ones. GitLab fixes it with a partial index, which is day 14.',
-			'**An index-only scan can still visit the table.** The guide notes that [in certain cases](' + DOC + '#L240-L244) "an index only scan might still fetch data from the table", and the node then shows `Heap Fetches`. Here 26,037 rows needed a trip to the table.',
-			'**Compare buffers, not milliseconds.** GitLab\'s advice: timing ["can be too volatile to be used for comparison"](' + DOC + '#L461-L467), so "look at the number of buffers used (read and hit), and work on reducing these numbers". 202,662 buffers became 51,854: that is the real gain, whatever the cache did.',
-			'**A sequential scan is sometimes right.** The same guide counts projects with `visibility_level IN (0, 20)`, which is [98% of the table](' + DOC + '#L540-L542): "there isn\'t really much we can do to improve this query, other than _not_ running it at all". The planner reads the whole table because it has to return almost all of it.',
-			'**ANALYZE runs the statement.** The `EXPLAIN` reference warns that ["the statement is actually executed"](' + PG + '/ref/explain.sgml#L90-L104) and its side effects happen. Wrap an `EXPLAIN ANALYZE` of an UPDATE or DELETE in `BEGIN` and `ROLLBACK`.'
+			'Line 19 reads the index instead of the table, yet line 21 still shows about 2.5 million `Rows Removed by Filter`. The index holds every value of `twitter`, empty strings included, so the scan still walks all of them and drops the empty ones. GitLab fixes it with a partial index, which is day 14.',
+			'Line 22, `Heap Fetches: 26037`, counts the rows the index-only scan still had to fetch from the table. The guide notes that [in certain cases](' + DOC + '#L240-L244) "an index only scan might still fetch data from the table".',
+			'Lines 7 and 18 give the buffers: 202,662 before the index, 51,854 after. GitLab\'s advice: timing ["can be too volatile to be used for comparison"](' + DOC + '#L461-L467), so "look at the number of buffers used (read and hit), and work on reducing these numbers". The drop in buffers holds whatever the cache contained.',
+			'The same guide counts projects with `visibility_level IN (0, 20)`, which is [98% of the table](' + DOC + '#L540-L542): "there isn\'t really much we can do to improve this query, other than _not_ running it at all". The planner reads the whole table there because it has to return almost all of it, so the sequential scan is the right plan.',
+			'The `EXPLAIN` reference warns that with `ANALYZE` ["the statement is actually executed"](' + PG + '/ref/explain.sgml#L90-L104) and its side effects happen. Wrap an `EXPLAIN ANALYZE` of an UPDATE or DELETE in `BEGIN` and `ROLLBACK`.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'You see the plan the database chose instead of guessing: which index, which join, where the rows are thrown away.',
-			'Estimated next to actual rows tells you whether the planner was misled, which no amount of hardware fixes.',
-			'Buffers give a number you can compare between two runs, two indexes or two servers, without the noise of the cache.'
+			'Estimated next to actual rows shows whether the planner was misled: 56,087 expected against 51,833 actual is a good estimate.',
+			'Buffers give a number you can compare between two runs, two indexes or two servers, and it does not change with what the cache holds.'
 		],
 		cost: [
 			'`EXPLAIN ANALYZE` executes the query: a slow query is still slow, and a write still writes unless you roll it back.',
-			'Timing every node costs something. The docs warn that "the measurement overhead added by EXPLAIN ANALYZE can be significant" on machines with slow clock calls. Use `TIMING OFF` when you only need rows and buffers.',
-			'Plans depend on data and statistics. The docs warn that "results on a toy-sized table cannot be assumed to apply to large tables". GitLab engineers get their plans from a clone of the production database for that reason.'
+			'The docs warn that "the measurement overhead added by EXPLAIN ANALYZE can be significant" on machines with slow clock calls. Use `TIMING OFF` when you only need rows and buffers.',
+			'A plan depends on the data and the statistics. The docs warn that "results on a toy-sized table cannot be assumed to apply to large tables". GitLab engineers get their plans from a clone of the production database for that reason.'
 		]
 	},
 	task: {
 		prompt: 'In `psql`, create `orders(id bigint generated always as identity primary key, customer_id int not null, status text not null, total numeric not null)` with 1 million rows: `customer_id` random from 0 to 20,000, `status` `\'paid\'` 95% of the time and `\'refunded\'` otherwise. Run `VACUUM ANALYZE orders`. Then `EXPLAIN ANALYZE SELECT count(*) FROM orders WHERE customer_id = 42`. Read the plan. Add an index on `customer_id` and read it again. Last, index `status` and explain `sum(total)` for `\'paid\'` and for `\'refunded\'`.',
 		hint: 'Look for `loops` on the scan node before you read its `rows`. Compare the `Buffers` line of the top node across the plans.',
 		answer: [
-			'Without an index (PostgreSQL 18, 2 workers): `Parallel Seq Scan on orders ... rows=16.33 loops=3`, `Rows Removed by Filter: 333317`, `Buffers: shared hit=6434`. The rows are averages per loop: 16.33 × 3 is about 49 rows found, out of a million read. The 6,434 buffers are the whole table.',
+			'Without an index (PostgreSQL 18, 2 workers): `Parallel Seq Scan on orders ... rows=16.33 loops=3`, `Rows Removed by Filter: 333317`, `Buffers: shared hit=6434`. The rows are averages per loop: 16.33 × 3 is about 49 rows found, out of a million read. The 6,434 buffers cover the whole table.',
 			'With the index: `Index Only Scan using orders_customer_id_idx ... rows=49.00 loops=1`, `Heap Fetches: 0`, `Buffers: shared hit=1 read=3`. From 6,434 pages to 4. Heap fetches are 0 because `VACUUM` has just marked every page all-visible.',
 			'`status = \'paid\'` keeps a Parallel Seq Scan even with the index: it matches about 95% of the rows, so reading the table in order is cheaper than jumping through the index for each one.',
 			'`status = \'refunded\'` (about 5%) switches to `Index Scan using orders_status_idx`. Same index, same column: the planner chose by the estimated number of rows, which is what day 13 is about.'
@@ -146,7 +144,10 @@ Execution time: 297.334 ms`,
 			why: 'Timing moves with the cache state and the load. Buffers count the pages the query had to touch, which is the work itself. Cost is in planner units, not milliseconds, and ANALYZE numbers are measured, not estimated.'
 		}
 	],
-	takeaway: 'Read the plan from the inside out, compare estimated rows with actual rows, multiply by loops, and judge a change by the buffers it touches, not by the milliseconds of one run.',
+	recall: {
+		q: 'A scan node shows `rows=16.33 loops=3`. How many rows did it return, and which number do you compare between two versions of a query?',
+		a: 'About 49 rows, because rows is a per-loop average: 16.33 × 3. You compare the buffers (8 kB pages touched), because the time changes with what is cached.'
+	},
 	sources: [
 		{ title: 'PostgreSQL 18 docs, Using EXPLAIN', url: 'https://www.postgresql.org/docs/18/using-explain.html' },
 		{ title: 'PostgreSQL 18 docs, EXPLAIN', url: 'https://www.postgresql.org/docs/18/sql-explain.html' },

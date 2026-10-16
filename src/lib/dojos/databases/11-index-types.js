@@ -6,20 +6,18 @@ const MIG = `${DISC}/db/migrate/20260610064425_introduce_permission_acl_tables.r
 export default {
 	slug: 'index-types',
 	part: 'Inside the engine',
-	title: 'Beyond B-trees',
+	title: 'Index types: GIN, GiST, BRIN and Hash',
 	minutes: 10,
 	hook: [
 		'Your forum stores who may see a category as an array: `allowed_user_ids = {3, 7, 42}`. The page "categories I can see" runs `WHERE allowed_user_ids @> ARRAY[42]`. It gets slower every month.',
 		'You add a B-tree index on the column. Nothing changes. **A B-tree sorts whole values**, so it knows that `{3,7,42}` comes before `{3,8}`. It has no idea that 42 is inside.',
-		'PostgreSQL ships other index types for questions a sorted list cannot answer. **GIN looks inside a value**, GiST answers "does it overlap?" and "what is nearest?", BRIN keeps a tiny summary of a huge table, and Hash does equality only. Today: which question each one answers, and what each one costs on writes.'
+		'PostgreSQL ships other index types for questions a sorted list cannot answer. **GIN indexes each element inside a value**, GiST answers "does it overlap?" and "what is nearest?", BRIN keeps a min and max per 128 pages, and Hash serves only `=`.'
 	],
 	terms: [
 		{ term: 'Operator class', def: 'The set of operators an index can serve for a column type. An index helps a WHERE clause only if the clause uses one of those operators on the indexed column.' },
 		{ term: 'GIN', def: 'Generalized Inverted Index. One entry per element (array item, JSONB key, word) pointing at the rows that contain it. Made for "does this value contain that?".' },
 		{ term: 'GiST', def: 'Generalized Search Tree. A balanced tree of bounding boxes or ranges. Answers overlap, containment and nearest neighbour for geometry, ranges and IP networks.' },
-		{ term: 'BRIN', def: 'Block Range Index. Stores a summary, such as min and max, for each group of 128 table pages by default. Tiny, and useful only when values follow the physical order of the rows.' },
-		{ term: 'Hash index', def: 'Stores a 32-bit hash of the value. Serves `=` and nothing else: no ranges, no sorting, no uniqueness.' },
-		{ term: 'Lossy index', def: 'An index that can return rows that do not match. The executor rechecks each one. BRIN is always lossy.' }
+		{ term: 'BRIN', def: 'Block Range Index. Stores a summary, such as min and max, for each group of 128 table pages by default. It can return rows that do not match, so the executor rechecks each row of a matching range.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['q["What does the WHERE clause ask?"] -->|"= or a range on a sortable value"| btree["B-tree: sorted values (day 10)"]'],
 				highlight: ['q', 'btree'],
-				note: '**Start from the question, not the type.** The docs say each index type suits "different types of indexable clauses". For `=`, `<`, `BETWEEN` and `ORDER BY` on a sortable column, the B-tree from day 10 is the answer, and it is what `CREATE INDEX` builds by default.'
+				note: 'The docs say each index type suits "different types of indexable clauses", so you pick the type from the WHERE clause. For `=`, `<`, `BETWEEN` and `ORDER BY` on a sortable column, the B-tree from day 10 is the answer, and it is what `CREATE INDEX` builds by default.'
 			},
 			{
 				add: ['q -->|"does it contain this element or key?"| gin["GIN: one entry per element, each with its list of rows"]'],
 				highlight: ['gin'],
-				note: '**GIN splits a value into its parts.** The row `{3,7,42}` gives three index entries: 3, 7 and 42, each pointing back at the row. The array operator class serves `<@`, `@>`, `=` and `&&`. For `jsonb`, `jsonb_ops` is the default and `jsonb_path_ops` serves fewer operators, faster.'
+				note: 'GIN splits a value into its elements. The row `{3,7,42}` gives three index entries: 3, 7 and 42, each pointing back at the row. The array operator class serves `<@`, `@>`, `=` and `&&`. For `jsonb`, `jsonb_ops` is the default and `jsonb_path_ops` serves fewer operators, faster.'
 			},
 			{
 				add: ['q -->|"does it overlap, or what is nearest?"| gist["GiST: a tree of bounding boxes and ranges"]'],
 				highlight: ['gist'],
-				note: '**GiST groups values by the space they cover.** Each inner entry "represents all the given entries" below it, like a bounding box around its children, so a search skips any branch that cannot overlap. Built-in classes cover geometry, `range_ops`, `multirange_ops` and `inet_ops`. It also answers `ORDER BY location <-> point LIMIT 10`.'
+				note: 'GiST groups values by the space they cover. Each inner entry "represents all the given entries" below it, like a bounding box around its children, so a search skips any branch that cannot overlap. Built-in classes cover geometry, `range_ops`, `multirange_ops` and `inet_ops`. It also answers `ORDER BY location <-> point LIMIT 10`.'
 			},
 			{
 				add: ['q -->|"a time window on a huge append-only table"| brin["BRIN: min and max per 128 pages"]', 'brin -.->|"recheck every row of each matching range"| heap[("table pages")]'],
 				highlight: ['brin', 'heap'],
-				note: '**BRIN trades precision for size.** For each block range it stores a summary, and a scan reads every page of each range whose summary might match. It works when the column follows the insert order, like `created_at` on a log. On a shuffled column, every range matches and you read the whole table.'
+				note: 'BRIN stores one summary per block range, so a scan reads every page of each range whose summary might match. It works when the column follows the insert order, like `created_at` on a log. On a shuffled column, every range matches and you read the whole table.'
 			},
 			{
 				add: ['q -->|"= only, never a range"| hash["Hash: a 32-bit hash code per row"]'],
 				highlight: ['hash'],
-				note: '**Hash is the narrow one.** It "can only handle simple equality comparisons". It cannot sort, cannot serve a range, and cannot back a UNIQUE constraint: the docs say "Currently, only B-tree indexes can be declared unique."'
+				note: 'A Hash index stores a 32-bit hash of each value and "can only handle simple equality comparisons". It cannot sort, cannot serve a range, and cannot back a UNIQUE constraint: the docs say "Currently, only B-tree indexes can be declared unique."'
 			}
 		]
 	},
@@ -75,23 +73,23 @@ export default {
     execute "CREATE INDEX idx_access_control_lists_allowed_group_ids ON access_control_lists USING GIN(allowed_group_ids)"
   end`,
 		notes: [
-			'**Two index types, two questions.** "Find the ACL for this category and permission" is equality on whole values: a plain unique B-tree. "Find every ACL that lets user 42 in" looks inside an array: GIN. The unique one has to be a B-tree anyway, since only B-tree indexes can be declared unique.',
-			'**The queries are written for the index.** The model\'s [scopes](' + DISC + '/app/models/access_control_list.rb#L48-L55) say `allowed_user_ids @> ARRAY[:user_id]::bigint[]` and `allowed_group_ids && ARRAY[:group_ids]::bigint[]`. Both `@>` and `&&` belong to the GIN array operator class. The more natural `42 = ANY(allowed_user_ids)` does not: on PostgreSQL 18 it plans as a sequential scan even with the GIN index in place.',
-			'**The cleanup job uses the same shape.** When a user is deleted, [`CleanupAclsForDeleted`](' + DISC + '/app/jobs/regular/cleanup_acls_for_deleted.rb#L20-L28) finds the rows with `allowed_user_ids @> ARRAY[?]::bigint[]` and rewrites the array with `array_remove`. Each rewrite also updates the GIN entries for that row.',
-			'**Rails can say it too.** Another Discourse migration builds [two GIN indexes on id arrays](' + DISC + '/plugins/boards/db/migrate/20260407065612_add_kanban_sync_indexes.rb#L5-L9) without raw SQL, with `add_index ... using: :gin`.',
-			'**Why GIN writes are expensive.** The GIN docs: "inserting or updating one heap row can cause many inserts into the index (one for each key extracted from the indexed item)". With [`fastupdate`](' + PG + '/gin.sgml#L500-L527), on by default, new entries wait in a pending list that searches must also scan, until vacuum, autoanalyze or `gin_clean_pending_list` merges them.'
+			'Line 15 serves "find the ACL for this category and permission", which is equality on whole values: a plain unique B-tree. Lines 16 and 17 serve "find every ACL that lets user 42 in", which looks inside an array: GIN. The unique index has to be a B-tree anyway, since only B-tree indexes can be declared unique.',
+			'The model\'s [scopes](' + DISC + '/app/models/access_control_list.rb#L48-L55) query with `allowed_user_ids @> ARRAY[:user_id]::bigint[]` and `allowed_group_ids && ARRAY[:group_ids]::bigint[]`. Both `@>` and `&&` belong to the GIN array operator class. `42 = ANY(allowed_user_ids)` does not: on PostgreSQL 18 it plans as a sequential scan even with the GIN index in place.',
+			'When a user is deleted, the job [`CleanupAclsForDeleted`](' + DISC + '/app/jobs/regular/cleanup_acls_for_deleted.rb#L20-L28) finds the rows with `allowed_user_ids @> ARRAY[?]::bigint[]` and rewrites the array with `array_remove`. Each rewrite also updates the GIN entries for that row.',
+			'Another Discourse migration builds [two GIN indexes on id arrays](' + DISC + '/plugins/boards/db/migrate/20260407065612_add_kanban_sync_indexes.rb#L5-L9) without raw SQL, with `add_index ... using: :gin`.',
+			'The GIN docs give the write cost: "inserting or updating one heap row can cause many inserts into the index (one for each key extracted from the indexed item)". With [`fastupdate`](' + PG + '/gin.sgml#L500-L527), on by default, new entries wait in a pending list that searches must also scan. Vacuum, autoanalyze or `gin_clean_pending_list` then merges them into the index.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Queries a B-tree cannot help with become index scans: array and JSONB containment, range overlap, nearest neighbour.',
-			'A BRIN index on a time column of a large log stays tiny. In a test with 2 million rows in time order, BRIN took 24 kB where a B-tree took 43 MB.',
-			'Each type is one `USING` keyword away. No extension, no new service, the same transactions and backups.'
+			'Array and JSONB containment, range overlap and nearest neighbour can use an index scan, which a B-tree cannot serve.',
+			'In a test with 2 million rows in time order, a BRIN on `created_at` took 24 kB where a B-tree took 43 MB.',
+			'Each type is one `USING` keyword in `CREATE INDEX`, with no extension or new service, inside the same transactions and backups.'
 		],
 		cost: [
-			'GIN writes are slow: one row can mean dozens of index entries. The pending list hides the cost until a cleanup, which then lands on one unlucky write.',
+			'GIN writes are slow: one row can mean dozens of index entries. The pending list delays that work, and the insert that fills the list pays for the merge.',
 			'An index serves only the operators of its operator class. Write the query another way (`= ANY` instead of `@>`) and the planner ignores the index without a warning.',
-			'BRIN is lossy and depends on physical order. A backfill of old dates lands at the end of the table, an `UPDATE` can write the new row version on another page, and the ranges start to overlap.',
+			'BRIN skips pages only while values follow the physical order of the rows. A backfill of old dates lands at the end of the table, an `UPDATE` can write the new row version on another page, and the ranges start to overlap.',
 			'Hash, GIN, GiST and BRIN cannot enforce uniqueness. You still need a B-tree for that.'
 		]
 	},
@@ -129,7 +127,7 @@ export default {
 			why: 'BRIN stores a min and a max per block range and returns whole ranges. It skips pages only if values follow the physical order. It is lossy, so it never points at one row, and only B-trees can be unique.'
 		},
 		{
-			q: 'A busy table gets a GIN index on a `jsonb` column. Writes become slower, and now and then one insert takes much longer than the others. Why?',
+			q: 'A busy table gets a GIN index on a `jsonb` column. Writes slow down, and now and then one insert takes much longer than the others. Why?',
 			options: [
 				'GIN locks the whole table for each insert until the index has been rebuilt from scratch',
 				'Each row adds one entry per key, and a full pending list is merged during one insert',
@@ -140,7 +138,10 @@ export default {
 			why: 'One row yields one index entry per extracted key. With `fastupdate` on, entries wait in a pending list, and the insert that makes it too large pays for the merge. Vacuum and autoanalyze also merge it in the background. A B-tree (day 10) pays one entry per row.'
 		}
 	],
-	takeaway: 'Pick the index for the question the WHERE clause asks: B-tree for order, GIN for "contains", GiST for "overlaps" and "nearest", BRIN for huge tables in time order, and write the query with an operator the index supports.',
+	recall: {
+		q: 'Which index type serves `WHERE allowed_user_ids @> ARRAY[42]`, and why does a B-tree on the column not help?',
+		a: 'GIN, through its array operator class (`<@`, `@>`, `=`, `&&`). A B-tree sorts whole arrays, so it cannot find 42 inside `{3,7,42}`.'
+	},
 	sources: [
 		{ title: 'PostgreSQL 18 docs, Index Types', url: 'https://www.postgresql.org/docs/18/indexes-types.html' },
 		{ title: 'PostgreSQL 18 docs, GIN Indexes', url: 'https://www.postgresql.org/docs/18/gin.html' },

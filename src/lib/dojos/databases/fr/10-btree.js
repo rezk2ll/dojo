@@ -11,14 +11,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'`SELECT * FROM users WHERE id = 424242` sur une table d’un million de lignes répond en une fraction de milliseconde. Sans index, la même requête lit les 7 300 pages de la table. Avec un index, elle en lit **quatre**.',
-		'Cet index est un **B-tree** : un arbre peu profond de pages de 8 Ko, où chaque page découpe l’intervalle des clés en quelques centaines d’intervalles plus petits. **Chaque niveau descendu divise la recherche par quelques centaines.** Avec une clé `bigint`, un million de lignes tiennent sur trois niveaux, cent millions sur quatre.',
-		'Le même arbre garde ses clés **triées**, et c’est pour ça qu’il sert aussi `BETWEEN`, `ORDER BY ... LIMIT` et `UNIQUE`. Et il a un prix : **chaque insert écrit aussi dans chaque index** de la table.'
+		'Cet index est un B-tree : un arbre peu profond de pages de 8 Ko, où chaque page découpe l’intervalle des clés en quelques centaines d’intervalles plus petits. **Chaque niveau descendu divise la recherche par quelques centaines.** Avec une clé `bigint`, un million de lignes tiennent sur trois niveaux, cent millions sur quatre.',
+		'Le même arbre garde ses clés triées, donc il sert aussi `BETWEEN`, `ORDER BY ... LIMIT` et `UNIQUE`. En échange, **chaque insert écrit aussi dans chaque index** de la table.'
 	],
 	terms: [
 		{ term: 'B-tree', def: 'Un arbre de pages équilibré. Tous les chemins de la racine à une feuille ont la même longueur, donc chaque recherche coûte le même nombre de lectures de pages.' },
 		{ term: 'Racine, interne, feuille', def: 'La racine est la page du haut. Les pages internes contiennent des clés de séparation et des liens vers le niveau du dessous. Les feuilles contiennent chaque clé avec le ctid de sa ligne.' },
 		{ term: 'Fan-out', def: 'Le nombre d’enfants vers lesquels pointe une page interne. Avec des clés petites, il se compte en centaines, ce qui garde l’arbre à quelques niveaux.' },
-		{ term: 'Liens entre voisines', def: 'Chaque page pointe vers sa voisine de gauche et de droite sur le même niveau. Un parcours d’intervalle suit les feuilles par ces liens.' },
 		{ term: 'Page split', def: 'Quand un insert ne tient pas dans une feuille, une partie de ses entrées part dans une nouvelle page et le parent reçoit une nouvelle clé de séparation. Les splits peuvent remonter jusqu’à la racine.' }
 	],
 	diagram: {
@@ -27,27 +26,27 @@ export default {
 			{
 				add: ['root["Page racine : 10 clés de séparation"]'],
 				highlight: ['root'],
-				note: '**Partir du haut.** Le vrai index sur `users(id)` avec un million de lignes a une page racine de 10 entrées. Chaque entrée dit « les clés d’ici à là sont sous ce lien ». Dans une page, PostgreSQL trouve la bonne entrée par recherche dichotomique.'
+				note: 'Le vrai index sur `users(id)` avec un million de lignes a une page racine de 10 entrées. Chaque entrée dit « les clés d’ici à là sont sous ce lien ». Dans une page, PostgreSQL trouve la bonne entrée par recherche dichotomique.'
 			},
 			{
 				add: ['root -->|"424242 est dans cet intervalle"| inner["Page interne : environ 270 séparateurs"]'],
 				highlight: ['inner'],
-				note: '**Un niveau plus bas, des intervalles plus étroits.** Il y a 10 pages internes, qui pointent chacune vers environ 270 feuilles. La recherche lit exactement une page par niveau. Tout le truc est là : **quelques lectures de pages, quelle que soit la taille de la table**.'
+				note: 'Un niveau plus bas, il y a 10 pages internes, qui pointent chacune vers environ 270 feuilles. La recherche lit exactement une page par niveau, donc **le nombre de pages d’index lues est égal au nombre de niveaux**, trois ici.'
 			},
 			{
 				add: ['inner --> leaf["Feuille : paires (clé, ctid) triées"]', 'leaf -->|"ctid (3119,58)"| heap[("Page 3119 du heap")]'],
 				highlight: ['leaf', 'heap'],
-				note: '**La feuille pointe vers la ligne.** La feuille contient `424242` à côté de son ctid, `(3119,58)` : page 3119 de la table, line pointer 58 (jour 9). Une lecture de plus va chercher cette page du heap. Racine, interne, feuille, heap : quatre pages sur plus de 7 000.'
+				note: 'La feuille contient `424242` à côté de son ctid, `(3119,58)` : page 3119 de la table, line pointer 58 (jour 9). Une lecture de plus va chercher cette page du heap. Racine, interne, feuille, heap : quatre pages sur plus de 7 000.'
 			},
 			{
 				add: ['leaf -->|"lien droit"| leaf2["Feuille suivante : les clés d’après"]'],
 				highlight: ['leaf2'],
-				note: '**Les intervalles et ORDER BY avancent de côté.** Les feuilles sont reliées à leurs voisines, dans l’ordre des clés. Pour `id BETWEEN 1000 AND 1100`, PostgreSQL descend une fois jusqu’à 1000, puis suit les liens vers la droite. Le README : le parcours « looks only at leaf pages and never at higher tree levels » (ne regarde que les feuilles, jamais les niveaux supérieurs). La sortie est déjà triée.'
+				note: 'Chaque page pointe vers sa voisine de gauche et de droite sur le même niveau, dans l’ordre des clés. Pour `id BETWEEN 1000 AND 1100`, PostgreSQL descend une fois jusqu’à 1000, puis suit les liens vers la droite. Le README : le parcours « looks only at leaf pages and never at higher tree levels » (ne regarde que les feuilles, jamais les niveaux supérieurs). Les lignes sortent dans l’ordre des clés, sans étape de tri.'
 			},
 			{
 				add: ['ins["INSERT dans une feuille pleine"] -->|"split : déplace des entrées vers une nouvelle page"| leaf', 'leaf -.->|"nouveau séparateur"| inner'],
 				highlight: ['ins'],
-				note: '**Les écritures paient.** Chaque insert ajoute une entrée dans chaque index de la table. Quand une feuille est pleine, elle se coupe en deux, et le parent reçoit un nouveau séparateur. La doc : « Page splits must also insert a new downlink to the new page in the parent page, which may cause the parent to split in turn. » (le parent peut devoir se couper à son tour). Un split de la racine ajoute un niveau.'
+				note: 'Chaque insert ajoute une entrée dans chaque index de la table. Quand une feuille est pleine, elle se coupe en deux, et le parent reçoit un nouveau séparateur. La doc : « Page splits must also insert a new downlink to the new page in the parent page, which may cause the parent to split in turn. » (le parent peut devoir se couper à son tour). Un split de la racine ajoute un niveau.'
 			}
 		]
 	},
@@ -105,10 +104,10 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 		/* okay, all set to move down a level */
 	}`,
 		notes: [
-			'**Une page par niveau.** Le commentaire de la boucle le dit : « Loop iterates once per level descended in the tree » (un tour par niveau descendu). Sur chaque page interne, [`_bt_binsrch`](' + SEARCH + '#L155-L159) cherche par dichotomie le pivot dont le lien couvre la clé, puis `_bt_relandgetbuf` lâche le verrou sur cette page et en prend un sur l’enfant. La boucle s’arrête à la première feuille.',
-			'**Les lecteurs ne verrouillent pas le chemin.** Avant d’utiliser une page, `_bt_moveright` gère une course : [le commentaire](' + SEARCH + '#L130-L133) prévient que la page « may have split since we read its downlink in its parent page » (a pu être coupée depuis qu’on a lu son lien dans le parent). Le [README](' + README + '#L17-L22) explique ce choix repris de Lehman et Yao : un lien droit et une « high key » sur chaque page permettent à une recherche de détecter un split concurrent et d’aller à droite, ce qui « allows the tree to be searched without holding any read locks (except to keep a single page from being modified while reading it) » (permet de parcourir l’arbre sans verrou de lecture, sauf pour la page en cours de lecture).',
-			'**Un intervalle ne remonte jamais.** Le [README](' + README + '#L70-L75) sur les parcours : « once we have descended the tree to the correct start point for the scan, the scan looks only at leaf pages and never at higher tree levels » (une fois au bon point de départ, le parcours ne regarde que les feuilles). Un lien gauche sur chaque page permet la même marche à l’envers, pour `ORDER BY id DESC`.',
-			'**Les clés croissantes coûtent peu.** Quand la feuille la plus à droite se coupe, [`nbtsplitloc.c`](' + SPLITLOC + '#L95-L99) laisse la page de gauche remplie à fillfactor% (90 par défaut pour les B-trees), donc « when we are inserting successively increasing keys (consider sequences, timestamps, etc) we will end up with a tree whose pages are about fillfactor% full, instead of the 50% full result » (avec des clés croissantes, les pages finissent remplies à fillfactor% au lieu de 50 %). Le [README](' + README + '#L494-L499) ajoute un raccourci qui garde en cache la feuille la plus à droite et évite la descente.'
+			'Ligne 13 : « Loop iterates once per level descended in the tree » (un tour par niveau descendu). Sur chaque page interne, ligne 38, [`_bt_binsrch`](' + SEARCH + '#L155-L159) cherche par dichotomie le pivot dont le lien couvre la clé. Ligne 45, `_bt_relandgetbuf` lâche le verrou sur cette page et en prend un sur l’enfant. Les lignes 31 et 32 arrêtent la boucle à la première feuille.',
+			'Les lecteurs ne verrouillent pas le chemin depuis la racine. Ligne 25, `_bt_moveright` gère une course : son commentaire prévient que la page « may have split since we read its downlink in its parent page » (a pu être coupée depuis qu’on a lu son lien dans le parent). Le [README](' + README + '#L17-L22) explique ce choix repris de Lehman et Yao : un lien droit et une « high key » sur chaque page permettent à une recherche de détecter un split concurrent et d’aller à droite, ce qui « allows the tree to be searched without holding any read locks (except to keep a single page from being modified while reading it) » (permet de parcourir l’arbre sans verrou de lecture, sauf pour la page en cours de lecture).',
+			'Un parcours d’intervalle ne remonte jamais. Le [README](' + README + '#L70-L75) sur les parcours : « once we have descended the tree to the correct start point for the scan, the scan looks only at leaf pages and never at higher tree levels » (une fois au bon point de départ, le parcours ne regarde que les feuilles). Un lien gauche sur chaque page permet la même marche à l’envers, pour `ORDER BY id DESC`.',
+			'Des clés croissantes remplissent bien les pages. Quand la feuille la plus à droite se coupe, [`nbtsplitloc.c`](' + SPLITLOC + '#L95-L99) laisse la page de gauche remplie à fillfactor% (90 par défaut pour les B-trees), donc « when we are inserting successively increasing keys (consider sequences, timestamps, etc) we will end up with a tree whose pages are about fillfactor% full, instead of the 50% full result » (avec des clés croissantes, les pages finissent remplies à fillfactor% au lieu de 50 %). Le README ajoute un raccourci qui garde en cache la feuille la plus à droite et évite la descente.'
 		]
 	},
 	tradeoff: {
@@ -166,11 +165,16 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 				'Seulement le WAL ; heap et index sont écrits au checkpoint'
 			],
 			answer: 2,
-			why: 'Chaque index doit pointer vers la nouvelle ligne, donc chacun reçoit une nouvelle entrée de feuille, et peut-être un split. Tous ces changements passent dans le WAL. Les index ne sont pas gratuits : supprime ceux qu’aucune requête n’utilise.'
+			why: 'Chaque index doit pointer vers la nouvelle ligne, donc chacun reçoit une nouvelle entrée de feuille, et peut-être un split. Tous ces changements passent dans le WAL. Avec six index, un insert fait six écritures de feuille : supprime les index qu’aucune requête n’utilise.'
 		}
 	],
-	takeaway: 'Un B-tree est un arbre de pages peu profond et trié : une recherche lit une page par niveau, un intervalle suit les feuilles reliées, et chaque écriture paie une entrée dans chaque index.',
+	recall: {
+		q: 'Combien de pages lit `WHERE id = 424242` sur une table `users` d’un million de lignes avec un B-tree sur `id`, et pourquoi si peu ?',
+		a: 'Quatre : la racine, une page interne, une feuille et la page du heap. Chaque niveau divise l’intervalle des clés par quelques centaines, donc un million de clés `bigint` tiennent sur trois niveaux.'
+	},
 	sources: [
+		{ title: 'PostgreSQL source, nbtsearch.c (_bt_moveright comment)', url: SEARCH + '#L130-L133' },
+		{ title: 'PostgreSQL source, nbtree README (rightmost leaf fast path)', url: README + '#L494-L499' },
 		{ title: 'PostgreSQL docs, B-Tree Indexes', url: 'https://www.postgresql.org/docs/current/btree.html' },
 		{ title: 'PostgreSQL docs, Index Types', url: 'https://www.postgresql.org/docs/current/indexes-types.html' },
 		{ title: 'PostgreSQL docs, Indexes and ORDER BY', url: 'https://www.postgresql.org/docs/current/indexes-ordering.html' },

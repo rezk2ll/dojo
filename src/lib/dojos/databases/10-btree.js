@@ -11,14 +11,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'`SELECT * FROM users WHERE id = 424242` on a table of a million rows answers in a fraction of a millisecond. Without an index, the same query reads all of the table\'s 7,300 pages. With one, it reads **four pages**.',
-		'That index is a **B-tree**: a shallow tree of 8 KB pages, where each page splits the key range into a few hundred smaller ranges. **Each level you go down divides the search by a few hundred.** With a `bigint` key, a million rows fit in three levels, a hundred million in four.',
-		'The same tree keeps its keys **sorted**, which is why it also serves `BETWEEN`, `ORDER BY ... LIMIT` and `UNIQUE`. And it has a price: **every insert also writes to every index** on the table.'
+		'That index is a B-tree: a shallow tree of 8 KB pages, where each page splits the key range into a few hundred smaller ranges. **Each level you go down divides the search by a few hundred.** With a `bigint` key, a million rows fit in three levels, a hundred million in four.',
+		'The same tree keeps its keys sorted, so it also serves `BETWEEN`, `ORDER BY ... LIMIT` and `UNIQUE`. In return, **every insert also writes to every index** on the table.'
 	],
 	terms: [
 		{ term: 'B-tree', def: 'A balanced tree of pages. Every path from the root to a leaf has the same length, so every lookup costs the same number of page reads.' },
 		{ term: 'Root, internal, leaf', def: 'The root is the top page. Internal pages hold separator keys and links to the level below. Leaf pages hold every key with the ctid of its row.' },
 		{ term: 'Fan-out', def: 'How many children one internal page points to. With small keys it is in the hundreds, which keeps the tree only a few levels deep.' },
-		{ term: 'Sibling links', def: 'Each page links to its left and right neighbor on the same level. A range scan walks the leaves along these links.' },
 		{ term: 'Page split', def: 'When an insert does not fit on a leaf, part of its entries move to a new page and the parent gets a new separator. Splits can climb up to the root.' }
 	],
 	diagram: {
@@ -27,27 +26,27 @@ export default {
 			{
 				add: ['root["Root page: 10 separator keys"]'],
 				highlight: ['root'],
-				note: '**Start at the top.** The real index on `users(id)` with a million rows has one root page with 10 entries. Each entry says "keys from here to here are below this link". Inside a page, PostgreSQL finds the right entry with a binary search.'
+				note: 'The real index on `users(id)` with a million rows has one root page with 10 entries. Each entry says "keys from here to here are below this link". Inside a page, PostgreSQL finds the right entry with a binary search.'
 			},
 			{
 				add: ['root -->|"424242 is in this range"| inner["Internal page: about 270 separators"]'],
 				highlight: ['inner'],
-				note: '**One level down, narrower ranges.** There are 10 internal pages, each pointing to about 270 leaves. The search reads exactly one page per level. This is the whole trick: **a few page reads, whatever the table size**.'
+				note: 'One level down, there are 10 internal pages, each pointing to about 270 leaves. The search reads exactly one page per level, so **the number of index pages read equals the number of levels**, three here.'
 			},
 			{
 				add: ['inner --> leaf["Leaf page: sorted (key, ctid) pairs"]', 'leaf -->|"ctid (3119,58)"| heap[("Heap page 3119")]'],
 				highlight: ['leaf', 'heap'],
-				note: '**The leaf points at the row.** The leaf holds `424242` next to its ctid, `(3119,58)`: page 3119 of the table, line pointer 58 (day 9). One more read fetches that heap page. Root, internal, leaf, heap: four pages out of more than 7,000.'
+				note: 'The leaf holds `424242` next to its ctid, `(3119,58)`: page 3119 of the table, line pointer 58 (day 9). One more read fetches that heap page. Root, internal, leaf, heap: four pages out of more than 7,000.'
 			},
 			{
 				add: ['leaf -->|"right-link"| leaf2["Next leaf: the following keys"]'],
 				highlight: ['leaf2'],
-				note: '**Ranges and ORDER BY walk sideways.** Leaves are linked to their neighbors, in key order. For `id BETWEEN 1000 AND 1100`, PostgreSQL goes down once to 1000, then follows the right-links. The README: the scan "looks only at leaf pages and never at higher tree levels". The output is already sorted.'
+				note: 'Each page links to its left and right neighbor on the same level, in key order. For `id BETWEEN 1000 AND 1100`, PostgreSQL goes down once to 1000, then follows the right-links. The README: the scan "looks only at leaf pages and never at higher tree levels". The rows come out in key order, with no sort step.'
 			},
 			{
 				add: ['ins["INSERT into a full leaf"] -->|"split: move entries to a new page"| leaf', 'leaf -.->|"new separator"| inner'],
 				highlight: ['ins'],
-				note: '**Writes pay.** Every insert adds an entry to every index on the table. When a leaf is full it splits, and the parent gets a new separator. The docs: "Page splits must also insert a new downlink to the new page in the parent page, which may cause the parent to split in turn." A root split adds a level.'
+				note: 'Every insert adds an entry to every index on the table. When a leaf is full it splits, and the parent gets a new separator. The docs: "Page splits must also insert a new downlink to the new page in the parent page, which may cause the parent to split in turn." A root split adds a level.'
 			}
 		]
 	},
@@ -105,10 +104,10 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 		/* okay, all set to move down a level */
 	}`,
 		notes: [
-			'**One page per level.** The loop comment says it: "Loop iterates once per level descended in the tree". On each internal page, [`_bt_binsrch`](' + SEARCH + '#L155-L159) binary searches for the pivot tuple whose downlink covers the key, then `_bt_relandgetbuf` drops the lock on this page and takes one on the child. The loop stops at the first leaf.',
-			'**Readers do not lock the path.** Before using a page, `_bt_moveright` handles a race: [the comment](' + SEARCH + '#L130-L133) warns the page "may have split since we read its downlink in its parent page". The [README](' + README + '#L17-L22) explains the design taken from Lehman and Yao: a right-link and a "high key" on each page let a search detect a concurrent split and move right, which "allows the tree to be searched without holding any read locks (except to keep a single page from being modified while reading it)".',
-			'**Ranges never climb back up.** The [README](' + README + '#L70-L75) on scans: "once we have descended the tree to the correct start point for the scan, the scan looks only at leaf pages and never at higher tree levels". A left-link on each page allows the same walk backwards, for `ORDER BY id DESC`.',
-			'**Increasing keys are cheap.** When the rightmost leaf splits, [`nbtsplitloc.c`](' + SPLITLOC + '#L95-L99) leaves the left page fillfactor% full (90 by default for B-trees), so "when we are inserting successively increasing keys (consider sequences, timestamps, etc) we will end up with a tree whose pages are about fillfactor% full, instead of the 50% full result". The [README](' + README + '#L494-L499) adds a fast path that caches the rightmost leaf and skips the descent.'
+			'Line 13: "Loop iterates once per level descended in the tree". On each internal page, line 38, [`_bt_binsrch`](' + SEARCH + '#L155-L159) binary searches for the pivot tuple whose downlink covers the key, then line 45, `_bt_relandgetbuf`, drops the lock on this page and takes one on the child. Lines 31 and 32 stop the loop at the first leaf.',
+			'Readers do not lock the path from the root. On line 25, `_bt_moveright` handles a race: its comment warns the page "may have split since we read its downlink in its parent page". The [README](' + README + '#L17-L22) explains the design taken from Lehman and Yao: a right-link and a "high key" on each page let a search detect a concurrent split and move right, which "allows the tree to be searched without holding any read locks (except to keep a single page from being modified while reading it)".',
+			'A range scan never climbs back up. The [README](' + README + '#L70-L75) on scans: "once we have descended the tree to the correct start point for the scan, the scan looks only at leaf pages and never at higher tree levels". A left-link on each page allows the same walk backwards, for `ORDER BY id DESC`.',
+			'Increasing keys fill pages well. When the rightmost leaf splits, [`nbtsplitloc.c`](' + SPLITLOC + '#L95-L99) leaves the left page fillfactor% full (90 by default for B-trees), so "when we are inserting successively increasing keys (consider sequences, timestamps, etc) we will end up with a tree whose pages are about fillfactor% full, instead of the 50% full result". The README adds a fast path that caches the rightmost leaf and skips the descent.'
 		]
 	},
 	tradeoff: {
@@ -166,11 +165,16 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 				'Only the WAL; heap and indexes are written at checkpoint'
 			],
 			answer: 2,
-			why: 'Every index must point at the new row, so each one gets a new leaf entry, and maybe a page split. All of those changes are logged in the WAL. Indexes are not free: remove the ones no query uses.'
+			why: 'Every index must point at the new row, so each one gets a new leaf entry, and maybe a page split. All of those changes are logged in the WAL. With six indexes, one insert makes six leaf writes, so drop the indexes no query uses.'
 		}
 	],
-	takeaway: 'A B-tree is a shallow, sorted tree of pages: a lookup reads one page per level, ranges walk the linked leaves, and every write pays an entry in every index.',
+	recall: {
+		q: 'How many pages does `WHERE id = 424242` read on a million-row `users` table with a B-tree on `id`, and why so few?',
+		a: 'Four: the root, one internal page, one leaf, and the heap page. Each level divides the key range by a few hundred, so a million `bigint` keys need only three levels.'
+	},
 	sources: [
+		{ title: 'PostgreSQL source, nbtsearch.c (_bt_moveright comment)', url: SEARCH + '#L130-L133' },
+		{ title: 'PostgreSQL source, nbtree README (rightmost leaf fast path)', url: README + '#L494-L499' },
 		{ title: 'PostgreSQL docs, B-Tree Indexes', url: 'https://www.postgresql.org/docs/current/btree.html' },
 		{ title: 'PostgreSQL docs, Index Types', url: 'https://www.postgresql.org/docs/current/indexes-types.html' },
 		{ title: 'PostgreSQL docs, Indexes and ORDER BY', url: 'https://www.postgresql.org/docs/current/indexes-ordering.html' },

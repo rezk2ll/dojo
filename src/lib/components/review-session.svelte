@@ -1,7 +1,7 @@
 <script>
 	import { fmt } from '#lib/text.js';
 	import { answer } from '#lib/progress.svelte.js';
-	import { answered } from '#lib/companion.svelte.js';
+	import { answered, companion, hintFor } from '#lib/companion.svelte.js';
 	import { questionById } from '#lib/content.js';
 	import { dojoById } from '#lib/dojos/index.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
@@ -23,6 +23,11 @@
 	let current = $derived(card && questionById(card.dojo, card.id, lang.current));
 	let q = $derived(current?.question);
 	let dojo = $derived(card && dojoById(card.dojo));
+
+	$effect(() => {
+		companion.hint = current && q && picked === undefined ? hintFor(current.chapter, q) : undefined;
+		return () => (companion.hint = undefined);
+	});
 
 	function pick(/** @type {number} */ option) {
 		if (picked !== undefined || !q) return;

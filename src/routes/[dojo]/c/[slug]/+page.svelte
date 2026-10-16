@@ -11,7 +11,7 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { focus, toggleFocus } from '#lib/focus.svelte.js';
-	import { answered, cue } from '#lib/companion.svelte.js';
+	import { answered, companion, cue, hintFor } from '#lib/companion.svelte.js';
 	import Cube from '#lib/components/cube.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
@@ -72,6 +72,9 @@
 	let minutesLeft = $derived(Math.max(1, Math.round(sections.slice(at).reduce((sum, s) => sum + seconds(s), 0) / 60)));
 
 	let current = $derived(sections[Math.min(at, sections.length - 1)]);
+	let asked = $derived(
+		current.id === 'warmup' ? prev && { from: prev, q: prev.quiz[0] } : current.quiz !== undefined ? { from: c, q: c.quiz[Number(current.id.slice(1))] } : undefined
+	);
 	let lastStep = $derived(c.diagram.steps.length - 1);
 	let unanswered = $derived(sections.filter((s) => s.id.startsWith('q') && picked[s.quiz ?? ''] === undefined));
 
@@ -162,6 +165,11 @@
 		markDone(dojo, c.slug);
 	});
 
+	$effect(() => {
+		companion.hint = asked && picked[current.quiz ?? ''] === undefined ? hintFor(asked.from, asked.q) : undefined;
+		return () => (companion.hint = undefined);
+	});
+
 	/** @param {number} i */
 	function go(i) {
 		at = i;
@@ -198,7 +206,7 @@
 		else if (e.key === 'c' && current.id === 'diagram') setView(view === 'cubes' ? 'flow' : 'cubes');
 		else if (e.key === 'f' || (e.key === 'Escape' && focus.on)) toggleFocus();
 		else if (/^[1-9]$/.test(e.key) && current.quiz !== undefined) {
-			const q = current.id === 'warmup' ? prev?.quiz[0] : c.quiz[Number(current.id.slice(1))];
+			const q = asked?.q;
 			const i = Number(e.key) - 1;
 			if (q && i < q.options.length) pick(current.quiz, q, i);
 		}

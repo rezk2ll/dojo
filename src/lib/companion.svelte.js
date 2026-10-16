@@ -17,8 +17,27 @@ export const companion = $state({
 	beat: 0,
 	combo: 0,
 	cue: /** @type {Cue | undefined} */ (undefined),
-	cueBeat: 0
+	cueBeat: 0,
+	/** Set by a page while a question waits for an answer. */
+	hint: /** @type {{ term: string, def: string } | undefined} */ (undefined)
 });
+
+// Three letters, so short terms like ADR or API still match.
+const WORD = /[\p{L}\p{N}]{3,}/gu;
+
+/**
+ * The chapter term the question leans on most, which nudges without giving the answer away.
+ * A term the right option spells out is never picked.
+ * @param {import('./content.js').Chapter} chapter @param {import('./content.js').Question} q
+ */
+export function hintFor(chapter, q) {
+	const asked = new Set(q.q.toLowerCase().match(WORD) ?? []);
+	const right = q.options[q.answer].toLowerCase();
+	const score = (/** @type {{ term: string }} */ t) => (t.term.toLowerCase().match(WORD) ?? []).filter((w) => asked.has(w)).length;
+	const fair = chapter.terms.filter((t) => !right.includes(t.term.toLowerCase()));
+	const best = fair.reduce((a, b) => (score(b) > score(a) ? b : a), fair[0]);
+	return best && score(best) > 0 ? best : undefined;
+}
 
 /** @param {Cue} name */
 export function cue(name) {

@@ -3,7 +3,7 @@
 	import { asset, resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { restore } from '#lib/progress.svelte.js';
+	import { progressOf, restore } from '#lib/progress.svelte.js';
 	import { dojos, dojoById } from '#lib/dojos/index.js';
 	import { theme, initTheme, toggleTheme } from '#lib/theme.svelte.js';
 	import { focus, initFocus } from '#lib/focus.svelte.js';
@@ -24,6 +24,8 @@
 	let dir = $derived(dojo ? `/${dojo.id}` : '');
 	let reading = $derived(focus.on && page.route.id === '/[dojo]/c/[slug]');
 	let mounted = $state(false);
+	// On the hub, a day counts if any dojo was practised.
+	let days = $derived(dojo ? progressOf(dojo.id).days : dojos.flatMap((d) => progressOf(d.id).days));
 
 	onMount(() => {
 		for (const d of dojos) restore(d.id);
@@ -76,5 +78,5 @@
 		{@render children()}
 	</main>
 
-	{#if mounted && companion.on && !reading}<Companion color={(dojo ?? dojos[1]).hex.right} />{/if}
+	{#if mounted && companion.on && !reading}<Companion color={(dojo ?? dojos[1]).hex.right} {days} />{/if}
 </div>

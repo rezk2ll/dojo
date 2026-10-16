@@ -34,6 +34,7 @@ const DODGE = 140;
 const TOUCH_STAYS = 2500;
 const SLEEP_AFTER = 120_000;
 const GROUND = -0.82;
+const NEEDS_YOU = 0xffb347;
 const FACE = 256;
 
 /**
@@ -74,6 +75,7 @@ export function createScene(canvas, { color, still, touch }) {
 	scene.add(ground);
 
 	const tint = new THREE.Color(color);
+	const amber = new THREE.Color(NEEDS_YOU);
 	const glowColor = () => tint.clone().lerp(new THREE.Color(0xffffff), 0.3);
 
 	// A dashed light ring on the ground: the cube hovers over it, and its spin shows the answer combo.
@@ -114,7 +116,7 @@ export function createScene(canvas, { color, still, touch }) {
 	screen.position.z = 0.502;
 	body.add(screen);
 
-	// A status light on top, the same color as the eyes.
+	// A status light on top, the same color as the eyes, amber when today's lesson is still waiting.
 	const led = new THREE.Mesh(new THREE.CircleGeometry(0.035, 24), new THREE.MeshBasicMaterial({ color: tint, toneMapped: false }));
 	led.rotation.x = -Math.PI / 2;
 	led.position.set(0.3, 0.502, 0.3);
@@ -151,6 +153,7 @@ export function createScene(canvas, { color, still, touch }) {
 	let read = { until: 0, dir: 0 };
 	let turns = 0;
 	let combo = 0;
+	let streak = { days: 0, needsYou: false };
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
 	let activeAt = performance.now();
@@ -217,9 +220,6 @@ export function createScene(canvas, { color, still, touch }) {
 	/** @param {string} next */
 	function setColor(next) {
 		tint.set(next);
-		ringMat.color.copy(tint);
-		halo.material.color.copy(tint);
-		led.material.color.copy(tint);
 	}
 
 	function aim(/** @type {number} */ now) {
@@ -252,7 +252,8 @@ export function createScene(canvas, { color, still, touch }) {
 		s.roll.to = 0;
 		s.happy.to = 0;
 		s.sad.to = 0;
-		s.glow.to = 1;
+		// Each day of the streak makes it glow a little brighter, up to ten days.
+		s.glow.to = 0.85 + Math.min(streak.days, 10) * 0.035;
 		s.focus.to = combo >= 3 ? 1 : 0;
 		s.spin.to = combo >= 3 ? 3.2 : 0.25;
 		if (cued?.name === 'glance' && c < 1.2) {
@@ -446,7 +447,16 @@ export function createScene(canvas, { color, still, touch }) {
 		ringMat.opacity = Math.min(1, (0.35 + 0.35 * near) * s.glow.x);
 		if (!still) ring.rotation.z += s.spin.x * dt;
 		halo.material.opacity = Math.min(1, (0.25 + 0.2 * near) * s.glow.x);
-		led.material.color.copy(tint).multiplyScalar(0.6 + 0.4 * Math.sin(now / 600) ** 2);
+		if (streak.needsYou) {
+			const pulse = Math.sin(now / 500) ** 2;
+			led.material.color.set(NEEDS_YOU).multiplyScalar(0.5 + 0.5 * pulse);
+			ringMat.color.copy(tint).lerp(amber, 0.4 + 0.6 * pulse);
+			halo.material.color.copy(ringMat.color);
+		} else {
+			led.material.color.copy(tint).multiplyScalar(0.6 + 0.4 * Math.sin(now / 600) ** 2);
+			ringMat.color.copy(tint);
+			halo.material.color.copy(tint);
+		}
 		drawFace(now);
 		renderer.render(scene, camera);
 	}
@@ -476,6 +486,10 @@ export function createScene(canvas, { color, still, touch }) {
 		/** @param {number} n Right answers in a row. */
 		setCombo(n) {
 			combo = n;
+		},
+		/** @param {{ days: number, needsYou: boolean }} next */
+		setStreak(next) {
+			streak = next;
 		},
 		react,
 		setColor,

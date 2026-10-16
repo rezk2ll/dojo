@@ -10,17 +10,15 @@ export default {
 	title: 'N+1 and the ORM',
 	minutes: 10,
 	hook: [
-		'The orders page is instant on your laptop, with five test orders. In production, with fifty orders on the page, it takes two seconds. The log shows **the same `SELECT` fifty times**, each with a different id.',
-		'The culprit is one innocent line in the template: `order.customer.name`. It looks like reading a field. With a lazy ORM, **it is a query**, run the first time each order touches its customer.',
-		'One query for the list, plus one per row: **N+1**. Each query is fast. Fifty round trips are not. The fix is to tell the ORM up front what you will touch, so it loads it in **one join or one extra query**. Rails and Django both give you both ways, and each has its own cost.'
+		'The orders page loads at once on your laptop, with five test orders. In production, with fifty orders on the page, it takes two seconds. The log shows **the same `SELECT` fifty times**, each with a different id.',
+		'The queries come from one line in the template: `order.customer.name`. It looks like reading a field. With a lazy ORM, it runs a query the first time each order reads its customer.',
+		'One query for the list plus one per row is called **N+1**. Each query is fast, but the page waits for fifty of them in a row. The fix is to tell the ORM before the query which associations you will read, so it loads them in one join or one extra query. Rails and Django offer both, and each has its own cost.'
 	],
 	terms: [
 		{ term: 'N+1 queries', def: 'One query loads N parent rows, then the code runs one more query per row to load a related object. N+1 queries where 1 or 2 would do.' },
-		{ term: 'Lazy loading', def: 'The ORM loads an association only when the code first reads it. The default in Rails and Django. Fine for one record, a trap in a loop.' },
-		{ term: 'Eager loading', def: 'Telling the ORM, before the query runs, which associations you will need, so it loads them for every row at once.' },
+		{ term: 'Lazy loading', def: 'The ORM loads an association only when the code first reads it. Rails and Django do this by default. In a loop over N rows, it runs N queries.' },
 		{ term: 'Preload (separate query)', def: 'A second query, `WHERE id IN (...)` with the ids from the first one, then matching in memory. Rails `preload`, Django `prefetch_related`.' },
-		{ term: 'Join-based eager load', def: 'One query with a `LEFT OUTER JOIN` that brings the related columns along. Rails `eager_load`, Django `select_related`.' },
-		{ term: 'Strict loading', def: 'A mode where a lazy load raises an error instead of running a query. Rails `strict_loading`, Django `FETCH_RAISE`.' }
+		{ term: 'Join-based eager load', def: 'One query with a `LEFT OUTER JOIN` that brings the related columns along. Rails `eager_load`, Django `select_related`.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['list["Book.limit(10)"] -->|"1 query"| db[("PostgreSQL")]'],
 				highlight: ['list', 'db'],
-				note: '**The list.** The Rails guide\'s example loads 10 books in one query. So far, so good: one round trip, ten rows.'
+				note: 'The Rails guide\'s example loads 10 books in one query: one round trip, ten rows.'
 			},
 			{
 				add: ['loop["Loop: book.author.last_name"] -->|"10 queries, WHERE id = ?"| db'],
 				highlight: ['loop'],
-				note: '**The N.** Each `book.author` is a lazy load, so each one is its own query. The guide counts it: 1 + 10 = **11 queries**. With 1,000 books it is 1,001, and nothing in the code looks wrong.'
+				note: 'Each `book.author` is a lazy load, so each one runs its own query. The guide counts **1 + 10 = 11 queries**. With 1,000 books it is 1,001, and nothing in the code looks wrong.'
 			},
 			{
 				add: ['pre["Book.includes(:author)"] -->|"2 queries, WHERE id IN (...)"| db'],
 				highlight: ['pre'],
-				note: '**Preload.** With `includes` and no condition on authors, Rails runs the books query, then one `SELECT authors.* ... WHERE authors.id IN (1,2,...,10)`. Two queries, whatever N is. This is what Django\'s `prefetch_related` does too.'
+				note: 'With `includes` and no condition on authors, Rails preloads. It runs the books query, then one `SELECT authors.* ... WHERE authors.id IN (1,2,...,10)`, so 2 queries whatever N is. Django\'s `prefetch_related` does the same.'
 			},
 			{
 				add: ['ej["includes + where(authors: ...)"] -->|"1 query, LEFT OUTER JOIN"| db'],
 				highlight: ['ej'],
-				note: '**Join.** Add a condition on the authors table and `includes` switches to one `LEFT OUTER JOIN`, because the filter needs both tables in one query. Django\'s `select_related` always joins, and only follows foreign keys and one-to-one relations.'
+				note: 'Add a condition on the authors table and `includes` switches to one `LEFT OUTER JOIN`, because the filter needs both tables in one query. Django\'s `select_related` always joins, and only follows foreign keys and one-to-one relations.'
 			},
 			{
 				add: ['strict["strict_loading"] -.->|"lazy load raises"| loop'],
 				highlight: ['strict'],
-				note: '**Make it loud.** In strict loading mode, the lazy load in the loop raises `ActiveRecord::StrictLoadingViolationError` instead of running a query. The N+1 shows up in a test, not in production.'
+				note: 'In strict loading mode, a lazy load raises an error instead of running a query. The loop raises `ActiveRecord::StrictLoadingViolationError`, so a test that renders the page fails before the N+1 reaches production.'
 			}
 		]
 	},
@@ -105,23 +103,23 @@ export default {
         end
       end`,
 		notes: [
-			'**One switch decides.** `eager_loading?` is true if you called `eager_load`, or if you called `includes` and the query also joins that association or references a table it does not join. Then `exec_main_query` builds one joined query, logged as `"Book Eager Load"`. Otherwise it runs the plain query and the associations wait for `preload_associations`.',
-			'**The second query is an IN list.** `preload_associations` adds `includes_values` to the preload list unless the relation eager loads. The preloader then runs [`scope.where(destination_key_name => keys)`](' + RAILS + '/activerecord/lib/active_record/associations/preloader/association.rb#L42-L58): one query for all the ids it collected, which Rails turns into `WHERE ... IN (...)`.',
-			'**Why not always join.** The [doc comment on `includes`](' + QM + '#L190-L209) says it: "a join can result in many rows that contain redundant data and it performs poorly at scale". Join books to authors and each author\'s columns repeat on every book row. Join a `has_many` and the parent rows multiply (day 4).',
-			'**Django draws the same line.** Its [docs](' + QS + '#L1189-L1205) say `select_related` "is limited to single-valued relationships", while `prefetch_related` "does a separate lookup for each relationship, and does the \'joining\' in Python". They also [warn](' + QS + '#L1367-L1371) that a large queryset can make "a large \'IN\' clause".',
-			'**Catch it, do not hunt it.** Rails [`strict_loading`](' + QM + '#L1392-L1400) makes a relation "raise an error if the record tries to lazily load an association". Django 6.1 adds [fetch modes](' + DJANGO + '/docs/topics/db/fetch-modes.txt#L84-L119): `FETCH_PEERS` loads a missing field for the whole batch, so most N+1 cases become "two queries without much effort", and `FETCH_RAISE` raises instead.'
+			'Lines 2 to 6: `eager_loading?` is true if you called `eager_load`, or if you called `includes` and the query also joins that association or references a table it does not join. Lines 29 to 37 then build one joined query, logged as `"Book Eager Load"`. Otherwise line 43 runs the plain query, and the associations wait for `preload_associations`.',
+			'Line 10 adds `includes_values` to the preload list unless the relation eager loads. The preloader then runs [`scope.where(destination_key_name => keys)`](' + RAILS + '/activerecord/lib/active_record/associations/preloader/association.rb#L42-L58): one query for all the ids it collected, sent as `WHERE ... IN (...)`.',
+			'The [doc comment on `includes`](' + QM + '#L190-L209) says why Rails does not always join: "a join can result in many rows that contain redundant data and it performs poorly at scale". Join books to authors and each author\'s columns repeat on every book row. Join a `has_many` and the parent rows multiply (day 4).',
+			'Django splits the two methods the same way. Its [docs](' + QS + '#L1189-L1205) say `select_related` "is limited to single-valued relationships", while `prefetch_related` "does a separate lookup for each relationship, and does the \'joining\' in Python". They also warn that a large queryset can make "a large \'IN\' clause".',
+			'Rails [`strict_loading`](' + QM + '#L1392-L1400) makes a relation "raise an error if the record tries to lazily load an association". Django 6.1 adds fetch modes. `FETCH_PEERS` loads a missing field for the whole batch, so most N+1 cases take "two queries without much effort". `FETCH_RAISE` raises an error instead.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'The page runs 2 or 3 queries whatever the number of rows, instead of one per row. The cost stops growing with N.',
+			'The page runs 2 or 3 queries whatever the number of rows, instead of one per row.',
 			'You choose the shape: a join when you filter on the related table, a separate `IN` query when a join would repeat or multiply rows.',
-			'Strict loading turns a slow page you find in production into an error you find in a test.'
+			'With strict loading, a lazy load raises an error in a test instead of slowing a page in production.'
 		],
 		cost: [
-			'You must know, in the controller, what the template will touch. Change the template, and the eager load list goes stale in either direction.',
-			'Eager loading something you never read still runs the query and builds the objects. Over-eager is waste too.',
-			'A join over a "many" relation repeats the parent columns on every child row, and conditions on it filter the loaded children too: Rails warns that `includes(:posts).where(posts: { name: ... })` loads only the matching posts.',
+			'The controller must list what the template will read. When the template changes, the list can miss a new association or still load one the template no longer reads.',
+			'Eager loading an association you never read still runs the query and builds the objects.',
+			'A join over a "many" relation repeats the parent columns on every child row. A condition on that relation also filters the loaded children: Rails warns that `includes(:posts).where(posts: { name: ... })` loads only the matching posts.',
 			'A preload over thousands of parents sends thousands of ids in one `IN` list, which has a cost of its own.'
 		]
 	},
@@ -145,7 +143,7 @@ export default {
 				'Two: the authors matching the condition first, then their books with IN'
 			],
 			answer: 0,
-			why: 'A hash condition on the included table references it, so `eager_loading?` becomes true and `includes` builds one joined query. Without the condition, the same `includes` would preload in two queries.'
+			why: 'A hash condition on the included table references it, so `eager_loading?` returns true and `includes` builds one joined query. Without the condition, the same `includes` would preload in two queries.'
 		},
 		{
 			q: 'In Django, a page shows each pizza with its list of toppings (a many-to-many). Which call removes the N+1?',
@@ -170,11 +168,16 @@ export default {
 			why: 'In `:n_plus_one_only` mode, loading one association from one record is allowed. The Rails guide shows the error on `user.comments.first.likes.to_a`, the access that would repeat for every comment in a loop.'
 		}
 	],
-	takeaway: 'A lazy association read in a loop is a query per row: say up front what you will touch, join single-valued relations, preload "many" ones, and turn on strict loading so the next N+1 fails a test.',
+	recall: {
+		q: 'A loop over 50 orders reads `order.customer.name`. How many queries run, and which Rails and Django calls bring it down?',
+		a: '51: one for the list, then one lazy load per order. A join (`eager_load`, `select_related`) runs 1 query, and a preload (`preload`, `prefetch_related`) runs 2, with the customer ids in one `IN` list.'
+	},
 	sources: [
 		{ title: 'Rails Guides, Active Record Query Interface: Eager Loading Associations', url: 'https://guides.rubyonrails.org/active_record_querying.html#eager-loading-associations' },
 		{ title: 'Django docs, QuerySet API reference: prefetch_related()', url: 'https://docs.djangoproject.com/en/stable/ref/models/querysets/#prefetch-related' },
 		{ title: 'Django docs, Fetch modes', url: 'https://docs.djangoproject.com/en/dev/topics/db/fetch-modes/' },
+		{ title: 'Django source, querysets.txt: large IN clauses from prefetch_related', url: `${QS}#L1367-L1371` },
+		{ title: 'Django source, fetch-modes.txt', url: `${DJANGO}/docs/topics/db/fetch-modes.txt#L84-L119` },
 		{ title: 'Rails source, ActiveRecord::Relation', url: `${RAILS}/activerecord/lib/active_record/relation.rb` }
 	]
 };

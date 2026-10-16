@@ -9,17 +9,15 @@ export default {
 	title: 'Trouver les requêtes lentes',
 	minutes: 10,
 	hook: [
-		'Le tableau de bord dit que la base est à 90 % de CPU. Chaque page est un peu plus lente, et aucune n’est cassée. **Quelle requête est en cause ?** Le log des requêtes lentes montre un rapport de 8 secondes. Ce n’est pas lui le coupable.',
-		'Le coupable prend **3 millisecondes** et tourne 40 000 fois par minute : deux minutes de temps de base chaque minute. Aucun log de requêtes lentes ne l’attrape, parce qu’aucune exécution n’est lente. **Seule une somme le montre.**',
-		'Au programme : `pg_stat_statements`, qui additionne chaque requête par forme ; `log_min_duration_statement` et `auto_explain`, qui attrapent les exécutions lentes isolées et leur plan ; et ce qu’il faut regarder en premier.'
+		'Le tableau de bord dit que la base est à 90 % de CPU. Chaque page est un peu plus lente, et aucune n’est cassée. **Quelle requête est en cause ?** Le log des requêtes lentes montre un rapport de 8 secondes, et ce rapport n’est pas ce qui remplit le CPU.',
+		'Le coupable prend **3 millisecondes** et tourne 40 000 fois par minute : deux minutes de temps de base chaque minute. Aucun log de requêtes lentes ne l’attrape, parce qu’aucune exécution n’est lente. Tu ne le vois qu’en additionnant le temps de toutes ses exécutions.',
+		'`pg_stat_statements` additionne chaque requête par forme. `log_min_duration_statement` et `auto_explain` attrapent les exécutions lentes isolées et leur plan.'
 	],
 	terms: [
 		{ term: 'pg_stat_statements', def: 'Un module livré avec PostgreSQL qui compte les appels, le temps, les lignes et les blocs de chaque instruction exécutée par le serveur, et montre les totaux dans une vue.' },
 		{ term: 'Normalisation', def: 'Les constantes d’une requête sont remplacées par `$1`, `$2` : `id = 42` et `id = 43` partagent une ligne, repérée par un hash `queryid`.' },
 		{ term: 'total_exec_time', def: 'La somme du temps d’exécution sur tous les appels. Trie dessus pour voir où le serveur passe son temps ; `mean_exec_time` seul cache les requêtes rapides lancées souvent.' },
-		{ term: 'log_min_duration_statement', def: 'Écrit dans le log chaque instruction qui a duré au moins ce temps, avec sa durée et son texte. `-1`, la valeur par défaut, n’écrit rien.' },
-		{ term: 'auto_explain', def: 'Un module qui écrit dans le log le plan des instructions lentes : tu vois pourquoi une exécution a été lente sans lancer EXPLAIN à la main.' },
-		{ term: 'Blocs trouvés et lus', def: '`shared_blks_hit` compte les pages trouvées dans les shared buffers, `shared_blks_read` celles demandées au système. Beaucoup de lectures par appel font penser à un index manquant ou à un cache froid.' }
+		{ term: 'log_min_duration_statement', def: 'Écrit dans le log chaque instruction qui a duré au moins ce temps, avec sa durée et son texte. `-1`, la valeur par défaut, n’écrit rien.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['q1["SELECT * FROM orders WHERE id = 42"] --> norm["Forme : WHERE id = $1"]', 'q2["SELECT * FROM orders WHERE id = 43"] --> norm'],
 				highlight: ['norm'],
-				note: '**Regrouper par forme.** Les constantes sont remplacées par un symbole de paramètre, donc les deux exécutions ont le même `queryid`. La vue contient « one row for each distinct combination of database ID, user ID, query ID » (une ligne par base, utilisateur et query ID), et par niveau principal ou non.'
+				note: 'Les constantes sont remplacées par un symbole de paramètre, donc les deux exécutions ont le même `queryid`. La vue contient « one row for each distinct combination of database ID, user ID, query ID » (une ligne par base, utilisateur et query ID), et par niveau principal ou non.'
 			},
 			{
 				add: ['norm -->|"après chaque exécution : appels, temps, lignes, blocs"| pgss[("pg_stat_statements")]'],
 				highlight: ['pgss'],
-				note: '**Additionner chaque exécution.** Quand une instruction se termine, ses compteurs grossissent : un appel de plus, son temps ajouté au total, le min, le max, la moyenne et l’écart type mis à jour, ses lignes et ses blocs ajoutés. Rien n’est gardé par exécution, seulement des sommes.'
+				note: 'Quand une instruction se termine, ses compteurs grossissent : un appel de plus, son temps ajouté au total, le min, le max, la moyenne et l’écart type mis à jour, ses lignes et ses blocs ajoutés. Le module ne garde aucune trace des exécutions isolées, seulement ces sommes.'
 			},
 			{
 				add: ['top["ORDER BY total_exec_time DESC LIMIT 10"] -->|"lit"| pgss'],
 				highlight: ['top'],
-				note: '**Regarder le total d’abord.** L’exemple de la doc elle-même trie par `total_exec_time`. Ça place la requête de 3 ms à 40 000 appels par minute au-dessus du rapport de 8 secondes lancé une fois par nuit. Ensuite, lis `calls`, `mean_exec_time` et `rows` pour savoir de quel genre de problème il s’agit.'
+				note: 'L’exemple de la doc elle-même trie par `total_exec_time`. Ça place la requête de 3 ms à 40 000 appels par minute au-dessus du rapport de 8 secondes lancé une fois par nuit. Ensuite, lis `calls`, `mean_exec_time` et `rows` pour savoir de quel genre de problème il s’agit.'
 			},
 			{
 				add: ['slow["Une exécution de 900 ms"] -->|"log_min_duration_statement = 250ms"| log["Log du serveur"]'],
 				highlight: ['slow', 'log'],
-				note: '**Attraper la mauvaise exécution.** Une somme ne peut pas te dire qu’un appel a pris 900 ms avec ces paramètres-là. Avec `log_min_duration_statement` à 250ms, « all SQL statements that run 250ms or longer will be logged » (chaque instruction de 250 ms ou plus est écrite dans le log), avec sa durée.'
+				note: 'Une somme ne peut pas te dire qu’un appel a pris 900 ms avec ces paramètres-là. Avec `log_min_duration_statement` à 250ms, « all SQL statements that run 250ms or longer will be logged » (chaque instruction de 250 ms ou plus est écrite dans le log), avec sa durée.'
 			},
 			{
 				add: ['ae["auto_explain, log_min_duration = 250ms"] -->|"le plan de cette exécution"| log'],
 				highlight: ['ae'],
-				note: '**Et son plan.** `auto_explain` écrit le plan de chaque instruction au-delà de son seuil, la même sortie qu’EXPLAIN (jour 12). Le plan au moment où elle était lente diffère souvent de celui que tu obtiens plus tard dans `psql`.'
+				note: '`auto_explain` est un module qui écrit dans le log le plan de chaque instruction au-delà de son seuil, la même sortie qu’EXPLAIN (jour 12). Le plan au moment où elle était lente diffère souvent de celui que tu obtiens plus tard dans `psql`.'
 			}
 		]
 	},
@@ -113,22 +111,22 @@ export default {
 		entry->counters.shared_blks_dirtied += bufusage->shared_blks_dirtied;
 		entry->counters.shared_blks_written += bufusage->shared_blks_written;`,
 		notes: [
-			'**Une entrée par forme, par rôle, par base.** La clé de hash est `userid`, `dbid`, `queryid` et `toplevel`. La même requête lancée par deux rôles donne deux lignes. Sans query ID, [`pgss_store` repart](' + PGSS + '#L1291-L1296) sans rien enregistrer ; `compute_query_id = auto`, la valeur par défaut, l’active dès que le module est chargé.',
-			'**Le texte est normalisé une fois.** Pour une nouvelle entrée, [`generate_normalized_query`](' + PGSS + '#L1335-L1346) remplace les constantes par `$1`, `$2`, et le texte est ajouté à un fichier plutôt que gardé en mémoire partagée. La doc : le reste du texte « is that of the first query that had the particular queryid hash value » (est celui de la première requête arrivée avec ce queryid).',
-			'**Moyenne et dispersion sans historique.** Chaque appel s’ajoute à `calls` et `total_time` et déplace la moyenne avec la méthode de Welford : `stddev_exec_time` ne coûte rien de plus. Une grande dispersion veut dire « rapide d’habitude, affreux parfois » : un plan qui bascule, ou une attente de verrou (jour 20).',
-			'**Les blocs montrent où le temps est passé.** La même mise à jour ajoute `shared_blks_hit` et `shared_blks_read`. La requête d’exemple de la doc en tire un `hit_percent`. La colonne `shared_blk_read_time` reste à zéro tant que `track_io_timing` n’est pas activé.',
-			'**auto_explain décide tôt, et le paie.** [`explain_ExecutorStart`](' + AE + '#L347-L365) active les minuteurs **avant** que l’instruction tourne, puisqu’il ne peut pas encore savoir si elle sera lente. Seul [`explain_ExecutorEnd`](' + AE + '#L434-L436) compare la durée au seuil. D’où l’avertissement de la doc : `log_analyze` « can have an extremely negative impact on performance » (peut plomber sérieusement les performances).'
+			'Lignes 4 à 7 : la clé de hash est `userid`, `dbid`, `queryid` et `toplevel`. La même requête lancée par deux rôles donne deux lignes. Sans query ID, [`pgss_store` repart](' + PGSS + '#L1291-L1296) sans rien enregistrer ; `compute_query_id = auto`, la valeur par défaut, l’active dès que le module est chargé.',
+			'Pour une nouvelle entrée, [`generate_normalized_query`](' + PGSS + '#L1335-L1346) remplace les constantes par `$1`, `$2`, et le texte est ajouté à un fichier plutôt que gardé en mémoire partagée. La doc : le reste du texte « is that of the first query that had the particular queryid hash value » (est celui de la première requête arrivée avec ce queryid).',
+			'Lignes 29 à 48 : chaque appel s’ajoute à `calls` et `total_time` et déplace la moyenne avec la méthode de Welford : `stddev_exec_time` ne coûte rien de plus. Une grande dispersion veut dire que la plupart des appels sont rapides et quelques-uns très lents : un plan qui bascule, ou une attente de verrou (jour 20).',
+			'Lignes 52 à 54 : la même mise à jour ajoute `shared_blks_hit`, les pages trouvées dans les shared buffers, et `shared_blks_read`, celles demandées au système. Beaucoup de lectures par appel font penser à un index manquant ou à un cache froid. La requête d’exemple de la doc en tire un `hit_percent`. La colonne `shared_blk_read_time` reste à zéro tant que `track_io_timing` n’est pas activé.',
+			'Dans auto_explain, [`explain_ExecutorStart`](' + AE + '#L347-L365) active les minuteurs **avant** que l’instruction tourne, puisqu’il ne peut pas encore savoir si elle sera lente. Seul `explain_ExecutorEnd` (dans les sources) compare la durée au seuil. La doc prévient donc que `log_analyze` « can have an extremely negative impact on performance » (peut plomber sérieusement les performances).'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Les sommes montrent où part vraiment le temps, y compris les requêtes rapides lancées des millions de fois qui n’atteignent jamais le log des lentes.',
 			'La normalisation replie des milliers de textes de requêtes en une courte liste de formes qui tient sur un écran.',
-			'Le log des lentes et auto_explain gardent la rare mauvaise exécution avec son texte et son plan : tu vois pourquoi elle a été lente, pas seulement qu’elle l’a été.'
+			'Le log des lentes et auto_explain gardent la rare mauvaise exécution avec son texte et son plan : tu vois pourquoi elle a été lente.'
 		],
 		cost: [
 			'Le module va dans `shared_preload_libraries`, et « a server restart is needed to add or remove the module » (il faut redémarrer le serveur pour l’ajouter ou l’enlever).',
-			'Les compteurs sont des totaux depuis la dernière remise à zéro. Une requête corrigée la semaine dernière reste en tête tant que tu n’appelles pas `pg_stat_statements_reset()` ou que tu ne compares pas deux relevés.',
+			'Les compteurs s’additionnent depuis la dernière remise à zéro : une requête corrigée la semaine dernière reste en tête tant que tu n’appelles pas `pg_stat_statements_reset()` ou que tu ne compares pas deux relevés.',
 			'`pg_stat_statements.max` plafonne les entrées (5000 par défaut) ; au-delà, « information about the least-executed statements is discarded » (les instructions les moins lancées sont oubliées).',
 			'`auto_explain.log_analyze` chronomètre chaque nœud de plan de chaque instruction, et un seuil bas peut remplir le disque des logs.'
 		]
@@ -139,7 +137,7 @@ export default {
 		answer: [
 			'Par total : A, puis B, puis C. C est la vedette du log des lentes, mais il pèse environ 6 % du temps des trois.',
 			'A est rapide à chaque fois ; c’est le nombre qui pose problème. Trouve où l’appli l’appelle en boucle, un produit par ligne, et charge-les en une requête : `WHERE id = ANY($1)`. Vérifie que `rows / calls` vaut 1 et que le hit percent est élevé : ce n’est pas un problème d’index.',
-			'B est rapide d’habitude mais prend parfois des secondes : moyenne 1,8 ms, écart type 40 ms. Ça sent l’attente, pas le travail. Pendant un pic, regarde `pg_stat_activity` pour `wait_event_type = \'Lock\'` : deux requêtes qui modifient la même ligne de panier (jour 20). Un nouvel index n’y changera rien.',
+			'B est rapide d’habitude mais prend parfois des secondes : moyenne 1,8 ms, écart type 40 ms. Ce profil indique une attente, pas un calcul lent. Pendant un pic, regarde `pg_stat_activity` pour `wait_event_type = \'Lock\'` : deux requêtes qui modifient la même ligne de panier (jour 20). Un nouvel index n’y changera rien.',
 			'C tourne 30 fois. Déplace-le sur un réplica (jour 28) ou dans une vue matérialisée rafraîchie la nuit (jour 8), et règle `log_min_duration_statement` avec `auto_explain` pour garder son plan s’il se dégrade.',
 			'Après chaque correction, `SELECT pg_stat_statements_reset();` (ou garde un relevé) pour que la lecture suivante montre le nouvel état, pas celui de la semaine dernière.'
 		]
@@ -179,11 +177,15 @@ export default {
 			why: 'La doc : « per-plan-node timing occurs for all statements executed, whether or not they run long enough to actually get logged. » Le code active les minuteurs dans `ExecutorStart` et vérifie la durée dans `ExecutorEnd`. Désactiver `auto_explain.log_timing` réduit ce coût.'
 		}
 	],
-	takeaway: 'Trie `pg_stat_statements` par temps total pour trouver ce qui coûte le plus, puis sers-toi du log des lentes et d’`auto_explain` pour voir pourquoi une exécution a été lente.',
+	recall: {
+		q: 'Une requête de 3 ms tourne 40 000 fois par minute. Où la vois-tu, et pourquoi `log_min_duration_statement = 250ms` ne l’écrit-il jamais ?',
+		a: 'Dans `pg_stat_statements` trié par `total_exec_time` : 40 000 × 3 ms font deux minutes de temps de base par minute. `log_min_duration_statement` regarde une exécution à la fois, et aucune n’atteint 250 ms.'
+	},
 	sources: [
 		{ title: 'Doc PostgreSQL, pg_stat_statements', url: 'https://www.postgresql.org/docs/current/pgstatstatements.html' },
 		{ title: 'Doc PostgreSQL, auto_explain', url: 'https://www.postgresql.org/docs/current/auto-explain.html' },
 		{ title: 'Doc PostgreSQL, log_min_duration_statement', url: 'https://www.postgresql.org/docs/current/runtime-config-logging.html#GUC-LOG-MIN-DURATION-STATEMENT' },
-		{ title: 'Source PostgreSQL, contrib/pg_stat_statements/pg_stat_statements.c', url: PGSS }
+		{ title: 'Source PostgreSQL, contrib/pg_stat_statements/pg_stat_statements.c', url: PGSS },
+		{ title: 'Source PostgreSQL, auto_explain.c, explain_ExecutorEnd', url: `${AE}#L434-L436` }
 	]
 };

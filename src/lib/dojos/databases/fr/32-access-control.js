@@ -11,17 +11,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Un ticket au support : un client a ouvert une page de facture et a vu **la facture d’une autre entreprise**. Une nouvelle requête, dans un seul contrôleur, a oublié `WHERE tenant_id = ?`. Toutes les autres l’avaient. La revue de code ne l’a pas vu.',
-		'Puis l’audit : l’application se connecte en `postgres`, le superutilisateur. Une seule injection SQL pourrait lire toutes les tables, ou les supprimer. **La base fait entièrement confiance à l’application**, donc un bug dans l’application est un bug partout.',
-		'PostgreSQL a deux gardes pour ça. **Les rôles et GRANT** décident quelles tables une connexion a le droit de toucher. **La sécurité au niveau des lignes** (RLS) décide quelles lignes de ces tables elle voit, en ajoutant le filtre dans la base, à chaque requête, y compris celle que quelqu’un a oubliée.'
+		'Puis l’audit : l’application se connecte en `postgres`, le superutilisateur. Une seule injection SQL, dans n’importe quelle requête, pourrait lire toutes les tables, ou les supprimer.',
+		'PostgreSQL contrôle l’accès à deux niveaux. Les rôles et `GRANT` décident quelles tables une connexion a le droit de toucher. **La sécurité au niveau des lignes** (RLS) décide quelles lignes de ces tables elle voit : la base ajoute le filtre à chaque requête, y compris celle qui l’a oublié.'
 	],
 	terms: [
 		{ term: 'Rôle', def: 'Une identité dans la base. Il peut se connecter (un utilisateur), ou porter des droits pour d’autres (un groupe). Un rôle peut être membre d’autres rôles.' },
-		{ term: 'GRANT / REVOKE', def: 'Donner ou retirer un droit sur un objet : `SELECT` sur une table, `UPDATE` sur une colonne, `EXECUTE` sur une fonction, `USAGE` sur un schéma.' },
-		{ term: 'PUBLIC', def: 'Un pseudo-rôle qui veut dire « tous les rôles ». Certains objets lui donnent des droits par défaut : `EXECUTE` sur les nouvelles fonctions, `CONNECT` sur les bases.' },
 		{ term: 'Row-level security (RLS)', def: 'Des policies par table qui filtrent les lignes qu’une requête peut lire ou écrire. S’active avec `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.' },
 		{ term: 'USING / WITH CHECK', def: '`USING` filtre les lignes existantes qu’une commande voit. `WITH CHECK` teste les nouvelles lignes qu’elle essaie d’écrire. Un check raté annule la commande.' },
-		{ term: 'Contournement', def: 'Les superutilisateurs et les rôles avec `BYPASSRLS` ignorent toutes les policies. Le propriétaire de la table aussi, sauf si la table a `FORCE ROW LEVEL SECURITY`.' },
-		{ term: 'Security definer', def: 'Une fonction qui tourne avec les droits de son propriétaire, pas ceux de l’appelant. C’est ainsi qu’une policy peut lire une table que l’appelant ne peut pas lire.' }
+		{ term: 'Contournement', def: 'Les superutilisateurs et les rôles avec `BYPASSRLS` ignorent toutes les policies. Le propriétaire de la table aussi, sauf si la table a `FORCE ROW LEVEL SECURITY`.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -29,27 +26,27 @@ export default {
 			{
 				add: ['req["Requête HTTP avec un JWT"] --> api["PostgREST, connecté en authenticator"]'],
 				highlight: ['req', 'api'],
-				note: '**Une connexion, beaucoup d’utilisateurs.** PostgREST, la couche d’API sous Supabase, garde un pool de connexions sous un seul rôle, `authenticator`, qui n’a presque aucun droit. Sa doc l’appelle "a chameleon" (un caméléon) : son travail est de devenir d’autres utilisateurs.'
+				note: 'PostgREST, la couche d’API sous Supabase, garde un pool de connexions sous un seul rôle, `authenticator`, qui n’a presque aucun droit. Sa doc l’appelle "a chameleon" (un caméléon), parce qu’il passe à un autre rôle pour chaque requête.'
 			},
 			{
 				add: ['api -->|"SET LOCAL ROLE authenticated"| role["Rôle authenticated"]'],
 				highlight: ['role'],
-				note: '**Devenir l’appelant.** Pour chaque requête, il vérifie le JWT et lance `SET LOCAL ROLE` vers le rôle du token, pour cette transaction seulement. Il range aussi les claims dans un paramètre, `request.jwt.claims`, que le SQL peut lire.'
+				note: 'Pour chaque requête, PostgREST vérifie le JWT et lance `SET LOCAL ROLE` avec le rôle nommé dans le token, pour cette transaction seulement. Il range aussi les claims dans un paramètre, `request.jwt.claims`, que le SQL peut lire.'
 			},
 			{
 				add: ['role -->|"GRANT SELECT, INSERT, DELETE"| msgs[("messages")]'],
 				highlight: ['msgs'],
-				note: '**Les droits d’abord.** Sans GRANT sur la table, la requête échoue avec `permission denied` avant de lire la moindre ligne. Donne à chaque rôle seulement les commandes dont il a besoin, jusqu’à une seule colonne pour `UPDATE`.'
+				note: 'Sans GRANT sur la table, la requête échoue avec `permission denied` avant de lire la moindre ligne. Donne à chaque rôle seulement les commandes dont il a besoin, jusqu’à une seule colonne pour `UPDATE`.'
 			},
 			{
 				add: ['pol["Policy : auth.uid() = user_id"] -.->|"filtre chaque ligne"| msgs'],
 				highlight: ['pol'],
-				note: '**Puis les lignes.** Avec la RLS active, chaque ligne doit passer l’expression d’une policy, évaluée "prior to any conditions or functions coming from the user\'s query" (avant toute condition de la requête). Une requête sans aucun `WHERE` ne renvoie quand même que les lignes de l’appelant. RLS active et aucune policy : aucune ligne.'
+				note: 'Avec la RLS active, chaque ligne doit passer l’expression d’une policy, évaluée "prior to any conditions or functions coming from the user\'s query" (avant toute condition de la requête). Une requête sans aucun `WHERE` ne renvoie quand même que les lignes de l’appelant. RLS active et aucune policy : aucune ligne.'
 			},
 			{
 				add: ['owner["Propriétaire, superutilisateur, BYPASSRLS"] -->|"ignore les policies"| msgs'],
 				highlight: ['owner'],
-				note: '**Le trou à boucher.** Le superutilisateur et les rôles avec `BYPASSRLS` ignorent les policies, et le propriétaire de la table aussi, par défaut. Si l’application se connecte avec le rôle qui a lancé les migrations, la RLS ne fait rien pour elle. Utilise un rôle séparé, ou `FORCE ROW LEVEL SECURITY`.'
+				note: 'Le superutilisateur et les rôles avec `BYPASSRLS` ignorent les policies, et le propriétaire de la table aussi, par défaut. Si l’application se connecte avec le rôle qui a lancé les migrations, ses requêtes passent outre toutes les policies. Utilise un rôle séparé, ou `FORCE ROW LEVEL SECURITY`.'
 			}
 		]
 	},
@@ -88,11 +85,11 @@ create policy "Allow individual delete access" on public.messages for delete usi
 create policy "Allow authorized delete access" on public.messages for delete using ( authorize('messages.delete') );
 create policy "Allow individual read access" on public.user_roles for select using ( auth.uid() = user_id );`,
 		notes: [
-			'**D’où vient `auth.uid()`.** C’est du simple SQL, dans [la migration de Supabase Auth](' + AUTH + '/20220224000811_update_auth_functions.up.sql#L3-L12) : elle lit `sub` dans `current_setting(\'request.jwt.claims\', true)`. PostgREST remplit ce paramètre et lance [`SET LOCAL ROLE`](' + PGRST + '/references/auth.rst#L60-L64) à chaque requête. La policy fait confiance au token que PostgREST a vérifié, pas à ce que le client met dans sa requête.',
-			'**Deux policies de suppression, une réponse.** `messages` a deux policies `for delete` : l’auteur, ou un rôle qui a `messages.delete`. Les policies permissives, celles par défaut, sont [combinées avec `OR`](' + PG + '/ddl.sgml#L2996-L3004), donc l’une ou l’autre suffit. Une policy restrictive (`AS RESTRICTIVE`) serait combinée avec `AND`.',
-			'**L’insert vérifie, l’update réutilise.** Les inserts utilisent `with check ( auth.uid() = user_id )`, donc personne ne peut poster au nom d’un autre. La policy d’update n’a que `using`, et [CREATE POLICY](' + PG + '/ref/create_policy.sgml#L372-L378) dit que cette clause est alors "used for both USING and WITH CHECK cases" (utilisée pour les deux) : tu ne peux modifier que ton message, et tu ne peux pas le donner à un autre utilisateur.',
-			'**Refus par défaut, ouvert par un definer.** `role_permissions` a la RLS active et aucune policy, et sans policy ["a default-deny policy is used"](' + PG + '/ddl.sgml#L2932-L2942) (tout est refusé). `authorize()` la lit quand même parce qu’elle est `security definer` : elle tourne en tant que son propriétaire. La [doc de CREATE FUNCTION](' + PG + '/ref/create_function.sgml#L788-L800) demande à ces fonctions de fixer `search_path` et de mettre `pg_temp` en dernier ; celle-ci le fixe à `public` seulement.',
-			'**Retire ce que PUBLIC a reçu gratuitement.** Les nouvelles fonctions donnent `EXECUTE` à [PUBLIC par défaut](' + PG + '/ddl.sgml#L2559-L2577). Alors la [migration du hook d’auth](' + SUPA + '/20240214114147_auth-hook.sql#L37-L58) du projet donne le hook à `supabase_auth_admin`, puis retire `execute` et tous les droits sur `user_roles` à `authenticated, anon`.'
+			'Les lignes 24 à 29 appellent `auth.uid()`, du simple SQL écrit dans [la migration de Supabase Auth](' + AUTH + '/20220224000811_update_auth_functions.up.sql#L3-L12) : elle lit `sub` dans `current_setting(\'request.jwt.claims\', true)`. PostgREST remplit ce paramètre et lance `SET LOCAL ROLE` à chaque requête. La policy fait confiance au token que PostgREST a vérifié, et ignore ce que le client met dans sa requête.',
+			'Les lignes 27 et 28 sont deux policies `for delete` sur `messages` : l’auteur, ou un rôle qui a `messages.delete`. Les policies permissives, celles par défaut, sont [combinées avec `OR`](' + PG + '/ddl.sgml#L2996-L3004), donc l’une ou l’autre suffit. Une policy restrictive (`AS RESTRICTIVE`) serait combinée avec `AND`.',
+			'La ligne 25 vérifie les inserts avec `with check ( auth.uid() = user_id )`, donc personne ne peut poster au nom d’un autre. La policy d’update, ligne 26, n’a que `using`, et [CREATE POLICY](' + PG + '/ref/create_policy.sgml#L372-L378) dit que cette clause sert alors "for both USING and WITH CHECK cases" (pour les deux). Tu ne peux modifier que ton message, et tu ne peux pas le donner à un autre utilisateur.',
+			'La ligne 22 active la RLS sur `role_permissions`, qui n’a aucune policy, et sans policy "a default-deny policy is used" (tout est refusé). `authorize()`, lignes 1 à 16, la lit quand même parce qu’elle est `security definer` : elle tourne avec les droits de son propriétaire. La [doc de CREATE FUNCTION](' + PG + '/ref/create_function.sgml#L788-L800) demande à ces fonctions de fixer `search_path` et de mettre `pg_temp` en dernier ; celle-ci le fixe à `public` seulement.',
+			'Par défaut, PostgreSQL donne `EXECUTE` sur chaque nouvelle fonction au pseudo-rôle PUBLIC, c’est-à-dire à tous les rôles. Alors la [migration du hook d’auth](' + SUPA + '/20240214114147_auth-hook.sql#L37-L58) du projet donne le hook à `supabase_auth_admin`, puis retire `execute` et tous les droits sur `user_roles` à `authenticated, anon`.'
 		]
 	},
 	tradeoff: {
@@ -103,8 +100,8 @@ create policy "Allow individual read access" on public.user_roles for select usi
 		],
 		cost: [
 			'Les policies tournent sur chaque ligne que la requête touche. Une policy qui appelle une fonction ou une sous-requête par ligne peut ralentir une requête rapide. Indexe les colonnes sur lesquelles les policies filtrent.',
-			'Les erreurs deviennent silencieuses : une policy manquante renvoie zéro ligne, pas une erreur. « Pourquoi la liste est vide » devient un nouveau genre de bug.',
-			'Les propriétaires, les superutilisateurs et les rôles `BYPASSRLS` passent outre. Les migrations, les sauvegardes et les outils d’admin en ont besoin, donc il faut tenir l’application à l’écart de ces rôles.',
+			'Une policy manquante renvoie zéro ligne sans lever d’erreur : le seul symptôme est une liste vide.',
+			'Les propriétaires, les superutilisateurs et les rôles `BYPASSRLS` passent outre toutes les policies. Les migrations, les sauvegardes et les outils d’admin ont besoin de ces rôles, donc l’application doit se connecter avec un autre.',
 			'Un pool de connexions ne doit pas faire fuir un rôle ou un tenant d’une requête à la suivante. `SET LOCAL` dans une transaction est sûr ; un simple `SET` sur une session partagée ne l’est pas (jour 25).'
 		]
 	},
@@ -115,7 +112,7 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			'Droits : `GRANT SELECT, INSERT ON invoices TO app_user;`. Les tables ne donnent rien à PUBLIC par défaut, donc `app_user` n’a que ça. Pas de droit `DELETE`, donc une suppression échoue avec `permission denied`, quoi que dise la policy.',
 			'RLS : `ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;`. À partir de là, `app_user` ne voit aucune ligne tant qu’une policy ne les laisse pas passer.',
 			'Policy : `CREATE POLICY tenant_isolation ON invoices TO app_user USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint);`. Sans `WITH CHECK`, l’expression `USING` teste aussi les lignes insérées, donc un insert avec `tenant_id = 7` échoue.',
-			'Si le paramètre manque, `current_setting` renvoie NULL, la comparaison vaut NULL, pas vrai (jour 6), et aucune ligne ne passe. Sans contexte, tout est fermé.',
+			'Si le paramètre manque, `current_setting` renvoie NULL, la comparaison vaut NULL, pas vrai (jour 6), et aucune ligne ne passe. Une requête qui a sauté le `SET LOCAL` ne voit aucune facture.',
 			'Teste-le : `SET ROLE app_user; BEGIN; SET LOCAL app.tenant_id = \'42\'; SELECT count(*) FROM invoices;` ne doit compter que le tenant 42. Puis lance le même `SELECT` en tant que propriétaire de la table et vois qu’il compte tout : c’est pour ça que l’application ne doit pas être propriétaire.'
 		]
 	},
@@ -154,11 +151,17 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			why: 'Les propriétaires de table, les superutilisateurs et les rôles BYPASSRLS ignorent la sécurité des lignes. Les applications se connectent souvent avec le rôle qui a lancé les migrations, et qui possède donc les tables. Utilise un rôle séparé, ou FORCE ROW LEVEL SECURITY.'
 		}
 	],
-	takeaway: 'Donne à l’application un rôle qui ne possède rien et n’a que les droits dont il a besoin, puis laisse la sécurité des lignes ajouter le filtre par tenant à chaque requête, y compris celle que quelqu’un oublie.',
+	recall: {
+		q: 'Qu’est-ce qui empêche une requête qui a oublié `WHERE tenant_id = ?` de lire les lignes des autres tenants, et quels rôles y échappent ?',
+		a: 'Une policy de sécurité des lignes, comme `USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint)`, filtre chaque requête. Le propriétaire de la table, les superutilisateurs et les rôles `BYPASSRLS` y échappent, donc l’application se connecte avec un rôle séparé.'
+	},
 	sources: [
 		{ title: 'Doc PostgreSQL, Row Security Policies', url: 'https://www.postgresql.org/docs/current/ddl-rowsecurity.html' },
 		{ title: 'Doc PostgreSQL, Privileges', url: 'https://www.postgresql.org/docs/current/ddl-priv.html' },
 		{ title: 'Doc PostgREST, Database Authorization', url: `${PGRST}/explanations/db_authz.rst` },
+		{ title: 'Doc PostgREST, Authentication : SET LOCAL ROLE à chaque requête', url: `${PGRST}/references/auth.rst#L60-L64` },
+		{ title: 'Source de la doc PostgreSQL, ddl.sgml : policy de refus par défaut', url: `${PG}/ddl.sgml#L2932-L2942` },
+		{ title: 'Source de la doc PostgreSQL, ddl.sgml : droits par défaut de PUBLIC', url: `${PG}/ddl.sgml#L2559-L2577` },
 		{ title: 'Doc Supabase, Row Level Security', url: 'https://supabase.com/docs/guides/database/postgres/row-level-security' }
 	]
 };

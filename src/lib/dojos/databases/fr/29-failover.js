@@ -9,16 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'3 h du matin. La carte réseau du primaire décroche. Un script voit le primaire disparaître, promeut le réplica et y redirige l’appli. Dix secondes plus tard, l’ancien primaire revient, **toujours primaire**, et la moitié des serveurs d’appli écrivent encore dessus.',
-		'Il y a maintenant **deux primaires**. Les commandes arrivent sur les deux. Chacune est une base valide à elle seule, et aucune n’a les lignes de l’autre. Aucun rejeu ne peut les fusionner. Quelqu’un va passer une semaine à trier ça à la main.',
-		'C’est le split brain, et c’est pire qu’une panne. Au programme : comment Patroni laisse **un seul** nœud être primaire, avec un verrou dans etcd qui expire, un nœud qui se rétrograde lui-même quand il ne peut plus le renouveler, et un watchdog pour quand même ça échoue.'
+		'Maintenant, **deux primaires** acceptent des écritures, et les commandes arrivent sur les deux. Chacune est une base valide à elle seule, et aucune n’a les lignes de l’autre. Aucun rejeu ne peut les fusionner : quelqu’un va passer une semaine à trier ça à la main.',
+		'Patroni empêche ce split brain en ne laissant qu’**un seul** nœud être primaire. Il s’appuie sur un verrou dans etcd qui expire, sur un nœud qui se rétrograde lui-même quand il ne peut plus renouveler ce verrou, et sur un watchdog qui redémarre la machine si même ça échoue.'
 	],
 	terms: [
 		{ term: 'Split brain', def: 'Deux serveurs acceptent tous les deux des écritures comme primaire. Leurs historiques divergent, et les commits du côté perdant sont perdus ou fusionnés à la main.' },
 		{ term: 'DCS', def: 'Distributed configuration store : etcd, Consul, ZooKeeper ou l’API Kubernetes. Un petit cluster qui se met d’accord sur quelques clés, même quand certains de ses propres nœuds tombent.' },
 		{ term: 'Clé leader', def: 'Une clé dans le DCS qui nomme le primaire, rattachée à un bail (lease) avec un TTL. Qui la tient peut tourner en primaire ; si personne ne la renouvelle, elle disparaît.' },
-		{ term: 'Course au leader', def: 'Quand la clé leader a disparu, les réplicas en bonne santé essaient de la créer. Le DCS ne laisse réussir qu’une seule création.' },
-		{ term: 'Fencing', def: 'S’assurer que l’ancien primaire cesse de prendre des écritures avant ou pendant qu’un nouveau démarre : le rétrograder, l’arrêter, ou lui couper le courant.' },
-		{ term: 'Watchdog', def: 'Un minuteur, noyau ou matériel, qui redémarre la machine s’il ne reçoit pas de signal de vie à temps. Le fencing de dernier recours.' }
+		{ term: 'Watchdog', def: 'Un minuteur, noyau ou matériel, qui redémarre la machine s’il ne reçoit pas de signal de vie à temps. Patroni compte sur lui quand le nœud ne peut pas se rétrograder.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['a["Nœud A : primaire"] -->|"renouvelle le verrou toutes les 10 s"| etcd[("etcd : clé leader, TTL 30 s")]', 'b["Nœud B : réplica"] -->|"lit : le leader est A"| etcd'],
 				highlight: ['a', 'etcd'],
-				note: '**Une clé, un primaire.** A tient la clé leader et la renouvelle à chaque boucle, toutes les `loop_wait` (10 s par défaut). La doc du failsafe pose la règle : « the node is allowed to run Postgres as the primary only if it can update the leader lock in DCS » (un nœud ne peut être primaire que s’il arrive à mettre à jour le verrou). B voit la clé et continue de répliquer depuis A.'
+				note: 'A tient la clé leader et la renouvelle à chaque boucle, toutes les `loop_wait` (10 s par défaut). La doc du failsafe : « the node is allowed to run Postgres as the primary only if it can update the leader lock in DCS » (un nœud ne peut être primaire que s’il arrive à mettre à jour le verrou). B voit la clé et continue de répliquer depuis A.'
 			},
 			{
 				add: ['cut["Coupure réseau : A ne joint plus etcd"] -.-> a'],
 				highlight: ['cut'],
-				note: '**A ne peut plus renouveler.** Vu de A, un etcd en panne et un A isolé se ressemblent. Patroni suppose le pire, une partition, donc A **se rétrograde lui-même** en lecture seule tout de suite, avant que sa clé puisse expirer. Personne d’autre n’est encore primaire, et A ne l’est plus non plus.'
+				note: 'Vu de A, un etcd en panne et un A isolé se ressemblent. Patroni suppose le pire, une partition, donc A **se rétrograde lui-même** en lecture seule tout de suite, avant que sa clé puisse expirer. Tant qu’aucun autre nœud ne se promeut, le cluster n’a pas de primaire et refuse les écritures.'
 			},
 			{
 				add: ['b -->|"clé expirée : la créer si absente"| etcd'],
 				highlight: ['b'],
-				note: '**La course.** Après le TTL, etcd supprime la clé. B vérifie qu’il est en assez bonne santé (pas trop en retard), puis tente de créer la clé. La création ne réussit que si la clé n’existe pas, et etcd s’accorde là-dessus entre ses propres nœuds. Un seul gagnant, qui se promeut.'
+				note: 'Après le TTL, etcd supprime la clé. B vérifie qu’il est en assez bonne santé (pas trop en retard), puis tente de créer la clé. La création ne réussit que si la clé n’existe pas, et etcd s’accorde là-dessus entre ses propres nœuds. Le seul nœud dont la création réussit se promeut.'
 			},
 			{
 				add: ['wd["Watchdog sur A"] -->|"redémarre sans signal de vie"| a'],
 				highlight: ['wd'],
-				note: '**Quand A ne peut même pas se rétrograder.** Si Patroni sur A a planté ou si sa VM est en pause, personne ne lance la rétrogradation. Le watchdog s’en moque : sans signal de vie, il redémarre la machine. Patroni le règle pour se déclencher 5 secondes avant le TTL, donc A est tombé avant que B puisse gagner.'
+				note: 'Si Patroni sur A a planté ou si sa VM est en pause, personne ne lance la rétrogradation. Le watchdog n’a besoin de rien de la part de Patroni : sans signal de vie, il redémarre la machine. Patroni le règle pour se déclencher 5 secondes avant le TTL, donc A est tombé avant que B puisse gagner.'
 			},
 			{
 				add: ['a -.->|"commits jamais reçus par B"| lost["Timeline divergente sur A"]'],
 				highlight: ['lost'],
-				note: '**Ce que coûte encore un basculement.** En réplication asynchrone, les commits que A n’avait pas encore envoyés à B restent sur l’ancienne timeline de A, « effectively unrecoverable » (irrécupérables en pratique). `maximum_lag_on_failover` borne le retard permis au gagnant. `synchronous_mode` le ramène à zéro, au prix d’écritures bloquées quand il ne reste aucun standby synchrone.'
+				note: 'En réplication asynchrone, les commits que A n’avait pas encore envoyés à B restent sur l’ancienne timeline de A, « effectively unrecoverable » (irrécupérables en pratique). `maximum_lag_on_failover` borne le retard permis au gagnant. `synchronous_mode` le ramène à zéro, mais les écritures bloquent alors quand il ne reste aucun standby synchrone.'
 			}
 		]
 	},
@@ -102,24 +100,23 @@ export default {
                            'no action. I am ({0}), a secondary, and following a leader ({1})'.format(
                                self.state_handler.name, lock_owner), refresh=False)`,
 		notes: [
-			'**Le verrou d’abord.** Rien d’autre ne se passe sur le leader tant que `update_lock(True)` n’a pas réussi. [`update_lock`](' + HA + '#L375-L410) écrit la clé leader, et n’appelle `self.watchdog.keepalive()` qu’après une écriture réussie. Un leader qui ne peut plus écrire la clé cesse de nourrir son propre watchdog.',
-			'**Échec veut dire rétrogradation, tout de suite.** Sur une mise à jour ratée, un primaire en marche appelle `demote(\'immediate-nolock\')`. La [doc du failsafe](' + PATRONI + '/docs/dcs_failsafe_mode.rst?plain=1#L15-L20) explique pourquoi : l’échec peut venir d’une partition ou d’une panne du DCS, et « it is impossible to distinguish between these two from a single node » (impossible de les distinguer depuis un seul nœud). Seul le mode pause, quand un humain a la main, le garde primaire.',
-			'**Prendre le verrou, c’est créer si absent.** Sur etcd v3, [`_do_attempt_to_acquire_leader`](' + PATRONI + '/patroni/dcs/etcd3.py#L973-L991) écrit la clé leader avec le bail du nœud et `create_revision=\'0\'`, une condition qui n’est vraie que si la clé n’existe pas. La doc d’etcd : « When a lease expires or is revoked, all keys attached to that lease will be deleted. » (quand un bail expire, toutes ses clés sont supprimées).',
-			'**Plusieurs peuvent se croire les meilleurs ; un seul gagne.** Un réplica ne court que si [`is_lagging`](' + HA + '#L1371-L1379) est faux, c’est-à-dire s’il est à moins de `maximum_lag_on_failover` octets de la dernière position connue du primaire. La [docstring](' + HA + '#L1390-L1393) reconnaît que plusieurs nœuds peuvent se compter comme les plus sains, « but this is totally fine » (et que ça ne pose aucun problème) : le créer-si-absent en choisit un.',
-			'**Le watchdog ferme la brèche.** La [doc du watchdog](' + PATRONI + '/docs/watchdog.rst?plain=1#L6-L18) liste ce qui peut empêcher la rétrogradation : Patroni « has crashed », « Shutting down PostgreSQL is too slow », ou la VM est en pause. Avec `ttl=30` et `loop_wait=10`, la boucle a « at least 15 seconds » (au moins 15 secondes) avant que la machine soit redémarrée.'
+			'Ligne 12 : rien d’autre ne se passe sur le leader tant que `update_lock(True)` n’a pas réussi. [`update_lock`](' + HA + '#L375-L410) écrit la clé leader, et n’appelle `self.watchdog.keepalive()` qu’après une écriture réussie. Un leader qui ne peut plus écrire la clé cesse de nourrir son propre watchdog.',
+			'Lignes 36 à 40 : sur une mise à jour ratée, un primaire en marche appelle `demote(\'immediate-nolock\')`. La [doc du failsafe](' + PATRONI + '/docs/dcs_failsafe_mode.rst?plain=1#L15-L20) explique pourquoi : l’échec peut venir d’une partition ou d’une panne du DCS, et « it is impossible to distinguish between these two from a single node » (impossible de les distinguer depuis un seul nœud). Seul le mode pause (lignes 37 et 38), quand un humain a la main, le garde primaire.',
+			'Sur etcd v3, [`_do_attempt_to_acquire_leader`](' + PATRONI + '/patroni/dcs/etcd3.py#L973-L991) prend le verrou : il écrit la clé leader avec le bail du nœud et `create_revision=\'0\'`, une condition qui n’est vraie que si la clé n’existe pas. La doc d’etcd : « When a lease expires or is revoked, all keys attached to that lease will be deleted. » (quand un bail expire, toutes ses clés sont supprimées).',
+			'Un réplica ne court que si [`is_lagging`](' + HA + '#L1371-L1379) est faux, c’est-à-dire s’il est à moins de `maximum_lag_on_failover` octets de la dernière position connue du primaire. La docstring (dans les sources) reconnaît que plusieurs nœuds peuvent se compter comme les plus sains, « but this is totally fine » (et que ça ne pose aucun problème) : l’écriture avec `create_revision=\'0\'` ne réussit que pour l’un d’eux.',
+			'La [doc du watchdog](' + PATRONI + '/docs/watchdog.rst?plain=1#L6-L18) liste ce qui peut empêcher la rétrogradation : Patroni « has crashed », « Shutting down PostgreSQL is too slow », ou la VM est en pause. Avec `ttl=30` et `loop_wait=10`, la boucle a « at least 15 seconds » (au moins 15 secondes) avant que la machine soit redémarrée.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Au plus un primaire à la fois, tant que le DCS marche et que le fencing se déclenche : pas d’historiques divergents à fusionner à la main.',
-			'Le basculement se passe d’humain : en à peu près un TTL, un réplica sain tient le verrou et se promeut.',
-			'Les règles sont courtes et lisibles : tenir la clé ou se rétrograder, ne courir qu’en bonne santé, et laisser le DCS choisir un seul gagnant.'
+			'Au plus un primaire à la fois, tant que le DCS marche et que l’ancien primaire se rétrograde ou que son watchdog le redémarre : pas d’historiques divergents à fusionner à la main.',
+			'Le basculement se passe d’humain : en à peu près un TTL, un réplica sain tient le verrou et se promeut.'
 		],
 		cost: [
-			'Le primaire dépend maintenant du DCS. Si etcd est injoignable, un primaire en parfaite santé se rétrograde, sauf si tu actives `failsafe_mode` et que chaque membre peut le confirmer.',
-			'Le basculement n’est pas instantané. L’ancienne clé doit d’abord expirer : compte des dizaines de secondes sans primaire avec le `ttl` par défaut de 30.',
-			'La réplication asynchrone perd encore les derniers commits au basculement. `synchronous_mode` l’évite, mais « the system may be unavailable for writes even though some servers are available » (le système peut refuser les écritures alors que des serveurs sont disponibles).',
-			'Un cluster de plus à faire tourner : le DCS veut ses trois ou cinq nœuds, sa supervision et ses mises à jour.'
+			'Si etcd est injoignable, un primaire en parfaite santé se rétrograde, sauf si tu actives `failsafe_mode` et que chaque membre peut le confirmer.',
+			'L’ancienne clé doit expirer avant qu’un réplica puisse se promouvoir : compte des dizaines de secondes sans primaire avec le `ttl` par défaut de 30.',
+			'En réplication asynchrone, tu perds les derniers commits d’avant le basculement. `synchronous_mode` l’évite, mais « the system may be unavailable for writes even though some servers are available » (le système peut refuser les écritures alors que des serveurs sont disponibles).',
+			'Le DCS est un cluster de plus à faire tourner, avec ses trois ou cinq nœuds, sa supervision et ses mises à jour.'
 		]
 	},
 	task: {
@@ -129,7 +126,7 @@ export default {
 			'Jusqu’à la boucle suivante de A, 10 s au plus, A est encore primaire et sa baie continue d’écrire. Ces écritures ne peuvent pas atteindre B ni C.',
 			'À cette boucle, A tente de renouveler la clé. L’appel échoue en `retry_timeout` (10 s). A se rétrograde en lecture seule. Dès lors, l’appli de la baie de A reçoit des erreurs en écriture : une panne pour elle, mais pas de second primaire.',
 			'Dans etcd, la clé expire 30 s après le dernier renouvellement réussi de A, donc vers 03:00:30. À leur boucle suivante, B et C ne voient plus de leader, vérifient leur retard, et courent. Disons que B crée la clé le premier et se promeut ; C suit B.',
-			'Si Patroni sur A s’était figé au lieu de rétrograder, le watchdog, réglé 5 s avant le TTL, redémarre A avant l’expiration de la clé. C’est pour ça que B peut se promouvoir sans danger.',
+			'Si Patroni sur A s’était figé au lieu de rétrograder, le watchdog, réglé 5 s avant le TTL, redémarre A avant l’expiration de la clé. A ne tourne donc plus quand B se promeut.',
 			'Le coût : les commits que A a pris dans les dernières secondes avant sa rétrogradation, et qui n’ont jamais été envoyés à B, restent sur l’ancienne timeline de A. Avec `synchronous_mode`, ils n’auraient même pas été confirmés au client.'
 		]
 	},
@@ -168,12 +165,16 @@ export default {
 			why: 'La doc des modes de réplication : la perte est « worst case bounded by maximum_lag_on_failover bytes of transaction log plus the amount that is written in the last ttl seconds », car la position du primaire n’est relevée qu’à chaque boucle. Avec `synchronous_mode`, Patroni ne promeut qu’un standby dont il est « certain » qu’il a chaque commit confirmé à un client (jour 28).'
 		}
 	],
-	takeaway: 'Le primaire, c’est celui qui tient un verrou qui expire dans un store d’accord avec lui-même ; un nœud qui ne peut pas le renouveler se rétrograde aussitôt, et un watchdog l’arrête s’il n’y arrive pas.',
+	recall: {
+		q: 'Qu’est-ce qui pousse un primaire Patroni à se rétrograder, et qu’est-ce qui empêche un primaire figé d’écrire après qu’un réplica a pris la main ?',
+		a: 'Une mise à jour ratée de la clé leader dans etcd : Patroni appelle aussitôt `demote(\'immediate-nolock\')`. Si Patroni est figé, le watchdog redémarre la machine 5 secondes avant la fin du TTL de 30 s.'
+	},
 	sources: [
 		{ title: 'Doc Patroni, Watchdog support', url: 'https://patroni.readthedocs.io/en/latest/watchdog.html' },
 		{ title: 'Doc Patroni, DCS Failsafe Mode', url: 'https://patroni.readthedocs.io/en/latest/dcs_failsafe_mode.html' },
 		{ title: 'Doc Patroni, Replication modes', url: 'https://patroni.readthedocs.io/en/latest/replication_modes.html' },
 		{ title: 'Doc etcd, garanties de l’API KV et baux', url: 'https://etcd.io/docs/v3.5/learning/api/' },
-		{ title: 'Source Patroni, patroni/ha.py', url: HA }
+		{ title: 'Source Patroni, patroni/ha.py', url: HA },
+		{ title: 'Source Patroni, ha.py, choix du nœud le plus sain', url: `${HA}#L1390-L1393` }
 	]
 };

@@ -29,6 +29,7 @@ const SPOTS = [
 const DODGE = 140;
 // A tap on a touch screen is a short visit, not a pointer that stays.
 const TOUCH_STAYS = 2500;
+const SLEEP_AFTER = 120_000;
 const FACE = 256;
 
 /**
@@ -121,7 +122,8 @@ export function createScene(canvas, { color, still, touch }) {
 		sad: spring(90, 18),
 		glow: spring(60, 14, 1),
 		ox: spring(70, 14),
-		oy: spring(70, 14)
+		oy: spring(70, 14),
+		sleep: spring(30, 11)
 	};
 	const springs = Object.values(s);
 
@@ -133,14 +135,26 @@ export function createScene(canvas, { color, still, touch }) {
 	let turns = 0;
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
+	let activeAt = performance.now();
+
+	function wake() {
+		const now = performance.now();
+		// A small start, like being woken up.
+		if (now - activeAt > SLEEP_AFTER) s.y.v += 2.5;
+		activeAt = now;
+	}
 
 	/** @param {number} x @param {number} y Mouse position in the viewport, in pixels. */
 	function look(x, y) {
+		// Browsers also fire pointermove when the page moves under a still mouse; only real moves count.
+		if (Math.hypot(x - pointer.x, y - pointer.y) < 2) return;
+		wake();
 		if (!touch) pointer = { x, y, at: performance.now() };
 	}
 
 	/** @param {number} x @param {number} y A tap on a touch screen, in viewport pixels. */
 	function poke(x, y) {
+		wake();
 		pointer = { x, y, at: performance.now() };
 	}
 
@@ -164,6 +178,7 @@ export function createScene(canvas, { color, still, touch }) {
 
 	/** @param {Mood} mood */
 	function react(mood) {
+		wake();
 		reaction = { mood, at: performance.now() };
 		if (mood === 'happy') turns += 1;
 	}
@@ -195,6 +210,8 @@ export function createScene(canvas, { color, still, touch }) {
 
 	function perform(/** @type {number} */ now) {
 		const t = reaction ? (now - reaction.at) / 1000 : Infinity;
+		const asleep = now - activeAt > SLEEP_AFTER;
+		s.sleep.to = asleep ? 1 : 0;
 		s.y.to = 0;
 		s.roll.to = 0;
 		s.happy.to = 0;
@@ -213,7 +230,14 @@ export function createScene(canvas, { color, still, touch }) {
 			// A short head shake, like a quiet "no".
 			s.yaw.to += t < 0.9 ? Math.sin(t * 14) * 0.16 * (1 - t / 0.9) : 0;
 		}
-		if (now > nextBlink) {
+		if (asleep) {
+			s.y.to = -0.26;
+			s.pitch.to = REST.pitch + 0.25;
+			s.lookX.to = 0;
+			s.lookY.to = 0.3;
+			s.glow.to = 0.45 + 0.25 * Math.sin(now / 1600);
+		}
+		if (now > nextBlink && !asleep) {
 			s.lid.to = 1;
 			if (now > nextBlink + 90) {
 				nextBlink = now + 2600 + Math.random() * 4000;
@@ -244,7 +268,24 @@ export function createScene(canvas, { color, still, touch }) {
 		ctx.shadowBlur = 22 * Math.max(0.3, s.glow.x);
 		ctx.globalAlpha = Math.min(1, 0.45 + 0.55 * s.glow.x);
 		ctx.fillStyle = ctx.strokeStyle = hex;
-		for (const side of [-1, 1]) {
+		ctx.lineCap = 'round';
+		const sleep = Math.min(1, Math.max(0, s.sleep.x));
+		if (sleep > 0.5) {
+			// Closed eyes, and a few z drifting up.
+			ctx.lineWidth = 9;
+			for (const side of [-1, 1]) {
+				ctx.beginPath();
+				ctx.arc(FACE / 2 + side * 46, FACE / 2 - 8, 18, Math.PI * 0.2, Math.PI * 0.8);
+				ctx.stroke();
+			}
+			ctx.font = 'bold 30px system-ui, sans-serif';
+			for (let i = 0; i < 3; i++) {
+				const k = (now / 2600 + i / 3) % 1;
+				ctx.globalAlpha = Math.sin(k * Math.PI) * 0.8;
+				ctx.fillText('z', 170 + k * 34 + i * 4, 90 - k * 60);
+			}
+		}
+		for (const side of sleep > 0.5 ? [] : [-1, 1]) {
 			const cx = FACE / 2 + side * 46 + s.lookX.x * 22;
 			const cy = FACE / 2 - 4 + s.lookY.x * 16;
 			ctx.save();
@@ -268,7 +309,7 @@ export function createScene(canvas, { color, still, touch }) {
 
 		// Now and then a soft line sweeps the screen, like it is thinking.
 		const scan = (now - nextScan) / 700;
-		if (scan > 0 && scan < 1 && !still) {
+		if (scan > 0 && scan < 1 && !still && sleep < 0.5) {
 			ctx.shadowBlur = 0;
 			ctx.globalAlpha = 0.18 * Math.sin(scan * Math.PI);
 			ctx.fillRect(0, scan * FACE - 3, FACE, 6);
@@ -288,7 +329,7 @@ export function createScene(canvas, { color, still, touch }) {
 		for (let left = dt; left > 0; left -= 1 / 240) for (const sp of springs) sp.step(Math.min(left, 1 / 240));
 		if (still) for (const sp of springs) sp.x = sp.to;
 
-		const hover = still ? 0 : Math.sin(now / 1100) * 0.04;
+		const hover = still ? 0 : Math.sin(now / 1100) * 0.04 * (1 - Math.max(0, s.sleep.x));
 		root.position.y = s.y.x + hover;
 		// It leans into the direction it flies, and straightens up as it stops.
 		root.rotation.z = s.roll.x + Math.max(-0.5, Math.min(0.5, (-s.ox.v * 0.0004) / scale));
@@ -324,6 +365,7 @@ export function createScene(canvas, { color, still, touch }) {
 	return {
 		look,
 		poke,
+		wake,
 		react,
 		setColor,
 		resize,

@@ -30,11 +30,16 @@
 		});
 		addEventListener('pointermove', follow, { passive: true });
 		addEventListener('pointerdown', tap, { passive: true });
+		const wake = () => view?.wake();
+		addEventListener('keydown', wake);
+		addEventListener('scroll', wake, { passive: true });
 		document.documentElement.addEventListener('pointerleave', leave);
 		return () => {
 			gone = true;
 			removeEventListener('pointermove', follow);
 			removeEventListener('pointerdown', tap);
+			removeEventListener('keydown', wake);
+			removeEventListener('scroll', wake);
 			document.documentElement.removeEventListener('pointerleave', leave);
 			view?.dispose();
 		};

@@ -6,18 +6,17 @@ const RAILS = 'https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf
 export default {
 	slug: 'quality-scenarios',
 	part: 'Penser en architecte',
-	title: '« Sécurisé » n’est pas une exigence. Un scénario, si.',
+	title: 'Les scénarios de qualité : rendre « sécurisé » testable',
 	minutes: 10,
 	hook: [
-		'Hier, tu as choisi trois caractéristiques. Le problème du jour : « le système doit être sécurisé » ne peut pas être testé, ne peut pas être discuté, et ne peut pas te dire quand tu as fini.',
-		'Prends un serveur Mastodon. Quelqu’un récupère une liste de mots de passe qui ont fuité et les essaie, l’un après l’autre, sur le formulaire de connexion. L’un d’eux finira par marcher pour un utilisateur qui l’a réutilisé ailleurs.',
-		'« Protéger les comptes contre la devinette de mots de passe » est un souhait. Un **scénario de qualité** le transforme en une phrase en six parties, qui se termine par un nombre que tu peux tester. Mastodon fournit le mécanisme, et sa configuration contient les nombres.'
+		'Hier, tu as choisi trois caractéristiques, par exemple la sécurité. Personne ne peut tester « le système doit être sécurisé », et personne ne peut dire quand c’est fini.',
+		'Prends un serveur Mastodon. Quelqu’un récupère une liste de mots de passe qui ont fuité et les essaie l’un après l’autre sur le formulaire de connexion. L’un d’eux marchera pour un utilisateur qui l’a réutilisé sur un autre site.',
+		'Un **scénario de qualité** décrit cette attaque en une phrase de six parties, et la dernière partie est un nombre que la QA peut vérifier. Mastodon fournit le mécanisme, et sa configuration contient les nombres.'
 	],
 	terms: [
-		{ term: 'Scénario', def: 'Une histoire courte et testable : qui fait quoi à quelle partie, dans quelle situation, ce que le système doit faire, et comment tu le mesures.' },
-		{ term: 'Stimulus', def: 'L’événement qui frappe le système : une rafale de connexions, un crash, un pic de trafic, une attaque.' },
-		{ term: 'Mesure de réponse', def: 'Le nombre qui dit réussi ou raté. Sans lui, ça reste un souhait.' },
-		{ term: 'Rate limit', def: 'Un plafond sur ce qu’un appelant peut faire dans une fenêtre de temps. Ici : les tentatives de connexion par adresse IP et par compte.' },
+		{ term: 'Scénario', def: 'Une phrase testable : qui fait quoi à quelle partie, dans quelle situation, ce que le système doit faire, et comment tu le mesures.' },
+		{ term: 'Stimulus', def: 'L’événement qui arrive sur le système : une rafale de connexions, un crash, un pic de trafic.' },
+		{ term: 'Mesure de réponse', def: 'Le nombre qui tranche entre réussi et raté, par exemple « au plus 25 tentatives par IP en 5 minutes ».' },
 		{ term: 'Fail open, fail closed', def: 'Ce que fait un contrôle quand il ne peut pas s’exécuter. Fail open laisse passer la requête. Fail closed la refuse.' }
 	],
 	diagram: {
@@ -26,27 +25,27 @@ export default {
 			{
 				add: ['source["Source : attaquant avec des mots de passe fuités"] -->|envoie| stimulus["Stimulus : 1000 connexions en 5 minutes"]'],
 				highlight: ['source', 'stimulus'],
-				note: '**Qui** agit, et **ce qu’il** fait. Pas « un acteur malveillant », mais un script qui essaie de vrais mots de passe, une connexion à la fois.'
+				note: 'La source et le stimulus disent qui agit et ce qu’il fait. Ici, la source est un script, et le stimulus, ce sont 1000 connexions avec des mots de passe fuités, envoyées une par une.'
 			},
 			{
 				add: ['stimulus -->|frappe| artifact["Artefact : limites de connexion dans Rack::Attack"]'],
 				highlight: ['artifact'],
-				note: '**Quelle partie** du système est touchée. Pas « le serveur », mais le middleware Rack::Attack qui voit chaque `POST /auth/sign_in` avant que Rails vérifie le mot de passe.'
+				note: 'L’artefact est la partie du système qui reçoit le coup. Ici, c’est le middleware Rack::Attack, qui voit chaque `POST /auth/sign_in` avant que Rails vérifie le mot de passe.'
 			},
 			{
 				add: ['env["Environnement : charge normale, Redis en marche"] -.->|pendant| artifact', 'class env ext'],
 				highlight: ['env'],
-				note: '**Dans quelle situation.** Les compteurs vivent dans Redis, via le cache Rails. Charge normale ? Pendant un déploiement ? Avec Redis en panne ? Le même stimulus peut demander une réponse différente dans chaque cas.'
+				note: 'L’environnement, c’est l’état du système quand le stimulus arrive. Les compteurs sont dans Redis, via le cache Rails. En charge normale, pendant un déploiement ou avec Redis en panne, la même attaque peut demander une réponse différente.'
 			},
 			{
 				add: ['artifact -->|doit| response["Réponse : 429 Too Many Requests"]'],
 				highlight: ['response'],
-				note: '**Ce qui doit se passer.** Les tentatives sous la limite arrivent à la vérification du mot de passe comme d’habitude. Les autres reçoivent un `429` avec `X-RateLimit-Reset`, pour que les clients honnêtes sachent quand réessayer.'
+				note: 'La réponse dit ce qui doit se passer. Les tentatives sous la limite arrivent à la vérification du mot de passe comme d’habitude. Les autres reçoivent un `429` avec un en-tête `X-RateLimit-Reset`, pour que les clients honnêtes sachent quand réessayer.'
 			},
 			{
 				add: ['response -->|testé par| measure["Mesure : au plus 25 par IP et par fenêtre de 5 minutes atteignent la vérification du mot de passe"]'],
 				highlight: ['measure'],
-				note: '**Comment tu vérifies.** La limite de Mastodon est de 25 par IP toutes les 5 minutes, comptées en fenêtres fixes, donc une rafale à cheval sur deux fenêtres en obtient 25 dans chacune. La QA peut en envoyer 1000 depuis une seule IP et compter par fenêtre. Maintenant, tu discutes du nombre, pas de l’adjectif.'
+				note: 'La mesure dit comment tu vérifies. Mastodon autorise 25 tentatives par IP toutes les 5 minutes, comptées en fenêtres fixes : une rafale à cheval sur deux fenêtres en obtient donc 25 dans chacune. La QA peut envoyer 1000 connexions depuis une IP et compter combien atteignent la vérification dans chaque fenêtre.'
 			}
 		]
 	},
@@ -77,38 +76,38 @@ export default {
     [429, headers, [{ error: I18n.t('errors.429') }.to_json]]
   end`,
 		notes: [
-			'La **mesure** est une donnée, pas de la logique : `limit: 25, period: 5.minutes`. Change le nombre, et la ligne de réussite du scénario bouge avec.',
-			'La **réponse**, c’est le responder : un `429` et trois en-têtes qui donnent la limite, ce qui reste, et quand la fenêtre se réinitialise.',
-			'Deux limites, parce qu’un second scénario a trouvé un second stimulus. Un attaquant qui répartit ses essais sur un même compte depuis de nombreuses IP passe sous la limite par IP, donc la limite par compte (25 par heure) le rattrape. Et [`throttleable_remote_ip`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/config/initializers/rack_attack.rb#L20-L30) compte tout un `/64` IPv6 comme une seule adresse, donc faire tourner les adresses à l’intérieur d’un même réseau n’aide pas non plus.',
-			'L’**environnement** se cache dans le stockage. Le cache de production de Mastodon, c’est Redis. Si Redis tombe, le cache Rails [avale l’erreur et renvoie `nil`](https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf7174b81d8cb/activesupport/lib/active_support/cache/redis_cache_store.rb#L490-L503), et Rack::Attack [traite `nil` comme un compte de 1](https://github.com/rack/rack-attack/blob/65f1ead3bc648b1e972fd8df0078949f056699d9/lib/rack/attack/cache.rb#L76-L89). Chaque tentative ressemble à la première. C’est du « fail open ». Le vouloir ou pas, c’est une question de scénario.'
+			'Les lignes 1 à 3 portent la mesure sous forme de données : `limit: 25, period: 5.minutes`. Change le nombre, et le seuil de réussite du scénario change avec.',
+			'Les lignes 9 à 21 sont la réponse : un `429` et trois en-têtes qui donnent la limite, les tentatives restantes et l’heure de remise à zéro de la fenêtre.',
+			'Les lignes 5 à 7 ajoutent une deuxième limite pour un deuxième stimulus. Un attaquant qui répartit les essais sur un compte entre beaucoup d’IP reste sous la limite par IP ; la limite de 25 par heure et par compte l’arrête. [`throttleable_remote_ip`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/config/initializers/rack_attack.rb#L20-L30) compte aussi tout un `/64` IPv6 comme une seule adresse : changer d’adresse dans le même réseau ne sert à rien.',
+			'L’environnement apparaît dans le stockage du cache. Si Redis tombe, le cache Rails [avale l’erreur et renvoie `nil`](https://github.com/rails/rails/blob/c3466ea00d7121798e3aa3144ffdf7174b81d8cb/activesupport/lib/active_support/cache/redis_cache_store.rb#L490-L503), et Rack::Attack compte `nil` comme 1 (`Cache#do_count`, dans les sources). Chaque tentative ressemble alors à la première : la limite fait du fail open.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Les mots flous deviennent des tests. « Protéger les comptes » devient « au plus 25 essais par IP et par fenêtre de 5 minutes atteignent la vérification du mot de passe ».',
-			'Les désaccords deviennent concrets : on discute de 25 ou 100 tentatives, pas de « assez sécurisé ».',
-			'Les scénarios font de bons tests d’acceptation et de bonnes checklists de revue. Ils trouvent aussi les cas manquants, comme un attaquant avec un millier d’adresses IP.'
+			'La QA peut tester l’objectif : envoyer 1000 connexions depuis une IP et vérifier qu’au plus 25 par fenêtre de 5 minutes atteignent la vérification du mot de passe.',
+			'L’équipe discute d’un nombre, 25 ou 100 tentatives, au lieu de discuter de « assez sécurisé ».',
+			'Écrire un deuxième scénario a fait apparaître un deuxième attaquant, un compte attaqué depuis beaucoup d’IP, et Mastodon a une limite pour lui.'
 		],
 		cost: [
-			'Les écrire demande une vraie réflexion, et ils te forcent à découvrir ce que tu ne sais pas (que deviennent les limites quand Redis est en panne ?).',
-			'Trop de scénarios, c’est du bruit. Écris-les d’abord pour tes trois caractéristiques principales.',
-			'Un nombre peut être faux. Mets la limite trop bas, et tout un bureau derrière une seule adresse IP se retrouve bloqué.'
+			'Chaque scénario demande de la réflexion, et il montre ce que tu ne sais pas encore, par exemple ce que fait la limite quand Redis est en panne.',
+			'Chaque scénario demande un test et un responsable. Commence par tes trois caractéristiques principales.',
+			'Avec une limite trop basse, tout un bureau derrière une seule adresse IP se retrouve bloqué.'
 		]
 	},
 	task: {
 		prompt: 'Écris le scénario pour le même attaquant, mais **avec Redis en panne**. Puis choisis ce que la limite de connexion doit faire : fail open (le comportement actuel), fail closed, ou se rabattre sur un compteur dans la mémoire de chaque processus applicatif.',
 		hint: 'Chaque choix protège une caractéristique différente. Demande-toi qui souffre pendant la panne : l’attaquant, ou chaque utilisateur honnête qui veut se connecter.',
 		answer: [
-			'**Source :** attaquant avec des mots de passe fuités. **Stimulus :** 1000 connexions en 5 minutes. **Artefact :** les limites de connexion. **Environnement :** Redis injoignable pendant 10 minutes.',
-			'**Fail open** (ce que fait le code aujourd’hui) : les connexions continuent de marcher pour tout le monde, et l’attaquant a 10 minutes sans limite. La disponibilité gagne, la sécurité perd.',
-			'**Fail closed :** refuser toutes les connexions tant que le compteur est injoignable. L’attaquant est arrêté, et chaque utilisateur honnête aussi. La sécurité gagne, la disponibilité perd.',
-			'**Repli local :** chaque processus compte dans sa propre mémoire. Les limites s’appliquent toujours, mais elles sont multipliées par le nombre de processus, et un redémarrage les remet à zéro. Une réponse intermédiaire, avec plus de code à maintenir.',
-			'**Réponse et mesure**, par exemple : « les connexions continuent de marcher ; au plus 25 × (nombre de processus web) tentatives par IP toutes les 5 minutes atteignent la vérification du mot de passe tant que Redis est en panne. » La tienne peut être différente. Ce qui compte, c’est qu’elle ait un nombre.'
+			'Source : un attaquant avec des mots de passe fuités. Stimulus : 1000 connexions en 5 minutes. Artefact : les limites de connexion. Environnement : Redis injoignable pendant 10 minutes.',
+			'Fail open, ce que fait le code aujourd’hui : les connexions marchent pour tout le monde, et l’attaquant a 10 minutes sans limite.',
+			'Fail closed : toutes les connexions sont refusées tant que le compteur est injoignable. L’attaquant est arrêté, et chaque utilisateur honnête aussi.',
+			'Repli local : chaque processus compte dans sa propre mémoire. La limite s’applique toujours, mais elle est multipliée par le nombre de processus, et un redémarrage la remet à zéro. Tu as aussi plus de code à maintenir.',
+			'Une réponse et une mesure possibles : « les connexions continuent de marcher ; au plus 25 × (nombre de processus web) tentatives par IP toutes les 5 minutes atteignent la vérification du mot de passe tant que Redis est en panne. » Tes nombres peuvent être différents, mais la mesure doit être un nombre.'
 		]
 	},
 	quiz: [
 		{
-			q: 'Qu’est-ce qui transforme « le système doit être rapide » en quelque chose de testable ?',
+			q: 'Qu’est-ce qui rend « le système doit être rapide » testable ?',
 			options: [
 				'L’écrire comme exigence dans un ADR que toute l’équipe valide',
 				'Réécrire le chemin critique dans un langage plus rapide, comme Go ou Rust',
@@ -116,7 +115,7 @@ export default {
 				'Ajouter un cache devant la base pour que la plupart des lectures soient rapides'
 			],
 			answer: 2,
-			why: 'La mesure, c’est la ligne entre réussi et raté. Sans elle, personne ne peut dire si la conception répond au besoin.'
+			why: 'Avec une mesure, un test de charge réussit ou échoue : le p95 reste sous 300 ms à 200 requêtes par seconde, ou pas. Sans elle, personne ne peut dire si la conception répond au besoin.'
 		},
 		{
 			q: 'Dans un scénario de qualité, l’**environnement** décrit…',
@@ -138,10 +137,13 @@ export default {
 				'Chaque tentative est comptée comme la première de sa fenêtre, donc rien n’est limité'
 			],
 			answer: 3,
-			why: 'Le cache Redis de Rails renvoie `nil` sur les erreurs de connexion, et Rack::Attack lit `nil` comme un compte de 1. Le contrôle fait du fail open. Un scénario avec « Redis en panne » comme environnement, c’est ce qui te permet de décider si c’est ce que tu veux.'
+			why: 'Le cache Redis de Rails renvoie `nil` sur les erreurs de connexion, et Rack::Attack lit `nil` comme un compte de 1. Aucune tentative n’est limitée tant que Redis est en panne.'
 		}
 	],
-	takeaway: 'S’il n’y a pas de nombre, c’est un souhait. Source, stimulus, artefact, environnement, réponse, mesure.',
+	recall: {
+		q: 'Quelle partie d’un scénario de qualité le rend testable, et que vaut-elle pour la limite de connexion de Mastodon ?',
+		a: 'La mesure de réponse. Pour Mastodon : au plus 25 tentatives de connexion par IP et par fenêtre de 5 minutes atteignent la vérification du mot de passe.'
+	},
 	sources: [
 		{ title: 'Mastodon, config/initializers/rack_attack.rb', url: `${MASTODON}/config/initializers/rack_attack.rb#L148-L172` },
 		{ title: 'Mastodon docs, API rate limits', url: 'https://docs.joinmastodon.org/api/rate-limits/' },

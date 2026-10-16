@@ -17,16 +17,24 @@
 		/** @param {PointerEvent} e */
 		const follow = (e) => view?.look(e.clientX, e.clientY);
 		const leave = () => view?.look(-1e4, -1e4);
+		/** @param {PointerEvent} e A tap on the cube itself is for the cube, so it stays put. */
+		const tap = (e) => e.pointerType === 'touch' && e.target !== canvas && view?.poke(e.clientX, e.clientY);
 		// three.js is large, so it loads only once the page is up, in its own chunk.
 		import('#lib/companion-scene.js').then(({ createScene }) => {
 			if (gone || !canvas) return;
-			view = createScene(canvas, { color: untrack(() => color), still: matchMedia('(prefers-reduced-motion: reduce)').matches });
+			view = createScene(canvas, {
+				color: untrack(() => color),
+				still: matchMedia('(prefers-reduced-motion: reduce)').matches,
+				touch: matchMedia('(pointer: coarse)').matches
+			});
 		});
 		addEventListener('pointermove', follow, { passive: true });
+		addEventListener('pointerdown', tap, { passive: true });
 		document.documentElement.addEventListener('pointerleave', leave);
 		return () => {
 			gone = true;
 			removeEventListener('pointermove', follow);
+			removeEventListener('pointerdown', tap);
 			document.documentElement.removeEventListener('pointerleave', leave);
 			view?.dispose();
 		};

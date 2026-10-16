@@ -96,6 +96,17 @@
 	--ring: oklch(0.7 calc(var(--chroma) * 0.78) var(--hue));
 }
 
+/* Shiki writes both themes as variables; the page's own muted panel stays the background. */
+.code pre {
+	font: inherit;
+}
+.code span {
+	color: var(--shiki-light);
+}
+.dark .code span {
+	color: var(--shiki-dark);
+}
+
 @theme inline {
 	--font-sans: 'Inter Variable', sans-serif;
 	--color-brand: var(--brand);

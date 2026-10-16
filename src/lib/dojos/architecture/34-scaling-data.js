@@ -9,17 +9,15 @@ export default {
 	title: 'Scaling data',
 	minutes: 10,
 	hook: [
-		'Your ticketing SaaS keeps every customer\'s tickets in one Postgres server. Each month it holds more rows and takes more writes. One day **a single database is not enough**.',
-		'A bigger machine buys time, once. After that there are two problems with two fixes. **Too many reads**: keep copies, called replicas, and spread the reads over them. **Too much data or too many writes**: copies do not help, since every copy takes every write. You have to **split the data**, so each node holds only part of it.',
-		'Splitting is a one-way door (day 5). Once rows are spread by a key, every query either **names that key and hits one place, or asks everyone**. Today: how Discourse places each site with a directory, how Kafka places each event by hashing its key, and what a query without the key costs.'
+		'Your ticketing SaaS keeps every customer\'s tickets in one Postgres server. Each month it holds more rows and takes more writes. One day **one Postgres server can no longer keep up**.',
+		'A bigger machine helps until you reach the biggest machine you can buy. If the problem is too many reads, keep copies, called replicas, and spread the reads over them. If the problem is too much data or too many writes, copies do not help, since every copy takes every write. Then you have to **split the data**, so each node holds only part of it.',
+		'Splitting is a one-way door (day 5): undoing it means moving every row again. Once rows are spread by a key, a query that **names that key reads one place**, and a query without it asks every node. Discourse places each site with a directory, and Kafka places each event by hashing its key.'
 	],
 	terms: [
-		{ term: 'Partition (shard)', def: 'A slice of the data, held by one node or one cluster. Each row lives in exactly one partition. Sharding is partitioning across machines.' },
+		{ term: 'Partition (shard)', def: 'A slice of the data, held by one node or one cluster. Each row lives in exactly one partition, and sharding puts the partitions on different machines.' },
 		{ term: 'Partition key', def: 'The field that decides which partition a row goes to. A query that names it reads one partition. A query that does not must ask them all.' },
 		{ term: 'Directory placement', def: 'A lookup table records where each key lives, instead of computing it from a hash. Easy to add a node to, but the table itself must always be readable.' },
-		{ term: 'Replica', def: 'A copy of a partition on another node. It adds read capacity and survives a node loss. It adds no write capacity: every write goes to every copy.' },
-		{ term: 'Scatter-gather', def: 'Send a query to every partition and merge the answers. Its cost grows with the number of partitions, and the slowest one sets the pace.' },
-		{ term: 'Hot partition', def: 'One key with far more data or traffic than the others. Adding nodes does not help it: it still lives in one place.' }
+		{ term: 'Replica', def: 'A copy of a partition on another node. It adds read capacity and survives a node loss. It adds no write capacity: every write goes to every copy.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['req(["Request for help.acme.example"]) --> app["Ticketing app"]', 'app -->|"which database?"| dir[("Directory: tenant to database")]'],
 				highlight: ['app', 'dir'],
-				note: '**The partition key is the tenant.** Before any query, the app looks up where this tenant lives. Discourse multisite works this way: a config file maps each site\'s host names to its own database. This is a **directory**: placement is written down, not computed.'
+				note: 'The partition key is the tenant, so before any query the app looks up where this tenant lives. Discourse multisite works this way: a config file maps each site\'s host names to its own database. That lookup table is a **directory**: the placement is written down instead of computed from the key.'
 			},
 			{
 				add: ['app -->|"tenants 1 to 500"| db1[("Postgres A: full, no new tenants")]', 'app -->|"new tenants"| db2[("Postgres B")]'],
 				highlight: ['db1', 'db2'],
-				note: 'When server A is full, add server B and send **new tenants** there. Old ones stay where they are. Nothing is moved, so nothing is rebalanced. A keeps growing as its tenants add tickets.'
+				note: 'When server A is full, add server B and send **new tenants** there. The tenants already on A stay on A, so no data moves. A keeps growing as its tenants add tickets.'
 			},
 			{
 				add: ['app -->|"ticket.updated, key = ticket id"| topic["Kafka topic: 12 partitions"]'],
 				highlight: ['topic'],
-				note: '**Hash placement.** For events, the app hands Kafka a key. The producer hashes the key and takes it modulo the partition count. **Same key, same partition**, so one ticket\'s events stay in order. No directory to read, but the count is now part of the address.'
+				note: 'Events use hash placement: the app hands Kafka a key. The producer hashes the key and takes it modulo the partition count. **Same key, same partition**, so one ticket\'s events stay in order. There is no directory to read, but a new partition count sends keys to new partitions.'
 			},
 			{
 				add: ['topic --> rep["Each partition: 1 leader, 2 followers"]'],
 				highlight: ['rep'],
-				note: '**Replicas inside each partition.** With replication factor 3, all writes go to the partition leader and the followers copy its log. The copies survive a broker loss and can serve reads. They add **no write capacity**: each one takes every write.'
+				note: 'With replication factor 3, each partition has a leader and two followers. All writes go to the partition leader and the followers copy its log. The copies survive a broker loss and can serve reads. They add **no write capacity**: each one takes every write.'
 			},
 			{
 				add: ['report["Report: open tickets of every tenant"] -->|"scatter"| db1', 'report -->|"scatter"| db2'],
 				highlight: ['report'],
-				note: '**A query without the key asks everyone.** "Open tickets of tenant 42" reads one database. "Open tickets across all tenants" visits every one and merges the answers. Add a third server and the report has one more database to wait for.'
+				note: '"Open tickets of tenant 42" names the key and reads one database. "Open tickets across all tenants" has no key, so it visits every database and merges the answers. Add a third server and the report has one more database to wait for.'
 			}
 		]
 	},
@@ -78,26 +76,25 @@ export default {
         }
     }`,
 		notes: [
-			'**Three ways to place a record.** The caller names a partition, a custom partitioner picks one, or the key decides. With no key, `UNKNOWN_PARTITION` leaves the choice to the [built-in partitioner](' + PRODUCER + '/internals/BuiltInPartitioner.java#L33-L40), which sticks to one partition for a batch and then moves on. Keyless records spread over the partitions, with no order between them.',
-			'**The hash is the address.** [`partitionForKey`](' + PRODUCER + '/internals/BuiltInPartitioner.java#L410-L415) is the murmur2 hash of the key, made positive, modulo the partition count. The [design doc](' + REPO + '/docs/design/design.md?plain=1#L127) gives the point: "if the key chosen was a user id then all data for a given user would be sent to the same partition". It also means a user with ten times the traffic is ten times hotter on **one** partition.',
-			'**The count is part of the address.** The [operations doc](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L63) warns that after adding partitions "messages with the same key may be routed to different partitions", and "Kafka will not attempt to automatically redistribute existing data". And [you cannot go back](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L98): "Kafka does not currently support reducing the number of partitions for a topic."',
-			'**Replicas do not split writes.** The [design doc](' + REPO + '/docs/design/design.md?plain=1#L285-L287): "All writes go to the leader of the partition, and reads can go to the leader or the followers". Followers "consume messages from the leader just as a normal Kafka consumer would".',
-			'**The directory version.** Discourse\'s [sample `multisite.yml`](' + DISCOURSE + '/config/multisite.yml.production-sample#L1-L14) gives each site its own `database` and its own `host_names`. The [multisite guide](' + DISCOURSE + '/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md?plain=1#L7-L34) says "A multisite server uses a different DB and hostname for each site", and that rake tasks target one site through `RAILS_DB`. One migration becomes one per site.'
+			'Lines 2 and 3 use a partition the caller names, lines 5 to 13 ask a custom partitioner, and line 17 lets the key decide. With no key, line 19 returns `UNKNOWN_PARTITION`, and the [built-in partitioner](' + PRODUCER + '/internals/BuiltInPartitioner.java#L33-L40) picks: it sticks to one partition for a batch and then moves on. Keyless records spread over the partitions, with no order between them.',
+			'Line 17 calls [`partitionForKey`](' + PRODUCER + '/internals/BuiltInPartitioner.java#L410-L415): the murmur2 hash of the key, made positive, modulo the partition count. The design doc gives the reason: "if the key chosen was a user id then all data for a given user would be sent to the same partition". A user with ten times the traffic then puts ten times the load on **one** partition.',
+			'The partition count is in that formula, and the [operations doc](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L63) warns that after adding partitions "messages with the same key may be routed to different partitions", and "Kafka will not attempt to automatically redistribute existing data". It also says: "Kafka does not currently support reducing the number of partitions for a topic."',
+			'The [design doc](' + REPO + '/docs/design/design.md?plain=1#L285-L287) shows why replicas do not split writes: "All writes go to the leader of the partition, and reads can go to the leader or the followers". Followers "consume messages from the leader just as a normal Kafka consumer would".',
+			'Discourse uses directory placement: its [sample `multisite.yml`](' + DISCOURSE + '/config/multisite.yml.production-sample#L1-L14) gives each site its own `database` and its own `host_names`. The multisite guide says "A multisite server uses a different DB and hostname for each site", and that rake tasks target one site through `RAILS_DB`. A schema migration therefore runs once per site.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Capacity grows by adding servers or partitions, not by buying one bigger machine that has a ceiling.',
+			'You add capacity by adding servers or partitions, instead of buying one bigger machine that has a ceiling.',
 			'Partitioning by tenant matches how the data is read: almost every request names one tenant, so it lands on one database.',
 			'A query that names the partition key costs about the same with 10 nodes or 100.',
 			'Replicas add read capacity and let a node die without losing data (day 9).'
 		],
 		cost: [
-			'**Queries without the key ask everyone.** A report across all tenants visits every database. A consumer that needs every event reads every partition.',
-			'**The key is hard to change.** Rows were placed by it. Changing it means copying the data into a new layout, a migration of its own (day 32).',
-			'**Rebalancing is work you must design.** A hash moves keys when the count changes. A directory moves nothing, so an old server stays as full as it was the day it stopped taking tenants.',
-			'**A hot key stays hot.** One tenant with ten times the data still lives on one database, or one partition.',
-			'**Replicas lag or cost quorum reads.** A replica updated asynchronously can answer with data older than the write you just made (day 16). Waiting for more copies costs latency instead.'
+			'A report across all tenants visits every database, and a consumer that needs every event reads every partition.',
+			'Rows were placed by the key, so changing the key means copying the data into a new layout, a migration of its own (day 32).',
+			'A hash moves keys when the partition count changes. A directory moves nothing, so an old server stays as full as it was the day it stopped taking tenants.',
+			'A replica updated asynchronously can answer with data older than the write you just made (day 16). Quorum reads avoid that, but each read waits for more copies.'
 		]
 	},
 	task: {
@@ -143,11 +140,16 @@ export default {
 				'The request\'s host name, looked up in `multisite.yml`'
 			],
 			answer: 3,
-			why: 'That is directory placement: each site\'s entry lists its `host_names` and its own `database`. A new site is a new entry, and nothing else moves.'
+			why: 'Discourse uses directory placement: each site\'s entry lists its `host_names` and its own `database`. A new site is a new entry, and nothing else moves.'
 		}
 	],
-	takeaway: 'Replicas scale reads, partitions scale data and writes. Pick the partition key from your most common query, and know what every query without it will cost.',
+	recall: {
+		q: 'Which adds write capacity, replicas or partitions, and how does Kafka pick a keyed record\'s partition?',
+		a: 'Partitions, since every replica takes every write. Kafka takes the murmur2 hash of the key modulo the partition count, so a key stays on one partition until the count changes.'
+	},
 	sources: [
+		{ title: 'Apache Kafka, Design: semantic partitioning by key', url: `${REPO}/docs/design/design.md?plain=1#L127` },
+		{ title: 'Apache Kafka, Operations: reducing partitions', url: `${REPO}/docs/operations/basic-kafka-operations.md?plain=1#L98` },
 		{ title: 'Apache Kafka, Introduction: partitions and replication', url: `${REPO}/docs/getting-started/introduction.md?plain=1#L83-L87` },
 		{ title: 'Apache Kafka, Design: replication', url: `${REPO}/docs/design/design.md?plain=1#L281-L287` },
 		{ title: 'Discourse, Set up a multisite development environment', url: `${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md?plain=1` },

@@ -8,12 +8,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'Ta boutique en ligne a une règle de couches comme celle du jour 10 : `web` appelle `service`, `service` appelle `repository`, jamais dans l’autre sens. Rien ne la vérifie. L’an prochain, quelqu’un de pressé importe un helper web depuis un repository. La CI est verte, le relecteur ne voit rien, et **la règle disparaît sans que personne ait décidé de l’abandonner**.',
-		'Les règles qui vivent seulement dans un document ou dans la tête d’un relecteur dérivent. La solution est la même que pour les fonctionnalités : un test. Pas pour la fonctionnalité, pour la **caractéristique d’architecture**.',
-		'Le livre Building Evolutionary Architectures appelle ça une **fitness function**. Comme le dit un article de Thoughtworks : « Les fitness functions décrivent à quel point une architecture est proche d’atteindre un objectif architectural. » Apache Kafka en a une pour ses couches, et elle tourne sur chaque pull request. Allons la lire.'
+		'Quand une règle n’existe que dans un document ou dans la tête d’un relecteur, rien n’échoue le jour où le code la viole. Un test peut la vérifier, comme les tests vérifient les fonctionnalités. Ce test-là vérifie une caractéristique d’architecture, par exemple les couches.',
+		'Le livre Building Evolutionary Architectures appelle ça une **fitness function**. Un article de Thoughtworks : « Les fitness functions décrivent à quel point une architecture est proche d’atteindre un objectif architectural. » Apache Kafka en a une pour ses couches, et elle tourne sur chaque pull request.'
 	],
 	terms: [
-		{ term: 'Fitness function', def: 'Une vérification objective d’une caractéristique d’architecture. La plupart sont automatisées et donnent un succès ou un échec, pas une opinion. Le livre admet aussi des vérifications manuelles, qui demandent un humain.' },
-		{ term: 'Architecture évolutive', def: 'Une architecture conçue pour changer par petits pas. Selon les auteurs, elle rend « explicite ce que “adapté” veut dire, avec autant d’automatisation que possible ».' },
+		{ term: 'Fitness function', def: 'Une vérification objective d’une caractéristique d’architecture. La plupart sont automatisées et font passer ou échouer le build. Le livre admet aussi des vérifications manuelles, qui demandent un humain.' },
 		{ term: 'Dérive', def: 'Le code qui s’éloigne lentement d’une décision, un changement d’apparence raisonnable à la fois.' },
 		{ term: 'Allowlist', def: 'Une règle qui interdit tout sauf ce qu’elle nomme. Les exceptions connues sont listées une par une, donc une nouvelle violation ne peut pas passer inaperçue.' },
 		{ term: 'Déclenchée ou continue', def: 'Les vérifications déclenchées tournent sur un événement (un commit, une release, un lancement manuel). Les continues tournent en permanence, comme le monitoring de production.' }
@@ -24,7 +23,7 @@ export default {
 			{
 				add: ['char["Caractéristique : couches propres"] -->|rendue mesurable| scen["Règle : common n’importe jamais clients"]'],
 				highlight: ['char', 'scen'],
-				note: 'Pars d’une caractéristique (jour 2) et rends-la assez précise pour être vérifiée. « Des couches propres », c’est une impression. « Le package `common` n’importe jamais le package `clients` », c’est une règle qu’une machine peut tester.'
+				note: 'Pars d’une caractéristique (jour 2) et rends-la assez précise pour être vérifiée. Aucun outil ne sait vérifier « des couches propres ». Une machine sait tester « le package `common` n’importe jamais le package `clients` ».'
 			},
 			{
 				add: ['scen -->|automatisée par| ff["Checkstyle ImportControl"]', 'ff -->|lit| xml["import-control.xml"]'],
@@ -34,17 +33,17 @@ export default {
 			{
 				add: ['ff -->|succès| green["La décision tient toujours"]', 'ff -->|échec| red["Build en échec, PR bloquée"]'],
 				highlight: ['green', 'red'],
-				note: 'Le résultat est **succès ou échec**, rien entre les deux. Un build rouge, c’est une discussion sur l’architecture, avant que le changement soit mergé.'
+				note: 'Checkstyle fait passer ou échouer le build. Un build en échec bloque la pull request, donc l’équipe discute de l’import avant de merger le changement.'
 			},
 			{
 				add: ['pr(["Chaque pull request"]) -->|gradlew check| ff'],
 				highlight: ['pr'],
-				note: 'Qui la lance ? Personne n’a besoin d’y penser. Le job de CI lance `./gradlew check`, et la tâche `check` de Gradle inclut toutes les tâches Checkstyle. Une règle structurelle peu coûteuse comme celle-ci tourne sur **chaque** pull request.'
+				note: 'Le job de CI lance `./gradlew check`, et la tâche `check` de Gradle inclut toutes les tâches Checkstyle. Cette règle structurelle tourne donc sur **chaque** pull request, sans que personne la lance à la main.'
 			},
 			{
 				add: ['load["Vérification lente : test de charge avec une limite de latence"] -->|la nuit ou avant une release| green', 'load --> red'],
 				highlight: ['load'],
-				note: 'Les vérifications lentes, comme un test de charge de 20 minutes, ne peuvent pas bloquer chaque PR. Elles sont plutôt **déclenchées** selon un planning ou à une release. Adapte le déclencheur au coût.'
+				note: 'Une vérification lente, comme un test de charge de 20 minutes, ne peut pas bloquer chaque PR. Tu la **déclenches** plutôt selon un planning ou avant une release.'
 			}
 		]
 	},
@@ -66,22 +65,22 @@ export default {
     <allow class="org.apache.kafka.common.message.ApiMessageType" exact-match="true" />
     <disallow pkg="org.apache.kafka.clients" />`,
 		notes: [
-			'`kafka` est le package du cœur Scala du broker. « Personne ne dépend du serveur », c’est une règle de couches du jour 10, écrite pour qu’une machine puisse la faire respecter.',
-			'Lis le bloc `common` dans l’ordre. Checkstyle retient la **première** règle qui correspond. Donc deux classes de `clients` nommées sont autorisées, puis tout autre import depuis `clients` est refusé. Les exceptions connues sont listées par leur nom, et une nouvelle exception demande un changement visible dans ce fichier.',
-			'Un import qui ne correspond à aucune règle est **refusé par défaut**, selon la [doc Checkstyle](https://checkstyle.sourceforge.io/checks/imports/importcontrol.html). Le fichier est une allowlist, pas une liste d’interdictions.',
-			`C’est branché, pas optionnel. Le [build](${KAFKA}/build.gradle#L870-L886) fait pointer chaque sous-projet vers ce fichier, et le [job de CI](${KAFKA}/.github/workflows/build.yml#L137-L158) lance \`./gradlew check\`, puis une étape qui annote les erreurs Checkstyle en cas d’échec.`
+			'Lignes 5 et 6 : `kafka` est le package du cœur Scala du broker. La ligne 6 refuse tout import depuis ce package, et une machine fait ainsi respecter la règle du jour 10 « personne ne dépend du serveur ».',
+			'Les lignes 8 à 12 forment le bloc `common`, et Checkstyle applique la **première** règle qui correspond. Les lignes 9 et 10 autorisent deux classes de `clients` nommées, et la ligne 12 refuse tout autre import depuis `clients`. Une nouvelle exception demande une nouvelle ligne dans ce fichier, et un relecteur la voit.',
+			'Un import qui ne correspond à aucune règle est refusé par défaut, selon la [doc Checkstyle](https://checkstyle.sourceforge.io/checks/imports/importcontrol.html). Le fichier est donc une allowlist : chaque dépendance autorisée y est nommée.',
+			`Le \`build.gradle\` de Kafka fait pointer chaque sous-projet vers ce fichier (lien dans les sources). Le [job de CI](${KAFKA}/.github/workflows/build.yml#L137-L158) lance \`./gradlew check\`, puis une étape qui annote les erreurs Checkstyle en cas d’échec.`
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Les décisions sont appliquées par une machine, pas par la mémoire d’un relecteur.',
+			'Checkstyle refuse un mauvais import sur chaque pull request, même quand le relecteur le rate.',
 			'La dérive est attrapée sur la pull request qui la cause, quand la correction tient en une ligne.',
-			'Une caractéristique devient une règle que l’équipe peut lire et discuter, au lieu d’une impression.'
+			'La règle de couches est écrite dans `import-control.xml`, que l’équipe peut lire et modifier dans une pull request relue.'
 		],
 		cost: [
 			'Chaque vérification est du code à maintenir, et elle casse quand l’architecture change volontairement.',
-			'Les vérifications instables (tests de performance sur des machines de CI partagées) apprennent aux gens à ignorer le rouge. C’est pire que pas de vérification du tout.',
-			'Les vérifications lentes ne peuvent pas tourner sur chaque PR, donc elles tournent rarement, et une vérification que personne ne lance ne protège rien.'
+			'Les vérifications instables (tests de performance sur des machines de CI partagées) échouent au hasard, et les gens prennent l’habitude de merger sur un build rouge.',
+			'Un test de charge de 20 minutes ne peut pas tourner sur chaque PR. Il tourne selon un planning, et quelqu’un doit lire son résultat.'
 		]
 	},
 	task: {
@@ -101,7 +100,7 @@ export default {
 			q: 'Qu’est-ce qui fait d’une vérification une **fitness function** plutôt qu’un test ordinaire ?',
 			options: ['Elle teste une fonctionnalité métier de bout en bout, de l’interface jusqu’à la base de données', 'Elle donne une évaluation objective d’une caractéristique d’architecture, idéalement automatisée en succès ou échec', 'Elle ne tourne qu’en production', 'Elle est écrite et possédée par l’architecte, pas par les développeurs qui maintiennent le code'],
 			answer: 1,
-			why: 'La cible est une « -ilité » (couches, fiabilité, latence), pas une fonctionnalité. Et elle doit être objective, sinon ce n’est qu’une opinion. Le livre admet aussi des fitness functions manuelles, mais ce sont les automatisées qui protègent chaque changement.'
+			why: 'Elle vérifie une « -ilité » comme les couches, la fiabilité ou la latence. Elle est objective : toute personne qui la lance obtient le même succès ou échec. Le livre admet aussi des fitness functions manuelles, mais ce sont les automatisées qui protègent chaque changement.'
 		},
 		{
 			q: 'Un fichier Java du package `common` de Kafka importe une classe qu’aucune règle de `import-control.xml` ne mentionne. Que fait Checkstyle ?',
@@ -113,10 +112,13 @@ export default {
 			q: 'Un test de charge prend 20 minutes. Où a-t-il sa place ?',
 			options: ['Sur chaque commit, en bloquant le merge tant que le test de charge complet n’est pas passé', 'Nulle part, un test de 20 minutes est trop lent pour apprendre quoi que ce soit à l’équipe', 'Seulement après qu’un client a signalé de la lenteur, pour viser un vrai problème', 'Selon un planning ou avant une release, pendant que les vérifications structurelles légères tournent à chaque PR'],
 			answer: 3,
-			why: 'Adapte le déclencheur au coût. Les vérifications statiques rapides protègent chaque changement. Les dynamiques lentes tournent selon un planning ou comme barrière de release, et quelqu’un doit être responsable du résultat.'
+			why: 'Les vérifications statiques rapides peuvent tourner sur chaque changement sans ralentir l’équipe. Les dynamiques lentes tournent selon un planning ou comme barrière de release, et quelqu’un doit être responsable du résultat.'
 		}
 	],
-	takeaway: 'Une décision que personne ne vérifie finira par dériver. Transforme les plus importantes en succès ou échec automatisé, et assure-toi que quelque chose les lance.',
+	recall: {
+		q: 'Quelle fitness function protège les couches de Kafka, et quand tourne-t-elle ?',
+		a: 'ImportControl de Checkstyle, qui lit `checkstyle/import-control.xml`. La CI la lance avec `./gradlew check` sur chaque pull request, et un import sans règle correspondante fait échouer le build.'
+	},
 	sources: [
 		{ title: 'Thoughtworks, Fitness function-driven development (Paul, Wang, 2019)', url: 'https://www.thoughtworks.com/en-us/insights/articles/fitness-function-driven-development' },
 		{ title: 'Parsons, Ford, Kua, Sadalage, Building Evolutionary Architectures, 2nd ed.', url: 'https://www.thoughtworks.com/en-us/insights/books/building-evolutionaryarchitectures-second-edition' },
@@ -124,6 +126,7 @@ export default {
 		{ title: 'Ford, Parsons, Kua, Evolutionary Architecture (book site, 1st ed.)', url: 'https://evolutionaryarchitecture.com/' },
 		{ title: 'Checkstyle docs, ImportControl', url: 'https://checkstyle.sourceforge.io/checks/imports/importcontrol.html' },
 		{ title: 'Apache Kafka, checkstyle/import-control.xml', url: `${KAFKA}/checkstyle/import-control.xml#L21-L55` },
-		{ title: 'Apache Kafka, CI build workflow (Compile and Check)', url: `${KAFKA}/.github/workflows/build.yml#L111-L158` }
+		{ title: 'Apache Kafka, CI build workflow (Compile and Check)', url: `${KAFKA}/.github/workflows/build.yml#L111-L158` },
+		{ title: 'Apache Kafka, build.gradle (Checkstyle config)', url: `${KAFKA}/build.gradle#L870-L886` }
 	]
 };

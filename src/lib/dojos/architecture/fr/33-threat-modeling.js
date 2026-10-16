@@ -10,15 +10,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'Ta boutique ajoute une petite fonctionnalité : un vendeur colle l’URL d’une image, et **ton serveur télécharge l’image** pour la fiche produit. Elle sort en une journée. Discourse a la même forme : quand quelqu’un colle un lien dans un message, son serveur peut récupérer la page pour construire un aperçu (un onebox).',
-		'Alors, qu’est-ce qui empêche un vendeur de coller `http://169.254.169.254/` (l’adresse des métadonnées du cloud) ou `http://10.0.0.5/admin`, et de faire **récupérer ça par ton serveur depuis l’intérieur de ton réseau** ? Ou un fichier de 5 Go, mille fois ? Lire le code ligne par ligne ne te le dira pas, parce que tu ne sais pas encore quelles questions poser. Il te faut **une carte des endroits où les données passent entre tes mains**, et **une courte liste de questions** à poser à chaque passage.',
-		'C’est ça, un **threat model** (modèle de menaces). Le Threat Modeling Manifesto le résume en quatre questions : « Sur quoi travaillons-nous ? Qu’est-ce qui peut mal tourner ? Qu’allons-nous faire ? Avons-nous fait du bon travail ? » Le jour 3 disait que « sécurisé » n’est pas une exigence. Un threat model, c’est la façon de trouver les scénarios qui en sont.'
+		'Alors, qu’est-ce qui empêche un vendeur de coller `http://169.254.169.254/` (l’adresse des métadonnées du cloud) ou `http://10.0.0.5/admin`, et de faire **récupérer ça par ton serveur depuis l’intérieur de ton réseau** ? Ou un fichier de 5 Go, mille fois ? Lire le code ligne par ligne ne te le dira pas, parce que tu ne sais pas encore quelles questions poser. Il te faut un dessin des endroits où des données externes entrent dans ton système, et une courte liste de questions à poser à chaque entrée.',
+		'Un **threat model** (modèle de menaces) te donne les deux. Le Threat Modeling Manifesto le résume en quatre questions : « Sur quoi travaillons-nous ? Qu’est-ce qui peut mal tourner ? Qu’allons-nous faire ? Avons-nous fait du bon travail ? » Au jour 3, tu as écrit « sécurisé » sous forme de scénarios testables, et le threat model te dit quels scénarios écrire.'
 	],
 	terms: [
-		{ term: 'Threat model (modèle de menaces)', def: 'Une réponse écrite à : qu’est-ce qu’on construit, qu’est-ce qui peut mal tourner, que fait-on pour chaque point, et a-t-on vérifié. Gardé à côté de la conception, mis à jour quand la conception change.' },
 		{ term: 'Diagramme de flux de données', def: 'Des boîtes pour les processus et les stockages, des flèches pour les données, les parties externes dessinées à part. La carte sur laquelle se fait un threat model.' },
 		{ term: 'Trust boundary (frontière de confiance)', def: 'Une ligne sur cette carte où les données passent de quelqu’un à qui tu fais moins confiance à quelqu’un à qui tu fais plus confiance, ou l’inverse. Chaque flèche qui en traverse une est un endroit à examiner.' },
 		{ term: 'STRIDE', def: 'Six types de menaces à examiner à chaque passage : Spoofing (usurpation), Tampering (altération), Repudiation (répudiation), Information disclosure (fuite d’information), Denial of service (déni de service), Elevation of privilege (élévation de privilèges).' },
-		{ term: 'Mitigation', def: 'Ce que tu fais contre une menace : une vérification, une limite, un changement de conception. Ou une décision écrite d’accepter le risque.' },
 		{ term: 'SSRF', def: 'Server-side request forgery. L’attaquant fait récupérer une URL par ton serveur à sa place, et atteint ainsi ce que seul ton serveur peut atteindre.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['subgraph ours["Frontière de confiance : ce que nous faisons tourner"]', 'lb["Load balancer"]', 'app["Appli boutique"]', 'end', 'seller(["Navigateur du vendeur"]) -->|"POST image_url"| lb', 'lb --> app'],
 				highlight: ['seller', 'lb', 'app'],
-				note: '**Sur quoi travaillons-nous ?** Dessine le flux de données, puis la ligne autour de ce que tu fais tourner. Le navigateur est dehors : tout ce qu’il envoie, en-tête, cookie ou URL, peut être falsifié. Chaque flèche qui **traverse la ligne** reçoit les six questions STRIDE.'
+				note: 'Pour la première question, sur quoi travaillons-nous, dessine le flux de données, puis la ligne autour de ce que tu fais tourner. Le navigateur est dehors : tout ce qu’il envoie, en-tête, cookie ou URL, peut être falsifié. Chaque flèche qui **traverse la ligne** reçoit les six questions STRIDE.'
 			},
 			{
 				add: ['lb -->|"X-Forwarded-For : adresse du client"| app'],
 				highlight: ['lb'],
-				note: '**Spoofing.** La limite de débit compte les requêtes par adresse client, et l’adresse vient d’un en-tête. Un vendeur peut envoyer son propre `X-Forwarded-For`. L’appli doit faire confiance à cet en-tête **seulement s’il vient du load balancer**, sinon n’importe qui choisit l’adresse sous laquelle il est compté.'
+				note: 'Un vendeur peut usurper son adresse (spoofing). La limite de débit compte les requêtes par adresse client, et l’adresse vient de l’en-tête `X-Forwarded-For`, qu’un vendeur peut envoyer lui aussi. L’appli doit faire confiance à cet en-tête **seulement s’il vient du load balancer**, sinon n’importe qui choisit l’adresse sous laquelle il est compté.'
 			},
 			{
 				add: ['app -->|"GET image_url"| img["Hébergeur d’images sur internet"]', 'app -.->|"bloqué : adresse privée"| internal["10.0.0.5 ou 169.254.169.254"]', 'class img ext'],
 				highlight: ['img', 'internal'],
-				note: '**Elevation of privilege**, le cas SSRF. L’URL vient de dehors, mais la requête part de l’intérieur. Résous le nom d’hôte, écarte chaque adresse privée ou réservée, et **connecte-toi seulement aux adresses qui ont passé le filtre**. Discourse fait exactement ça pour ses aperçus de liens.'
+				note: 'La SSRF est une elevation of privilege : l’URL vient de dehors, mais la requête part de l’intérieur. Résous le nom d’hôte, écarte chaque adresse privée ou réservée, et **connecte-toi seulement aux adresses qui ont passé le filtre**. Discourse fait exactement ça pour ses aperçus de liens.'
 			},
 			{
 				add: ['img -->|"octets, redirections"| app'],
 				highlight: ['img'],
-				note: '**Denial of service et tampering** au retour. Plafonne la taille, le temps et le nombre de redirections, et revérifie la cible de chaque redirection. Vérifie que les octets sont bien une image, quoi que dise le `Content-Type`.'
+				note: 'Au retour, l’hébergeur d’images peut provoquer un denial of service ou un tampering. Plafonne la taille, le temps et le nombre de redirections, et revérifie la cible de chaque redirection. Vérifie que les octets sont bien une image, quoi que dise le `Content-Type`.'
 			},
 			{
 				add: ['app --> logs[("Journal d’audit : vendeur, produit, hôte de l’URL")]'],
 				highlight: ['logs'],
-				note: '**Repudiation et information disclosure.** Journalise quel vendeur a demandé quel hôte, pour pouvoir répondre à « qui nous a fait récupérer ça ? ». Ne renvoie pas le corps de l’erreur de récupération au vendeur : il peut contenir une page interne. **Écris chaque choix**, y compris ce que tu as décidé de ne pas faire.'
+				note: 'Contre la repudiation, journalise quel vendeur a demandé quel hôte, pour pouvoir répondre à « qui nous a fait récupérer ça ? ». Contre l’information disclosure, ne renvoie pas le corps de l’erreur de récupération au vendeur : il peut contenir une page interne. **Écris chaque choix**, y compris ce que tu as décidé de ne pas faire.'
 			}
 		]
 	},
@@ -81,25 +79,25 @@ export default {
       ips
     end`,
 		notes: [
-			'**Elevation of privilege.** `PRIVATE_IP_RANGES` est construit à partir des [registres d’adresses à usage spécial de l’IANA](' + SSRF + '#L11-L51), IPv4 et IPv6 : loopback, privées, link-local (qui contient l’adresse des métadonnées du cloud), plages de documentation. Un admin peut en ajouter avec le réglage `blocked_ip_blocks`. Un hôte qui ne se résout qu’en adresses de ce genre lève `DisallowedIpError`, et rien n’est récupéré.',
-			'**Vérifie ce à quoi tu te connectes.** [`FinalDestination::HTTP#connect`](' + REPO + '/lib/final_destination/http.rb#L8-L34) filtre les adresses, puis passe **ces adresses-là** à la couche socket, via le [Connector](' + REPO + '/lib/final_destination/connector.rb#L3-L14). La vérification et la connexion utilisent la même réponse.',
-			'**Denial of service.** La même classe garde au plus cinq adresses IPv4 et cinq IPv6, [`MAX_ADDRESSES_PER_FAMILY = 5`](' + REPO + '/lib/final_destination/http.rb#L4-L6) : « Limit the total to avoid DoS via a high-ip-count DNS response. » (limiter le total pour éviter un DoS via une réponse DNS avec beaucoup d’IP). [`FinalDestination`](' + REPO + '/lib/final_destination.rb#L52-L57) suit au plus 5 redirections par défaut, et les [aperçus de liens](' + REPO + '/lib/oneboxer.rb#L538-L552) peuvent être réglés pour n’en suivre aucune.',
-			'**Un risque accepté, écrit sous forme de réglage.** [`allowed_internal_hosts`](' + SSRF + '#L64-L83) saute les vérifications pour le CDN du site, son URL de base et tout hôte listé par un admin. C’est une décision, visible dans la config, pas un trou que quelqu’un trouvera plus tard.',
-			'**Spoofing, une couche plus bas.** Le [`RemoteIp`](' + RAILS + '/actionpack/lib/action_dispatch/middleware/remote_ip.rb#L8-L32) de Rails choisit « the last-set address that is not on the list of trusted IPs » (la dernière adresse définie qui n’est pas dans la liste des IP de confiance), et prévient en majuscules : « IF YOU DON’T USE A PROXY, THIS MAKES YOU VULNERABLE TO IP SPOOFING. » La frontière décide quels en-têtes tu peux croire.'
+			'La ligne 5 refuse toute adresse de `blocked_ip_blocks` ou de `PRIVATE_IP_RANGES`. `PRIVATE_IP_RANGES` est construit à partir des [registres d’adresses à usage spécial de l’IANA](' + SSRF + '#L11-L51), IPv4 et IPv6 : loopback, privées, link-local (qui contient l’adresse des métadonnées du cloud), plages de documentation. Un admin peut ajouter des plages avec le réglage `blocked_ip_blocks`. Si aucune adresse résolue ne passe, la ligne 21 lève `DisallowedIpError`, et rien n’est récupéré.',
+			'[`FinalDestination::HTTP#connect`](' + REPO + '/lib/final_destination/http.rb#L8-L34) filtre les adresses, puis passe **ces adresses-là** à la couche socket, via le Connector. La vérification et la connexion utilisent la même réponse DNS.',
+			'Contre le denial of service, la même classe garde au plus cinq adresses IPv4 et cinq IPv6, [`MAX_ADDRESSES_PER_FAMILY = 5`](' + REPO + '/lib/final_destination/http.rb#L4-L6) : « Limit the total to avoid DoS via a high-ip-count DNS response. » (limiter le total pour éviter un DoS via une réponse DNS avec beaucoup d’IP). `FinalDestination` suit au plus 5 redirections par défaut, et les aperçus de liens peuvent être réglés pour n’en suivre aucune.',
+			'[`allowed_internal_hosts`](' + SSRF + '#L64-L83) saute les vérifications pour le CDN du site, son URL de base et tout hôte listé par un admin. Discourse note ce risque accepté dans un réglage, pour qu’un relecteur puisse le lire dans la config.',
+			'Le [`RemoteIp`](' + RAILS + '/actionpack/lib/action_dispatch/middleware/remote_ip.rb#L8-L32) de Rails a le problème du spoofing une couche plus bas. Il choisit « the last-set address that is not on the list of trusted IPs » (la dernière adresse définie qui n’est pas dans la liste des IP de confiance), et prévient en majuscules : « IF YOU DON’T USE A PROXY, THIS MAKES YOU VULNERABLE TO IP SPOOFING. » Tu ne peux croire qu’un en-tête posé par ton propre proxy.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Un travail de sécurité ciblé sur les quelques flèches qui traversent une frontière, au lieu d’être éparpillé sur chaque ligne de code.',
-			'Des menaces trouvées quand elles ne sont encore qu’une boîte sur un tableau blanc, quand la correction est un changement de conception et pas un hotfix.',
-			'Des risques acceptés écrits noir sur blanc, avec un pourquoi, pour que le prochain relecteur ne les redécouvre pas comme des bugs.',
-			'Chaque mitigation devient un test que tu peux nommer : « une URL qui se résout en 10.0.0.5 n’est jamais récupérée ».'
+			'Tu poses les questions STRIDE aux quelques flèches qui traversent une frontière, au lieu de relire chaque ligne de code.',
+			'Tu trouves les menaces quand elles ne sont qu’une boîte sur un tableau blanc, et la correction est alors un changement de conception plutôt qu’un hotfix.',
+			'Les risques acceptés, comme `allowed_internal_hosts`, sont écrits avec leur raison, et le prochain relecteur ne les signale pas comme des bugs.',
+			'Chaque mitigation te donne un test que tu peux nommer : « une URL qui se résout en 10.0.0.5 n’est jamais récupérée ».'
 		],
 		cost: [
-			'Du temps, et le modèle vieillit : une nouvelle route ou une nouvelle file est un nouveau passage auquel personne n’a posé les questions STRIDE.',
-			'Une liste de menaces n’est pas une liste de corrections. Quelqu’un doit encore les classer par impact et par probabilité.',
-			'Facile de s’arrêter aux lettres évidentes (spoofing, tampering) et de sauter repudiation et denial of service.',
-			'Chaque mitigation a un prix : bloquer une plage privée peut aussi bloquer un hôte interne légitime, et c’est pour ça que Discourse a aussi besoin d’une liste d’autorisation.'
+			'Le modèle prend du temps et se périme : une nouvelle route ou une nouvelle file est un nouveau passage auquel personne n’a posé les questions STRIDE.',
+			'Quelqu’un doit encore classer les menaces par impact et par probabilité avant que quiconque les corrige.',
+			'Un relecteur peut s’arrêter aux lettres évidentes (spoofing, tampering) et sauter repudiation et denial of service.',
+			'Bloquer une plage privée peut aussi bloquer un hôte interne légitime, donc Discourse a aussi besoin d’une liste d’autorisation.'
 		]
 	},
 	task: {
@@ -134,7 +132,7 @@ export default {
 				'Elle récupère la page, puisque l’utilisateur qui l’a collée est connecté'
 			],
 			answer: 1,
-			why: '10.0.0.0/8 fait partie de `PRIVATE_IP_RANGES`. Une fois chaque adresse résolue écartée, la liste est vide et la méthode lève « all resolved IPs were disallowed ». Être connecté dit qui a demandé, pas si le serveur a le droit d’y aller.'
+			why: '10.0.0.0/8 fait partie de `PRIVATE_IP_RANGES`. Une fois chaque adresse résolue écartée, la liste est vide et la méthode lève « all resolved IPs were disallowed ». La vérification ne regarde que les adresses résolues, donc être connecté ne change rien.'
 		},
 		{
 			q: 'Le middleware `RemoteIp` de Rails tourne sur un serveur sans proxy devant. Un client envoie `X-Forwarded-For: 203.0.113.9`. Quel est le risque ?',
@@ -145,11 +143,17 @@ export default {
 				'Le client peut se réclamer de n’importe quelle adresse, donc les limites par adresse peuvent être contournées'
 			],
 			answer: 3,
-			why: 'Son propre commentaire le dit : sans proxy, « any client can claim to have any IP address by setting the `X-Forwarded-For` header » (n’importe quel client peut prétendre avoir n’importe quelle adresse IP). Hors de la frontière, un en-tête n’est que du texte tapé par l’appelant.'
+			why: 'Son propre commentaire le dit : sans proxy, « any client can claim to have any IP address by setting the `X-Forwarded-For` header » (n’importe quel client peut prétendre avoir n’importe quelle adresse IP). Sans proxy devant, c’est le client qui écrit cet en-tête.'
 		}
 	],
-	takeaway: 'Dessine le flux de données, marque où la confiance change, et pose les six questions STRIDE à chaque flèche qui traverse la ligne. Écris la réponse, y compris les risques que tu acceptes.',
+	recall: {
+		q: 'Où poses-tu les six questions STRIDE sur le diagramme de flux de données, et que fait Discourse contre la SSRF ?',
+		a: 'À chaque flèche qui traverse une frontière de confiance. Pour une URL collée, Discourse résout l’hôte, écarte les adresses privées et réservées comme 10.0.0.5, et ne se connecte qu’aux adresses qui ont passé le filtre.'
+	},
 	sources: [
+		{ title: 'Discourse, lib/final_destination/connector.rb', url: `${REPO}/lib/final_destination/connector.rb#L3-L14` },
+		{ title: 'Discourse, lib/final_destination.rb (redirect limit)', url: `${REPO}/lib/final_destination.rb#L52-L57` },
+		{ title: 'Discourse, lib/oneboxer.rb (link preview redirects)', url: `${REPO}/lib/oneboxer.rb#L538-L552` },
 		{ title: 'Threat Modeling Manifesto', url: 'https://www.threatmodelingmanifesto.org/' },
 		{ title: 'OWASP, Threat Modeling Cheat Sheet', url: 'https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html' },
 		{ title: 'OWASP, Threat Modeling Process (STRIDE)', url: 'https://owasp.org/www-community/Threat_Modeling_Process' },

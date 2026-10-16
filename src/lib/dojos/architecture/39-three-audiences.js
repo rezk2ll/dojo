@@ -8,16 +8,15 @@ export default {
 	title: 'One decision, three audiences',
 	minutes: 10,
 	hook: [
-		'Discourse, the forum software, can host many communities from one server. Each community, called a **site**, gets its own PostgreSQL database. Same week, three questions about that decision. A new developer asks why a migration runs dozens of times. A product manager asks why "one search across all our communities" is estimated in weeks. A director asks: **can one customer ever see another customer\'s posts?**',
-		'Give all three the same answer and you lose two of them. The developer gets a slogan, the director gets a lecture on connection pools.',
-		'Gregor Hohpe calls this **riding the Architect Elevator**: the architect connects the engine room, where the code lives, with the penthouse, where strategy is decided. **Same facts on every floor. Different words, different detail, different length.**'
+		'Discourse, the forum software, can host many communities from one server. Each community, called a site, gets its own PostgreSQL database. In the same week, three people ask about that decision. A new developer asks why a migration runs dozens of times. A product manager asks why "one search across all our communities" is estimated in weeks. A director asks: **can one customer ever see another customer\'s posts?**',
+		'If all three get the same answer, two of them cannot use it. A one-line answer tells the developer nothing about migrations, and a talk on connection pools tells the director nothing about risk.',
+		'Gregor Hohpe calls this **riding the Architect Elevator**: the architect connects the engine room, where the code lives, with the penthouse, where strategy is decided. The facts stay the same on every floor. The words, the detail and the length change with the person.'
 	],
 	terms: [
 		{ term: 'Architect Elevator', def: 'Hohpe\'s image: the architect rides between the IT engine room and the executive penthouse, and keeps the two connected.' },
-		{ term: 'Engine room', def: 'Where code and infrastructure live. People there need the mechanism, so they can build on it.' },
-		{ term: 'Penthouse', def: 'Where strategy, budget and risk are decided. People there need the consequence, so they can decide.' },
-		{ term: 'Altitude', def: 'How much detail an audience needs to act. Not how smart they are.' },
-		{ term: 'Multisite', def: 'Discourse\'s mode where one server hosts many sites, each with its own database and host names.' }
+		{ term: 'Engine room', def: 'The floor where code and infrastructure live. People there need the mechanism, so they can build on it.' },
+		{ term: 'Penthouse', def: 'The floor where people decide strategy, budget and risk. They need the consequence, so they can decide.' },
+		{ term: 'Altitude', def: 'How much detail an audience needs to act on a decision.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -25,27 +24,27 @@ export default {
 			{
 				add: ['dec["Decision: one database per site"]'],
 				highlight: ['dec'],
-				note: 'One decision, already made (day 4). The facts do not change in this chapter. Only the telling does.'
+				note: 'One decision, already made (day 4): each site gets its own database. The next three steps tell these same facts to three people.'
 			},
 			{
 				add: ['eng["Engine room: developer, 5 minutes"]', 'dec -.-> eng'],
 				highlight: ['eng'],
-				note: '**Developer, 5 min.** The request\'s host name picks the site, and the site picks its database. Every migration runs once per database. No SQL query can join two sites, so anything across sites is code that visits each database in turn.'
+				note: 'For the developer, in 5 minutes: the request\'s host name picks the site, and the site picks its database. Every migration runs once per database. No SQL query can join two sites, so anything across sites is code that visits each database in turn.'
 			},
 			{
 				add: ['mid["Middle floor: product manager, 2 minutes"]', 'eng <-->|elevator| mid', 'dec -.-> mid'],
 				highlight: ['mid'],
-				note: '**Product manager, 2 min.** Each community\'s data is fully separate, so a new community is a new database and one more config entry. The price: one search over all communities cannot be one database query, so it takes longer to build.'
+				note: 'For the product manager, in 2 minutes: each community\'s data is fully separate, so a new community is a new database and one more config entry. The price: one search over all communities cannot be one database query, so it takes longer to build.'
 			},
 			{
 				add: ['pent["Penthouse: director, 30 seconds"]', 'mid <-->|elevator| pent', 'dec -.-> pent'],
 				highlight: ['pent'],
-				note: '**Director, 30 s.** Each customer has a separate database: a page in one community only queries that community\'s database. The cost is more databases to upgrade and run: an operations budget line, not a risk.'
+				note: 'For the director, in 30 seconds: each customer has a separate database, and a page in one community only queries that community\'s database. The cost is more databases to upgrade and run, which is a line in the operations budget.'
 			},
 			{
 				add: [],
 				highlight: ['eng', 'mid', 'pent'],
-				note: 'Each version keeps **one gain and one cost**. Drop the cost on the top floor and you are selling, not informing. The elevator also goes down: bring back what the penthouse cares about, so the engine room optimizes the right thing.'
+				note: 'Each version keeps **one gain and one cost**. A director who hears only the gain learns about the extra databases later, from someone else. The elevator also goes down: bring back what the penthouse cares about, so the engine room optimizes for it.'
 			}
 		]
 	},
@@ -75,31 +74,31 @@ drwho:
   host_names:
     - discuss.tardis.gallifrey`,
 		notes: [
-			`This is the engine-room fact behind every floor. Each site names **its own database, its own database user and its own host names**. The [developer guide](${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md#L7) says it plainly: "A multisite server uses a different DB and hostname for each site that it serves."`,
+			`Lines 1 to 12 and 14 to 20 hold the engine-room fact behind every floor. Each site names **its own \`database\`, its own \`username\` and its own \`host_names\`**. The [developer guide](${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md#L7): "A multisite server uses a different DB and hostname for each site that it serves."`,
 			`Check your penthouse claim against code before you make it. A [request spec](${DISCOURSE}/spec/integration/multisite_spec.rb#L10-L33) checks that each known host gets its own site\'s topic, and that an unknown host gets a 404 for a forum page.`,
-			`The cost side is in the [migration task](${DISCOURSE}/lib/tasks/db.rake#L112-L187): it loops over every site database and migrates each one. The comment explains the concurrency option: "we have many sites", and it saves "huge amounts of time". That is the director\'s budget line, seen from below.`,
-			'Notice the comment in the sample: change the host names and you must restart Sidekiq and rebake the posts. That kind of detail belongs in the developer version. The director never needs it.'
+			`The cost side is in the [migration task](${DISCOURSE}/lib/tasks/db.rake#L112-L187): it loops over every site database and migrates each one. The comment explains the concurrency option: "we have many sites", and it saves "huge amounts of time". One migration per site database is what the director sees as the operations budget line.`,
+			'The full sample file has a comment: change the host names and you must restart Sidekiq and rebake the posts. That detail goes in the developer version only.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Decisions get understood, funded and defended by people who will never read the code.',
-			'Misunderstandings show up early: "wait, so search across communities is hard?" is better heard in a meeting than in a release.',
-			'Preparing the short version forces you to find the one consequence that matters.'
+			'People who never read the code can understand, fund and defend the one-database-per-site decision.',
+			'The PM\'s "wait, so search across communities is hard?" comes up in a planning meeting instead of after a release.',
+			'Writing the 30-second version makes you pick one consequence: no customer can see another customer\'s posts.'
 		],
 		cost: [
-			'Three versions take preparation time. The 30-second one is the hardest to write.',
-			'Simplifying can mislead. If the top-floor version hides the cost, you lose trust the first time it bites.',
-			'Different stories to different floors is politics, not architecture. The facts must stay identical.'
+			'Three versions take preparation time, and the 30-second one is the hardest to write.',
+			'If the director\'s version hides the cost, the director stops trusting you the first time the extra databases cause work.',
+			'If the PM hears that cross-community search is easy and the developer hears it is hard, the team ends up with two plans.'
 		]
 	},
 	task: {
 		prompt: 'Take yesterday\'s proposal, KEP-4781: the kubelet keeps each pod\'s last status across a restart instead of marking every pod not Ready. Write it for a platform developer (5 lines), a PM (2 lines), a director (1 sentence). Each version must keep one gain and one cost.',
 		hint: 'Ask what each person will **do** with your answer. The developer builds and operates it, the PM plans upgrades and support, the director decides whether it matters to customers.',
 		answer: [
-			'**Developer:** after a restart, the kubelet keeps the `Started` and `Ready` status of containers that were already running, instead of resetting them to false. A pod that was not Ready before stays not Ready until its probe passes. The `ChangeContainerStatusOnKubeletRestart` gate brings the old behavior back. Cost: a container that broke while the kubelet was down keeps its Ready status until the next probe cycle.',
-			'**PM:** restarting the node agent, for example during an upgrade, no longer takes healthy services out of rotation for a moment. Cost: a service that really broke during that restart is noticed one probe later.',
-			'**Director:** "Routine node maintenance will stop causing brief false outages, at the price of a slightly slower reaction to a real failure in that window. It is the default from Kubernetes 1.35."',
+			'Developer: after a restart, the kubelet keeps the `Started` and `Ready` status of containers that were already running, instead of resetting them to false. A pod that was not Ready before stays not Ready until its probe passes. The `ChangeContainerStatusOnKubeletRestart` gate brings the old behavior back. Cost: a container that broke while the kubelet was down keeps its Ready status until the next probe cycle.',
+			'PM: restarting the node agent, for example during an upgrade, no longer takes healthy services out of rotation for a moment. Cost: a service that really broke during that restart is noticed one probe later.',
+			'Director: "Routine node maintenance will stop causing brief false outages, at the price of a slightly slower reaction to a real failure in that window. It is the default from Kubernetes 1.35."',
 			'Check: same facts in all three? One gain and one cost each? Nothing on the top floor you could not back with a line of the KEP?'
 		]
 	},
@@ -120,10 +119,13 @@ drwho:
 			q: 'Between the developer, PM and director versions, what should change?',
 			options: ['The detail and the consequence each audience acts on, never the facts', 'The facts, simplified a little more on each floor going up', 'Only the length, with the same detail packed into fewer lines', 'The decision itself, adjusted to what each audience wants to hear'],
 			answer: 0,
-			why: 'Altitude changes the words and the detail. If the facts change between floors, you have three decisions, and one day they will meet in the same meeting.'
+			why: 'Altitude changes the words and the detail. If the facts change between floors, you have described three decisions, and the three people find out when they sit in the same meeting.'
 		}
 	],
-	takeaway: 'Same facts on every floor. Give each audience the detail it needs to act, and always one gain and one cost.',
+	recall: {
+		q: 'Discourse gives each site its own database. What does the director hear in 30 seconds, and what must match the developer\'s version?',
+		a: 'Each customer has a separate database, so no customer sees another\'s posts, and the cost is more databases to upgrade and run. The facts and that one cost must match; the developer also hears that every migration runs once per database.'
+	},
 	sources: [
 		{ title: 'Gregor Hohpe, The Architect Elevator', url: 'https://architectelevator.com/' },
 		{ title: 'Gregor Hohpe, The Software Architect Elevator (book)', url: 'https://architectelevator.com/book/' },

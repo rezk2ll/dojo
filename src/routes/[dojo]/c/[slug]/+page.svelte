@@ -36,10 +36,11 @@
 		...(prev ? [{ id: 'warmup', label: t().warmup, quiz: `${prev.slug}#0` }] : []),
 		{ id: 'problem', label: t().problem },
 		{ id: 'terms', label: t().terms },
-		{ id: 'diagram', label: t().diagram },
+		...(c.diagram ? [{ id: 'diagram', label: t().diagram }] : []),
 		...(c.example ? [{ id: 'code', label: t().code }] : []),
-		{ id: 'tradeoff', label: t().tradeoff },
-		{ id: 'task', label: t().task },
+		...(c.bug ? [{ id: 'hunt', label: t().hunt }, { id: 'fix', label: t().fix }] : []),
+		...(c.tradeoff ? [{ id: 'tradeoff', label: t().tradeoff }] : []),
+		...(c.task ? [{ id: 'task', label: t().task }] : []),
 		...c.quiz.map((_, i) => ({ id: `q${i}`, label: t().question(i + 1), quiz: `${c.slug}#${i}` })),
 		{ id: 'wrap', label: t().wrap }
 	]);
@@ -48,13 +49,16 @@
 	let step = $state(0);
 	let showHint = $state(false);
 	let showAnswer = $state(false);
+	/** @type {number | undefined} */
+	let guess = $state();
 	/** Option picked per question id, e.g. picked['adrs#0'] = 2 */
 	let picked = $state(/** @type {Record<string, number>} */ ({}));
 	/** @type {HTMLElement | undefined} */
 	let top = $state();
 
-	// The task starts the second half, so a reader who stops before it stops at a natural break.
-	let breakAt = $derived(sections.findIndex((s) => s.id === 'task'));
+	// The task (or, without one, the first question) starts the second half, so a reader who stops before it stops at a natural break.
+	let breakAt = $derived(sections.findIndex((s) => s.id === 'task' || s.id === 'q0'));
+	let steps = $derived(c.diagram?.steps ?? []);
 
 	const words = (/** @type {string[]} */ ...texts) => texts.join(' ').split(/\s+/).length;
 	const READ = 200 / 60; // words per second
@@ -62,10 +66,12 @@
 	function seconds(s) {
 		if (s.id === 'problem') return words(...c.hook) / READ;
 		if (s.id === 'terms') return words(...c.terms.map((x) => x.def)) / READ;
-		if (s.id === 'diagram') return words(...c.diagram.steps.map((d) => d.note)) / READ + 10 * c.diagram.steps.length;
+		if (s.id === 'diagram') return words(...steps.map((d) => d.note)) / READ + 10 * steps.length;
 		if (s.id === 'code') return words(...(c.example?.notes ?? [])) / READ + 30;
-		if (s.id === 'tradeoff') return words(...c.tradeoff.gain, ...c.tradeoff.cost) / READ;
-		if (s.id === 'task') return words(c.task.prompt, ...c.task.answer) / READ + 90;
+		if (s.id === 'hunt') return 90;
+		if (s.id === 'fix') return words(...(c.bug?.notes ?? [])) / READ + 30;
+		if (s.id === 'tradeoff' && c.tradeoff) return words(...c.tradeoff.gain, ...c.tradeoff.cost) / READ;
+		if (s.id === 'task' && c.task) return words(c.task.prompt, ...c.task.answer) / READ + 90;
 		if (s.id === 'wrap') return 20;
 		return 30; // a question
 	}
@@ -75,7 +81,7 @@
 	let asked = $derived(
 		current.id === 'warmup' ? prev && { from: prev, q: prev.quiz[0] } : current.quiz !== undefined ? { from: c, q: c.quiz[Number(current.id.slice(1))] } : undefined
 	);
-	let lastStep = $derived(c.diagram.steps.length - 1);
+	let lastStep = $derived(Math.max(0, steps.length - 1));
 	let unanswered = $derived(sections.filter((s) => s.id.startsWith('q') && picked[s.quiz ?? ''] === undefined));
 
 	const VIEW_KEY = 'dojo:view';
@@ -90,10 +96,10 @@
 	let zoomed = $state(false);
 	let zoom = $state(1);
 
-	let code = $derived(source(c.diagram, Math.min(step, lastStep), data.dojo.hex.right));
+	let code = $derived(c.diagram ? source(c.diagram, Math.min(step, lastStep), data.dojo.hex.right) : '');
 
 	$effect(() => {
-		if (view !== 'cubes') return;
+		if (view !== 'cubes' || !code) return;
 		let stale = false;
 		layout(code).then((s) => {
 			if (!stale) scene = s;
@@ -144,6 +150,7 @@
 			scene = undefined;
 			showHint = showAnswer = false;
 			picked = {};
+			guess = undefined;
 		});
 	});
 
@@ -212,6 +219,26 @@
 		}
 	}
 
+	/** The code arrives as prerendered HTML, so its line buttons are wired here rather than in markup. @param {HTMLElement} el */
+	function pickLine(el) {
+		/** @param {MouseEvent} e */
+		const onclick = (e) => {
+			const line = e.target instanceof Element && e.target.closest('[data-line]');
+			if (line instanceof HTMLElement && guess === undefined) guess = Number(line.dataset.line);
+		};
+		el.addEventListener('click', onclick);
+		return () => el.removeEventListener('click', onclick);
+	}
+
+	/** @param {HTMLElement} el @param {string | undefined} _html read so marks are redone when the code changes @param {number | undefined} picked */
+	function mark(el, _html, picked) {
+		for (const b of el.querySelectorAll('[data-line]')) {
+			if (!(b instanceof HTMLElement)) continue;
+			const n = Number(b.dataset.line);
+			b.dataset.state = picked === undefined ? '' : c.bug?.lines.includes(n) ? 'bug' : n === picked ? 'miss' : '';
+		}
+	}
+
 	/** @param {string} id @param {import('#lib/content.js').Question} q @param {number} i */
 	function pick(id, q, i) {
 		if (picked[id] !== undefined) return;
@@ -275,7 +302,7 @@
 
 {#snippet stepper()}
 	<div class="flex gap-1.5" role="group" aria-label={t().diagramSteps}>
-		{#each c.diagram.steps as _, i (i)}
+		{#each steps as _, i (i)}
 			<button
 				class="h-2 flex-1 rounded-full transition-colors {i <= step ? 'bg-brand' : 'bg-muted'}"
 				aria-label={t().diagramStep(i + 1)}
@@ -284,7 +311,7 @@
 		{/each}
 	</div>
 	<p class="text-muted-foreground font-mono text-xs">
-		{t().stepOf(step + 1, c.diagram.steps.length)} · {view === 'cubes' ? t().newCubes : t().newBoxes}
+		{t().stepOf(step + 1, steps.length)} · {view === 'cubes' ? t().newCubes : t().newBoxes}
 	</p>
 {/snippet}
 
@@ -312,7 +339,7 @@
 				{@render stepper()}
 				<div class="flex items-start gap-3">
 					<Button variant="outline" size="sm" disabled={step === 0} onclick={() => step--}>←</Button>
-					<p class="flex-1 leading-relaxed">{@html fmt(c.diagram.steps[step].note)}</p>
+					<p class="flex-1 leading-relaxed">{@html fmt(steps[step]?.note ?? '')}</p>
 					<Button size="sm" disabled={step === lastStep} onclick={() => step++}>→</Button>
 				</div>
 			</div>
@@ -404,7 +431,7 @@
 					</div>
 					<div class="space-y-4">
 						{@render stepper()}
-						<p class="text-lg leading-relaxed">{@html fmt(c.diagram.steps[step].note)}</p>
+						<p class="text-lg leading-relaxed">{@html fmt(steps[step]?.note ?? '')}</p>
 					</div>
 				</div>
 			{:else if current.id === 'code' && c.example}
@@ -419,7 +446,36 @@
 						{/each}
 					</ul>
 				</div>
-			{:else if current.id === 'tradeoff'}
+			{:else if current.id === 'hunt' && c.bug}
+				<p class="text-muted-foreground mb-4 max-w-3xl">{t().huntIntro}</p>
+				<div
+					class="code hunt bg-muted max-w-4xl overflow-x-auto rounded-xl py-4 font-mono text-xs leading-relaxed [tab-size:4]"
+					{@attach pickLine}
+					{@attach (el) => mark(el, data.hunt, guess)}
+				>
+					{@html data.hunt}
+				</div>
+				{#if guess !== undefined}
+					{@const found = c.bug.lines.includes(guess)}
+					<Alert.Root variant={found ? 'default' : 'destructive'} class="mt-4 max-w-4xl">
+						<Alert.Title>{found ? t().found : t().missed}</Alert.Title>
+						<Alert.Description class="text-base">{t().bugLines(c.bug.lines)}</Alert.Description>
+					</Alert.Root>
+				{/if}
+			{:else if current.id === 'fix' && c.bug}
+				<a class="mb-4 inline-block font-mono text-sm underline" href={c.bug.fix} target="_blank" rel="noreferrer">{c.bug.repo} · {c.bug.title} ↗</a>
+				<div class="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+					<div class="space-y-2 xl:self-start">
+						<div class="code bg-muted overflow-x-auto rounded-xl p-4 font-mono text-xs leading-relaxed [tab-size:4]">{@html data.diff}</div>
+						<a class="text-muted-foreground text-sm underline" href={c.bug.url} target="_blank" rel="noreferrer">{t().before} ↗</a>
+					</div>
+					<ul class="space-y-3">
+						{#each c.bug.notes as n, i (i)}
+							<li class="border-brand/60 border-l-2 pl-3 leading-relaxed">{@html fmt(n)}</li>
+						{/each}
+					</ul>
+				</div>
+			{:else if current.id === 'tradeoff' && c.tradeoff}
 				<div class="grid gap-4 md:grid-cols-2">
 					<Card.Root class="border-t-good border-t-4">
 						<Card.Header><Card.Title>{t().gain}</Card.Title></Card.Header>
@@ -434,7 +490,7 @@
 						</Card.Content>
 					</Card.Root>
 				</div>
-			{:else if current.id === 'task'}
+			{:else if current.id === 'task' && c.task}
 				<div class="max-w-3xl space-y-4">
 					<p class="text-muted-foreground">{t().taskIntro}</p>
 					<p class="text-lg leading-relaxed font-semibold">{@html fmt(c.task.prompt)}</p>

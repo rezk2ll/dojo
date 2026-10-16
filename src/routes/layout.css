@@ -107,6 +107,41 @@
 .dark .code span {
 	color: var(--shiki-dark);
 }
+.code .line.add,
+.code .line.del {
+	display: inline-block;
+	width: 100%;
+}
+.code .line.add {
+	background: color-mix(in oklch, var(--good) 18%, transparent);
+}
+.code .line.del {
+	background: color-mix(in oklch, var(--bad) 14%, transparent);
+}
+.hunt .line {
+	display: block;
+	width: 100%;
+	min-height: 1lh;
+	padding-inline: 1rem;
+	border-left: 3px solid transparent;
+	text-align: left;
+	cursor: pointer;
+}
+.hunt .line:hover {
+	background: color-mix(in oklch, var(--brand) 12%, transparent);
+}
+.hunt .line:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: -2px;
+}
+.hunt .line[data-state='bug'] {
+	border-left-color: var(--good);
+	background: color-mix(in oklch, var(--good) 22%, transparent);
+}
+.hunt .line[data-state='miss'] {
+	border-left-color: var(--bad);
+	background: color-mix(in oklch, var(--bad) 18%, transparent);
+}
 
 @theme inline {
 	--font-sans: 'Inter Variable', sans-serif;

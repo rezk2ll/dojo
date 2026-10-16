@@ -4,14 +4,18 @@
  * @typedef {{ add: string[], highlight?: string[], note: string }} DStep
  * @typedef {{ direction?: 'TD' | 'LR', steps: DStep[] }} Diagram
  * @typedef {{ q: string, options: string[], answer: number, why: string }} Question
+ * A bug is code as it was before a real fix commit. `lines` are the 1-based lines of `code`
+ * the fix touched; `diff` is the fix's own hunk, and `fix` links to the commit.
+ * @typedef {{ title: string, repo: string, url: string, fix: string, lang: string, code: string, lines: number[], diff: string, notes: string[] }} Bug
  * @typedef {{
  *   slug: string, part: string, title: string, minutes: number,
  *   hook: string[],
  *   terms: { term: string, def: string }[],
- *   diagram: Diagram,
+ *   diagram?: Diagram,
  *   example?: { title: string, repo: string, url: string, lang: string, code: string, notes: string[] },
- *   tradeoff: { gain: string[], cost: string[] },
- *   task: { prompt: string, hint?: string, answer: string[] },
+ *   bug?: Bug,
+ *   tradeoff?: { gain: string[], cost: string[] },
+ *   task?: { prompt: string, hint?: string, answer: string[] },
  *   quiz: Question[],
  *   takeaway: string,
  *   sources: { title: string, url: string }[]

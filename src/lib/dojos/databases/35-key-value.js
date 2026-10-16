@@ -11,15 +11,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'A deploy restarts the Redis container. The product cache refills in a minute, nobody notices. But the shopping carts lived in Redis too, and **the carts from the last few minutes are gone**.',
-		'Redis keeps the whole dataset **in memory**. That is what makes it fast. Whether a write also survives a restart depends on two settings most people never open: **snapshots** and the **append-only file**.',
-		'So the first question about any key-value store is not "how fast". It is **"is this a cache, or the only copy?"**. A cache can lose everything and refill. The only copy needs the same care as PostgreSQL: a log, fsync, backups.'
+		'Redis keeps the whole dataset **in memory** and serves reads and writes from there. Whether a write also survives a restart depends on two settings: RDB snapshots and the append-only file.',
+		'Before you put data in a key-value store, decide whether it holds a cache or the only copy. A cache can lose everything and refill from the database. The only copy needs the same care as PostgreSQL: a log, fsync, backups.'
 	],
 	terms: [
-		{ term: 'Key-value store', def: 'A store where you read and write values by key, with no joins and no query planner. Redis adds typed values: strings, hashes, lists, sets, sorted sets, streams.' },
 		{ term: 'TTL', def: 'A timeout on a key, set with `EXPIRE` or `SET ... EX`. Redis calls a key with one "volatile". When the time is up, the key is deleted.' },
 		{ term: 'RDB snapshot', def: 'A point-in-time copy of the whole dataset in one compact file, written by a forked child at configured save points.' },
-		{ term: 'AOF', def: 'The append-only file: every write command is logged and replayed at startup to rebuild the dataset. Off by default.' },
-		{ term: 'appendfsync', def: 'How often the AOF is forced to disk: `always`, `everysec` (the default) or `no`, leaving it to the operating system.' },
+		{ term: 'AOF', def: 'The append-only file: every write command is logged and replayed at startup to rebuild the dataset. Redis ships with it turned off.' },
 		{ term: 'Eviction policy', def: 'What Redis does when it reaches `maxmemory`: drop keys by LRU, LFU, TTL or at random, or refuse writes with `noeviction`, the default.' }
 	],
 	diagram: {
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['app["App: SET cart:42 ... EX 3600"] --> mem["Redis memory: the whole dataset"]'],
 				highlight: ['app', 'mem'],
-				note: '**Memory first.** The write changes the dataset in memory and the reply goes back. With persistence off, that is the whole story: a restart starts empty.'
+				note: 'The write changes the dataset in memory and the reply goes back. With persistence off, a restart starts with an empty dataset.'
 			},
 			{
 				add: ['mem -->|"each write appended"| buf["AOF buffer"]', 'buf -->|"write(), fsync once a second"| aof[("appendonly file")]'],
 				highlight: ['buf', 'aof'],
-				note: '**The log.** With `appendonly yes`, each write command is added to a buffer, written to the file, and fsynced once a second by a background thread with the default `everysec`. It is the same idea as the WAL (day 15), with a weaker default.'
+				note: 'With `appendonly yes`, each write command is added to a buffer, written to the file, and fsynced once a second by a background thread with the default `everysec`. It is the same idea as the WAL (day 15), with a weaker default.'
 			},
 			{
 				add: ['mem -.->|"fork, snapshot at save points"| rdb[("dump.rdb")]'],
 				highlight: ['rdb'],
-				note: '**The snapshot.** At each save point, for example "after 300 seconds if at least 100 changes", Redis forks and the child writes the dataset to `dump.rdb`. Compact and perfect for backups, but a crash loses everything since the last one.'
+				note: 'At each save point, for example "after 300 seconds if at least 100 changes", Redis forks and the child writes the dataset to `dump.rdb`. The file is compact and works well for backups, but a crash loses every write since the last snapshot.'
 			},
 			{
 				add: ['exp["Expiry: on access, plus a periodic random check"] -.->|"deletes expired keys"| mem'],
 				highlight: ['exp'],
-				note: '**TTLs.** A key past its timeout is deleted when someone reads it. Keys nobody reads are found by a periodic cycle that tests random keys among those with a TTL.'
+				note: 'A key past its timeout is deleted when someone reads it. Keys nobody reads are found by a periodic cycle that tests random keys among those with a TTL.'
 			},
 			{
 				add: ['evict["maxmemory reached"] -.->|"evict by policy, or refuse writes"| mem'],
 				highlight: ['evict'],
-				note: '**Full memory.** With an `allkeys-*` policy, Redis drops any key to make room: right for a cache, fatal for carts. With `noeviction`, the default, writes that need memory fail and reads go on.'
+				note: 'With an `allkeys-*` policy, Redis drops any key to make room. A cache refills a dropped key, but a dropped cart is gone. With `noeviction`, the default, writes that need memory fail and reads go on.'
 			}
 		]
 	},
@@ -115,24 +113,24 @@ try_fsync:
         server.aof_last_fsync = server.mstime;
     }`,
 		notes: [
-			'**One second, or two.** The [docs](' + PERSIST + '#L160) say that with `everysec` "you may lose 1 second of data if there is a disaster". The code adds a detail: if the previous background fsync is still running, the write is postponed, and only after two seconds does Redis write anyway and count an `aof_delayed_fsync`. On a slow disk the window stretches.',
-			'**`always` means stop on failure.** With `always`, the fsync runs in the main thread before the replies go out. If it fails, Redis [logs and exits](' + REDIS + '/src/aof.c?plain=1#L1595-L1602): a write it acknowledged must be on disk, so it would rather crash than lie. The docs call it "Very very slow, very safe", helped by group commit.',
-			'**A hole during rewrites.** With `no-appendfsync-on-rewrite yes`, the `try_fsync` block returns while a child is saving. The [config file](' + CONF + '#L1584-L1587) warns that durability then drops to that of `appendfsync no`: it is "possible to lose up to 30 seconds of log in the worst scenario".',
-			'**Defaults are a cache\'s defaults.** Out of the box, [`appendonly no`](' + CONF + '#L1511) and RDB [save points](' + CONF + '#L519-L522) at 1 hour, 5 minutes and 60 seconds. The docs say RDB users "should be prepared to lose the latest minutes of data", and recommend both RDB and AOF for ["a degree of data safety comparable to what PostgreSQL can provide you"](' + PERSIST + '#L61-L62).',
-			'**TTLs have traps.** A timeout is [cleared](' + DOCS + '/commands/expire.md?plain=1#L81-L88) by commands that overwrite the key, such as `SET`, but `INCR`, `LPUSH` and `HSET` leave it alone. And the [default policy](' + CONF + '#L1284-L1286) is `noeviction`: a full Redis rejects writes like `SET` with an error.'
+			'Lines 8 to 22 handle a slow disk. The [docs](' + PERSIST + '#L160) say that with `everysec` "you may lose 1 second of data if there is a disaster". If the previous background fsync is still running, line 13 postpones the write. Only after two seconds (line 14) does Redis write anyway and count an `aof_delayed_fsync` on line 21, so on a slow disk the loss window grows past one second.',
+			'Lines 33 to 43: with `always`, the fsync runs in the main thread before the replies go out. If it fails, Redis logs and exits on line 43, because a write it acknowledged must be on disk. The docs call it "Very very slow, very safe", helped by group commit.',
+			'Lines 29 and 30: with `no-appendfsync-on-rewrite yes`, the function returns without an fsync while a child is saving. The [config file](' + CONF + '#L1584-L1587) warns that durability then drops to that of `appendfsync no`: it is "possible to lose up to 30 seconds of log in the worst scenario".',
+			'Out of the box, `redis.conf` sets `appendonly no` and RDB save points at 1 hour, 5 minutes and 60 seconds. The [docs](' + PERSIST + '#L61-L62) say RDB users "should be prepared to lose the latest minutes of data". They recommend both RDB and AOF for "a degree of data safety comparable to what PostgreSQL can provide you".',
+			'Commands that overwrite the key, such as `SET`, [clear its timeout](' + DOCS + '/commands/expire.md?plain=1#L81-L88), but `INCR`, `LPUSH` and `HSET` leave it alone. The default policy in `redis.conf` is `noeviction`, so a full Redis rejects writes like `SET` with an error.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Reads and writes are served from memory, with no planner and no disk read on the hot path.',
-			'Data structures on the server: counters with `INCR`, leaderboards in sorted sets, queues in lists or streams, each update atomic.',
-			'TTLs and eviction make a cache that cleans itself, without a cleanup job.'
+			'Redis keeps data structures on the server: counters with `INCR`, leaderboards in sorted sets, queues in lists or streams, each update atomic.',
+			'With TTLs and eviction, Redis deletes old cache entries itself, so no cleanup job is needed.'
 		],
 		cost: [
-			'The dataset must fit in RAM. Memory is the bill, and `maxmemory` is a decision you must make.',
-			'Durability is opt-in and weaker by default: `everysec` can drop about a second of acknowledged writes, RDB alone can drop minutes.',
-			'No joins, no constraints, no secondary indexes of its own. Every access path is a key you designed up front.',
-			'A cache in front of a database can serve stale data. Every write path must update or delete the cached key, or the TTL decides when the truth comes back.'
+			'The whole dataset must fit in RAM, so RAM size sets the bill, and you must choose a `maxmemory` value.',
+			'Once you turn on AOF, which ships off, `everysec` can drop about a second of acknowledged writes, and RDB alone can drop minutes.',
+			'Redis has no joins, no constraints and no secondary indexes of its own. Every access path is a key you designed up front.',
+			'A cache in front of a database can serve stale data. Every write path must update or delete the cached key, or readers get the old value until the TTL expires.'
 		]
 	},
 	task: {
@@ -180,10 +178,15 @@ try_fsync:
 			why: 'The default is noeviction: commands that need more memory fail, reads still work. A cache should set an `allkeys-*` policy explicitly; a store that must not lose keys keeps noeviction and watches memory.'
 		}
 	],
-	takeaway: 'Decide first whether Redis holds a cache or the only copy: a cache gets TTLs and an eviction policy, the only copy gets AOF, RDB backups and noeviction, and still risks about a second of writes.',
+	recall: {
+		q: 'Redis holds the only copy of your shopping carts. Which settings do you set, and how much can a power cut still lose?',
+		a: '`appendonly yes` with `appendfsync everysec`, RDB snapshots for backups, and `noeviction`. A power cut can still lose about one second of acknowledged writes, more if an fsync was slow.'
+	},
 	sources: [
 		{ title: 'Redis docs, Redis persistence', url: 'https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/' },
 		{ title: 'Redis docs, EXPIRE', url: 'https://redis.io/docs/latest/commands/expire/' },
-		{ title: 'Redis source, redis.conf', url: CONF }
+		{ title: 'Redis source, redis.conf', url: CONF },
+		{ title: 'Redis source, redis.conf: RDB save points', url: `${CONF}#L519-L522` },
+		{ title: 'Redis source, redis.conf: default maxmemory-policy', url: `${CONF}#L1284-L1286` }
 	]
 };

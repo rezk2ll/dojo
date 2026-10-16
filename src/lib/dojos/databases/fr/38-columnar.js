@@ -12,15 +12,13 @@ export default {
 	hook: [
 		'La compta veut le chiffre d’affaires par mois sur les trois dernières années. La requête tient en une ligne : `SELECT date_trunc(\'month\', created_at), sum(total) FROM orders GROUP BY 1`. Sur ta table `orders` à 40 colonnes, **elle tourne pendant des minutes** et ralentit le paiement en attendant.',
 		'La requête a besoin de deux colonnes. Mais PostgreSQL range **des lignes entières ensemble** dans des pages de 8 Ko (jour 9) : pour lire `total`, il lit aussi l’adresse, les notes et les 36 autres colonnes, pour chaque commande jamais passée.',
-		'Les moteurs analytiques comme DuckDB et ClickHouse inversent la disposition : **chaque colonne est stockée à part**, compressée, avec un min et un max par bloc. La même requête lit une petite partie des données, et saute souvent des blocs entiers sans les ouvrir.'
+		'Les moteurs analytiques comme DuckDB et ClickHouse rangent les données autrement : **chaque colonne est stockée à part**, compressée, avec un min et un max par bloc. La même requête lit une petite partie des données, et saute souvent des blocs entiers sans les ouvrir.'
 	],
 	terms: [
-		{ term: 'Stockage en lignes', def: 'Toutes les colonnes d’une ligne sont côte à côte sur le disque. Rapide pour lire ou modifier une ligne entière. Le heap de PostgreSQL en est un.' },
+		{ term: 'Stockage en lignes', def: 'Toutes les colonnes d’une ligne sont côte à côte sur le disque. Rapide pour lire ou modifier une ligne entière. Le heap de PostgreSQL range les lignes ainsi.' },
 		{ term: 'Stockage en colonnes', def: 'Chaque colonne est stockée à part. Une requête ne lit que les colonnes qu’elle nomme. DuckDB et ClickHouse fonctionnent ainsi.' },
 		{ term: 'Row group', def: 'Une tranche horizontale d’une table, stockée colonne par colonne. Dans DuckDB, 122 880 lignes par défaut. La compression et le parallélisme travaillent par row group.' },
-		{ term: 'Zonemap', def: 'Le min et le max d’une colonne dans un bloc. Un filtre qui tombe hors de l’intervalle saute le bloc sans le lire. On dit aussi index min-max.' },
-		{ term: 'Compression légère', def: 'Des encodages qui exploitent la forme d’une colonne : dictionnaire pour peu de valeurs distinctes, run-length pour les répétitions, bit packing pour les petits nombres.' },
-		{ term: 'OLTP et OLAP', def: 'OLTP : beaucoup de petites lectures et écritures de lignes entières, comme le paiement. OLAP : peu de grosses requêtes qui parcourent et agrègent quelques colonnes, comme les rapports.' }
+		{ term: 'Zonemap', def: 'Le min et le max d’une colonne dans un bloc. Un filtre qui tombe hors de l’intervalle saute le bloc sans le lire. On dit aussi index min-max.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -28,27 +26,27 @@ export default {
 			{
 				add: ['q["sum(total) par mois"] --> heap[("Stockage en lignes : chaque page contient des lignes entières, 40 colonnes")]'],
 				highlight: ['q', 'heap'],
-				note: '**En lignes : tout lire.** Dans un stockage en lignes, `total` est éparpillé dans toutes les pages de la table, entre les autres colonnes. Le sommer, c’est lire toutes les pages. Cette disposition est la bonne pour le paiement, qui lit et écrit une commande entière à la fois.'
+				note: 'Dans un stockage en lignes, `total` est éparpillé dans toutes les pages de la table, entre les autres colonnes. Pour en faire la somme, PostgreSQL lit toutes les pages. Cette disposition convient au paiement, qui lit et écrit une commande entière à la fois.'
 			},
 			{
 				add: ['q --> rg["Row group : 122 880 lignes"]', 'rg --> c1[("created_at")]', 'rg --> c2[("total")]', 'rg -.->|"pas lues"| c3[("38 autres colonnes")]'],
 				highlight: ['rg', 'c1', 'c2'],
-				note: '**En colonnes : lire ce que tu nommes.** DuckDB découpe une table en row groups et stocke chaque colonne d’un row group à part. La [FAQ](' + CH + '/docs/faq/general/columnar-database.md#L15) de ClickHouse le dit en une ligne : ça « allows reading data from disk only for those columns that are used in any given query » (permet de ne lire sur le disque que les colonnes utilisées par la requête). Les 38 autres colonnes ne sont jamais touchées.'
+				note: 'DuckDB découpe une table en row groups et stocke chaque colonne d’un row group à part. Selon la [FAQ](' + CH + '/docs/faq/general/columnar-database.md#L15) de ClickHouse, cette disposition « allows reading data from disk only for those columns that are used in any given query » (permet de ne lire sur le disque que les colonnes utilisées par la requête). Les 38 autres colonnes ne sont jamais touchées.'
 			},
 			{
 				add: ['rg --> comp["Par colonne : essayer chaque encodage, garder le plus petit"]'],
 				highlight: ['comp'],
-				note: '**Des valeurs semblables se compressent bien.** Une colonne `status` contient trois mots répétés un million de fois. Au checkpoint, DuckDB analyse chaque colonne avec chaque encodage candidat et garde celui dont la taille estimée est la plus faible : dictionnaire pour `status`, bit packing pour les nombres qui tiennent sur peu de bits.'
+				note: 'Une colonne `status` contient trois mots répétés un million de fois. Au checkpoint, DuckDB analyse chaque colonne avec chaque encodage candidat et garde celui dont la taille estimée est la plus faible : dictionnaire pour `status`, bit packing pour les nombres qui tiennent sur peu de bits.'
 			},
 			{
 				add: ['zm["Zonemap : min et max par row group"] -->|"saute les groupes avant 2026"| rg'],
 				highlight: ['zm'],
-				note: '**Sauter sans lire.** DuckDB garde le min et le max de chaque colonne pour chaque row group. Avec `WHERE created_at >= \'2026-01-01\'`, chaque row group dont le max est plus ancien est sauté. Ça ne marche bien que si les données sont à peu près triées sur cette colonne, comme le sont souvent les dates.'
+				note: 'DuckDB garde le min et le max de chaque colonne pour chaque row group. Avec `WHERE created_at >= \'2026-01-01\'`, chaque row group dont le max est plus ancien est sauté. Ça ne marche bien que si les données sont à peu près triées sur cette colonne, comme le sont souvent les dates.'
 			},
 			{
 				add: ['c2 -->|"2048 valeurs à la fois"| vec["Agrégat vectorisé"]'],
 				highlight: ['vec'],
-				note: '**Traiter par lots.** Les opérateurs de DuckDB travaillent sur des vecteurs de taille fixe, 2048 valeurs par défaut. Un vecteur est un tableau d’un seul type, qui peut même rester compressé. Un appel d’opérateur traite 2048 valeurs au lieu d’une ligne.'
+				note: 'Les opérateurs de DuckDB travaillent sur des vecteurs de taille fixe, 2048 valeurs par défaut. Un vecteur est un tableau d’un seul type, qui peut même rester compressé. Un appel d’opérateur traite 2048 valeurs au lieu d’une ligne.'
 			}
 		]
 	},
@@ -115,10 +113,10 @@ export default {
 			}
 		}`,
 		notes: [
-			'**Chaque encodage a sa chance.** `ScanSegments` passe les données de la colonne, vecteur par vecteur, à la fonction `analyze` de chaque candidat. Une méthode qui ne sait pas gérer les données renvoie false et sort de la course. Tout ça tourne quand une colonne est [écrite sur le disque](' + CKPT + '#L310-L312) au checkpoint.',
-			'**Le score est une taille.** `final_analyze` renvoie une estimation en octets, et la plus basse gagne. Pour le run-length, c’est [(compteur + valeur) fois le nombre de séries](' + DD + '/src/storage/compression/rle.cpp#L130-L134) ; pour le bit packing, la [taille totale compactée](' + DD + '/src/storage/compression/bitpacking.cpp#L431-L439). Une méthode imposée par les réglages passe avant ce choix.',
-			'**Par row group, donc selon la forme locale.** La [doc](' + DW + '/internals/storage.md#L214-L218) dit que la compression et le parallélisme « are based on row groups » (reposent sur les row groups), dont la taille par défaut est de [122 880 lignes](' + DD + '/src/include/duckdb/storage/storage_info.hpp#L22-L23). Une colonne peut être encodée en dictionnaire dans un row group et stockée telle quelle dans le suivant.',
-			'**L’ordre nourrit les deux astuces.** Le [guide sur l’indexation](' + DW + '/guides/performance/indexing.md#L19-L24) dit « The more ordered the data within a column, the more valuable the zonemap indexes will be » (plus une colonne est ordonnée, plus les zonemaps servent), et qu’avec des valeurs aléatoires DuckDB « will likely be unable to skip any row groups ». Les données triées se compressent aussi mieux : dans le même guide, une colonne de dates ordonnée est [2,5 fois plus petite](' + DW + '/guides/performance/indexing.md#L30-L35) qu’une colonne non ordonnée.'
+			'Les lignes 5 à 22 passent les données de la colonne, vecteur par vecteur, à la fonction `analyze` de chaque encodage candidat. Une méthode qui ne sait pas gérer les données renvoie false à la ligne 16 et n’est plus essayée. Ce code tourne quand une colonne est [écrite sur le disque](' + CKPT + '#L310-L312) au checkpoint.',
+			'La ligne 41 obtient de `final_analyze` un score, une estimation en octets, et les lignes 48 à 52 gardent le plus bas. Pour le run-length, le score vaut [(compteur + valeur) fois le nombre de séries](' + DD + '/src/storage/compression/rle.cpp#L130-L134), et pour le bit packing, la taille totale compactée. Une méthode imposée par les réglages (ligne 38) passe avant ce choix.',
+			'La [doc](' + DW + '/internals/storage.md#L214-L218) dit que la compression et le parallélisme « are based on row groups » (reposent sur les row groups), dont la taille par défaut est de 122 880 lignes. Une colonne peut être encodée en dictionnaire dans un row group et stockée sans compression dans le suivant.',
+			'Le [guide sur l’indexation](' + DW + '/guides/performance/indexing.md#L19-L24) dit « The more ordered the data within a column, the more valuable the zonemap indexes will be » (plus une colonne est ordonnée, plus les zonemaps servent), et qu’avec des valeurs aléatoires DuckDB « will likely be unable to skip any row groups ». Les données triées se compressent aussi mieux : dans le même guide, une colonne de dates ordonnée est 2,5 fois plus petite qu’une colonne non ordonnée.'
 		]
 	},
 	tradeoff: {
@@ -129,8 +127,8 @@ export default {
 			'Les opérateurs travaillent sur des vecteurs de 2048 valeurs d’un seul type, donc chaque appel fait le travail de 2048 lignes.'
 		],
 		cost: [
-			'Le travail sur des lignes entières devient plus lent. La FAQ de ClickHouse : « operations that affect whole rows become proportionally more expensive » (les opérations sur des lignes entières coûtent proportionnellement plus). Lire une commande par son id touche chaque fichier de colonne.',
-			'Les données doivent arriver par gros lots. Le [guide d’insertion](' + CH + '/docs/best-practices/_snippets/_async_inserts.md#L7) de ClickHouse prévient que « Sending many small batches in synchronous mode isn\'t recommended ». Ça convient à une copie des données OLTP, pas à la base vivante du paiement.',
+			'Lire une commande par son id touche chaque fichier de colonne. La FAQ de ClickHouse : « operations that affect whole rows become proportionally more expensive » (les opérations sur des lignes entières coûtent proportionnellement plus).',
+			'Le [guide d’insertion](' + CH + '/docs/best-practices/_snippets/_async_inserts.md#L7) de ClickHouse prévient que « Sending many small batches in synchronous mode isn\'t recommended » (envoyer beaucoup de petits lots en synchrone est déconseillé). Une copie des commandes par lots s’y prête, alors que le paiement écrit une commande à la fois.',
 			'Un second moteur, c’est un pipeline pour y copier les données, et des rapports en retard sur la base en service.',
 			'Les zonemaps n’aident que sur les colonnes selon lesquelles les données sont ordonnées. Un filtre sur un UUID aléatoire lit tous les row groups.'
 		]
@@ -181,8 +179,14 @@ export default {
 			why: 'Une zonemap ne saute un row group que si la valeur tombe hors de son intervalle min-max. Avec des UUID aléatoires, chaque intervalle est large, donc rien n’est sauté. Le guide de DuckDB conseille des entiers ordonnés pour ce genre de filtre.'
 		}
 	],
-	takeaway: 'Stocke en lignes pour le travail sur des lignes entières, et en colonnes pour le travail sur quelques colonnes de beaucoup de lignes : un stockage en colonnes lit moins, compresse plus et saute les blocs qu’il peut écarter.',
+	recall: {
+		q: 'Un rapport fait la somme de 2 colonnes d’une table de 40, filtrée sur une date. Que saute un stockage en colonnes comme DuckDB, alors qu’un stockage en lignes le lit ?',
+		a: 'Les 38 autres colonnes, et chaque row group dont le max de `created_at` dans la zonemap est sous le filtre. Un row group contient 122 880 lignes par défaut.'
+	},
 	sources: [
+		{ title: 'DuckDB, bitpacking.cpp (estimation de la taille compactée)', url: `${DD}/src/storage/compression/bitpacking.cpp#L431-L439` },
+		{ title: 'DuckDB, storage_info.hpp (taille d’un row group)', url: `${DD}/src/include/duckdb/storage/storage_info.hpp#L22-L23` },
+		{ title: 'Sources de la doc DuckDB, indexing.md (taille ordonnée ou non)', url: `${DW}/guides/performance/indexing.md#L30-L35` },
 		{ title: 'Documentation ClickHouse, What is a columnar database?', url: 'https://clickhouse.com/docs/faq/general/columnar-database' },
 		{ title: 'Documentation DuckDB, Storage', url: 'https://duckdb.org/docs/stable/internals/storage' },
 		{ title: 'Documentation DuckDB, Indexing (zonemaps)', url: 'https://duckdb.org/docs/stable/guides/performance/indexing' },

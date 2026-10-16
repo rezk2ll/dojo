@@ -7,12 +7,11 @@ export default {
 	title: 'Exit codes, streams and systemd: how tools talk',
 	minutes: 10,
 	hook: [
-		'You run `systemctl restart caddy`. It prints nothing. You glance at the screen, see no error, and move on. **You** read the screen.',
-		'A pipeline cannot read a screen. It runs your commands with nobody watching, and it decides from three things only: **the exit code**, what went to stdout, and what went to stderr.',
-		'Services follow the same rule one level up. systemd starts the process, watches its exit code, and sends its output to the journal. Learn this contract once and every CI job you write later is just more of it.'
+		'You run `systemctl restart caddy`. It prints nothing. You glance at the screen, see no error, and move on.',
+		'A pipeline runs your commands with nobody watching. It decides from three things only: **the exit code**, what went to stdout, and what went to stderr.',
+		'systemd uses the same three things for services. It starts the process, watches its exit code, and sends its output to the journal.'
 	],
 	terms: [
-		{ term: 'Process', def: 'A running program. It has a PID, a parent, an environment, and three open streams when it starts.' },
 		{ term: 'Exit code', def: 'The number a process returns when it ends. `0` means success. Anything from 1 to 255 means failure, and the program chooses which number.' },
 		{ term: 'stdout and stderr', def: 'Two output streams: stdout (file descriptor 1) for results, stderr (file descriptor 2) for errors and messages. stdin (descriptor 0) is the input.' },
 		{ term: 'Unit', def: 'A file that tells systemd how to run something. A `.service` unit says which command to start, as which user, and what to do when it exits.' },
@@ -24,27 +23,27 @@ export default {
 			{
 				add: ['cmd["Process: caddy run"]', 'cmd -->|"fd 1"| out["stdout"]', 'cmd -->|"fd 2"| err["stderr"]'],
 				highlight: ['cmd', 'out', 'err'],
-				note: 'Every process starts with three streams: stdin, stdout and stderr. Keeping **results on stdout** and **errors on stderr** is what lets you pipe the results and still see the errors.'
+				note: 'Every process starts with three streams: stdin, stdout and stderr. A program that writes results to stdout and errors to stderr lets you **pipe the results and still see the errors**.'
 			},
 			{
 				add: ['cmd -->|"on exit"| code["Exit code: 0 or 1 to 255"]'],
 				highlight: ['code'],
-				note: 'When it ends, the process returns a number. **0 is success, the rest is failure.** Bash adds a few of its own: 127 means command not found, 126 means found but not executable, 128+N means killed by signal N.'
+				note: 'When it ends, the process returns a number: 0 for success, 1 to 255 for failure. Bash adds a few of its own: 127 means command not found, 126 means found but not executable, 128+N means killed by signal N.'
 			},
 			{
 				add: ['subgraph sd["systemd"]', 'unit["caddy.service"]', 'end', 'unit -->|"starts, watches"| cmd'],
 				highlight: ['unit'],
-				note: 'You stop starting daemons with `nohup` and PID files. systemd starts the process from the unit file, keeps track of it, and reads its exit code. The `Restart=` setting decides what happens next. **Its default is `no`.**'
+				note: 'systemd starts the process from the unit file, so you need no `nohup` and no PID file. It keeps track of the process and reads its exit code. The `Restart=` setting decides what happens next, and **its default is `no`**.'
 			},
 			{
 				add: ['jr[("journald")]', 'out --> jr', 'err --> jr'],
 				highlight: ['jr'],
-				note: 'By default a service\'s stdout goes to the journal, and stderr goes where stdout goes. No log file to rotate. `journalctl -u caddy -f` follows it live, `-b` limits it to this boot.'
+				note: 'By default a service\'s stdout goes to the journal, and stderr goes where stdout goes. There is no log file to rotate. `journalctl -u caddy -f` follows it live, `-b` limits it to this boot.'
 			},
 			{
 				add: ['auto["Your script or CI job"]', 'auto -.->|"systemctl is-active caddy"| unit'],
 				highlight: ['auto'],
-				note: 'Automation asks systemd, and the answer comes back as **an exit code again**: `systemctl is-active` returns 0 if the unit is active, non-zero otherwise. Every layer speaks the same contract.'
+				note: 'A script asks systemd, and the answer comes back as an exit code: `systemctl is-active` returns 0 if the unit is active, non-zero otherwise.'
 			}
 		]
 	},
@@ -74,23 +73,23 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=multi-user.target`,
 		notes: [
-			'`Type=notify`: systemd waits for Caddy to send `READY=1` before it calls the start done. So when `systemctl start caddy` returns, Caddy is really up, not just forked.',
-			'`User=caddy` with `CAP_NET_BIND_SERVICE` in `AmbientCapabilities`: Caddy does not run as root, yet it may still bind ports below 1024, like 80 and 443.',
-			'There is **no `Restart=` line**, so the default `no` applies: if Caddy crashes, it stays down. The [Caddy docs](https://caddyserver.com/docs/running) show how to add `Restart=on-failure` in an override.',
-			'`--environ` prints the whole environment at startup, and that output lands in the journal. Anything secret you put in the environment ends up in your logs. Keep that in mind for day 10.',
-			'`ExecReload` is what `systemctl reload caddy` runs. A reload applies the new config without stopping the server. A stop and start drops connections.'
+			'Line 8, `Type=notify`: systemd waits for Caddy to send `READY=1` before it calls the start done. When `systemctl start caddy` returns, Caddy has finished starting.',
+			'Lines 9 and 17: `User=caddy` with `CAP_NET_BIND_SERVICE` in `AmbientCapabilities`. Caddy does not run as root, yet it may still bind ports below 1024, like 80 and 443.',
+			'Lines 7 to 17 have **no `Restart=` line**, so the default `no` applies: if Caddy crashes, it stays down. The [Caddy docs](https://caddyserver.com/docs/running) show how to add `Restart=on-failure` in an override.',
+			'Line 11: `--environ` prints the whole environment at startup, and that output lands in the journal. Any secret you put in the environment ends up in your logs. Day 10 covers where secrets go instead.',
+			'Line 12: `ExecReload` is what `systemctl reload caddy` runs. A reload applies the new config without stopping the server. A stop and start drops connections.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'One contract for every tool: exit code plus two streams. Any script can drive any other program.',
-			'systemd handles the user, the restart policy and the logs, so your scripts stop juggling `nohup`, PID files and log rotation.',
+			'Every tool reports through an exit code and two streams, so any script can drive any other program.',
+			'systemd handles the user, the restart policy and the logs, so your scripts need no `nohup`, PID files or log rotation.',
 			'The journal can be filtered by unit, boot, time and priority, without grepping five files.'
 		],
 		cost: [
-			'An exit code is one number. It says **that** something failed, not **why**. You still need stderr.',
+			'An exit code tells you that a step failed, and you read stderr to learn why.',
 			'Some tools exit 0 on what you call a failure. `curl` returns 0 on an HTTP 500 unless you pass `--fail`.',
-			'Unit files have hundreds of options, and the defaults surprise people. `Restart=no` is the classic one.'
+			'Unit files have hundreds of options, and some defaults surprise people: `Restart=no` leaves a crashed service down.'
 		]
 	},
 	task: {
@@ -100,7 +99,7 @@ WantedBy=multi-user.target`,
 			'`sudo systemctl edit caddy` opens a **drop-in** file (`override.conf` by default). systemd reloads the config by itself when you save.',
 			'Put in it: `[Service]`, `Restart=on-failure`, `RestartSec=5s`. The Caddy docs also add `RestartPreventExitStatus=1`, so exit code 1 does not trigger a restart.',
 			'The packaged unit stays untouched, so a package upgrade does not erase your change.',
-			'Why it died: `systemctl status caddy` shows the last exit status and the last log lines. `journalctl -u caddy -b` shows the full story for this boot.'
+			'Why it died: `systemctl status caddy` shows the last exit status and the last log lines. `journalctl -u caddy -b` shows every log line of this boot.'
 		]
 	},
 	quiz: [
@@ -133,7 +132,10 @@ WantedBy=multi-user.target`,
 			why: '`Restart=` defaults to `no`: the service is not restarted. You opt in with `on-failure` or `always`.'
 		}
 	],
-	takeaway: 'Automation cannot read your screen. It reads exit codes, stdout, stderr and the journal, so make every script and service speak that contract.',
+	recall: {
+		q: 'Which three things does a pipeline read to decide whether a command worked, and which exit code means success?',
+		a: 'The exit code, stdout and stderr. Exit code 0 means success, and 1 to 255 means failure.'
+	},
 	sources: [
 		{ title: 'Bash manual, Exit Status', url: 'https://www.gnu.org/software/bash/manual/html_node/Exit-Status.html' },
 		{ title: 'Bash manual, Redirections', url: 'https://www.gnu.org/software/bash/manual/html_node/Redirections.html' },

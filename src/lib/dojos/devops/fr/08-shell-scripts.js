@@ -4,20 +4,18 @@ const K8S = 'https://github.com/kubernetes/kubernetes/blob/9b965ac43f05d304180c7
 export default {
 	slug: 'shell-scripts',
 	part: 'Les fondamentaux',
-	title: 'Des scripts shell qui échouent bruyamment',
+	title: 'Des scripts shell qui s’arrêtent à la première erreur',
 	minutes: 10,
 	hook: [
 		'Ton script de sauvegarde a tourné toutes les nuits pendant un an. Une nuit, le montage avait disparu, `cd $BACKUP_DIR` a échoué, et la ligne suivante, `rm -rf *`, s’est exécutée **dans le mauvais répertoire**.',
-		'Par défaut, bash continue après une erreur. Dans un script que tu surveilles, c’est agaçant. Dans un script qu’un pipeline lance à 3 h du matin sans personne pour regarder, **c’est dangereux**.',
-		'Aujourd’hui : la ligne en tête de tout script sérieux, les guillemets, les scripts qu’on peut relancer deux fois, et shellcheck, le linter qui attrape presque tout le reste.'
+		'Par défaut, bash continue après une commande en échec. À 3 h du matin, personne ne surveille le job cron, et la ligne suivante s’exécute quand même.',
+		'Quatre habitudes évitent ça : une ligne `set` en tête du script, des guillemets autour de chaque variable, des étapes que tu peux relancer, et un passage de shellcheck avant le merge.'
 	],
 	terms: [
 		{ term: 'errexit (`set -e`)', def: 'Arrête le script quand une commande échoue. Il y a des exceptions : les commandes testées par `if`, `while` ou `until`, toute partie d’un `&&` ou `||` sauf la dernière, tout ce qui est inversé avec `!`, et, sans pipefail, chaque commande d’un pipeline sauf la dernière.' },
 		{ term: 'nounset (`set -u`)', def: 'Traite une variable non définie comme une erreur. Un shell non interactif affiche un message et s’arrête.' },
 		{ term: 'pipefail', def: 'Un pipeline renvoie le code de la commande la plus à droite qui a échoué, et pas seulement celui de la dernière commande. Désactivé par défaut.' },
-		{ term: 'Découpage en mots', def: 'Bash découpe un `$var` sans guillemets sur les espaces, les tabulations et les retours à la ligne (l’`IFS` par défaut) et développe les `*` qu’il contient. Mets-le entre guillemets, `"$var"`, et il reste un seul mot.' },
-		{ term: 'Idempotent', def: 'Le lancer deux fois donne le même résultat que le lancer une fois. Un script qu’un pipeline peut relancer sans risque.' },
-		{ term: 'shellcheck', def: 'Un linter pour scripts shell. Chaque avertissement a un code, comme SC2086, avec une page de wiki qui l’explique.' }
+		{ term: 'Idempotent', def: 'Le lancer deux fois donne le même résultat que le lancer une fois. Un pipeline peut relancer sans risque un script idempotent.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -30,22 +28,22 @@ export default {
 			{
 				add: ['uv["set -u : BACKUP_DIR non définie"] --> stop'],
 				highlight: ['uv'],
-				note: 'Une faute de frappe comme `$BACKUP_DRI` donne une chaîne vide, et `rm -rf "$BACKUP_DRI/"*` devient `rm -rf /*`. Avec `set -u`, bash s’arrête plutôt sur la variable non définie.'
+				note: 'Une faute de frappe comme `$BACKUP_DRI` donne une chaîne vide, et bash développe alors `rm -rf "$BACKUP_DRI/"*` en `rm -rf /*`. Avec `set -u`, bash s’arrête sur la variable non définie.'
 			},
 			{
 				add: ['pipe["pipefail : pg_dump db | gzip"] --> stop'],
 				highlight: ['pipe'],
-				note: 'Sans pipefail, `pg_dump db | gzip > db.gz` renvoie le code de **gzip**. pg_dump peut échouer, tu obtiens une archive minuscule mais valide, et le code de sortie vaut 0. Avec pipefail, l’échec remonte.'
+				note: 'Sans pipefail, `pg_dump db | gzip > db.gz` renvoie le code de **gzip**. pg_dump peut échouer, tu obtiens une archive minuscule mais valide, et le code de sortie vaut 0. Avec pipefail, le pipeline renvoie le code non nul de pg_dump.'
 			},
 			{
 				add: ['nxt --> idem["Étape idempotente : relançable sans risque"]'],
 				highlight: ['idem'],
-				note: '`mkdir -p` au lieu de `mkdir`. `grep -qxF "$line" file || echo "$line" >> file` au lieu d’un ajout à l’aveugle. Vérifie l’état, puis agis. Après un crash, tu relances, c’est tout.'
+				note: '`mkdir -p` au lieu de `mkdir`. `grep -qxF "$line" file || echo "$line" >> file` au lieu d’un ajout à l’aveugle. Chaque commande vérifie l’état avant de modifier quoi que ce soit, donc après un crash tu peux relancer le script.'
 			},
 			{
 				add: ['lint["shellcheck, avant le merge"]', 'lint -.->|"relit"| run', 'class lint ext'],
 				highlight: ['lint'],
-				note: 'shellcheck lit le script sans l’exécuter et signale les variables sans guillemets (SC2086), les `cd` sans plan B (SC2164) et bien plus. Avec ses vérifications par défaut, il ne signale **pas** un pipefail oublié (seule l’option `check-extra-masked-returns`, SC2312, le fait) : la première ligne reste ton boulot.'
+				note: 'shellcheck lit le script sans l’exécuter et signale les variables sans guillemets (SC2086), les `cd` sans plan B (SC2164) et bien plus. Avec ses vérifications par défaut, il ne signale **pas** un pipefail oublié (seule l’option `check-extra-masked-returns`, SC2312, le fait) : tu ajoutes `set -o pipefail` toi-même.'
 			}
 		]
 	},
@@ -89,22 +87,22 @@ fi
 # preserve the result
 exit $res`,
 		notes: [
-			'Les trois lignes `set -o` sont la forme longue de `set -euo pipefail`. Les noms longs disent ce que fait chaque ligne sans avoir à se souvenir des lettres.',
-			'`"${DOCKER:-docker}"` : prend `$DOCKER` s’il est défini, sinon `docker`. Avec nounset, un `$DOCKER` tout seul arrêterait le script. Le même truc apparaît dans [`"${KUBE_JUNIT_REPORT_DIR:-}"`](https://github.com/kubernetes/kubernetes/blob/9b965ac43f05d304180c7b8b9611264530788948/hack/verify-shellcheck.sh#L88-L93) pour tester une variable qui peut ne pas exister.',
-			'`shellcheck … || res=$?` : avec errexit, un shellcheck en échec arrêterait le script tout de suite. Le `||` fait partie des exceptions, donc le script **garde le code**, affiche son aide sur stderr, puis transmet ce même code avec `exit $res`.',
-			'`"${SHELLCHECK_OPTIONS[@]}"` entre guillemets développe chaque élément du tableau en un mot séparé, même s’il contient un espace. C’est comme ça qu’on construit une ligne de commande proprement en bash.'
+			'Les lignes 1 à 3 sont la forme longue de `set -euo pipefail`. Chaque nom long dit ce que fait la ligne, donc le lecteur n’a pas à retenir les lettres.',
+			'Ligne 8 : `"${DOCKER:-docker}"` prend `$DOCKER` s’il est défini, sinon `docker`. Avec nounset, un `$DOCKER` tout seul arrêterait le script. La même forme apparaît dans [`"${KUBE_JUNIT_REPORT_DIR:-}"`](https://github.com/kubernetes/kubernetes/blob/9b965ac43f05d304180c7b8b9611264530788948/hack/verify-shellcheck.sh#L88-L93) pour tester une variable qui peut ne pas exister.',
+			'Lignes 13 et 19 : avec errexit, un shellcheck en échec arrêterait le script tout de suite. Le `||` fait partie des exceptions, donc le script **garde le code** dans `res`, affiche son aide sur stderr, puis transmet ce même code avec `exit $res` à la ligne 34.',
+			'Les lignes 13 et 19 mettent aussi `"${SHELLCHECK_OPTIONS[@]}"` entre guillemets : chaque élément du tableau donne un mot séparé, même s’il contient un espace. Sans guillemets, bash découperait chaque élément sur les espaces, les tabulations et les retours à la ligne.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Le script échoue à la première erreur, bruyamment, avec un code non nul sur lequel l’appelant peut agir.',
-			'Les fautes de frappe dans les noms de variables arrêtent le script au lieu de devenir des chaînes vides.',
-			'Les scripts idempotents peuvent être relancés par un pipeline ou par toi, à 3 h du matin, sans réfléchir.'
+			'Le script s’arrête à la première commande en échec, avec un code non nul sur lequel cron, systemd ou la CI peuvent agir.',
+			'Une faute de frappe dans un nom de variable arrête le script, au lieu de donner une chaîne vide.',
+			'Un pipeline, ou toi à 3 h du matin, peut relancer un script idempotent après un échec.'
 		],
 		cost: [
-			'`set -e` a des exceptions (dans un `if`, `&&`, `||`, `!`) : c’est un filet de sécurité, pas une garantie.',
+			'`set -e` n’arrête pas le script pour un échec dans un `if`, un `&&`, un `||` ou après un `!`, donc certains échecs passent quand même.',
 			'Les commandes qui renvoient un code non nul exprès t’arrêtent maintenant. `grep` renvoie 1 quand rien ne correspond, donc tu écris `|| true` là où c’est normal.',
-			'Au-delà de quelques dizaines de lignes, bash se bat contre toi. La configuration a sa place dans un outil comme Ansible (jour 26), la logique dans un vrai langage.'
+			'Au-delà de quelques dizaines de lignes, un script bash est difficile à lire et à tester. Mets la configuration dans un outil comme Ansible (jour 26), et la logique dans un langage généraliste.'
 		]
 	},
 	task: {
@@ -113,10 +111,10 @@ exit $res`,
 		answer: [
 			'Première ligne après le shebang : `set -euo pipefail`.',
 			'`cd "${BACKUP_DIR:?}"` : entre guillemets, et il s’arrête avec un message si la variable est vide ou non définie. Avec `set -e`, un `cd` raté arrête le script avant le `rm`.',
-			'`rm -rf ./*` : shellcheck (SC2035) prévient qu’un fichier nommé `-rf` deviendrait sinon une option.',
+			'`rm -rf ./*` : shellcheck (SC2035) prévient que bash lirait sinon un fichier nommé `-rf` comme une option.',
 			'Avec pipefail, un `pg_dump` raté fait maintenant échouer le script au lieu de laisser une archive vide derrière un code de sortie à 0.',
 			'L’ajout rajoute une ligne à chaque passage. Rends-le idempotent : `grep -qxF \'export PATH="$PATH:/opt/bin"\' ~/.bashrc || echo \'…\' >> ~/.bashrc`.',
-			'Passe `shellcheck` dessus. Sur l’original, il signale SC2164 et SC2086 sur la ligne `cd`. Avec ses vérifications par défaut, il ne dit rien sur le pipeline : pipefail, c’est à toi d’y penser.'
+			'Passe `shellcheck` dessus. Sur l’original, il signale SC2164 et SC2086 sur la ligne `cd`. Avec ses vérifications par défaut, il ne dit rien sur le pipeline : tu ajoutes pipefail toi-même.'
 		]
 	},
 	quiz: [
@@ -154,7 +152,10 @@ exit $res`,
 			why: '`mkdir -p` réussit que le répertoire existe ou non. L’ajout crée une ligne en double à chaque passage, et `useradd` comme `mkdir` tout court échouent la deuxième fois.'
 		}
 	],
-	takeaway: 'Commence chaque script par `set -euo pipefail`, mets chaque variable entre guillemets, rends chaque étape relançable, et fais relire le tout par shellcheck avant tout le monde.',
+	recall: {
+		q: 'Quelle ligne mets-tu en tête d’un script bash lancé par cron ou la CI, et qu’est-ce que chaque partie arrête ?',
+		a: '`set -euo pipefail`. `-e` arrête à la première commande en échec, `-u` arrête sur une variable non définie, et pipefail fait échouer le pipeline dès qu’une de ses commandes échoue.'
+	},
 	sources: [
 		{ title: 'Manuel de Bash, The Set Builtin (-e, -u, pipefail)', url: 'https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html' },
 		{ title: 'Manuel de Bash, Shell Parameter Expansion', url: 'https://www.gnu.org/software/bash/manual/html_node/Shell-Parameter-Expansion.html' },

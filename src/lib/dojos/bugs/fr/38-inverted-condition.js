@@ -7,7 +7,7 @@ export default {
 	title: 'Des hashs jamais libérés',
 	minutes: 10,
 	hook: [
-		'Un petit script sur la branche master de Ruby crée 100 000 hashs de 9 entrées, les abandonne, puis appelle `GC.start`. Il le fait 10 fois et affiche la mémoire du processus à chaque tour. Les nombres montent : **58816, 97056, 135296, ... 403088 Ko**. Les hashs ont disparu, pas leur mémoire.',
+		'Un petit script sur la branche master de Ruby crée 100 000 hashs de 9 entrées, les abandonne, puis appelle `GC.start`. Il le fait 10 fois et affiche la mémoire du processus à chaque tour. Les nombres montent : **58816, 97056, 135296, ... 403088 Ko**. `GC.start` ramasse les hashs, et le processus grossit quand même d’environ 38 Mo à chaque tour.',
 		'Le ramasse-miettes a un chemin rapide pour les objets morts qui ne possèdent aucune mémoire en plus : il libère la case et saute le nettoyage complet. La fonction ci-dessous décide quels objets peuvent le prendre.'
 	],
 	terms: [
@@ -54,10 +54,10 @@ rb_gc_obj_needs_cleanup_p(VALUE obj)
 -        return !(flags & RHASH_ST_TABLE_FLAG);
 +        return (flags & RHASH_ST_TABLE_FLAG);`,
 		notes: [
-			'**Le `!` va avec la ligne du dessus, pas avec celle-ci.** Pour les tableaux, le flag veut dire « embarqué », donc un tableau a besoin de nettoyage quand le flag n’est **pas** posé : `!(flags & RARRAY_EMBED_FLAG)`. Pour les hashs, le flag dit l’inverse : `RHASH_ST_TABLE_FLAG` est posé quand le hash a une st_table hors de l’objet. Ce hash a besoin de nettoyage quand le flag **est** posé.',
-			'**Où ça casse.** Le script de la pull request le dit : "Hashes with more than 8 elements use st_table with a malloc\'d entries array" (au-delà de 8 éléments, le hash passe sur une st_table). Un hash de 9 entrées a le flag posé, donc `!(flags & ...)` est faux. Le sweep prend le chemin rapide, n’appelle jamais `rb_gc_obj_free()`, et le tableau d’entrées n’est jamais libéré. Chaque tour de 100 000 hashs ajoutait environ 38 Mo.',
-			'**Le correctif.** Sans le `!`, les hashs avec une st_table passent par le nettoyage complet. Les petits hashs, qui gardent leurs entrées dans l’objet, prennent maintenant le chemin rapide, que le commentaire au-dessus de la fonction réserve aux objets libérés "without calling destructors or cleanup".',
-			'**Comment ça s’est vu.** La pull request [#18096](' + RUBY + '/pull/18096) donne le script et les chiffres. Après le correctif, les mêmes 10 tours affichent 27696 Ko à chaque fois.'
+			'À la ligne 19, le flag du tableau veut dire « embarqué » : un tableau a besoin de nettoyage quand le flag est absent, d’où `!(flags & RARRAY_EMBED_FLAG)`. La ligne 22 garde ce `!` pour les hashs. Or Ruby pose `RHASH_ST_TABLE_FLAG` quand le hash a une st_table hors de l’objet, donc un hash a besoin de nettoyage quand le flag **est** posé.',
+			'Le script de la pull request l’indique : "Hashes with more than 8 elements use st_table with a malloc\'d entries array" (au-delà de 8 éléments, le hash passe sur une st_table). Un hash de 9 entrées a le flag posé, donc la ligne 22 renvoie faux. Le sweep prend le chemin rapide, n’appelle jamais `rb_gc_obj_free()`, et personne ne libère le tableau d’entrées. Chaque tour de 100 000 hashs ajoutait environ 38 Mo.',
+			'Le correctif retire le `!` de la ligne 22 : les hashs avec une st_table passent par le nettoyage complet. Les petits hashs gardent leurs entrées dans l’objet, et prennent maintenant le chemin rapide. Le commentaire des lignes 1 à 5 réserve ce chemin aux objets libérés "without calling destructors or cleanup".',
+			'La pull request [#18096](' + RUBY + '/pull/18096) donne le script et les chiffres. Après le correctif, les mêmes 10 tours affichent 27696 Ko à chaque fois.'
 		]
 	},
 	quiz: [
@@ -95,7 +95,10 @@ rb_gc_obj_needs_cleanup_p(VALUE obj)
 			why: 'La fuite ne lève aucune erreur et ne fausse aucun résultat. Seule la mémoire du processus la montre, comme le fait le script de la pull request.'
 		}
 	],
-	takeaway: 'Quand tu recopies le test de flag de la ligne du dessus, vérifie ce que le flag veut dire ici : « est embarqué » et « a des données externes » demandent des signes opposés. Un test de fuite suit la mémoire sur beaucoup de tours, puisque rien n’échoue.',
+	recall: {
+		q: 'Pourquoi le `!` est-il à sa place sur la ligne `T_ARRAY` et pas sur la ligne `T_HASH` ?',
+		a: '`RARRAY_EMBED_FLAG` est posé quand le tableau est embarqué : il faut nettoyer quand il est absent. `RHASH_ST_TABLE_FLAG` est posé quand le hash a une st_table allouée avec malloc : il faut nettoyer quand il est présent.'
+	},
 	sources: [
 		{ title: 'ruby, pull request #18096', url: `${RUBY}/pull/18096` }
 	]

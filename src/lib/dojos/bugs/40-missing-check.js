@@ -61,10 +61,10 @@ export default {
 
      if (validateRule) {`,
 		notes: [
-			'**The regex check has no type check.** The line assumes that anything that is not 0, 1 or 2 is a string. `RegExp.prototype.test` converts its argument to a string, so the check really asks whether `String(severity)` looks like a severity.',
-			'**The input from the report, worked out.** `options` is `[[\'error\'], \'never\']`. `shift()` takes the first element, so `severity` is `[\'error\']`. It is not 0, 1 or 2. `String([\'error\'])` is `"error"`, the regex matches, `validSeverity` is `true`, and nothing is thrown. A two-element array like `[\'warn\', \'error\']` becomes `"warn,error"` and is still rejected, so only one-element arrays get through.',
-			'**The fix** adds `typeof severity === "string"` before the regex. Numbers are still checked with `===`, strings with the regex, and every other type now fails.',
-			'**How it was found.** [Issue #5499](' + ESLINT + '/issues/5499), "An array is unexpectedly regarded as a valid ESLint severity". The reporter explained the cause: "`String([\'error\'])` returns `\'error\'`. Unfortunately, that also matches `/^(?:off|warn|error)$/i`."'
+			'Line 18 assumes that anything that is not 0, 1 or 2 is a string. `RegExp.prototype.test` converts its argument to a string, so the check really asks whether `String(severity)` looks like a severity.',
+			'In the report, `options` is `[[\'error\'], \'never\']`. On line 12, `shift()` takes the first element, so `severity` is `[\'error\']`. `String([\'error\'])` is `"error"`, the regex on line 18 matches, and line 26 throws nothing. A two-element array like `[\'warn\', \'error\']` converts to `"warn,error"` and is still rejected, so only one-element arrays get through.',
+			'The fix adds `typeof severity === "string"` before the regex on line 18. Numbers are still checked with `===`, strings with the regex, and every other type now fails.',
+			'[Issue #5499](' + ESLINT + '/issues/5499) is titled "An array is unexpectedly regarded as a valid ESLint severity". The reporter explained the cause: "`String([\'error\'])` returns `\'error\'`. Unfortunately, that also matches `/^(?:off|warn|error)$/i`."'
 		]
 	},
 	quiz: [
@@ -77,7 +77,7 @@ export default {
 				'`false`, because the converted string is `"[error]"`'
 			],
 			answer: 1,
-			why: '`test` converts its argument with `String()`. A one-element array becomes its element, `"error"`, which matches the pattern.'
+			why: '`test` converts its argument with `String()`. A one-element array converts to the string of its element, `"error"`, which matches the pattern.'
 		},
 		{
 			q: 'Which of these severities does the buggy check reject?',
@@ -88,7 +88,7 @@ export default {
 				'`[\'warn\', \'error\']`, an array of two'
 			],
 			answer: 3,
-			why: '`String([\'warn\', \'error\'])` is `"warn,error"`, which does not match. `[\'off\']` becomes `"off"` and wrongly passes. `\'ERROR\'` and `2` are valid severities.'
+			why: '`String([\'warn\', \'error\'])` is `"warn,error"`, which does not match. `[\'off\']` converts to `"off"` and wrongly passes. `\'ERROR\'` and `2` are valid severities.'
 		},
 		{
 			q: 'You validate a value with a regex. What keeps other types from slipping through?',
@@ -102,7 +102,10 @@ export default {
 			why: 'The regex only sees a string, whatever the input was. The type has to be checked separately, before the conversion happens.'
 		}
 	],
-	takeaway: 'A regex test validates the string form of a value, not the value. When a check must accept only strings, test `typeof` first, then the pattern.',
+	recall: {
+		q: 'Why did ESLint 2.3.0 accept `[\'error\']` as a severity, and what did the fix add?',
+		a: '`RegExp.prototype.test` converts its argument with `String()`, and `String([\'error\'])` is `"error"`, which matches the regex. The fix checks `typeof severity === "string"` before the regex.'
+	},
 	sources: [
 		{ title: 'eslint issue #5499', url: `${ESLINT}/issues/5499` },
 		{ title: 'eslint pull request #5527', url: `${ESLINT}/pull/5527` }

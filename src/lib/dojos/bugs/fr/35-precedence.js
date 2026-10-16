@@ -13,7 +13,7 @@ export default {
 	],
 	terms: [
 		{ term: 'IV', def: 'Vecteur d’initialisation : des octets en plus que le chiffrement mélange au premier bloc. Le mode CBC en veut un exactement de la taille d’un bloc, 8 octets pour DES.' },
-		{ term: 'ECB, CBC, GCM', def: 'Des modes de chiffrement. ECB n’utilise pas d’IV, CBC exige un IV de longueur fixe, GCM accepte des IV de longueurs différentes.' },
+		{ term: 'ECB, CBC, GCM', def: 'Trois modes de chiffrement : ECB n’utilise pas d’IV, CBC exige un IV de longueur fixe, GCM accepte des IV de longueurs différentes.' },
 		{ term: 'Précédence', def: 'Les règles qui disent comment les opérateurs se groupent sans parenthèses. Dans `a && b && c`, tout doit être vrai ; une parenthèse décide à quelle partie appartient une condition.' }
 	],
 	bug: {
@@ -56,10 +56,10 @@ export default {
      return env()->ThrowError("Invalid IV length");
    }`,
 		notes: [
-			'**`iv_len > 0` porte sur toute la condition.** Il est hors de toute parenthèse, c’est donc un terme de plus dans la grande chaîne de `&&`. L’erreur n’est levée que si `iv_len > 0` est vrai. Un IV de 0 octet échappe au `throw`, quel que soit l’algorithme. Le commit parle de "a misplaced parenthesis in a \'is ECB cipher?\' check" (une parenthèse mal placée dans le test « est-ce de l’ECB ? »).',
-			'**Les chiffres pour `des`.** L’algorithme attend 8 octets et en reçoit 0. `8 != 0` est vrai. Pas d’ECB, donc le deuxième terme est vrai. Pas de GCM, donc le troisième est vrai. `0 > 0` est faux, donc tout le `&&` est faux et aucune erreur n’est levée. Avec un IV de 4 octets, le dernier terme est vrai et Node lève l’erreur, comme prévu.',
-			'**Le correctif.** Il réécrit le test avec deux valeurs nommées : `is_gcm_mode == false && iv_len != expected_iv_len`. Tout algorithme hors GCM exige maintenant exactement la longueur que donne OpenSSL, 0 pour ECB et 8 pour DES-CBC, donc un IV vide pour `des` est refusé.',
-			'**Comment il est arrivé là.** Le commit parle d’"a regression introduced in commit 2996b5c (\\"crypto: Allow GCM ciphers to have a longer IV length\\") from April 2016", qui "made it possible to use empty IVs with non-ECB ciphers" (une régression d’avril 2016 qui permettait des IV vides hors ECB). Il a été signalé dans le [ticket #9024](' + NODE + '/issues/9024), "require(\'crypto\') & DES inconsistent".'
+			'À la ligne 17, `iv_len > 0` est hors de toute parenthèse : c’est un terme de plus dans la chaîne de `&&` qui commence ligne 15. La ligne 18 ne lève l’erreur que si `iv_len > 0` est vrai. Un IV de 0 octet échappe donc à l’erreur, quel que soit l’algorithme. Le commit parle de "a misplaced parenthesis in a \'is ECB cipher?\' check" (une parenthèse mal placée dans le test « est-ce de l’ECB ? »).',
+			'Pour `des`, l’algorithme attend 8 octets et en reçoit 0. `8 != 0` est vrai. L’algorithme n’est pas ECB, donc le deuxième terme est vrai, ni GCM, donc le troisième aussi. `0 > 0` est faux : tout le `&&` est faux et aucune erreur n’est levée. Avec un IV de 4 octets, le dernier terme est vrai et Node lève "Invalid IV length".',
+			'Le correctif réécrit le test avec deux valeurs nommées : `is_gcm_mode == false && iv_len != expected_iv_len`. Tout algorithme hors GCM exige maintenant exactement la longueur que donne OpenSSL, 0 pour ECB et 8 pour DES-CBC, et un IV vide pour `des` est refusé.',
+			'Le commit parle d’"a regression introduced in commit 2996b5c (\\"crypto: Allow GCM ciphers to have a longer IV length\\") from April 2016", qui "made it possible to use empty IVs with non-ECB ciphers" (une régression d’avril 2016 qui permettait des IV vides hors ECB). Il a été signalé dans le [ticket #9024](' + NODE + '/issues/9024), "require(\'crypto\') & DES inconsistent".'
 		]
 	},
 	quiz: [
@@ -92,7 +92,10 @@ export default {
 			why: 'Les trois autres cas se comportent bien avec le test bogué. Seul un IV vide sur un algorithme hors ECB atteint la branche cassée.'
 		}
 	],
-	takeaway: 'Quand une condition mélange `&&`, `||` et `!` sur plusieurs lignes, donne un nom à chaque partie ou ajoute des parenthèses qui montrent à quelle clause appartient chaque terme. Teste ensuite la valeur limite de chaque terme, ici un IV de longueur 0.',
+	recall: {
+		q: 'Pourquoi Node.js 6.7 acceptait-il un IV vide pour `des` sans lever "Invalid IV length" ?',
+		a: '`iv_len > 0` était hors des parenthèses et rejoignait toute la chaîne de `&&`, qui valait faux dès que `iv_len` valait 0. Le correctif teste `is_gcm_mode == false && iv_len != expected_iv_len`, qui refuse 0 octet quand DES-CBC en attend 8.'
+	},
 	sources: [
 		{ title: 'node, pull request #9032', url: `${NODE}/pull/9032` },
 		{ title: 'Ticket #9024 : sortie DES incohérente', url: `${NODE}/issues/9024` }

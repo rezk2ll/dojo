@@ -61,10 +61,10 @@ export default {
 
      if (validateRule) {`,
 		notes: [
-			'**Le test par regex n’a pas de test de type.** La ligne suppose que tout ce qui n’est pas 0, 1 ou 2 est une chaîne. `RegExp.prototype.test` convertit son argument en chaîne, donc le test demande en réalité si `String(severity)` ressemble à une sévérité.',
-			'**L’entrée du rapport, calculée.** `options` vaut `[[\'error\'], \'never\']`. `shift()` prend le premier élément, donc `severity` vaut `[\'error\']`. Ce n’est ni 0, ni 1, ni 2. `String([\'error\'])` donne `"error"`, la regex correspond, `validSeverity` vaut `true`, et rien n’est levé. Un tableau à deux éléments comme `[\'warn\', \'error\']` devient `"warn,error"` et reste refusé : seuls les tableaux à un élément passent.',
-			'**Le correctif** ajoute `typeof severity === "string"` avant la regex. Les nombres sont toujours testés avec `===`, les chaînes avec la regex, et tout autre type échoue désormais.',
-			'**Comment ça s’est vu.** [L’issue #5499](' + ESLINT + '/issues/5499), "An array is unexpectedly regarded as a valid ESLint severity". L’auteur donnait la cause : "`String([\'error\'])` returns `\'error\'`. Unfortunately, that also matches `/^(?:off|warn|error)$/i`."'
+			'La ligne 18 suppose que tout ce qui n’est pas 0, 1 ou 2 est une chaîne. `RegExp.prototype.test` convertit son argument en chaîne, donc le test demande en réalité si `String(severity)` ressemble à une sévérité.',
+			'Dans le rapport, `options` vaut `[[\'error\'], \'never\']`. À la ligne 12, `shift()` prend le premier élément, donc `severity` vaut `[\'error\']`. `String([\'error\'])` donne `"error"`, la regex de la ligne 18 correspond, et la ligne 26 ne lève rien. Un tableau à deux éléments comme `[\'warn\', \'error\']` donne la chaîne `"warn,error"` et reste refusé : seuls les tableaux à un élément passent.',
+			'Le correctif ajoute `typeof severity === "string"` avant la regex de la ligne 18. ESLint teste toujours les nombres avec `===` et les chaînes avec la regex, et tout autre type échoue désormais.',
+			'L’[issue #5499](' + ESLINT + '/issues/5499) s’intitule "An array is unexpectedly regarded as a valid ESLint severity". L’auteur y donnait la cause : "`String([\'error\'])` returns `\'error\'`. Unfortunately, that also matches `/^(?:off|warn|error)$/i`."'
 		]
 	},
 	quiz: [
@@ -77,7 +77,7 @@ export default {
 				'`false`, car la chaîne convertie vaut `"[error]"`'
 			],
 			answer: 1,
-			why: '`test` convertit son argument avec `String()`. Un tableau à un élément devient cet élément, `"error"`, qui correspond au motif.'
+			why: '`test` convertit son argument avec `String()`. Un tableau à un élément donne la chaîne de cet élément, `"error"`, qui correspond au motif.'
 		},
 		{
 			q: 'Laquelle de ces sévérités le test bogué refuse-t-il ?',
@@ -88,7 +88,7 @@ export default {
 				'`[\'warn\', \'error\']`, un tableau de deux'
 			],
 			answer: 3,
-			why: '`String([\'warn\', \'error\'])` donne `"warn,error"`, qui ne correspond pas. `[\'off\']` devient `"off"` et passe à tort. `\'ERROR\'` et `2` sont des sévérités valides.'
+			why: '`String([\'warn\', \'error\'])` donne `"warn,error"`, qui ne correspond pas. `[\'off\']` donne `"off"` et passe à tort. `\'ERROR\'` et `2` sont des sévérités valides.'
 		},
 		{
 			q: 'Tu valides une valeur avec une regex. Qu’est-ce qui empêche les autres types de passer ?',
@@ -102,7 +102,10 @@ export default {
 			why: 'La regex ne voit qu’une chaîne, quelle que soit l’entrée. Le type doit être vérifié à part, avant la conversion.'
 		}
 	],
-	takeaway: 'Un test par regex valide la forme texte d’une valeur, pas la valeur elle-même. Quand un test ne doit accepter que des chaînes, vérifie `typeof` d’abord, puis le motif.',
+	recall: {
+		q: 'Pourquoi ESLint 2.3.0 acceptait `[\'error\']` comme sévérité, et qu’a ajouté le correctif ?',
+		a: '`RegExp.prototype.test` convertit son argument avec `String()`, et `String([\'error\'])` donne `"error"`, que la regex accepte. Le correctif vérifie `typeof severity === "string"` avant la regex.'
+	},
 	sources: [
 		{ title: 'eslint, issue #5499', url: `${ESLINT}/issues/5499` },
 		{ title: 'eslint, pull request #5527', url: `${ESLINT}/pull/5527` }

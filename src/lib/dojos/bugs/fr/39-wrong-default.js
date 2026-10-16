@@ -4,7 +4,7 @@ const OPENSSL = 'https://github.com/openssl/openssl';
 export default {
 	slug: 'wrong-default',
 	part: 'La logique',
-	title: 'Une clé de 16 octets, lue comme 8',
+	title: 'CAST5 en CFB et OFB prend une clé de 8 octets par défaut',
 	minutes: 10,
 	hook: [
 		'Un rapport de fuzzing sur OpenSSL chiffrait les mêmes 16 octets avec `EVP_cast5_cfb()`, la même clé de 16 octets et le même IV, sur deux versions. OpenSSL 1.1.1f affichait `62 F5 FE 05 ...`, comme Crypto++. La branche master affichait `CF 90 97 8A ...`.',
@@ -66,10 +66,10 @@ IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 64, 8, 64, st
 +/* cast5128cfb64_functions */
 +IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 128, 8, 64, stream)`,
 		notes: [
-			'**Deux modes, une autre taille de clé.** ECB et CBC passent 128 comme bits de clé. OFB et CFB passent 64. Le chiffrement est le même dans les quatre modes, donc la longueur de clé par défaut devrait l’être aussi. Le commit : "It was incorrectly using 8 bytes instead of 16 as the default."',
-			'**Ce que faisait le reproducteur.** Avec un défaut de 64 bits, le contexte attend une clé de 8 octets, et seuls les 8 premiers octets de la clé de 16 octets servent. La clé du fuzzer était faite de seize octets `0x20`, sauf l’octet 11 qui valait `0xff`. Cet octet était après les 8 premiers, donc master chiffrait avec une autre clé que 1.1.1f et affichait d’autres octets.',
-			'**Pourquoi les tests l’ont raté.** Le commit : "evp_test.c hides this issue as it always calls EVP_CIPHER_CTX_set_key_length() before using EVP_CipherInit_ex(...., key, ..)." Un appelant qui fixe la longueur obtient la bonne clé, donc seuls ceux qui comptaient sur la valeur par défaut voyaient le problème.',
-			'**Le correctif et la découverte.** OFB et CFB passent maintenant 128 comme ECB et CBC, et les tables sont renommées `cast5128ofb64_functions` et `cast5128cfb64_functions`, dans `legacyprov.c` aussi. L’issue #11459 était "a reproducer for OSS-Fuzz bug" (un reproducteur d’un bug OSS-Fuzz) qui comparait des sorties, et le correctif "was verified by expanding the macros used in e_cast.c".'
+			'Les lignes 28 et 30 (ECB et CBC) passent 128 comme bits de clé. Les lignes 32 et 34 (OFB et CFB) passent 64. Le chiffrement est le même dans les quatre modes, donc la longueur de clé par défaut devrait l’être aussi. Le commit : "It was incorrectly using 8 bytes instead of 16 as the default."',
+			'Avec un défaut de 64 bits, le contexte attend une clé de 8 octets, et seuls les 8 premiers octets de la clé de 16 octets servent. La clé du fuzzer était faite de seize octets `0x20`, sauf l’octet 11 qui valait `0xff`. Cet octet venait après les 8 premiers : master chiffrait donc avec une autre clé que 1.1.1f et affichait d’autres octets.',
+			'Le commit explique pourquoi les tests passaient : "evp_test.c hides this issue as it always calls EVP_CIPHER_CTX_set_key_length() before using EVP_CipherInit_ex(...., key, ..)." Un appelant qui fixe la longueur obtient la bonne clé. Seuls ceux qui comptaient sur la valeur par défaut recevaient la clé de 8 octets.',
+			'Le correctif fait passer 128 aux lignes 32 et 34, comme ECB et CBC. Il renomme les tables en `cast5128ofb64_functions` et `cast5128cfb64_functions`, dans `legacyprov.c` aussi. L’issue #11459 était "a reproducer for OSS-Fuzz bug" (un reproducteur d’un bug OSS-Fuzz) qui comparait des sorties. Le correctif "was verified by expanding the macros used in e_cast.c".'
 		]
 	},
 	quiz: [
@@ -102,7 +102,10 @@ IMPLEMENT_var_keylen_cipher(cast5, CAST, cfb64,  CFB, CAST5_FLAGS, 64, 8, 64, st
 			why: 'Un aller-retour passe même avec le mauvais défaut, parce que chiffrement et déchiffrement utilisent les mêmes 8 octets. Vérifier le défaut lui-même, ou comparer la sortie avec une autre bibliothèque, le trouve.'
 		}
 	],
-	takeaway: 'Quand plusieurs déclarations de la même chose ne diffèrent que par un argument, aligne-les et vérifie chaque colonne qui devrait concorder. Teste les valeurs par défaut sans les fixer, parce que des tests qui passent toujours la valeur n’utilisent jamais le défaut.',
+	recall: {
+		q: 'Quel argument était faux sur les lignes OFB et CFB de CAST5, et pourquoi `evp_test.c` ne l’a pas vu ?',
+		a: 'Les bits de clé : 64 au lieu de 128, donc une clé de 8 octets par défaut. `evp_test.c` appelle toujours `EVP_CIPHER_CTX_set_key_length()` d’abord, donc il n’utilisait jamais le défaut.'
+	},
 	sources: [
 		{ title: 'openssl, issue #11459', url: `${OPENSSL}/issues/11459` },
 		{ title: 'openssl, pull request #11707', url: `${OPENSSL}/pull/11707` }

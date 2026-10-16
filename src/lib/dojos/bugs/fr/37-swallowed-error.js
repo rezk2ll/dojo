@@ -4,11 +4,11 @@ const CARGO = 'https://github.com/rust-lang/cargo';
 export default {
 	slug: 'swallowed-error',
 	part: 'La logique',
-	title: 'Une faute de frappe devenue « no such subcommand »',
+	title: 'Une erreur de parsing de config affichée comme commande inconnue',
 	minutes: 10,
 	hook: [
 		'Un utilisateur définit un alias Cargo dans `.cargo/config` et oublie une virgule : `foo = ["a" "b"]`. `cargo foo` affiche **"error: no such subcommand: `foo`"** et propose `doc`. Rien ne parle du fichier de config ni de l’erreur de syntaxe.',
-		'Cargo lit les réglages optionnels avec serde. Pour une valeur `Option`, il appelle d’abord `has_key`, ci-dessous. Si `has_key` renvoie `false`, la valeur est traitée comme absente et devient `None`. `get_cv` lit les fichiers de config et renvoie une `Err` quand l’un d’eux ne se parse pas.'
+		'Cargo lit les réglages optionnels avec serde. Pour une valeur `Option`, il appelle d’abord `has_key`, ci-dessous. Si `has_key` renvoie `false`, serde traite la valeur comme absente et renvoie `None`. `get_cv` lit les fichiers de config et renvoie une `Err` quand l’un d’eux ne se parse pas.'
 	],
 	terms: [
 		{ term: 'Result', def: 'Une valeur Rust qui vaut soit `Ok(valeur)`, soit `Err(erreur)`. `CargoResult<T>` est le nom que Cargo donne à un `Result` avec son type d’erreur.' },
@@ -51,10 +51,10 @@ export default {
 +            return Ok(true);
          }`,
 		notes: [
-			'**L’`Err` devient `false`.** `get_cv` renvoie `CargoResult<Option<ConfigValue>>`. Avec la virgule manquante, le chargement de la config échoue et il renvoie `Err`. `if let Ok(o_cv)` saute le bloc, la méthode arrive à la dernière ligne et renvoie `false`. Un fichier qui ne se parse pas ressemble à une clé absente.',
-			'**Le chemin jusqu’au mauvais message.** `aliased_command`, dans `main.rs`, demande `alias.foo`, et sur une erreur se rabat sur `config.get::<Option<Vec<String>>>`. Ce désérialiseur appelle `has_key`, obtient `false`, et lance `visitor.visit_none()` sous le commentaire "Treat missing values as `None`." Sans alias, `foo` est une commande inconnue.',
-			'**Le correctif.** `has_key` renvoie maintenant `CargoResult<bool>`. `self.get_cv(key)?` renvoie l’erreur de parsing à l’appelant, et l’appel dans `de.rs` devient `has_key(&self.key, self.env_prefix_ok)?`. Les `return true` deviennent `Ok(true)` et la dernière ligne `Ok(false)`.',
-			'**Comment ça s’est vu.** Le [ticket #11013](' + CARGO + '/issues/11013), "Config errors with alias may not be reported", montre la virgule manquante et la sortie. La [pull request #11087](' + CARGO + '/pull/11087) dit que le changement va plus loin que les alias : "any use `Config::get<Option<…>>()` is affected if there is a malformed config." (tout appel de ce type est concerné quand la config est mal formée).'
+			'La ligne 12 appelle `get_cv`, qui renvoie `CargoResult<Option<ConfigValue>>`. Avec la virgule manquante, le chargement de la config échoue et `get_cv` renvoie `Err`. `if let Ok(o_cv)` saute le bloc, et la ligne 19 renvoie `false`. Un fichier qui ne se parse pas reçoit la même réponse qu’une clé absente.',
+			'`aliased_command`, dans `main.rs`, demande `alias.foo`, et sur une erreur se rabat sur `config.get::<Option<Vec<String>>>`. Ce désérialiseur appelle `has_key`, obtient `false`, et lance `visitor.visit_none()` sous le commentaire "Treat missing values as `None`." Sans alias, Cargo cherche une commande nommée `foo` et n’en trouve pas.',
+			'Avec le correctif, `has_key` renvoie `CargoResult<bool>`. À la ligne 12, `self.get_cv(key)?` renvoie l’erreur de parsing à l’appelant, et l’appel dans `de.rs` s’écrit maintenant `has_key(&self.key, self.env_prefix_ok)?`. Chaque `return true` s’écrit `Ok(true)`, et la ligne 19 `Ok(false)`.',
+			'Le ticket #11013, "Config errors with alias may not be reported", montre la virgule manquante et la sortie. La [pull request #11087](' + CARGO + '/pull/11087) dit que le changement va plus loin que les alias : "any use `Config::get<Option<…>>()` is affected if there is a malformed config." (tout appel de ce type est concerné quand la config est mal formée).'
 		]
 	},
 	quiz: [
@@ -92,7 +92,10 @@ export default {
 			why: 'Les trois autres cas marchaient déjà avant le correctif. Seul un fichier qui ne se parse pas distingue l’ancien code du nouveau.'
 		}
 	],
-	takeaway: 'Quand une fonction répond oui ou non, regarde ce qu’elle renvoie quand elle ne peut pas savoir. Si un `if let Ok` ou un `.ok()` transforme une erreur en « non », renvoie un `Result` et laisse l’appelant la signaler.',
+	recall: {
+		q: 'Que renvoyait l’ancien `has_key` quand `.cargo/config` ne se parsait pas, et pourquoi ?',
+		a: '`false`. La ligne 12 utilisait `if let Ok(o_cv)`, qui saute le bloc sur `Err`, donc la méthode arrivait au `false` de la ligne 19. Le correctif renvoie `CargoResult<bool>` et utilise `get_cv(key)?`.'
+	},
 	sources: [
 		{ title: 'cargo, ticket #11013', url: `${CARGO}/issues/11013` },
 		{ title: 'cargo, pull request #11087', url: `${CARGO}/pull/11087` }

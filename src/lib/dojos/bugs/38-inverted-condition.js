@@ -7,7 +7,7 @@ export default {
 	title: 'Hashes that were never freed',
 	minutes: 10,
 	hook: [
-		'A short script on Ruby\'s master branch builds 100,000 hashes of 9 entries, drops them, and calls `GC.start`. It does that 10 times and prints the memory of the process each time. The numbers go **58816, 97056, 135296, ... 403088 KB**. The hashes are gone, but their memory is not.',
+		'A short script on Ruby\'s master branch builds 100,000 hashes of 9 entries, drops them, and calls `GC.start`. It does that 10 times and prints the memory of the process each time. The numbers go **58816, 97056, 135296, ... 403088 KB**. `GC.start` collects the hashes, and the process still grows by about 38 MB each round.',
 		'The garbage collector has a fast path for dead objects that own no extra memory: it frees the slot and skips the full cleanup. The function below decides which objects may take it.'
 	],
 	terms: [
@@ -54,10 +54,10 @@ rb_gc_obj_needs_cleanup_p(VALUE obj)
 -        return !(flags & RHASH_ST_TABLE_FLAG);
 +        return (flags & RHASH_ST_TABLE_FLAG);`,
 		notes: [
-			'**The `!` fits the line above, not this one.** For arrays the flag means "embedded", so an array needs cleanup when the flag is **not** set: `!(flags & RARRAY_EMBED_FLAG)`. For hashes the flag means the opposite: `RHASH_ST_TABLE_FLAG` is set when the hash has an st_table outside the object. That hash needs cleanup when the flag **is** set.',
-			'**Where it breaks.** The script in the pull request says: "Hashes with more than 8 elements use st_table with a malloc\'d entries array". A hash with 9 entries has the flag set, so `!(flags & ...)` is false. The sweep takes the fast path, never calls `rb_gc_obj_free()`, and the entries array is never freed. Each round of 100,000 such hashes added about 38 MB.',
-			'**The fix.** Dropping the `!` sends hashes with an st_table to the full cleanup. Small hashes, which keep their entries inside the object, now take the fast path, which the comment above the function reserves for objects freed "without calling destructors or cleanup".',
-			'**How it was found.** Pull request [#18096](' + RUBY + '/pull/18096) gives the script and the numbers. After the fix, the same 10 rounds print 27696 KB every time.'
+			'On line 19 the array flag means "embedded", so an array needs cleanup when the flag is not set: `!(flags & RARRAY_EMBED_FLAG)`. Line 22 keeps the same `!` for hashes. But `RHASH_ST_TABLE_FLAG` is set when the hash has an st_table outside the object, so a hash needs cleanup when the flag **is** set.',
+			'The script in the pull request says: "Hashes with more than 8 elements use st_table with a malloc\'d entries array". A hash with 9 entries has the flag set, so line 22 returns false. The sweep takes the fast path, never calls `rb_gc_obj_free()`, and the entries array is never freed. Each round of 100,000 such hashes added about 38 MB.',
+			'The fix drops the `!` on line 22, so hashes with an st_table go to the full cleanup. Small hashes keep their entries inside the object, and they now take the fast path. The comment on lines 1 to 5 reserves that path for objects freed "without calling destructors or cleanup".',
+			'Pull request [#18096](' + RUBY + '/pull/18096) gives the script and the numbers. After the fix, the same 10 rounds print 27696 KB every time.'
 		]
 	},
 	quiz: [
@@ -95,7 +95,10 @@ rb_gc_obj_needs_cleanup_p(VALUE obj)
 			why: 'The leak raises no error and breaks no result. Only the memory of the process shows it, as the script in the pull request does.'
 		}
 	],
-	takeaway: 'When you copy a flag test from the line above, check what the flag means for this case: "is embedded" and "has external data" need opposite signs. A leak test watches memory across many rounds, since nothing fails.',
+	recall: {
+		q: 'Why does `!` belong on the `T_ARRAY` line and not on the `T_HASH` line?',
+		a: '`RARRAY_EMBED_FLAG` is set when the array is embedded, so cleanup is needed when it is absent. `RHASH_ST_TABLE_FLAG` is set when the hash has a malloc\'d st_table, so cleanup is needed when it is present.'
+	},
 	sources: [
 		{ title: 'ruby pull request #18096', url: `${RUBY}/pull/18096` }
 	]

@@ -62,10 +62,10 @@ export default {
 +		subCtx, cancel2 = context.WithCancel(ctx)
  		go func() {`,
 		notes: [
-			'**Deux variables nommées `cancel2`.** La ligne 6 déclare `cancel2` pour toute la fonction. La ligne 16 est dans le bloc `if`, donc son `:=` déclare un second `cancel2` qui ne vit que dans ce bloc. La goroutine de la ligne 20 appelle celui de l’intérieur. La fonction de nettoyage de la ligne 30 lit celui de l’extérieur, toujours nil.',
-			'**Où ça fuit.** Reprends le programme du début : `Dial` passe `context.Background()`, et sans `Timeout` il n’y a pas d’échéance, donc `cancel1` reste nil aussi. Le nettoyage n’appelle rien. Chaque goroutine d’aide attend `oldCancel` ou `subCtx.Done()`, et aucun des deux ne se ferme avant l’arrêt. 1 000 connexions laissent 1 000 goroutines et 1 000 contextes vivants.',
-			'**Pourquoi un timeout le cache.** Avec un `Timeout`, le nettoyage appelle `cancel1`. `subCtx` est un enfant de ce contexte à échéance, donc il est annulé aussi, et la goroutine se termine. Seuls les dialers avec `Cancel` et sans échéance gardent la goroutine.',
-			'**Le correctif recopie la branche du dessus.** Les lignes 10 et 11 faisaient déjà ce qu’il faut : `var subCtx context.Context`, puis `=`, donc `cancel1` est bien la variable extérieure. Le correctif écrit la branche `Cancel` de la même façon. Le bug a été trouvé en lisant le code et signalé dans l’issue [#78531](' + GO + '/issues/78531), "net: dialCtx shadow var".'
+			'La ligne 6 déclare `cancel2` pour toute la fonction. La ligne 16 est dans le bloc `if`, donc son `:=` déclare un second `cancel2` qui ne vit que dans ce bloc. La goroutine de la ligne 20 appelle celui de l’intérieur. La fonction de nettoyage de la ligne 30 lit celui de l’extérieur, qui vaut toujours nil.',
+			'Dans le programme du début, `Dial` passe `context.Background()`, et sans `Timeout` il n’y a pas d’échéance : `cancel1` reste nil aussi. Le nettoyage n’appelle alors aucune fonction. Chaque goroutine d’aide attend `oldCancel` ou `subCtx.Done()`, et aucun des deux ne se ferme avant l’arrêt. 1 000 connexions laissent 1 000 goroutines et 1 000 contextes vivants.',
+			'Avec un `Timeout`, le nettoyage appelle `cancel1`. `subCtx` est un enfant de ce contexte à échéance, donc Go l’annule aussi, et la goroutine se termine. Seuls les dialers avec `Cancel` et sans échéance gardent la goroutine.',
+			'Les lignes 10 et 11 utilisent déjà la forme sûre : `var subCtx context.Context`, puis `=`, donc `cancel1` désigne bien la variable extérieure. Le correctif écrit la ligne 16 de la même façon. Quelqu’un a trouvé le bug en lisant le code et l’a signalé dans l’issue [#78531](' + GO + '/issues/78531), "net: dialCtx shadow var".'
 		]
 	},
 	quiz: [
@@ -103,7 +103,10 @@ export default {
 			why: 'Dans un nouveau bloc, `:=` déclare tous les noms à sa gauche, donc la variable extérieure n’est jamais écrite. Ici, la branche de l’échéance deux lignes plus haut montre la forme sûre.'
 		}
 	],
-	takeaway: 'Quand une fonction déclare une variable en haut et la remplit dans un bloc, vérifie que le bloc utilise `=` et pas `:=`. Si la ligne a aussi besoin d’une nouvelle variable, déclare-la d’abord avec `var`.',
+	recall: {
+		q: 'Pourquoi le nettoyage de `dialCtx` n’appelle jamais `cancel2`, et que change le correctif à la ligne 16 ?',
+		a: 'La ligne 16 utilise `:=` dans le bloc `if` : elle déclare un nouveau `cancel2`, et celui de l’extérieur reste nil. Le correctif déclare d’abord `subCtx` avec `var`, puis affecte les deux avec `=`.'
+	},
 	sources: [
 		{ title: 'go, issue #78531', url: `${GO}/issues/78531` },
 		{ title: 'La revue, CL 762780', url: 'https://go-review.googlesource.com/c/go/+/762780' }

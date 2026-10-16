@@ -5,7 +5,7 @@ const PR = `${REQ}/pull/613`;
 export default {
 	slug: 'shallow-copy',
 	part: 'Logic',
-	title: 'One session changes every session',
+	title: 'A headers dict shared by every session',
 	minutes: 10,
 	hook: [
 		'In requests 0.12.1, a `Session` reads its settings from `self.config`. The default HTTP headers live there under `base_headers`, a dict with `User-Agent`, `Accept-Encoding` and `Accept`.',
@@ -57,10 +57,10 @@ export default {
 
          self.init_poolmanager()`,
 		notes: [
-			'**The outer dict is new, the inner one is not.** `config or {}` gives each session its own `config` dict. The loop then copies the defaults into it one key at a time. For `base_headers`, the value `v` is a dict, and `setdefault` stores that same dict object. Every session\'s `config[\'base_headers\']` is the one dict in `defaults`.',
-			'**Why the numbers and flags were fine.** Most defaults are ints, bools or `None`, such as `max_redirects = 30`. Code that changes those assigns a new value to the session\'s own `config` key, so other sessions keep 30. Only the dict is changed in place, so only the dict leaks.',
-			'**The fix.** `deepcopy(v)` gives each session its own copy of each default value, including a new `base_headers` dict. The commit message gives the reason: "Since base_headers is a dictionary, it\'s reference was shared with all instances of Session objects."',
-			'**The pull request.** It was fixed in [pull request #613](' + PR + '), which says: "This patch deep copies all config options. Using deepcopy here should not incur a large performance penalty."'
+			'Line 20 gives each session its own `config` dict. Lines 25 and 26 then copy the defaults into it one key at a time. For `base_headers`, the value `v` is a dict, and `setdefault` stores that same dict object. Every session\'s `config[\'base_headers\']` is **the one dict in `defaults`**.',
+			'Most defaults are ints, bools or `None`, such as `max_redirects = 30`. Code that changes those assigns a new value to the session\'s own `config` key, so other sessions keep 30. `base_headers` is the one default that code changes in place, by writing a key inside it, so every session sees that write.',
+			'In the fix, `deepcopy(v)` on line 26 gives each session its own copy of each default value, including a new `base_headers` dict. The commit message gives the reason: "Since base_headers is a dictionary, it\'s reference was shared with all instances of Session objects."',
+			'[Pull request #613](' + PR + ') says: "This patch deep copies all config options. Using deepcopy here should not incur a large performance penalty."'
 		]
 	},
 	quiz: [
@@ -93,7 +93,10 @@ export default {
 			why: 'The bug only shows between two objects. One session alone always looks right. A custom `config` without `base_headers` still gets the shared dict.'
 		}
 	],
-	takeaway: 'When you fill an object from a module-level defaults dict, check whether any default is a list or a dict. Copy those values, and test by changing one instance and reading another.',
+	recall: {
+		q: 'In requests 0.12.1, why did setting a `User-Agent` in one session\'s `base_headers` change it for every session?',
+		a: '`self.config.setdefault(k, v)` stored the same `base_headers` dict from the module-level `defaults` in every session\'s `config`. The fix stores `deepcopy(v)`, so each session gets its own dict.'
+	},
 	sources: [
 		{ title: 'requests pull request #613', url: PR },
 		{ title: 'The fix commit', url: `${REQ}/commit/973e9cb54826062328f1c8650630819205ccfe8e` }

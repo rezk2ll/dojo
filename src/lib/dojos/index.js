@@ -165,6 +165,25 @@ export const dojos = [
 			en: 'Each drill is a set of short tasks. You type the answer, the app checks it and shows the answer with why it works.',
 			fr: 'Chaque exercice est une série de petites tâches. Tu tapes la réponse, l’appli la vérifie et te montre la réponse avec son explication.'
 		}
+	},
+	{
+		id: 'security',
+		name: 'Security Dojo',
+		hue: 145,
+		chroma: 0.1,
+		hex: { top: '#98c598', left: '#4f8451', right: '#6fa871' },
+		description: {
+			en: 'How attacks on web apps and infrastructure work and how to stop them, one 10-minute chapter a day, taught on real open-source code.',
+			fr: 'Comment marchent les attaques sur les applis web et l’infra, et comment les arrêter, un chapitre de 10 minutes par jour, sur du vrai code open source.'
+		},
+		heroTitle: {
+			en: 'Learn how systems get attacked, ten minutes a day.',
+			fr: 'Apprends comment on attaque un système, dix minutes par jour.'
+		},
+		heroText: {
+			en: 'Each chapter shows how one attack works, then how a real open-source project defends against it.',
+			fr: 'Chaque chapitre montre comment marche une attaque, puis comment un vrai projet open source s’en protège.'
+		}
 	}
 ];
 

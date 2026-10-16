@@ -7,17 +7,15 @@ export default {
 	title: 'Branches, merge and rebase',
 	minutes: 10,
 	hook: [
-		'Two admins edit the same config on the same server on the same day. The last one to save wins. The other change is **silently lost**.',
+		'Two admins edit the same config on the same server on the same day. The second save overwrites the first, and **nobody is told**.',
 		'In Git, each of you works on a **branch**. A branch is only a pointer to a commit, so making one copies no files and costs nothing.',
-		'When the work comes back together, Git either **merges** (joins the two lines with a new commit) or **rebases** (replays your commits on top of the other line). If you both changed the same lines, Git stops and asks you. That is a **conflict**, and it is a feature: nothing gets lost quietly.'
+		'When the work comes back together, Git either merges (it joins the two lines with a new commit) or rebases (it replays your commits on top of the other line). If you both changed the same lines, Git stops with a **conflict** and asks you which version to keep.'
 	],
 	terms: [
 		{ term: 'Branch', def: 'A movable pointer to one commit. Each new commit on the branch moves the pointer forward.' },
-		{ term: 'Common ancestor', def: 'The last commit two branches share, the point where they split.' },
 		{ term: 'Fast-forward', def: 'A merge where the target branch has not moved since the split. Git just moves the pointer, no new commit.' },
 		{ term: 'Merge commit', def: 'A commit with two parents, written by a three-way merge: the two branch tips plus their common ancestor.' },
-		{ term: 'Rebase', def: 'Replaying your commits on top of another branch. Same changes, new commits with new hashes.' },
-		{ term: 'Conflict', def: 'Both sides changed the same lines. Git marks the file and waits for you to choose.' }
+		{ term: 'Rebase', def: 'Replaying your commits on top of another branch. Same changes, new commits with new hashes.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -35,12 +33,12 @@ export default {
 			{
 				add: ['c2 --> c4["C4 on main: hotfix"]'],
 				highlight: ['c4', 'c2'],
-				note: 'Meanwhile a hotfix C4 lands on `main`, so `main` now points at C4. The history has **diverged**. C2 is the **common ancestor** of both tips.'
+				note: 'Meanwhile a hotfix C4 lands on `main`, so `main` now points at C4. The history has diverged. C2 is the **common ancestor** of both tips.'
 			},
 			{
 				add: ['c3 --> m["M: merge commit, two parents"]', 'c4 --> m'],
 				highlight: ['m'],
-				note: '`git merge feature` while on `main`: Git compares C3, C4 and their common ancestor C2 (a **three-way merge**), then writes M with two parents. `main` moves to M. Nothing is rewritten.'
+				note: '`git merge feature` while on `main`: Git compares C3, C4 and their common ancestor C2 (a **three-way merge**), then writes M with two parents. `main` moves to M. C3 and C4 keep their hashes.'
 			},
 			{
 				add: ['c4 -.->|"or: git rebase main"| c3r["C3 prime: same change, new hash"]'],
@@ -76,21 +74,21 @@ and useful (see below).
 You might also consider changing your \`.git/config\` file via
 \`git config branch.autoSetupRebase always\` to change the behavior of \`git pull\`, or another non-merge option such as \`git pull --rebase\`.`,
 		notes: [
-			'Kubernetes picks **rebase** for keeping a branch in sync: `git fetch` downloads the new commits, `git rebase` replays your work on top. Your branch stays a straight line on top of `master`.',
-			'The guide assumes `git pull` is `fetch` plus `merge`: every sync of a diverged branch would add a merge commit that says nothing. That is the "messy" history they refuse. Recent Git stops instead and asks you to pick `--rebase` or `--no-rebase`.',
-			'Rebase makes new commits, so the copy already on your fork no longer matches. That is why the same guide pushes with [`git push -f`](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L111-L118), and later with the safer `--force-with-lease`.',
-			'It is safe here because the branch is **yours alone**, on your fork. Pro Git\'s one rule: do not rebase commits that exist outside your repository and that people may have based work on.'
+			'Lines 11 and 12: `git fetch upstream` downloads the new commits, and `git rebase upstream/master` replays your work on top. Kubernetes picks **rebase** to keep a branch in sync, so it stays a straight line on top of `master`.',
+			'Lines 15 to 18 assume `git pull` is `fetch` plus `merge`: every sync of a diverged branch would add a merge commit with no change of its own. The guide calls that history "messy". Recent Git stops instead and asks you to pick `--rebase` or `--no-rebase`.',
+			'Rebase makes new commits, so the copy already on your fork no longer matches. The same guide therefore pushes with [`git push -f`](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L111-L118), and later with the safer `--force-with-lease`.',
+			'The force push is safe here because the branch is **yours alone**, on your fork. Pro Git: do not rebase commits that exist outside your repository and that people may have based work on.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Merge keeps history true: you see that work ran in parallel, and no commit is rewritten.',
-			'Rebase gives a straight line: `git log` reads like a story, one change after another.',
+			'Merge rewrites no commit, and the history shows that the work ran in parallel.',
+			'Rebase gives a straight line: `git log` shows one change after another, with no merge commits.',
 			'Branches are cheap, so you can try an idea, throw the branch away, and lose nothing on `main`.'
 		],
 		cost: [
-			'Merge commits pile up. A log full of "Merge branch main into feature" hides the real changes.',
-			'Rebase rewrites hashes. If the branch was already pushed, you must force push, and anyone who built on the old commits gets a mess.',
+			'A log full of "Merge branch main into feature" commits hides the real changes.',
+			'Rebase gives every replayed commit a new hash. If the branch was already pushed, you must force push, and anyone who built on the old commits has to repair their branch.',
 			'The longer two branches live apart, the bigger the conflict when they meet.'
 		]
 	},
@@ -139,7 +137,10 @@ You might also consider changing your \`.git/config\` file via
 			why: 'Rebase replaces commits with new ones. If others built on the old ones, their history and yours no longer match.'
 		}
 	],
-	takeaway: 'A branch is a pointer, so branching is free. Merge joins two lines with a new commit, rebase replays yours on top, and you only rebase what nobody else has built on.',
+	recall: {
+		q: '`main` got hotfix C4 after you committed C3 on `feature`. What does `git merge feature` write, and what does `git rebase main` do instead?',
+		a: 'Merge writes a merge commit with two parents, C3 and C4. Rebase replays C3 on top of C4 as a new commit with a new hash, so you rebase only commits nobody else has built on.'
+	},
 	sources: [
 		{ title: 'Pro Git, Basic Branching and Merging', url: 'https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging' },
 		{ title: 'Pro Git, Rebasing', url: 'https://git-scm.com/book/en/v2/Git-Branching-Rebasing' },

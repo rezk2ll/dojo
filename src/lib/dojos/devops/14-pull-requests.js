@@ -8,12 +8,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'On the old servers, change review was a chat message: "restarting nginx with the new config, ok?" Someone said "ok". Nobody saw the diff.',
-		'A **pull request** (PR) is a proposal: "merge my branch into `main`". It shows the diff, runs CI and collects reviews, all **before** anything reaches `main`. GitLab calls the same thing a merge request.',
-		'Habits break on a busy day, so you turn them into rules. A **protected branch** on GitHub can require a PR, an approval and green **required checks** before `main` moves. A **CODEOWNERS** file decides who gets asked to review.'
+		'A pull request (PR) is a proposal: "merge my branch into `main`". It shows the diff, runs CI and collects reviews, all **before** anything reaches `main`. GitLab calls the same thing a merge request.',
+		'On a busy day someone skips the review, so you make GitHub enforce it. A **protected branch** can require a PR, an approval and green required checks before `main` moves. A CODEOWNERS file decides who gets asked to review.'
 	],
 	terms: [
 		{ term: 'Pull request', def: 'A request to merge one branch into another, with the diff, the discussion, the reviews and the CI results in one place.' },
-		{ term: 'Review', def: 'A reviewer comments, approves, or requests changes. When reviews are required, the PR needs enough approvals to merge.' },
 		{ term: 'Protected branch', def: 'A branch with rules: by default no force push and no deletion, plus optional rules like required reviews and checks.' },
 		{ term: 'Required status check', def: 'A CI job that must end successful, skipped or neutral before the PR can merge.' },
 		{ term: 'CODEOWNERS', def: 'A file mapping paths to people or teams. Owners are requested for review automatically when a PR, once out of draft, touches their files.' }
@@ -24,7 +23,7 @@ export default {
 			{
 				add: ['br["feature branch"] -->|"open PR"| pr["Pull request: diff and discussion"]'],
 				highlight: ['br', 'pr'],
-				note: 'You push your branch and open a PR against `main`. Nothing has changed on `main` yet. The PR is the place where the change is **looked at**.'
+				note: 'You push your branch and open a PR against `main`. Nothing has changed on `main` yet. Reviewers read the diff and comment in the PR.'
 			},
 			{
 				add: ['pr --> ci["CI: lint, tests"]'],
@@ -46,7 +45,7 @@ export default {
 					'gate -->|no| blocked["merge stays blocked"]'
 				],
 				highlight: ['gate', 'main', 'blocked'],
-				note: 'The protection rule is the **gate**. Without the approvals and the green required checks, the merge stays blocked. With required reviews on, collaborators can change `main` **only through an approved PR**.'
+				note: 'The protection rule blocks the merge until the approvals are in and the required checks are green. With required reviews on, collaborators can change `main` **only through an approved PR**.'
 			},
 			{
 				add: ['br -.->|"new push after approval"| pr'],
@@ -84,23 +83,23 @@ export default {
 /LICENSE @nodejs/tsc
 /onboarding.md @nodejs/tsc`,
 		notes: [
-			'The header says it plainly: this file sends **courtesy pings**, it does not decide what can merge. That is CODEOWNERS on its own. It only becomes a gate when a branch protection rule (or a ruleset, GitHub\'s newer form of the same rules) turns on "Require review from Code Owners".',
-			'Owners are **teams, never individuals**. People change jobs, teams stay. GitHub also requires each owner, team or person, to have write access to the repository.',
+			'Lines 3 to 7 say this file sends **courtesy pings** and does not decide what can merge. CODEOWNERS on its own only requests reviews. It blocks a merge only when a branch protection rule (or a ruleset, GitHub\'s newer form of the same rules) turns on "Require review from Code Owners".',
+			'Line 9: owners must be teams, never individuals. A team entry keeps working when one person leaves the project. GitHub also requires each owner, team or person, to have write access to the repository.',
 			'Line 13 makes the file own itself: changing who owns what needs the `@nodejs/tsc` team. GitHub\'s docs call a CODEOWNERS in `.github/` that owns itself the most secure setup.',
-			'`/BUILDING.md` lists two teams. When code owner review is required, **an approval from any one owner** is enough.',
-			'Order matters: the **last matching pattern wins**. Put a catch-all `*` line first and specific paths after it. A line with bad syntax is skipped, and GitHub shows the error when you open the file.'
+			'Line 21: `/BUILDING.md` lists two teams. When code owner review is required, **an approval from any one owner** is enough.',
+			'When two patterns match a file, the **last matching pattern wins**. Put a catch-all `*` line first and specific paths after it. A line with bad syntax is skipped, and GitHub shows the error when you open the file.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Every change to `main` is reviewed and tested before it lands, not after it breaks.',
+			'Every change to `main` is reviewed and tested before it lands on `main`.',
 			'The discussion is kept next to the diff: six months later you can read why a change was made.',
 			'CODEOWNERS sends each change to the people who know that area, without anyone routing by hand.'
 		],
 		cost: [
-			'Waiting for review slows the flow. Keep PRs small: the [Kubernetes guide](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L141) says very large PRs are very difficult to review.',
-			'Rules are only as strict as their settings. By default, branch protection does not apply to admins unless you say so.',
-			'Branch protection lives in the repository settings, not in a file in Git, so it is easy to forget when you create the next repository.'
+			'Each PR waits for a reviewer before it can merge. Keep PRs small: the [Kubernetes guide](https://github.com/kubernetes/community/blob/440e496d3a172234d81728df1bfe43849b589adf/contributors/guide/github-workflow.md#L141) says very large PRs are very difficult to review.',
+			'By default, branch protection does not apply to admins unless you turn on "Do not allow bypassing the above settings".',
+			'Branch protection is set in the repository settings and in no file in Git, so it is easy to forget when you create the next repository.'
 		]
 	},
 	task: {
@@ -148,7 +147,10 @@ export default {
 			why: 'GitHub requires each required check to end successful, skipped or neutral. A failing check keeps the merge blocked.'
 		}
 	],
-	takeaway: 'A PR puts the diff, CI and review in front of `main`. Branch protection makes it mandatory, and CODEOWNERS sends each change to the people who own that code.',
+	recall: {
+		q: 'CODEOWNERS lists `/prod/ @acme/ops`. What makes an ops approval mandatory before a change to `prod/` can merge?',
+		a: 'A branch protection rule (or a ruleset) on `main` with "Require review from Code Owners" turned on. CODEOWNERS on its own only requests the review.'
+	},
 	sources: [
 		{ title: 'GitHub Docs, About pull requests', url: 'https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests' },
 		{ title: 'GitHub Docs, About pull request reviews', url: 'https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews' },

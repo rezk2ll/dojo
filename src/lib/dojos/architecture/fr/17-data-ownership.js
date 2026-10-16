@@ -118,10 +118,10 @@ export default {
 		{
 			q: 'Une commande stocke le prix de chaque article. Pourquoi est-il juste que cette copie ne suive pas les changements de prix ultérieurs ?',
 			options: [
-				'Le checkout ne peut plus joindre le catalogue après la commande',
-				'La commande enregistre ce que le client a accepté de payer. C’est un fait de la vente, qui appartient à la commande',
-				'Les changements de prix sont trop rares pour compter',
-				'Le catalogue interdit aux autres services de stocker des prix'
+				'Le checkout ne peut plus joindre le catalogue une fois la commande passée',
+				'Elle garde ce que le client a accepté de payer, un fait de la vente qui lui appartient',
+				'Les changements de prix sont trop rares pour valoir une synchro des anciennes commandes',
+				'Le catalogue interdit aux autres services de stocker ses prix, même en copie'
 			],
 			answer: 1,
 			why: 'Certaines copies sont des instantanés, volontairement. Le prix au moment du paiement est un nouveau fait, et la commande en est propriétaire. Le catalogue reste propriétaire du prix actuel.'

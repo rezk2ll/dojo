@@ -106,19 +106,19 @@ export default {
 	quiz: [
 		{
 			q: 'Deux services ne se parlent que par gRPC. Aucun n’importe le code de l’autre. Sont-ils couplés ?',
-			options: ['Non, le couplage demande un import', 'Seulement s’ils sont écrits dans le même langage', 'Seulement s’ils partagent une base de données', 'Oui, à l’exécution : un changement de la requête ou de la réponse peut casser l’appelant'],
+			options: ['Non, le couplage demande qu’un côté importe le code de l’autre', 'Seulement s’ils sont écrits dans le même langage et partagent des types', 'Seulement s’ils partagent une base de données ou écrivent dans les mêmes tables','Oui, à l’exécution : un changement de la requête ou de la réponse peut casser l’appelant'],
 			answer: 3,
 			why: 'C’est du couplage dynamique. Aucun compilateur ne relie les deux côtés, donc il te faut un contrat partagé et des tests pour le voir.'
 		},
 		{
 			q: 'Quel signe indique une **cohésion faible** dans un module ?',
-			options: ['Il a beaucoup de petits fichiers', 'Il mélange du code qui change pour des raisons sans rapport, comme la plomberie réseau et les règles de TVA', 'Il est importé par beaucoup d’autres modules', 'Il n’a pas de tests'],
+			options: ['Il est découpé en beaucoup de petits fichiers répartis dans plusieurs dossiers', 'Il mélange du code qui change pour des raisons sans rapport, comme la plomberie réseau et la TVA', 'Il est importé par beaucoup d’autres modules, donc chaque changement se propage à tous', 'Il n’a pas de tests unitaires, donc personne ne sait quelles parties marchent encore'],
 			answer: 1,
 			why: 'La cohésion, c’est savoir si le contenu va ensemble. Deux raisons de changer tirent un même module dans deux directions.'
 		},
 		{
 			q: 'Dans Online Boutique, un e-mail de confirmation raté ne fait que logger un avertissement, alors qu’un paiement raté fait échouer la commande. Qu’est-ce que ça montre ?',
-			options: ['Le couplage a une force : l’appelant décide avec quelles pannes il peut vivre', 'Le service d’e-mail n’est pas vraiment appelé', 'Les services Python ne peuvent pas renvoyer d’erreurs gRPC', 'Le service de paiement est couplé statiquement au checkout'],
+			options: ['Le couplage a une force : l’appelant décide avec quelles pannes il peut vivre', 'Le service d’e-mail n’est pas vraiment appelé, juste mis en file pour plus tard', 'Les services Python ne peuvent pas renvoyer d’erreurs gRPC au checkout', 'Le service de paiement est couplé statiquement au checkout'],
 			answer: 0,
 			why: 'Les deux sont des appels à l’exécution. Le checkout traite l’un comme obligatoire et l’autre comme du best effort, ce qui fait du service d’e-mail une dépendance bien plus faible.'
 		}

@@ -132,10 +132,10 @@ spec:
 		{
 			q: 'In a pull-based GitOps setup, who applies changes to the cluster?',
 			options: [
-				'The CI pipeline, with `kubectl apply`',
-				'The developer, from their laptop',
-				'An agent running in the cluster, like Argo CD, that pulls the desired state from Git',
-				'The Git server, through a webhook that runs `kubectl`'
+				'The CI pipeline, with `kubectl apply` after each merge to the config repo',
+				'The developer, from their laptop, once the pull request is approved',
+				'An agent in the cluster, like Argo CD, that pulls the desired state from Git',
+				'The Git server, through a webhook that runs `kubectl` on every push'
 			],
 			answer: 2,
 			why: 'In the pull model the agent inside the cluster fetches the desired state and reconciles. CI only writes to Git and needs no cluster credentials.'
@@ -143,10 +143,10 @@ spec:
 		{
 			q: 'An Argo CD Application has automated sync, but `selfHeal` is not set. Someone scales a Deployment by hand. What happens?',
 			options: [
-				'Argo CD reverts it within seconds',
+				'Argo CD reverts it within seconds, since automated sync is on',
 				'Argo CD shows the app as OutOfSync but does not revert it on its own',
-				'Argo CD deletes the Deployment',
-				'Nothing, Argo CD cannot see changes made with kubectl'
+				'Argo CD deletes the Deployment, then recreates it from what is in Git',
+				'Nothing: Argo CD cannot see changes that were made with kubectl'
 			],
 			answer: 1,
 			why: 'By default, changes made to the live cluster do not trigger automated sync. Argo CD detects the drift, but only self-heal makes it act on it.'
@@ -154,10 +154,10 @@ spec:
 		{
 			q: 'You delete a ConfigMap\'s file from the Git repo. Automated sync is on, `prune` is not set. What happens to the ConfigMap in the cluster?',
 			options: [
-				'It is deleted on the next sync',
+				'It is deleted on the next sync, since it is no longer in Git',
 				'It stays. Automated sync does not delete resources unless prune is enabled',
-				'Argo CD recreates the file in Git',
-				'The whole Application is deleted'
+				'Argo CD recreates the missing file in Git from the live ConfigMap',
+				'The whole Application is deleted, since its source has changed'
 			],
 			answer: 1,
 			why: 'As a safety mechanism, automated sync will not delete resources missing from Git. You prune by hand, or set `prune: true`.'

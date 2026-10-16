@@ -173,10 +173,10 @@ secrets:
 		{
 			q: 'Tu lances `docker compose down` sur une stack avec un volume nommé `db-data`. Qu’arrive-t-il aux fichiers de la base ?',
 			options: [
-				'Ils sont supprimés avec les conteneurs',
-				'Ils restent : `down` supprime les conteneurs et les réseaux, les volumes nommés restent sauf si tu ajoutes `-v`',
-				'Ils sont déplacés dans l’image',
-				'Ils sont gardés seulement si la base a été arrêtée proprement'
+				'Ils sont supprimés avec les conteneurs, puisque le volume nommé appartient à la stack',
+				'Ils restent : `down` supprime conteneurs et réseaux, mais garde les volumes nommés sauf avec `-v`',
+				'Ils sont déplacés dans l’image pour que le prochain `up` les restaure',
+				'Ils sont gardés seulement si la base a été arrêtée proprement avant `down`'
 			],
 			answer: 1,
 			why: 'Par défaut `down` supprime les conteneurs et les réseaux qu’il a créés. Les volumes nommés ne sont supprimés qu’avec `--volumes` (`-v`).'

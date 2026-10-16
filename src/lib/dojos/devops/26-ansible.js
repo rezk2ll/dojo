@@ -138,10 +138,10 @@ export default {
 		{
 			q: 'You run `ansible-playbook site.yml --check`. One task is `ansible.builtin.command: /opt/app/migrate.sh` with no `creates` or `removes`. What happens to the script?',
 			options: [
-				'It runs, because check mode only applies to file modules',
+				'It runs, because check mode only applies to modules that manage files and packages',
 				'It does not run: Ansible cannot predict what an arbitrary command would do, so the task is skipped',
-				'It runs twice, once to check and once to apply',
-				'The whole playbook refuses to start in check mode'
+				'It runs twice, once to check what would change and once to apply the change',
+				'The whole playbook refuses to start in check mode while a command task is in it'
 			],
 			answer: 1,
 			why: 'The `command` module supports check mode only partially. Without `creates` or `removes` it cannot tell what would change, so in check mode it does nothing.'

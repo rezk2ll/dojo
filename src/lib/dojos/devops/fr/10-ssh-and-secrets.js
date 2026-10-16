@@ -124,9 +124,9 @@ export default {
 			q: 'Après `chmod 644 ~/.ssh/id_ed25519`, ssh n’utilise plus cette clé. Pourquoi ?',
 			options: [
 				'ssh ignore un fichier de clé privée accessible par d’autres',
-				'chmod a changé le format de la clé',
-				'ssh-agent verrouille les clés qui ont le mauvais mode',
-				'Le serveur refuse les clés stockées en mode 644'
+				'chmod a réécrit le fichier de clé dans un format que ssh ne sait pas lire',
+				'ssh-agent verrouille toute clé qui a le mauvais mode de fichier',
+				'Le serveur refuse les clés qui sont stockées en mode 644'
 			],
 			answer: 0,
 			why: 'Le manuel de ssh dit qu’il ignore tout simplement un fichier de clé privée accessible par d’autres. `chmod 600` règle le problème. Le serveur ne voit jamais le mode du fichier.'

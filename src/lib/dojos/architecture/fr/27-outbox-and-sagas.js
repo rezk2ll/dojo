@@ -120,19 +120,19 @@ export default {
 	quiz: [
 		{
 			q: 'Qu’est-ce qui rend une transactional outbox fiable ?',
-			options: ['Le broker stocke le message jusqu’à ce que la base confirme le commit', 'Le relais publie chaque message exactement une fois', 'Le message est écrit dans une table, dans la même transaction que le changement qu’il décrit', 'Le service réessaie la publication en mémoire jusqu’à ce qu’elle réussisse'],
+			options: ['Le broker garde le message en attente jusqu’à ce que la base confirme le commit', 'Le relais publie chaque message exactement une fois, donc les consommateurs ne voient jamais de doublon', 'Le message est écrit dans une table, dans la même transaction que le changement qu’il décrit', 'Le service réessaie la publication depuis la mémoire, de plus en plus espacée, jusqu’à ce que le broker l’accepte'],
 			answer: 2,
 			why: 'Le changement et le message sont commités ensemble, ou aucun des deux. Le message peut alors être envoyé plus tard, autant de fois que nécessaire. Le broker ne participe jamais à la transaction, et le relais garantit at-least-once, pas exactly-once.'
 		},
 		{
 			q: 'Un relais publie une ligne d’outbox, puis crashe avant d’enregistrer où il en est. Que se passe-t-il ensuite ?',
-			options: ['Au redémarrage, le relais publie la ligne à nouveau, et le consommateur doit ignorer la répétition grâce à son id d’événement', 'La ligne est perdue, parce que la progression n’a jamais été enregistrée', 'Le broker repère le doublon et le supprime', 'La base annule la publication par un rollback'],
+			options: ['Au redémarrage, le relais republie la ligne, et le consommateur ignore la répétition grâce à son id d’événement', 'La ligne est perdue, parce que le crash a effacé la progression que le relais gardait en mémoire', 'Le broker repère le doublon grâce à sa clé et le supprime avant que les consommateurs le voient', 'La base fait un rollback de la transaction, donc le changement de la commande est annulé aussi'],
 			answer: 0,
 			why: 'La publication est hors de la base, donc rien ne peut l’annuler. Le relais reprend à son dernier point enregistré, et la ligne repart : at-least-once. Un id d’événement stable permet au consommateur de repérer la répétition.'
 		},
 		{
 			q: 'L’outbox event router de Debezium utilise par défaut la colonne `aggregateid` comme clé du message Kafka. Pourquoi est-ce important ?',
-			options: ['Il chiffre le message pour cet agrégat', 'Kafka supprime tout second message avec la même clé', 'Il fait ignorer au router les suppressions de cet agrégat', 'Les messages avec la même clé vont dans la même partition, donc les événements d’une commande restent dans l’ordre'],
+			options: ['Il chiffre le message avec une clé qui appartient à cet agrégat', 'Kafka supprime tout message suivant avec la même clé, donc chaque événement arrive une fois', 'Il fait ignorer au router les événements de suppression de cet agrégat, donc les lignes restent', 'Les messages de même clé vont dans la même partition, donc les événements d’une commande restent dans l’ordre'],
 			answer: 3,
 			why: 'Kafka garde l’ordre au sein d’une partition, et la clé choisit la partition. Kafka ne dédoublonne pas par clé : c’est le rôle du header `id`.'
 		}

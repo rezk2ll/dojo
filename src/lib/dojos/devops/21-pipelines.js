@@ -132,10 +132,10 @@ deploy-job:      # This job runs in the deploy stage.
 		{
 			q: 'What is the difference between continuous delivery and continuous deployment?',
 			options: [
-				'Continuous delivery builds the code, continuous deployment also tests it',
-				'With continuous delivery every passing change is ready for production and a human decides when to release. With continuous deployment every passing change goes out automatically',
-				'Continuous deployment is for containers, continuous delivery is for virtual machines',
-				'They are two names for the same practice'
+				'Continuous delivery builds and packages the code, while continuous deployment also runs the full test suite on it',
+				'Delivery keeps every passing change ready and a human decides when to release. Deployment ships every passing change automatically',
+				'Continuous deployment is for container platforms, while continuous delivery is for teams that still ship virtual machines',
+				'They are two names for the same practice, and both mean that every passing change is released to users by itself'
 			],
 			answer: 1,
 			why: 'Both keep every change releasable. The only difference is the last step: a human button (delivery) or no button (deployment). You need delivery before you can do deployment.'
@@ -154,10 +154,10 @@ deploy-job:      # This job runs in the deploy stage.
 		{
 			q: 'Why does a pipeline build the artifact once and pass it to staging and production, instead of building again for each?',
 			options: [
-				'Because building twice is not allowed by CI tools',
-				'To save disk space on the runner',
+				'Because CI tools do not allow the same job to build twice in one pipeline',
+				'To save disk space and build minutes on the shared runner',
 				'So the file you deploy to production is exactly the file you tested',
-				'Because production servers cannot run a compiler'
+				'Because production servers cannot run a compiler or fetch dependencies'
 			],
 			answer: 2,
 			why: 'A rebuild can pull a different dependency or use a different compiler. Then production runs something nobody tested. One artifact, promoted from stage to stage, removes that gap.'

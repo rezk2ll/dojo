@@ -142,10 +142,10 @@ spec:
 		{
 			q: 'You scale a StatefulSet from 3 replicas to 1. What happens to the volumes of `db-1` and `db-2`?',
 			options: [
-				'They are deleted with the Pods',
-				'They are attached to `db-0`',
+				'They are deleted with the Pods, since each claim belongs to its Pod',
+				'They are attached to `db-0`, so the remaining replica keeps all the data',
 				'They are kept: by default, StatefulSets do not delete their volumes when scaled down',
-				'They are converted to ConfigMaps'
+				'They are converted to ConfigMaps so the data survives without a disk'
 			],
 			answer: 2,
 			why: 'For data safety, scaling down or deleting a StatefulSet leaves its PVCs and volumes in place, unless you set `persistentVolumeClaimRetentionPolicy` to `Delete`. Scale back up and `db-1` gets its old data again.'

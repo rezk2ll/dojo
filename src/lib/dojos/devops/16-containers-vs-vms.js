@@ -125,10 +125,10 @@ services:
 		{
 			q: 'What is the main difference between a container and a virtual machine?',
 			options: [
-				'A container runs its own smaller kernel',
+				'A container runs its own smaller kernel, a VM runs a full one',
 				'A container shares the host kernel, a VM boots its own',
-				'A container always runs as a non-root user',
-				'A VM cannot run more than one process'
+				'A container always runs as a non-root user, a VM as root',
+				'A VM cannot run more than one process at the same time'
 			],
 			answer: 1,
 			why: 'A container is a process isolated by namespaces and limited by cgroups on the host kernel. A VM has its own kernel on virtual hardware.'
@@ -142,10 +142,10 @@ services:
 		{
 			q: 'You start three containers from the same image and each writes a log file. What happens to the image?',
 			options: [
-				'It grows by three log files',
-				'Nothing: each container writes to its own writable layer on top of the read-only image',
-				'The second container fails because the image is locked',
-				'The image is copied three times on disk'
+				'It grows by three log files, one written by each container',
+				'Nothing, each container writes to its own writable layer above the image',
+				'The second container fails because the first one locked the image',
+				'The image is copied three times on disk, one copy per container'
 			],
 			answer: 1,
 			why: 'Images are read-only. Each container gets a thin writable layer, so the image stays the same and is shared by all three.'

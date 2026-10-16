@@ -88,19 +88,19 @@ CACHES = {
 	quiz: [
 		{
 			q: 'Why can a shared-nothing web app run as several identical copies behind one load balancer?',
-			options: ['Because each user gets their own server', 'Because the load balancer copies memory between the app processes', 'Because the app process keeps no state between requests, it all lives in shared stores like the database', 'Because the language runtime is fast'],
+			options: ['Because the load balancer pins each user to one copy, so no copy ever sees another user', 'Because the load balancer copies session memory between the app processes after each request', 'Because the app process keeps no state between requests, it all lives in shared stores like the database', 'Because each copy keeps its own sessions in memory and syncs them with the others in the background'],
 			answer: 2,
 			why: 'Stateless processes are interchangeable. Any copy can answer any request, so you add copies to scale.'
 		},
 		{
 			q: 'What makes a decision an **architecture** decision?',
-			options: ['It is expensive to change later and other decisions depend on it', 'It is about the technology stack', 'It was taken by a senior person', 'It is written in an ADR'],
+			options: ['It is expensive to change later and other decisions depend on it', 'It is about the technology stack, like the language or framework', 'It was taken by a senior person, such as the lead architect', 'It is written down in an ADR and approved by the team'],
 			answer: 0,
 			why: 'Choosing a library can be architecture or not. The test is the cost of changing your mind later.'
 		},
 		{
 			q: 'A Django app runs as two processes with the default `CACHES` setting. Process 1 caches a page. The next request for that page goes to process 2. What happens?',
-			options: ['Process 2 reads the page from process 1\'s memory', 'Django copies the cache to the database', 'The request fails with an error', 'Process 2 misses the cache, because each process has its own private local-memory cache'],
+			options: ['Process 2 reads the page from process 1\'s memory, since both share one cache', 'Django saves the cache to the database, so process 2 reads it from there', 'The request fails with an error, because process 1 holds a lock on the cache entry', 'Process 2 misses the cache, because each process has its own local-memory cache'],
 			answer: 3,
 			why: 'The default `LocMemCache` is per process. It keeps state in the app process, which is exactly what shared-nothing forbids. Point `CACHES` at a shared server before you run a second copy.'
 		}

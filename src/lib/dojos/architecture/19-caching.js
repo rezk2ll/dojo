@@ -124,10 +124,10 @@ export default {
 		{
 			q: 'Kubernetes\' token cache uses `singleflight`. What problem does that solve?',
 			options: [
-				'It keeps only one entry per user, whatever token they use',
-				'It makes sure a token is checked once in its lifetime',
+				'It keeps only one cache entry per user, whatever token they send with the request',
+				'It makes sure each token is checked only once in its lifetime, then trusted forever',
 				'When many requests with the same token miss at once, only one webhook call is made',
-				'It spreads entries over 32 parts to reduce lock contention'
+				'It spreads the entries over 32 parts so concurrent requests do not fight over one lock'
 			],
 			answer: 2,
 			why: 'That is request coalescing. The 32 parts are the striped cache, a different thing. A token is still checked again after each TTL.'
@@ -135,10 +135,10 @@ export default {
 		{
 			q: 'A Rails view caches a product with `cache_key_with_version`. The product\'s price changes. Why does the page show the new price without anyone deleting the old entry?',
 			options: [
-				'Rails deletes every fragment on each deploy',
+				'Rails clears every cached fragment for a model whenever one of its rows is saved',
 				'Saving changes `updated_at`, which is in the key, so the next read looks up a new key',
-				'The cache store checks the database before each read',
-				'Fragment caches have a TTL of one request'
+				'The cache store compares the entry with the database row before each read',
+				'Fragment caches live for a single request, so each page view renders again'
 			],
 			answer: 1,
 			why: 'The key holds the version. The old entry is never read again and simply ages out. The owner\'s own write did the invalidation.'

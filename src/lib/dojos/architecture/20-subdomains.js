@@ -128,7 +128,7 @@ export default {
 		},
 		{
 			q: 'ActivityPub is an open standard, yet Mastodon implements it in its own code. What does that show?',
-			options: ['Standards are always core', 'Mastodon could not find a library', 'Something generic for most companies can be core for one, when it is the product', 'ActivityPub is a supporting subdomain'],
+			options: ['Standards are always core, because every product depends on them', 'Mastodon could not find a library that was mature enough to reuse', 'Something generic for most companies can be core for one, when it is the product', 'ActivityPub is a supporting subdomain, so it is fine to build in-house'],
 			answer: 2,
 			why: 'For most apps, a protocol is something to adopt. For a federated network, federation is the reason it exists, so it gets the in-house effort. The sort depends on your business, not on the technology.'
 		}

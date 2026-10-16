@@ -138,9 +138,9 @@ spec:
 			q: 'You change the container image in a Deployment. What happens?',
 			options: [
 				'The existing Pods are patched in place with the new image',
-				'Nothing until you delete the Pods by hand',
-				'The Deployment creates a new ReplicaSet and scales it up while scaling the old one down',
-				'The Service is recreated with a new IP'
+				'Nothing happens until you delete the old Pods by hand',
+				'A new ReplicaSet is scaled up while the old one is scaled down',
+				'The Service is recreated with a new IP for the new Pods'
 			],
 			answer: 2,
 			why: 'Changing the Pod template triggers a rollout: a new ReplicaSet for the new template, old one scaled down. The old ReplicaSet is kept, which is what makes rollback possible.'

@@ -114,10 +114,10 @@ spec:
 		{
 			q: 'Que fait `kubectl drain` à un nœud avant d’évincer le moindre pod ?',
 			options: [
-				'Il redémarre le nœud',
+				'Il redémarre le nœud pour que les pods repartent proprement ailleurs',
 				'Il marque le nœud non planifiable (cordon), pour qu’aucun nouveau pod n’y arrive',
-				'Il supprime le nœud du cluster',
-				'Il met à jour le kubelet du nœud'
+				'Il supprime le nœud du cluster pour que le scheduler l’oublie',
+				'Il met à jour le kubelet du nœud pour suivre le control plane'
 			],
 			answer: 1,
 			why: 'Drain fait d’abord un cordon sur le nœud, puis évince ses pods. Quand tu as fini, `kubectl uncordon` rend le nœud de nouveau planifiable.'
@@ -125,10 +125,10 @@ spec:
 		{
 			q: 'Une appli a 3 replicas et un PDB avec `minAvailable: 2`. Tu drains deux nœuds en parallèle, chacun avec un de ses pods. Que se passe-t-il ?',
 			options: [
-				'Les deux pods sont évincés d’un coup et l’appli tourne sur un seul pod',
-				'Les deux drains échouent tout de suite avec une erreur',
+				'Les deux pods sont évincés d’un coup et l’appli tourne un moment sur un seul pod',
+				'Les deux drains échouent tout de suite avec une erreur sur le PDB',
 				'Un pod est évincé. L’autre éviction attend qu’un pod de remplacement soit sain',
-				'Le PDB est ignoré pendant un drain'
+				'Le PDB est ignoré pendant un drain, donc les deux pods partent d’un coup'
 			],
 			answer: 2,
 			why: 'Seuls replicas moins minAvailable (ici 1) pods peuvent être indisponibles à la fois. L’API Eviction refuse la deuxième éviction tant que l’appli n’a pas retrouvé trois pods sains.'

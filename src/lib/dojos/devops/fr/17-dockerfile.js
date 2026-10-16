@@ -120,10 +120,10 @@ CMD [ "node", "src/index.js" ]`,
 		{
 			q: 'Pourquoi copier `package.json` et installer les dépendances avant de copier le reste du code ?',
 			options: [
-				'Parce que `npm ci` ne voit pas les fichiers copiés après',
+				'Parce que `npm ci` ne voit pas les fichiers copiés après lui dans le Dockerfile',
 				'Pour qu’un changement de code n’invalide pas la couche d’installation, qui vient alors du cache',
-				'Parce que Docker impose de copier les fichiers de dépendances en premier',
-				'Pour rendre l’image finale plus petite'
+				'Parce que Docker impose de copier les fichiers de dépendances avant tout autre fichier',
+				'Pour rendre l’image finale plus petite, car `node_modules` part dans sa propre couche'
 			],
 			answer: 1,
 			why: 'Quand une couche est invalidée, toutes les couches suivantes sont reconstruites. Mettre l’installation, qui change rarement, avant le code, qui change souvent, garde l’étape lente en cache.'
@@ -137,10 +137,10 @@ CMD [ "node", "src/index.js" ]`,
 		{
 			q: 'Ton Dockerfile a `RUN apt-get update` et, à la ligne suivante, `RUN apt-get install -y curl`. Tu ajoutes `nginx` à la ligne d’installation. Qu’est-ce qui peut mal tourner ?',
 			options: [
-				'Le build échoue parce que la liste des paquets est verrouillée',
+				'Le build échoue parce qu’apt garde un verrou sur la liste des paquets de la couche précédente',
 				'La couche `apt-get update` vient du cache, donc l’installation peut utiliser une vieille liste de paquets',
-				'Les deux lignes sont toujours relancées, donc le build est lent',
-				'Rien : Docker relance `apt-get update` quand les paquets changent'
+				'Les deux lignes sont toujours relancées car `RUN` n’est jamais en cache, donc le build est lent',
+				'Rien : Docker voit que la ligne d’installation a changé et relance aussi `apt-get update`'
 			],
 			answer: 1,
 			why: 'Le builder compare seulement le texte de la commande `RUN`. La ligne update n’a pas changé, donc elle vient du cache. Docker recommande `apt-get update && apt-get install` dans un seul `RUN`.'

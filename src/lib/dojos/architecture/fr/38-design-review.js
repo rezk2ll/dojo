@@ -99,19 +99,19 @@ By preserving the old state without immediate health checks, there is a delay in
 	quiz: [
 		{
 			q: 'Quel commentaire relève d’une revue d’**architecture** ?',
-			options: ['Renommer le feature gate avec un nom plus court', 'Corriger la faute « kublet » dans le nom du dossier', 'Ajouter une table des matières', 'Si l’API server est en panne quand le kubelet redémarre, quel statut reçoit un pod ?'],
+			options: ['Renommer le feature gate avec un nom plus court, il est pénible à taper', 'Corriger la faute « kublet » dans le nom du dossier avant le merge', 'Ajouter une table des matières pour aller vite à chaque section', 'Si l’API server est en panne quand le kubelet redémarre, quel statut reçoit un pod ?'],
 			answer: 3,
 			why: 'Il nomme un mode de défaillance avec un effet visible pour l’utilisateur (du trafic vers les mauvais pods, ou une tempête de not-Ready). Les autres relèvent du style : à corriger, mais peu coûteux à changer plus tard.'
 		},
 		{
 			q: 'Pourquoi formuler les points de relecture sous forme de questions ?',
-			options: ['Uniquement par politesse', 'L’auteur a souvent un contexte qui te manque. Une question obtient la réponse ou révèle le trou, sans conflit', 'Les questions n’ont pas besoin de réponse', 'Le template de KEP l’exige'],
+			options: ['Uniquement par politesse, puisque c’est l’auteur qui décide de toute façon à la fin', 'L’auteur a peut-être un contexte qui te manque. Une question l’obtient ou révèle le trou, sans conflit', 'Les questions n’ont pas besoin de réponse, donc l’auteur peut ignorer les mineures', 'Le template de KEP exige que chaque point de relecture soit écrit comme une question'],
 			answer: 1,
 			why: 'Tu peux te tromper. Une question ne coûte rien si c’est le cas, et fait quand même remonter le problème si tu as raison.'
 		},
 		{
 			q: 'Dans la KEP-4781, quelle partie est la plus « **sens unique** » ?',
-			options: ['Changer le comportement de readiness par défaut dont dépend le routage du trafic, une fois le gate de désactivation retiré', 'La tolérance de 10 secondes au décalage d’horloge dans le kubelet', 'La liste des cas de test e2e', 'Les chiffres de couverture des tests unitaires'],
+			options: ['Changer la readiness par défaut dont dépend le routage du trafic, une fois le gate de désactivation retiré', 'La tolérance de 10 secondes au décalage d’horloge dans le kubelet, dont dépendent les nodes', 'La liste des cas de test e2e, puisque les jobs de CI sont construits autour de chacun', 'Les chiffres de couverture des tests unitaires, puisqu’ils figurent dans la KEP elle-même'],
 			answer: 0,
 			why: 'D’autres composants et des utilisateurs construisent sur le comportement de la readiness. Une fois que l’ancien comportement ne peut plus être réactivé, le changer à nouveau demande une nouvelle proposition et une nouvelle migration. Le reste est interne et peu coûteux à changer.'
 		}

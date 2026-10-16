@@ -110,9 +110,9 @@ crash.*.log
 		{
 			q: 'What does a Git commit store?',
 			options: [
-				'Only the lines that changed since the previous commit',
+				'Only the lines that changed since the previous commit, plus the author and message',
 				'A snapshot of the whole project, plus author, message and a link to its parent commit',
-				'A copy of the working tree, including ignored files',
+				'A copy of the working tree, including ignored files, plus a link to the parent',
 				'The difference between the index and the working tree'
 			],
 			answer: 1,
@@ -121,10 +121,10 @@ crash.*.log
 		{
 			q: 'You ran `git add app.conf` but not `git commit`. Where is the new version of `app.conf`?',
 			options: [
-				'Only in the working tree',
-				'In a new commit on `main`',
+				'Only in the working tree, until you run `git commit`',
+				'In a new commit on `main`, not yet pushed to the remote',
 				'In the working tree and the index, not yet in any commit',
-				'On the remote server'
+				'On the remote server, waiting for the next `git pull`'
 			],
 			answer: 2,
 			why: '`git add` stages the file in the index. It reaches the repository only with `git commit`, and the remote only with `git push`.'

@@ -109,10 +109,10 @@ export default {
 		{
 			q: 'Deux objets `LocalDate` sont créés séparément, et tous les deux contiennent 2026-03-14. Comment se comparent-ils ?',
 			options: [
-				'Différents, parce que chacun a été créé séparément',
-				'Égaux seulement s’ils appartiennent au même animal',
-				'Égaux : un value object est défini par son contenu, et `equals` compare la date',
-				'Différents, sauf s’ils partagent un id en base'
+				'Différents, parce que chacun est un objet distinct en mémoire',
+				'Égaux seulement s’ils appartiennent au même animal ou à la même visite',
+				'Égaux, parce qu’un value object se compare par son contenu',
+				'Différents, sauf s’ils ont été chargés avec le même id en base'
 			],
 			answer: 2,
 			why: 'Les value objects n’ont pas d’identité. Même contenu, même valeur. Le JDK documente `LocalDate` comme value-based : les instances égales sont interchangeables.'
@@ -120,10 +120,10 @@ export default {
 		{
 			q: 'Pourquoi l’aggregate `Owner` ne peut-il pas garantir « un vétérinaire n’a jamais deux visites à la même heure » ?',
 			options: [
-				'Les entités JPA ne peuvent pas porter de règles',
-				'La règle a besoin des visites de nombreux propriétaires, qui vivent hors de cet aggregate',
-				'Seuls les value objects peuvent porter des invariants',
-				'La base de données n’a pas de transactions'
+				'Les entités JPA ne portent que des champs mappés, pas de règles métier',
+				'La règle a besoin des visites de nombreux propriétaires, hors de cet aggregate',
+				'Seuls les value objects peuvent porter des invariants, jamais les entities',
+				'La base ne peut pas faire la vérification dans une seule transaction'
 			],
 			answer: 1,
 			why: 'Un aggregate ne peut garantir que des règles sur les données qu’il porte. Les visites d’un vétérinaire sont réparties entre de nombreux propriétaires, donc une vérification à l’intérieur d’un seul propriétaire n’en voit que quelques-unes.'
@@ -131,10 +131,10 @@ export default {
 		{
 			q: 'PetClinic a un `OwnerRepository` mais aucun repository pour les animaux ou les visites. Qu’est-ce que ça dit ?',
 			options: [
-				'Owner est la racine de l’aggregate : les animaux et les visites sont chargés et enregistrés à travers lui',
-				'Les animaux et les visites sont des value objects',
-				'Le projet a oublié deux repositories',
-				'Les animaux sont stockés dans une autre base de données'
+				'Owner est la racine de l’aggregate, les animaux et visites passent par lui',
+				'Les animaux et les visites sont des value objects, sans besoin de repository',
+				'Le projet a oublié deux repositories qu’il faudrait encore ajouter',
+				'Les animaux et les visites sont stockés dans une autre base que les propriétaires'
 			],
 			answer: 0,
 			why: 'Les repositories existent par aggregate, pas par table. Les animaux et les visites sont des entities à l’intérieur du groupe du propriétaire, donc ils voyagent avec lui.'

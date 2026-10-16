@@ -132,10 +132,10 @@ spec:
 		{
 			q: 'Dans un GitOps en mode pull, qui applique les changements sur le cluster ?',
 			options: [
-				'La pipeline CI, avec `kubectl apply`',
-				'Le développeur, depuis son portable',
-				'Un agent qui tourne dans le cluster, comme Argo CD, et qui tire l’état voulu depuis Git',
-				'Le serveur Git, via un webhook qui lance `kubectl`'
+				'La pipeline CI, avec `kubectl apply` après chaque merge dans le repo de config',
+				'Le développeur, depuis son portable, une fois la pull request approuvée',
+				'Un agent dans le cluster, comme Argo CD, qui tire l’état voulu depuis Git',
+				'Le serveur Git, via un webhook qui lance `kubectl` à chaque push'
 			],
 			answer: 2,
 			why: 'Dans le modèle pull, l’agent dans le cluster récupère l’état voulu et réconcilie. La CI écrit seulement dans Git et n’a besoin d’aucun accès au cluster.'
@@ -143,10 +143,10 @@ spec:
 		{
 			q: 'Une Application Argo CD a la sync automatique, mais `selfHeal` n’est pas défini. Quelqu’un scale un Deployment à la main. Que se passe-t-il ?',
 			options: [
-				'Argo CD l’annule en quelques secondes',
+				'Argo CD l’annule en quelques secondes, puisque la sync automatique est active',
 				'Argo CD affiche l’appli en OutOfSync mais ne l’annule pas tout seul',
-				'Argo CD supprime le Deployment',
-				'Rien, Argo CD ne voit pas les changements faits avec kubectl'
+				'Argo CD supprime le Deployment, puis le recrée à partir de ce qui est dans Git',
+				'Rien : Argo CD ne voit pas les changements qui ont été faits avec kubectl'
 			],
 			answer: 1,
 			why: 'Par défaut, les changements faits sur le cluster ne déclenchent pas la sync automatique. Argo CD détecte le drift, mais seul le self-heal le fait agir.'
@@ -154,10 +154,10 @@ spec:
 		{
 			q: 'Tu supprimes le fichier d’une ConfigMap du repo Git. La sync automatique est active, `prune` n’est pas défini. Que devient la ConfigMap dans le cluster ?',
 			options: [
-				'Elle est supprimée à la sync suivante',
+				'Elle est supprimée à la sync suivante, puisqu’elle n’est plus dans Git',
 				'Elle reste. La sync automatique ne supprime pas de ressources sans prune activé',
-				'Argo CD recrée le fichier dans Git',
-				'Toute l’Application est supprimée'
+				'Argo CD recrée le fichier manquant dans Git à partir de la ConfigMap live',
+				'Toute l’Application est supprimée, puisque sa source a changé'
 			],
 			answer: 1,
 			why: 'Par sécurité, la sync automatique ne supprime pas les ressources absentes de Git. Tu fais le prune à la main, ou tu mets `prune: true`.'

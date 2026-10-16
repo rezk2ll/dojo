@@ -134,10 +134,10 @@ Resources:
 		{
 			q: 'You create a new security group, attach it to an instance and add no rules. Can someone on the internet reach port 80?',
 			options: [
-				'Yes, a new security group allows all inbound traffic',
+				'Yes, a new security group allows all inbound traffic until your first rule',
 				'No, a new security group has no inbound rules, so no inbound traffic is allowed',
-				'Only if they come from the same Region',
-				'Yes, until you add an explicit deny rule'
+				'Only if they come from the same Region as the instance\'s VPC',
+				'Yes, until you add an explicit deny rule for port 80'
 			],
 			answer: 1,
 			why: 'A new security group starts with no inbound rules and one outbound rule that allows everything. You can only add allow rules, never deny rules.'
@@ -145,10 +145,10 @@ Resources:
 		{
 			q: 'Why put your two web servers in subnets in two different Availability Zones?',
 			options: [
-				'Instances in two AZs cost less',
+				'Instances spread over two AZs cost less than two in the same zone',
 				'A subnet lives in one AZ, so two AZs let the app survive the loss of one zone',
-				'Security groups only work across AZs',
-				'S3 can only be reached from a second AZ'
+				'Security groups only work across AZs, so one AZ leaves the servers open',
+				'S3 can only be reached from a subnet that sits in a second AZ'
 			],
 			answer: 1,
 			why: 'Each subnet sits entirely in one AZ. AZs are isolated locations, so spreading across two protects you from the failure of one.'

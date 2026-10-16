@@ -145,10 +145,10 @@ deploy:
 		{
 			q: 'In GitLab CI, a job compiles a binary that a deploy job in a later stage must use. Where should the binary go?',
 			options: [
-				'In `cache`, because it is faster',
-				'In `artifacts`, because they are stored in GitLab and passed to later stages',
-				'In a CI/CD variable',
-				'Nowhere: the deploy job should compile it again'
+				'In `cache`, because it is faster and shared with later stages',
+				'In `artifacts`, which GitLab stores and passes to later stages',
+				'In a CI/CD variable, set by the build job for the deploy job',
+				'Nowhere: the deploy job should compile it again from source'
 			],
 			answer: 1,
 			why: 'Cache is for dependencies and may be missing. Artifacts are the way to hand build results to later stages of the same pipeline.'

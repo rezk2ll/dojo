@@ -123,10 +123,10 @@ export default {
 		{
 			q: 'Quelle phrase décrit le mieux DevOps ?',
 			options: [
-				'Un intitulé de poste pour la personne qui maintient le serveur de CI',
+				'Un intitulé de poste pour l’ingénieur qui maintient le serveur de CI et les scripts de déploiement',
 				'Une façon de travailler où dev et ops partagent la responsabilité de livrer et d’exploiter le service',
-				'Un ensemble d’outils comme Docker, Jenkins et Kubernetes',
-				'Une équipe placée entre les développeurs et les ops pour gérer les déploiements'
+				'Un ensemble d’outils comme Docker, Jenkins et Kubernetes qu’une équipe adopte ensemble',
+				'Une équipe placée entre les développeurs et les ops pour gérer chaque déploiement'
 			],
 			answer: 1,
 			why: 'DevOps, c’est culture, pratiques et outils ensemble, pour supprimer le mur entre dev et ops. Un titre, des outils ou une équipe de plus au milieu passent à côté.'
@@ -140,10 +140,10 @@ export default {
 		{
 			q: 'D’après le livre SRE de Google, pourquoi les objectifs d’une équipe dev classique et d’une équipe ops classique sont-ils en tension ?',
 			options: [
-				'Parce que les équipes ops utilisent un autre système d’exploitation',
-				'Parce que les développeurs n’écrivent jamais de tests',
+				'Parce que les équipes ops utilisent un autre système d’exploitation que celui des devs',
+				'Parce que les développeurs écrivent rarement des tests, donc les ops attrapent les bugs en production',
 				'Parce que la plupart des pannes viennent d’un changement, et que les devs sont payés pour faire des changements',
-				'Parce que les équipes ops sont plus grandes que les équipes dev'
+				'Parce que les équipes ops sont plus grandes que les équipes dev, donc elles gagnent chaque arbitrage'
 			],
 			answer: 2,
 			why: 'Les devs veulent lancer des fonctionnalités, les ops veulent que le service ne casse pas. Comme le changement est la première cause de panne, l’objectif de chacun joue contre celui de l’autre.'

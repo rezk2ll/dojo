@@ -109,13 +109,13 @@ export default {
 		},
 		{
 			q: 'A Rails app stores uploads on disk in tests and on S3 in production, with the same model code. Where is that choice made?',
-			options: ['In each model, with an `if Rails.env.production?`', 'In `Blob`, which checks which gems are installed', 'In each environment\'s `config.active_storage.service`, which names an entry in `storage.yml`', 'In the S3 SDK, which falls back to disk when no bucket is set'],
+			options: ['In each model, with an `if Rails.env.production?` around every `has_one_attached`', 'In `Blob`, which checks which storage gems are installed and picks the first one', 'In each environment\'s `config.active_storage.service`, which names an entry in `storage.yml`', 'In the S3 SDK, which falls back to the local disk when no bucket is set in the env'],
 			answer: 2,
 			why: 'The environment names a service, `storage.yml` maps the name to an adapter, and the configurator builds it. The models never see the choice.'
 		},
 		{
 			q: '`MirrorService` implements `Service` and wraps a primary and some mirrors. What does that design buy?',
-			options: ['Faster downloads, since it reads from every mirror at once', 'Atomic uploads across all stores', 'No more need for a `storage.yml` file', 'Copying uploads to a second store with any adapters, without changing them or their callers'],
+			options: ['Faster downloads, since it reads each file from every mirror at once and keeps the first', 'Atomic uploads, so a file lands in every store or in none of them', 'No more need for a `storage.yml` file, since the mirrors are set in code', 'Copying uploads to a second store with any adapters, without changing them or their callers'],
 			answer: 3,
 			why: 'A decorator adds one behavior behind the same interface. Downloads still go to the primary, and the guide warns that mirroring is not atomic.'
 		}

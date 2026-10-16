@@ -106,19 +106,19 @@ export default {
 	quiz: [
 		{
 			q: 'Two services talk only through gRPC. Neither imports the other\'s code. Are they coupled?',
-			options: ['No, coupling needs an import', 'Only if they are written in the same language', 'Only if they share a database', 'Yes, at run time: a change to the request or response can break the caller'],
+			options: ['No, coupling needs one side to import the other side\'s code', 'Only if both services are written in the same language and share their types', 'Only if they share a database or write to the same tables', 'Yes, at run time: a change to the request or response can break the caller'],
 			answer: 3,
 			why: 'That is dynamic coupling. No compiler links the two sides, so you need a shared contract and tests to see it.'
 		},
 		{
 			q: 'Which sign points to **low cohesion** in a module?',
-			options: ['It has many small files', 'It mixes code that changes for unrelated reasons, like network plumbing and tax rules', 'It is imported by many other modules', 'It has no tests'],
+			options: ['It is split into many small files spread across several folders', 'It mixes code that changes for unrelated reasons, like network plumbing and tax rules', 'It is imported by many other modules, so each change ripples out to all of them', 'It has no unit tests, so nobody can say which parts of it still work'],
 			answer: 1,
 			why: 'Cohesion is about whether the contents belong together. Two reasons to change pull one module in two directions.'
 		},
 		{
 			q: 'In Online Boutique, a failed confirmation email only logs a warning, while a failed payment fails the order. What does that show?',
-			options: ['Coupling has a strength: the caller decides which failures it can live with', 'The email service is not really called', 'Python services cannot return gRPC errors', 'The payment service is statically coupled to checkout'],
+			options: ['Coupling has a strength: the caller decides which failures it can live with', 'The email service is not really called, only queued for a later retry', 'Python services cannot return gRPC errors, so checkout never sees a failure', 'The payment service is statically coupled to checkout, the email one is not'],
 			answer: 0,
 			why: 'Both are runtime calls. Checkout treats one as required and one as best effort, which makes the email service a much weaker dependency.'
 		}

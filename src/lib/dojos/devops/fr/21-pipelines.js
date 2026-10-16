@@ -132,10 +132,10 @@ deploy-job:      # This job runs in the deploy stage.
 		{
 			q: 'Quelle est la différence entre livraison continue et déploiement continu ?',
 			options: [
-				'La livraison continue construit le code, le déploiement continu le teste en plus',
-				'En livraison continue, chaque changement validé est prêt pour la production et un humain décide quand le mettre en ligne. En déploiement continu, chaque changement validé part automatiquement',
-				'Le déploiement continu est pour les conteneurs, la livraison continue pour les machines virtuelles',
-				'Ce sont deux noms pour la même pratique'
+				'La livraison continue construit et empaquette le code, alors que le déploiement continu lance aussi toute la suite de tests',
+				'En livraison continue, chaque changement validé est prêt et un humain décide quand le mettre en ligne. En déploiement continu, il part tout seul',
+				'Le déploiement continu est pour les plateformes de conteneurs, la livraison continue pour les équipes qui livrent encore des VM',
+				'Ce sont deux noms pour la même pratique, et les deux veulent dire que chaque changement validé part tout seul chez les utilisateurs'
 			],
 			answer: 1,
 			why: 'Les deux gardent chaque changement livrable. La seule différence est la dernière étape : un bouton humain (livraison) ou pas de bouton (déploiement). Il faut faire de la livraison continue avant de pouvoir faire du déploiement continu.'
@@ -154,10 +154,10 @@ deploy-job:      # This job runs in the deploy stage.
 		{
 			q: 'Pourquoi un pipeline construit-il l’artefact une seule fois et le transmet au staging puis à la production, au lieu de reconstruire à chaque fois ?',
 			options: [
-				'Parce que les outils de CI interdisent de construire deux fois',
-				'Pour économiser de l’espace disque sur le runner',
+				'Parce que les outils de CI interdisent au même job de construire deux fois dans un pipeline',
+				'Pour économiser de l’espace disque et des minutes de build sur le runner partagé',
 				'Pour que le fichier déployé en production soit exactement celui que tu as testé',
-				'Parce que les serveurs de production ne peuvent pas lancer de compilateur'
+				'Parce que les serveurs de production ne peuvent pas lancer de compilateur ni récupérer de dépendances'
 			],
 			answer: 2,
 			why: 'Un nouveau build peut récupérer une autre dépendance ou utiliser un autre compilateur. La production fait alors tourner quelque chose que personne n’a testé. Un seul artefact, promu de stage en stage, supprime cet écart.'

@@ -139,10 +139,10 @@ module.exports.charge = async request => {
 		{
 			q: 'Chaque ligne de log que ton service écrit dans un span porte `trace_id` et `span_id`. Qu’est-ce que ça te permet ?',
 			options: [
-				'Rejouer la requête exactement comme elle a été envoyée',
-				'Sauter d’une ligne de log d’erreur à la trace complète de cette requête, à travers tous les services qu’elle a touchés',
-				'Supprimer tes métriques, puisque les logs contiennent maintenant les mêmes données',
-				'Garantir qu’aucune ligne de log ne se perd en route vers le store de logs'
+				'Rejouer la requête exactement comme elle a été envoyée, avec les mêmes en-têtes et le même corps',
+				'Sauter d’une ligne de log d’erreur à la trace complète de cette requête, à travers tous les services',
+				'Supprimer tes métriques, puisque les logs contiennent maintenant les mêmes chiffres avec plus de détail',
+				'Garantir qu’aucune ligne de log ne se perd entre ton service et le store de logs'
 			],
 			answer: 1,
 			why: 'Le trace id est la clé partagée. Il retrouve les spans de tout le trajet à partir d’une ligne de log, et les lignes de log à partir d’un span. Il ne rejoue rien, ne remplace pas les métriques et ne rend pas la livraison fiable.'
@@ -162,12 +162,12 @@ module.exports.charge = async request => {
 			q: 'Quelle alerte suit le principe « alerter sur les symptômes » ?',
 			options: [
 				'Plus de 2 % des paiements ont échoué avec une erreur serveur sur la dernière heure',
-				'CPU au-dessus de 80 % pendant 5 minutes',
-				'Un health check a échoué une fois',
-				'Un pod a redémarré'
+				'CPU au-dessus de 80 % sur les serveurs de paiement pendant 5 minutes d’affilée',
+				'Le health check d’un pod de paiement a échoué une fois dans la dernière heure',
+				'Un pod de paiement a redémarré trois fois dans la dernière heure après un crash'
 			],
 			answer: 0,
-			why: 'Elle mesure ce que ressentent les utilisateurs. Le CPU, un check raté une fois et un redémarrage sont des causes ; leur place est sur un dashboard que tu ouvres après qu’une alerte sur symptôme a sonné.'
+			why: 'Elle mesure ce que ressentent les utilisateurs. Le CPU, un check raté une fois et des redémarrages sont des causes ; leur place est sur un dashboard que tu ouvres après qu’une alerte sur symptôme a sonné.'
 		}
 	],
 	takeaway: 'Mets un même trace id dans chaque ligne de log et chaque span, mesure débit, erreurs et durée par service, garde des labels petits, et ne réveille quelqu’un que quand les utilisateurs le ressentent.',

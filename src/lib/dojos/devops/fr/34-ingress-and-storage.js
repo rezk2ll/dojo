@@ -142,10 +142,10 @@ spec:
 		{
 			q: 'Tu réduis un StatefulSet de 3 réplicas à 1. Que deviennent les volumes de `db-1` et `db-2` ?',
 			options: [
-				'Ils sont supprimés avec les Pods',
-				'Ils sont rattachés à `db-0`',
+				'Ils sont supprimés avec les Pods, puisque chaque claim appartient à son Pod',
+				'Ils sont rattachés à `db-0`, pour que le réplica restant garde toutes les données',
 				'Ils sont gardés : par défaut, les StatefulSets ne suppriment pas leurs volumes quand on les réduit',
-				'Ils sont convertis en ConfigMaps'
+				'Ils sont convertis en ConfigMaps pour que les données survivent sans disque'
 			],
 			answer: 2,
 			why: 'Pour la sécurité des données, réduire ou supprimer un StatefulSet laisse ses PVC et ses volumes en place, sauf si tu règles `persistentVolumeClaimRetentionPolicy` sur `Delete`. Remonte à 3 et `db-1` retrouve ses anciennes données.'

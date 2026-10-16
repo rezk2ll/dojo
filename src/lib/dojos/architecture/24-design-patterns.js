@@ -122,13 +122,13 @@ export default {
 		},
 		{
 			q: 'A stored password hash starts with `{md4x}`, and no encoder is mapped to that id. What happens when the user logs in?',
-			options: ['The hash is upgraded to bcrypt', 'The app refuses to start', 'The encoder falls back to bcrypt and the login works', '`DelegatingPasswordEncoder` throws `IllegalArgumentException` at login'],
+			options: ['The hash is upgraded to bcrypt the first time the user logs in', 'The app refuses to start until every stored hash has a known id', 'The encoder falls back to its default id, bcrypt, and the login works', '`DelegatingPasswordEncoder` throws `IllegalArgumentException` at login'],
 			answer: 3,
 			why: 'The delegating encoder picks a strategy by the `{id}` prefix. An unknown id goes to its unmapped encoder, which throws. Picking the strategy at run time moves this error to run time.'
 		},
 		{
 			q: 'A Spring Security app needs a new login method. With `ProviderManager`\'s strategy design, what has to change?',
-			options: ['A new `AuthenticationProvider`, registered with the others', '`ProviderManager.authenticate`', 'Every controller that needs a user', '`DaoAuthenticationProvider`'],
+			options: ['A new `AuthenticationProvider`, registered with the others', '`ProviderManager.authenticate`, to add a branch for the new method', 'Every controller that needs a user, to call the new login method', '`DaoAuthenticationProvider`, so it also checks the new credentials'],
 			answer: 0,
 			why: '`ProviderManager` loops over whatever providers it holds and keeps the first result. It never names a provider, so it stays closed while the list grows.'
 		}

@@ -138,10 +138,10 @@ export default {
 		{
 			q: 'Tu lances `ansible-playbook site.yml --check`. Une tâche est `ansible.builtin.command: /opt/app/migrate.sh`, sans `creates` ni `removes`. Que devient le script ?',
 			options: [
-				'Il tourne, parce que le check mode ne concerne que les modules de fichiers',
+				'Il tourne, parce que le check mode ne concerne que les modules qui gèrent des fichiers et des paquets',
 				'Il ne tourne pas : Ansible ne peut pas prévoir ce que ferait une commande quelconque, donc la tâche est sautée',
-				'Il tourne deux fois, une pour vérifier et une pour appliquer',
-				'Le playbook entier refuse de démarrer en check mode'
+				'Il tourne deux fois, une pour vérifier ce qui changerait et une pour appliquer le changement',
+				'Le playbook entier refuse de démarrer en check mode tant qu’il contient une tâche command'
 			],
 			answer: 1,
 			why: 'Le module `command` ne gère le check mode que partiellement. Sans `creates` ni `removes`, il ne peut pas savoir ce qui changerait, donc en check mode il ne fait rien.'

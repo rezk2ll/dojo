@@ -123,10 +123,10 @@ exit $res`,
 		{
 			q: 'What does `set -o pipefail` change?',
 			options: [
-				'Bash stops the pipeline as soon as one command fails',
-				'The pipeline returns the status of the rightmost command that failed, not just the last command\'s status',
-				'Bash prints each command of the pipeline before running it',
-				'Each command of the pipeline runs in its own subshell'
+				'Bash stops the whole pipeline as soon as one of its commands fails',
+				'It returns the status of the rightmost failing command, not only the last one',
+				'Bash prints each command of the pipeline to stderr before running it',
+				'Each command of the pipeline runs in its own subshell, one after another'
 			],
 			answer: 1,
 			why: 'Without pipefail, `a | b` returns the status of `b`, so a failure in `a` is hidden. pipefail makes any failing command show in the result.'

@@ -132,10 +132,10 @@ export default {
 		{
 			q: 'In ActivityStreams, `summary` is "a natural language summarization of the object". Mastodon shows it as a content warning. What does that show?',
 			options: [
-				'Mastodon breaks the ActivityPub spec',
-				'The same word can mean different things in two bounded contexts, and the translation at the border decides which one applies',
-				'ActivityStreams should rename the field',
-				'Content warnings are part of the W3C vocabulary'
+				'Mastodon breaks the ActivityPub spec and should store the warning in a field of its own',
+				'One word can mean different things in two contexts, and the translation at the border picks the meaning',
+				'ActivityStreams should rename the field, because one name for two meanings is a bug in the spec',
+				'Content warnings are part of the W3C vocabulary, and `summary` is the field the spec defines for them'
 			],
 			answer: 1,
 			why: 'Each context gives the word its own meaning. Mastodon\'s parser maps `summary` to `spoiler_text` on purpose, and its docs say so. A context map makes that choice visible.'

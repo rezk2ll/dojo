@@ -120,10 +120,10 @@ roleRef:
 		{
 			q: 'Quelle est la différence entre un Role et un RoleBinding ?',
 			options: [
-				'Un Role est pour les utilisateurs, un RoleBinding pour les service accounts',
+				'Un Role est pour les utilisateurs humains, un RoleBinding est la même liste de droits pour les service accounts',
 				'Un Role liste les actions autorisées sur des ressources. Un RoleBinding donne ce Role à des utilisateurs, groupes ou service accounts',
-				'Un Role vaut pour tout le cluster, un RoleBinding pour un namespace',
-				'Ce sont deux noms pour le même objet'
+				'Un Role vaut pour tout le cluster, un RoleBinding est une copie de ce Role limitée à un namespace',
+				'Ce sont deux noms pour le même objet, gardés séparés seulement pour les anciens clients de l’API'
 			],
 			answer: 1,
 			why: 'Le Role dit ce qu’on peut faire. Le binding dit qui le reçoit. Les versions globales au cluster sont ClusterRole et ClusterRoleBinding.'
@@ -131,10 +131,10 @@ roleRef:
 		{
 			q: 'Alice a un RoleBinding dans `team-a`. Rien d’autre ne la mentionne. Que peut-elle faire dans `team-b` ?',
 			options: [
-				'Tout lire, parce que la lecture est autorisée par défaut',
-				'La même chose que dans `team-a`, parce que les rôles suivent l’utilisateur',
+				'Tout lire, parce que RBAC autorise la lecture dans chaque namespace par défaut',
+				'La même chose que dans `team-a`, parce qu’un RoleBinding suit l’utilisateur partout',
 				'Rien, parce que RBAC ne fait qu’accorder et qu’aucun droit ne lui est accordé là',
-				'Tout, sauf si une règle de refus la bloque'
+				'Tout, sauf si une règle de refus dans `team-b` la bloque'
 			],
 			answer: 2,
 			why: 'Les permissions RBAC sont purement additives. Un RoleBinding n’accorde que dans son propre namespace, et RBAC n’a pas de règles de refus.'
@@ -142,10 +142,10 @@ roleRef:
 		{
 			q: 'Un namespace a un ResourceQuota sur `requests.cpu`. On soumet un pod sans aucune request CPU, et aucun LimitRange ne fixe de valeur par défaut. Que se passe-t-il ?',
 			options: [
-				'Le pod tourne avec un CPU illimité',
+				'Le pod tourne avec un CPU illimité, car le quota ne compte que les pods qui fixent une request',
 				'Le pod peut être refusé, parce que le quota exige que chaque pod fixe des requests ou des limits CPU',
-				'Le quota est ignoré pour ce pod',
-				'Kubernetes déplace le pod dans le namespace default'
+				'Le quota est ignoré pour ce pod, puisqu’il n’y a aucune request à compter',
+				'Kubernetes déplace le pod dans le namespace default, où aucun quota ne s’applique'
 			],
 			answer: 1,
 			why: 'Avec un quota CPU actif, les pods doivent déclarer des requests ou des limits pour que le quota puisse les compter. Un LimitRange peut remplir des valeurs par défaut pour les équipes qui oublient.'

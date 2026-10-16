@@ -117,10 +117,10 @@ CMD ["/usr/local/bin/backend"]`,
 		{
 			q: 'Dans un build multi-stage, qu’est-ce qui se retrouve dans l’image finale ?',
 			options: [
-				'Tous les stages, empilés les uns sur les autres',
+				'Tous les stages, empilés les uns sur les autres en couches, dans leur ordre d’apparition',
 				'Seulement le dernier stage, plus ce qu’il copie des stages précédents avec `COPY --from`',
-				'Seulement le premier stage',
-				'Le cache de build de tous les stages'
+				'Seulement le premier stage, puisque les suivants ne font qu’y ajouter des étapes de build',
+				'Le cache de build de tous les stages, pour que le build suivant reparte de lui'
 			],
 			answer: 1,
 			why: 'Chaque `FROM` démarre un nouveau stage. L’image est le stage que tu construis (par défaut le dernier), et les stages précédents n’apportent que ce que `COPY --from` leur prend.'
@@ -136,8 +136,8 @@ CMD ["/usr/local/bin/backend"]`,
 			options: [
 				'Il retire les fichiers correspondants de l’image finale après le build',
 				'Il exclut les fichiers correspondants du contexte de build avant son envoi au builder',
-				'Il dit à `docker push` quelles couches sauter',
-				'Il liste les images que Docker ne doit jamais tirer'
+				'Il dit à `docker push` quelles couches sauter lors de l’envoi au registry',
+				'Il liste les images de base que Docker ne doit jamais tirer, même si un `FROM` les nomme'
 			],
 			answer: 1,
 			why: 'Les fichiers qui correspondent au `.dockerignore` sont retirés du contexte avant que le builder ne le voie, donc `COPY` ne peut pas les prendre.'

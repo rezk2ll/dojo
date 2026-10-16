@@ -107,13 +107,13 @@ export default {
 	quiz: [
 		{
 			q: 'A call to charge a card times out. What do you know about the charge?',
-			options: ['Nothing: it may or may not have happened, so a retry must be safe either way', 'It failed, so retrying is safe', 'It succeeded, the answer was just slow', 'It will be rolled back by the server'],
+			options: ['Nothing: it may or may not have happened, so a retry must be safe', 'It failed: no answer came back, so retrying the charge is safe', 'It succeeded: the server got it, the answer was just slow to come', 'It was rolled back: a server undoes the work when its caller times out'],
 			answer: 0,
 			why: 'A timeout only frees the caller. The work may have been done, half done or never started. That is why the retry has to be idempotent.'
 		},
 		{
 			q: 'Why does Mastodon add a random amount to each retry delay of a delivery job?',
-			options: ['To make tests less predictable', 'Because Redis timers are not precise', 'So deliveries that failed at the same moment do not all retry at the same moment', 'To make the delay grow after each failure'],
+			options: ['To make delivery tests less predictable and catch hidden timing bugs', 'Because Redis timers are not precise, so each delay is rounded at random', 'So deliveries that failed together do not all retry in the same second', 'To make the delay grow after each failure, so the remote gets room to recover'],
 			answer: 2,
 			why: 'That is jitter. The growth is the backoff. The randomness spreads the crowd out, so a server coming back up is not hit by synchronized waves.'
 		},

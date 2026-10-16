@@ -145,10 +145,10 @@ export default {
 		{
 			q: 'Un serveur Mastodon fait tourner une seule instance Redis. D’après le guide de passage à l’échelle, que peut-il arriver si elle tombe, et que propose le guide ?',
 			options: [
-				'Seul le cache s’arrête. Rien à faire',
+				'Seul le cache s’arrête, les fils et les jobs continuent. Rien à faire',
 				'Seul le serveur de streaming s’arrête. Ajouter des processus de streaming',
-				'Elle peut faire tomber toute l’instance. Utiliser Redis Sentinel pour un failover automatique',
-				'Sidekiq bascule sur PostgreSQL pour ses files. Rien à faire'
+				'Elle peut faire tomber toute l’instance. Utiliser Redis Sentinel pour le failover',
+				'Sidekiq bascule sur PostgreSQL pour ses files de jobs. Rien à faire'
 			],
 			answer: 2,
 			why: 'Les fils, les files de jobs et le streaming dépendent tous de Redis, donc le guide le qualifie de critique. Sentinel surveille les instances et redirige les clients vers un nouveau primaire quand l’un tombe.'

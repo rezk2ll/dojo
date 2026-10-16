@@ -133,10 +133,10 @@ export default {
 		{
 			q: 'What does `ansible-vault encrypt group_vars/prod/vault.yml` give you?',
 			options: [
-				'The file is removed from Git history and stored on the control node',
+				'The file is removed from Git history and stored only on the control node, outside the repo',
 				'The file is encrypted (AES256) so you can commit it, and Ansible decrypts it at run time with the vault password',
-				'The values are uploaded to a HashiCorp Vault server',
-				'The values are hidden in log output but stay readable in the file'
+				'The values are uploaded to a HashiCorp Vault server, and the file keeps only references to them',
+				'The values are hidden in log output when tasks run, but stay readable as plain text in the file'
 			],
 			answer: 1,
 			why: 'Ansible Vault is file or value encryption. The encrypted text lives in your repo, and you pass the password with `--ask-vault-pass` or `--vault-password-file` when you run.'

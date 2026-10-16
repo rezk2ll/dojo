@@ -125,10 +125,10 @@ export default {
 		{
 			q: 'Pourquoi livrer par petits lots rend-il les pannes plus faciles à corriger ?',
 			options: [
-				'Moins de changements partent en même temps, donc tu sais quel changement regarder et tu peux faire un rollback de celui-là seulement',
-				'Les petits lots ne provoquent jamais de panne',
-				'Les petits lots peuvent sauter les tests',
-				'Les petits lots demandent moins de serveurs'
+				'Moins de changements partent ensemble, donc tu sais lequel regarder et tu peux faire un rollback de lui seul',
+				'Les petits lots ne provoquent jamais de panne, car chaque changement est trop petit pour casser',
+				'Les petits lots peuvent sauter la longue suite de tests, donc le correctif arrive plus vite',
+				'Les petits lots demandent moins de serveurs, donc une panne a moins d’endroits où se cacher'
 			],
 			answer: 0,
 			why: 'Un changement par déploiement, c’est un suspect par incident. Trente changements par déploiement, trente suspects.'
@@ -139,7 +139,7 @@ export default {
 				'Augmenter la limite de WIP pour qu’elles puissent commencer autre chose',
 				'Donner deux tâches en parallèle à chaque personne libre',
 				'Garder la limite et les faire aider à débloquer la partie coincée de la chaîne de valeur',
-				'Suivre leur nouveau travail dans une colonne séparée et cachée'
+				'Suivre leur nouveau travail dans une colonne séparée et cachée pour que la limite tienne'
 			],
 			answer: 2,
 			why: 'La limite sert à révéler les goulots d’étranglement. L’augmenter, éparpiller les gens ou cacher le travail enterre le problème qu’elle venait de montrer.'

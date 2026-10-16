@@ -131,9 +131,9 @@ module "ec2_instances" {
 			q: 'Two engineers each keep their own local `terraform.tfstate` for the same infrastructure. What goes wrong?',
 			options: [
 				'Nothing: Terraform asks AWS what exists on every run, so the state file does not matter',
-				'Each state misses the other\'s changes, so plans can propose duplicates or wrong destroys, and no lock stops two applies at once',
-				'Terraform refuses to start when it finds two state files',
-				'AWS rejects the second engineer\'s API calls'
+				'Each state misses the other\'s changes: plans propose duplicates or wrong destroys, and no lock stops two applies',
+				'Terraform refuses to start when it finds two state files for the same infrastructure',
+				'AWS rejects the second engineer\'s API calls, because the first one already owns those resources'
 			],
 			answer: 1,
 			why: 'State is how Terraform maps blocks to real objects. Two copies mean two different memories. A shared remote backend with locking gives one memory and one writer at a time.'
@@ -141,10 +141,10 @@ module "ec2_instances" {
 		{
 			q: 'What does `terraform apply -refresh-only` do?',
 			options: [
-				'Changes AWS back to match the code',
-				'Updates the state to match the real infrastructure, without changing the infrastructure',
-				'Deletes the resources that drifted',
-				'Downloads newer versions of the providers'
+				'Changes AWS back to match the code, without touching the state file',
+				'Updates the state to match the real infrastructure, without changing it',
+				'Deletes the resources that drifted, so the next apply recreates them',
+				'Downloads newer provider versions, then rewrites the lock file'
 			],
 			answer: 1,
 			why: 'A refresh-only run only writes the state. It does not try to make AWS match the configuration. A normal `apply` does that.'

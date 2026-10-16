@@ -123,9 +123,9 @@ export default {
 		{
 			q: 'Dans Jenkins, quelle est la différence entre le controller et un agent ?',
 			options: [
-				'Le controller fait les builds, les agents ne stockent que les logs',
-				'Le controller est Jenkins lui-même (interface, configuration, planification). Les agents sont les machines qui exécutent les étapes de build',
-				'Le controller est le Jenkinsfile, les agents sont des plugins',
+				'Le controller fait les builds, les agents ne stockent que les logs et les artefacts',
+				'Le controller est Jenkins lui-même (interface, config, planification). Les agents exécutent les builds',
+				'Le controller est le Jenkinsfile, et les agents sont les plugins qu’il charge',
 				'Aucune différence, ce sont deux noms pour le même serveur'
 			],
 			answer: 1,
@@ -145,10 +145,10 @@ export default {
 		{
 			q: 'Quelle situation est la meilleure raison de choisir Jenkins plutôt qu’un service de CI hébergé ?',
 			options: [
-				'Tu ne veux aucun serveur à maintenir',
-				'Tu veux le pipeline dans un fichier YAML',
-				'Les builds doivent tourner sur ton propre réseau sans accès à internet, sur des agents que tu contrôles',
-				'Tu ne construis qu’un petit projet open source sur GitHub'
+				'Tu ne veux aucun serveur à maintenir ni aucun agent à mettre à jour',
+				'Tu veux tout le pipeline décrit dans un fichier YAML versionné avec le code',
+				'Les builds doivent tourner sur ton réseau sans internet, sur des agents que tu contrôles',
+				'Tu ne construis qu’un petit projet open source hébergé sur GitHub'
 			],
 			answer: 2,
 			why: 'Jenkins est auto-hébergé de bout en bout et fait tourner des agents n’importe où. C’est son atout. Pour zéro maintenance ou un petit projet GitHub, un service hébergé est plus simple.'

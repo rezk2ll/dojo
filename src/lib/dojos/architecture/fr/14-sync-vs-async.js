@@ -98,13 +98,13 @@ export default {
 	quiz: [
 		{
 			q: 'Qu’est-ce qui est vrai d’un job asynchrone, comparé à un appel synchrone ?',
-			options: ['L’appelant reçoit une réponse avant que le travail soit fait, et les erreurs doivent atteindre quelqu’un par un autre chemin', 'L’appelant reçoit toujours le résultat final dans la réponse', 'C’est toujours plus rapide du début à la fin', 'Il ne peut pas échouer, puisque la file garde le job'],
+			options: ['L’appelant reçoit une réponse avant la fin du travail, et les erreurs doivent atteindre quelqu’un par un autre chemin', 'L’appelant reçoit toujours le résultat final dans la réponse, juste un peu plus tard que d’habitude', 'C’est toujours plus rapide du début à la fin, puisque le travail tourne en arrière-plan', 'Il ne peut pas échouer, puisque la file garde le job jusqu’à ce qu’un worker le termine'],
 			answer: 0,
 			why: 'L’asynchrone déplace le travail après la réponse. L’appelant est libéré plus tôt, mais les erreurs ne reviennent plus dans la réponse, donc tu dois décider où elles atterrissent.'
 		},
 		{
 			q: 'Pourquoi Mastodon met-il en file un job de livraison par inbox, au lieu d’un seul job qui boucle sur toutes les inbox ?',
-			options: ['Redis ne peut pas stocker un job avec beaucoup d’inbox', 'Pour que les posts arrivent dans l’ordre', 'Pour qu’un serveur en échec soit relancé tout seul, sans rejouer ni bloquer la livraison aux autres', 'Parce que les signatures HTTP ne marchent que dans des jobs séparés'],
+			options: ['Redis ne peut pas stocker un seul job qui porte une longue liste d’inbox', 'Pour que les posts arrivent sur chaque serveur dans l’ordre où ils ont été écrits', 'Pour qu’un serveur en échec soit relancé tout seul, sans rejouer ni bloquer la livraison aux autres', 'Parce que les signatures HTTP ne marchent que si chaque requête tourne dans son propre job'],
 			answer: 2,
 			why: 'Un job est relancé en entier. Avec une inbox par job, un serveur mort ne relance que sa propre livraison, et beaucoup de workers peuvent livrer en parallèle.'
 		},

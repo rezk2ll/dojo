@@ -113,10 +113,10 @@ spec:
 		{
 			q: 'What makes a server "cattle" rather than a "pet"?',
 			options: [
-				'It runs in a public cloud',
-				'It is built by automation and can be destroyed and replaced at any time without drama',
-				'It has more than one network interface',
-				'It runs containers instead of system packages'
+				'It runs in a public cloud, where any VM can be rented or dropped on demand',
+				'It is built by automation and can be destroyed and replaced at any time',
+				'It has more than one network interface, so traffic can fail over to another',
+				'It runs containers instead of system packages, so nothing is installed by hand'
 			],
 			answer: 1,
 			why: 'The line is disposability, not location or technology. A cloud VM edited by hand is still a pet. A bare-metal box built from a recipe can be cattle.'
@@ -124,10 +124,10 @@ spec:
 		{
 			q: 'What is configuration drift?',
 			options: [
-				'The time between a commit and a deployment',
-				'A server\'s clock slowly losing accuracy',
+				'The time between a commit and its deployment, which grows when pipelines are slow',
+				'A server\'s clock slowly losing accuracy until certificates and logs disagree',
 				'Unrecorded ad hoc changes that make a server differ from its known configuration',
-				'Moving a VM from one host to another'
+				'Moving a VM from one host to another while it keeps running its workload'
 			],
 			answer: 2,
 			why: 'Each manual fix that is not written back to the recipe makes the server drift further from what anyone can rebuild.'
@@ -136,9 +136,9 @@ spec:
 			q: 'Your web servers are immutable. A security patch for nginx is out. What do you do?',
 			options: [
 				'Build a new image with the patch, test it, then replace the running servers with new ones',
-				'SSH into each server and run the package upgrade',
-				'Patch one server by hand, then copy its disk to the others',
-				'Wait for the next scheduled reboot to apply it'
+				'SSH into each server and run the package upgrade, then restart nginx',
+				'Patch one server by hand, test it, then copy its disk image to all the others',
+				'Wait for the next scheduled reboot, when the servers pull the patch themselves'
 			],
 			answer: 0,
 			why: 'Immutable means you never change a running server. The fix goes into the image, and servers built from the old image are replaced.'

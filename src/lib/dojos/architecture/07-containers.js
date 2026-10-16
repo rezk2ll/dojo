@@ -124,10 +124,10 @@ export default {
 		{
 			q: 'In the C4 model, what makes something a container?',
 			options: [
-				'It is packaged as a Docker image',
-				'It must be running (or storing data) for the system to work, as its own process or store',
-				'It has its own Git repository',
-				'It exposes a REST API'
+				'It is packaged as a Docker image, so it can be started and stopped alone',
+				'It must run (or hold data) for the system to work, as its own process or store',
+				'It lives in its own Git repository and one team builds and releases it',
+				'It exposes a REST API that the other parts of the system call over HTTPS'
 			],
 			answer: 1,
 			why: 'Simon Brown defines a container as something that needs to be running for the system to work. A database with no API and a browser app with no Docker image are both containers.'
@@ -135,10 +135,10 @@ export default {
 		{
 			q: 'Sidekiq is stopped, but `web` keeps running. A user publishes a post. What happens?',
 			options: [
-				'The API refuses the post with an error',
-				'The post is saved and returned, but feeds and other servers get it only once Sidekiq runs again',
-				'The web process runs the jobs itself instead',
-				'The post is lost when Sidekiq restarts'
+				'The API refuses the post with an error, because no worker can take its jobs',
+				'The post is saved, but feeds and other servers get it only once Sidekiq runs again',
+				'The web process sees Sidekiq is down and runs the delivery jobs itself',
+				'The post is saved, but its queued jobs are dropped when Sidekiq restarts'
 			],
 			answer: 1,
 			why: 'The request saves the post and only **enqueues** the delivery jobs in Redis. Nothing runs them until a Sidekiq process takes them. Separate containers fail separately, and this one fails quietly.'

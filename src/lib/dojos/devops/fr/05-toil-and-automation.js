@@ -120,7 +120,7 @@ export default {
 			q: 'D’après le livre SRE de Google, laquelle de ces tâches est du toil ?',
 			options: [
 				'Une réunion d’équipe hebdomadaire',
-				'Un nettoyage unique de toute la configuration d’alerting',
+				'Un nettoyage unique de toute la configuration d’alerting existante',
 				'Relancer le même service à la main chaque fois que la même alerte se déclenche',
 				'Remplir de la paperasse RH'
 			],
@@ -131,9 +131,9 @@ export default {
 			q: 'Chaque semaine, tu lances à la main un script de nettoyage. Il fait gagner du temps par rapport à taper les commandes. Le temps passé à le lancer est-il encore du toil ?',
 			options: [
 				'Oui : le temps qu’un humain passe à lancer un script reste du toil',
-				'Non : dès qu’il y a un script, la tâche est automatisée',
-				'Non : seules les tâches de plus d’une heure comptent comme du toil',
-				'Seulement si le script échoue'
+				'Non : dès qu’il y a un script, la tâche compte comme du travail automatisé',
+				'Non : seules les tâches de plus d’une heure par semaine comptent comme du toil',
+				'Seulement si le script échoue et que tu dois finir les étapes à la main'
 			],
 			answer: 0,
 			why: 'Le livre SRE est explicite : lancer un script peut être plus rapide que faire les étapes, mais le temps passé dessus reste du toil. L’automatisation complète sort l’humain de la boucle.'
@@ -141,10 +141,10 @@ export default {
 		{
 			q: 'Le workbook SRE cite une option à envisager en premier pour une tâche chargée en toil. Laquelle ?',
 			options: [
-				'Concevoir un système complet qui supprime tout le toil d’un coup',
+				'Concevoir un système complet qui supprime d’un coup tout le toil de l’équipe',
 				'Refuser le toil : comparer le coût de le faire au coût de ne pas le faire',
-				'La confier au dernier arrivé de l’équipe',
-				'La faire plus vite en sautant les vérifications'
+				'La confier au dernier arrivé, pour que les seniors gardent du temps pour l’ingénierie',
+				'La faire plus vite en sautant les vérifications qui ne trouvent jamais rien'
 			],
 			answer: 1,
 			why: 'Le workbook dit que refuser une tâche chargée en toil devrait être la première option envisagée. Il met aussi en garde contre la recherche du système parfait, et recommande de commencer petit.'

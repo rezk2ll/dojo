@@ -105,13 +105,13 @@ export default {
 		},
 		{
 			q: 'Un fichier Java du package `common` de Kafka importe une classe qu’aucune règle de `import-control.xml` ne mentionne. Que fait Checkstyle ?',
-			options: ['Il l’autorise, puisque rien ne l’interdit', 'Il affiche un avertissement mais laisse passer le build', 'Il le refuse : sans règle correspondante, un import est interdit par défaut', 'Il ignore le fichier'],
+			options: ['Il l’autorise, puisqu’aucune règle du fichier n’interdit cet import', 'Il affiche un avertissement pour l’import inconnu mais laisse passer le build', 'Il le refuse : sans règle correspondante, un import est interdit par défaut', 'Il ignore le fichier, car seuls les imports nommés dans une règle sont vérifiés'],
 			answer: 2,
 			why: 'Par défaut, ImportControl de Checkstyle considère l’import comme « disallowed ». Le fichier est une allowlist : chaque dépendance doit être nommée quelque part.'
 		},
 		{
 			q: 'Un test de charge prend 20 minutes. Où a-t-il sa place ?',
-			options: ['Sur chaque commit, en bloquant le merge', 'Nulle part, il est trop lent pour être utile', 'Seulement après qu’un client a signalé de la lenteur', 'Déclenché selon un planning ou avant une release, pendant que les vérifications structurelles peu coûteuses tournent sur chaque PR'],
+			options: ['Sur chaque commit, en bloquant le merge tant que le test de charge complet n’est pas passé', 'Nulle part, un test de 20 minutes est trop lent pour apprendre quoi que ce soit à l’équipe', 'Seulement après qu’un client a signalé de la lenteur, pour viser un vrai problème', 'Selon un planning ou avant une release, pendant que les vérifications structurelles légères tournent à chaque PR'],
 			answer: 3,
 			why: 'Adapte le déclencheur au coût. Les vérifications statiques rapides protègent chaque changement. Les dynamiques lentes tournent selon un planning ou comme barrière de release, et quelqu’un doit être responsable du résultat.'
 		}

@@ -124,7 +124,7 @@ Resources:
 			q: 'Une appli sur une instance EC2 doit lire des fichiers dans un bucket S3. Quelle est la bonne façon de lui donner des identifiants ?',
 			options: [
 				'Créer un utilisateur IAM et mettre ses access keys dans `/etc/app.env`',
-				'Attacher un rôle IAM à l’instance, pour que l’appli reçoive des identifiants temporaires',
+				'Attacher un rôle IAM à l’instance, qui reçoit des identifiants temporaires',
 				'Rendre le bucket public pour ne pas avoir besoin d’identifiants',
 				'Copier les clés de l’utilisateur root du compte sur l’instance'
 			],
@@ -134,10 +134,10 @@ Resources:
 		{
 			q: 'Tu crées un nouveau security group, tu l’attaches à une instance et tu n’ajoutes aucune règle. Quelqu’un sur internet peut-il joindre le port 80 ?',
 			options: [
-				'Oui, un nouveau security group autorise tout le trafic entrant',
+				'Oui, un nouveau security group autorise tout le trafic entrant jusqu’à ta première règle',
 				'Non, un nouveau security group n’a aucune règle entrante, donc aucun trafic entrant n’est autorisé',
-				'Seulement s’il vient de la même Region',
-				'Oui, tant que tu n’ajoutes pas une règle deny explicite'
+				'Seulement s’il vient de la même Region que le VPC de l’instance',
+				'Oui, tant que tu n’ajoutes pas une règle deny explicite pour le port 80'
 			],
 			answer: 1,
 			why: 'Un nouveau security group démarre sans règle entrante et avec une règle sortante qui autorise tout. Tu ne peux ajouter que des règles d’autorisation, jamais de deny.'
@@ -145,10 +145,10 @@ Resources:
 		{
 			q: 'Pourquoi mettre tes deux serveurs web dans des subnets de deux Availability Zones différentes ?',
 			options: [
-				'Des instances dans deux AZ coûtent moins cher',
+				'Des instances réparties sur deux AZ coûtent moins cher que deux dans la même zone',
 				'Un subnet vit dans une seule AZ, donc deux AZ permettent à l’appli de survivre à la perte d’une zone',
-				'Les security groups ne marchent qu’entre AZ',
-				'S3 n’est joignable que depuis une deuxième AZ'
+				'Les security groups ne marchent qu’entre AZ, donc une seule AZ laisse les serveurs ouverts',
+				'S3 n’est joignable que depuis un subnet placé dans une deuxième AZ'
 			],
 			answer: 1,
 			why: 'Chaque subnet est entièrement dans une AZ. Les AZ sont des emplacements isolés, donc répartir sur deux te protège de la panne de l’une.'

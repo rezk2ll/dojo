@@ -114,13 +114,13 @@ export default {
 	quiz: [
 		{
 			q: 'Trois services ont chacun besoin de chaque message `OrderPaid`. Comment une configuration RabbitMQ donne-t-elle une copie à chacun ?',
-			options: ['Ils consomment la même queue, et RabbitMQ envoie chaque message aux trois', 'Chaque service lie sa propre queue à un exchange fanout, et l’exchange copie le message dans chaque queue liée', 'Le producteur publie le message trois fois, une par service', 'Le premier service qui a fini le message le transmet au suivant'],
+			options: ['Ils consomment tous la même queue, et RabbitMQ livre chaque message à chacun des trois consommateurs', 'Chaque service lie sa propre queue à un exchange fanout, qui copie le message dans chaque queue liée', 'Le producteur publie le message trois fois, une par service, avec la routing key de ce service', 'Le premier service qui a fini le message l’acquitte et en transmet une copie au service suivant'],
 			answer: 1,
 			why: 'Un exchange fanout copie un message dans chaque queue liée. Les consommateurs d’une même queue sont en concurrence : chaque message ne va qu’à l’un d’eux, donc trois services partageant une queue en verraient chacun un tiers.'
 		},
 		{
 			q: 'Une queue a un seul consommateur actif qui prend un message à la fois. Qu’est-ce que ça t’apporte, et qu’est-ce que ça coûte ?',
-			options: ['Chaque message est livré exactement une fois ; il faut un second broker pour le failover', 'Un traitement plus rapide ; les messages peuvent maintenant arriver dans le désordre', 'Plus jamais de dead letters ; les messages en échec sont réessayés à l’infini à la place', 'Les messages sont traités dans l’ordre de la queue ; un message lent ou en échec retient tout ce qui est derrière lui'],
+			options: ['Chaque message est livré exactement une fois ; il faut en échange un second broker pour le failover', 'Un traitement plus rapide ; en échange, les messages peuvent maintenant arriver dans le désordre', 'Plus jamais de dead letters ; les messages en échec sont réessayés à l’infini à la place', 'Les messages sont traités dans l’ordre de la queue ; un message lent ou en échec retient tout ce qui est derrière lui'],
 			answer: 3,
 			why: 'Un seul consommateur qui prend un message à la fois garde l’ordre de la queue. Le prix, c’est le débit, et un message bloqué bloque la queue jusqu’à ce qu’il réussisse ou parte en dead letter.'
 		},

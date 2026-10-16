@@ -130,9 +130,9 @@ spec:
 		{
 			q: 'In Helm, what is a release?',
 			options: [
-				'A packaged chart uploaded to a repository',
+				'A packaged chart uploaded to a repository, with its own version number',
 				'One install of a chart in a cluster, with its own name and revision history',
-				'A Git tag on the chart\'s source',
+				'A Git tag on the chart\'s source, cut when the chart version is bumped',
 				'The `values.yaml` file of a chart'
 			],
 			answer: 1,

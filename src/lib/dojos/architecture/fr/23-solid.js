@@ -102,13 +102,13 @@ export default {
 		},
 		{
 			q: 'Quel changement réduit vraiment le nombre de raisons qu’a l’`Account` de Mastodon de changer ?',
-			options: ['Déplacer encore plus de ses méthodes dans de nouveaux modules concern `Account::`', 'Donner aux suspensions leur propre modèle et leur propre table, utilisés par un service, pour qu’`Account` ne porte plus cet état', 'Le renommer en `UserAccount`', 'Ajouter des commentaires qui regroupent ses méthodes par fonctionnalité'],
+			options: ['Déplacer encore plus de ses méthodes dans de nouveaux modules concern `Account::`, un par fonctionnalité', 'Donner aux suspensions leur propre modèle et leur propre table, pour qu’`Account` ne porte plus cet état', 'Le renommer en `UserAccount` pour que le nom dise à quoi la classe sert vraiment', 'Ajouter des commentaires qui regroupent ses méthodes par fonctionnalité, pour que chaque équipe trouve sa partie'],
 			answer: 1,
 			why: 'Les concerns sont mélangés dans la même classe et partagent ses colonnes, donc un changement sur les suspensions touche encore `Account`. Sortir l’état et le comportement supprime cette raison de changer.'
 		},
 		{
 			q: 'Lequel de ces exemples montre le principe ouvert/fermé à l’œuvre ?',
-			options: ['Une implémentation de liste dont tous les mutateurs lèvent une exception', 'Un modèle de 607 lignes avec 16 modules mélangés dedans', '`BufferedInputStream` ajoute un buffer en enveloppant n’importe quel `InputStream`, sans modifier les streams de fichier ou de socket', 'Un constructeur à 28 paramètres'],
+			options: ['Une implémentation de liste dont tous les mutateurs lèvent une exception, pour que personne ne la modifie', 'Un modèle de 607 lignes découpé en 16 modules mélangés dedans, un fichier par fonctionnalité', '`BufferedInputStream` ajoute un buffer en enveloppant n’importe quel `InputStream`, sans le modifier', 'Un constructeur à 28 paramètres, pour que chaque comportement se règle de l’extérieur'],
 			answer: 2,
 			why: 'L’enveloppe ajoute du comportement avec du nouveau code et laisse les streams qui marchent fermés au changement. Les trois autres sont des symptômes d’autres principes tordus ou cassés.'
 		}

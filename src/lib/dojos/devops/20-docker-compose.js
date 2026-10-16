@@ -173,10 +173,10 @@ secrets:
 		{
 			q: 'You run `docker compose down` on a stack with a named volume `db-data`. What happens to the database files?',
 			options: [
-				'They are deleted with the containers',
+				'They are deleted with the containers, since the volume belongs to the stack',
 				'They stay: `down` removes containers and networks, named volumes stay unless you add `-v`',
-				'They are moved to the image',
-				'They are kept only if the database was stopped cleanly'
+				'They are moved into the image so the next `up` can restore them',
+				'They are kept only if the database was stopped cleanly before `down`'
 			],
 			answer: 1,
 			why: 'By default `down` removes containers and the networks it created. Named volumes are removed only with `--volumes` (`-v`).'

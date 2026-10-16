@@ -114,7 +114,7 @@ export default {
 	quiz: [
 		{
 			q: 'Three services each need every `OrderPaid` message. How does a RabbitMQ setup give each one a copy?',
-			options: ['They consume the same queue, and RabbitMQ sends each message to all three', 'Each service binds its own queue to a fanout exchange, and the exchange copies the message into every bound queue', 'The producer publishes the message three times, once per service', 'The first service to finish the message forwards it to the next one'],
+			options: ['They all consume the same queue, and RabbitMQ delivers every message to each of the three consumers', 'Each service binds its own queue to a fanout exchange, which copies the message into every bound queue', 'The producer publishes the message three times, once per service, with that service\'s routing key', 'The first service to finish the message acks it and forwards a copy to the next service in line'],
 			answer: 1,
 			why: 'A fanout exchange copies a message into every bound queue. Consumers on one queue compete: each message goes to only one of them, so three services sharing a queue would each see a third.'
 		},

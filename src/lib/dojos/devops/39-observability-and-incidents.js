@@ -151,10 +151,10 @@ export default {
 		{
 			q: 'What makes a postmortem blameless?',
 			options: [
-				'It is written anonymously',
-				'It skips the timeline so no names appear',
-				'It looks for contributing causes without accusing any person or team, assuming everyone acted in good faith',
-				'It is only shared with the team that caused the incident'
+				'It is written anonymously, so nobody can tell who wrote each part',
+				'It skips the timeline so no names appear and nobody is singled out',
+				'It looks for contributing causes without blaming any person or team, assuming good faith',
+				'It is only shared with the team that caused the incident, never the whole company'
 			],
 			answer: 2,
 			why: 'Blame makes people hide what they did, and then the real causes stay hidden. The SRE book defines blameless as finding causes without indicting anyone.'

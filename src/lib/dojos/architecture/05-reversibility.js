@@ -92,10 +92,10 @@ export default {
 		{
 			q: 'Why does Discourse only allow permanently deleting a post that is already soft-deleted?',
 			options: [
-				'The database cannot delete a visible row',
-				'Soft-deleted posts take more space, so they are cleaned first',
-				'Visible posts are read only for admins',
-				'So no post is lost in one step: a cheap, undoable step must come before the irreversible one'
+				'The database cannot delete a row that is still visible, so the soft delete hides it first',
+				'Soft-deleted posts take more disk space, so Discourse cleans them up before anything else',
+				'Visible posts are read only for admins, so only a hidden post can be changed or removed',
+				'So no post is lost in one step: an undoable step comes before the irreversible one'
 			],
 			answer: 3,
 			why: 'The guard `return false if !post.deleted_at` puts a two-way door (soft delete) in front of the one-way door (destroy). A mistake at the first step can still be recovered.'
@@ -103,10 +103,10 @@ export default {
 		{
 			q: 'A Discourse admin soft-deleted a post 2 minutes ago and now tries to delete it permanently. What happens?',
 			options: [
-				'It is refused: they must wait until 5 minutes have passed, or a different admin must do it',
-				'It works, admins can always destroy posts',
-				'The post is restored instead',
-				'Discourse queues the destroy for 30 days'
+				'Refused: they must wait until 5 minutes have passed, or another admin must do it',
+				'It works, admins can always destroy a post once it has been soft-deleted',
+				'The post is restored instead, since a soft delete under 5 minutes is undone',
+				'Discourse queues the destroy and only runs it for real after 30 days'
 			],
 			answer: 0,
 			why: '`PERMANENT_DELETE_TIMER` is 5 minutes and applies when the same admin deleted the post. The rule buys a pause, or a second pair of eyes, before the one-way door.'

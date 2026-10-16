@@ -122,13 +122,13 @@ export default {
 		},
 		{
 			q: 'Un hash de mot de passe stocké commence par `{md4x}`, et aucun encodeur n’est associé à cet id. Que se passe-t-il quand l’utilisateur se connecte ?',
-			options: ['Le hash est migré vers bcrypt', 'L’appli refuse de démarrer', 'L’encodeur se rabat sur bcrypt et la connexion marche', '`DelegatingPasswordEncoder` lève `IllegalArgumentException` à la connexion'],
+			options: ['Le hash est migré vers bcrypt à la première connexion de l’utilisateur', 'L’appli refuse de démarrer tant qu’un hash stocké a un id inconnu', 'L’encodeur se rabat sur son id par défaut, bcrypt, et la connexion marche', '`DelegatingPasswordEncoder` lève `IllegalArgumentException` à la connexion'],
 			answer: 3,
 			why: 'L’encodeur délégant choisit une strategy d’après le préfixe `{id}`. Un id inconnu part vers son encodeur « non associé », qui lève une exception. Choisir la strategy à l’exécution déplace cette erreur à l’exécution.'
 		},
 		{
 			q: 'Une appli Spring Security a besoin d’une nouvelle méthode de connexion. Avec le design en strategy de `ProviderManager`, qu’est-ce qui doit changer ?',
-			options: ['Un nouvel `AuthenticationProvider`, enregistré avec les autres', '`ProviderManager.authenticate`', 'Chaque controller qui a besoin d’un utilisateur', '`DaoAuthenticationProvider`'],
+			options: ['Un nouvel `AuthenticationProvider`, enregistré avec les autres', '`ProviderManager.authenticate`, pour y ajouter un cas pour la nouvelle méthode', 'Chaque controller qui a besoin d’un utilisateur, pour appeler la nouvelle méthode', '`DaoAuthenticationProvider`, pour qu’il vérifie aussi les nouveaux identifiants'],
 			answer: 0,
 			why: '`ProviderManager` boucle sur les providers qu’il tient, quels qu’ils soient, et garde le premier résultat. Il ne nomme jamais un provider, donc il reste fermé pendant que la liste grandit.'
 		}

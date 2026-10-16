@@ -139,9 +139,9 @@ jobs:
 			q: 'In his 2020 note, when does GitFlow\'s author say it still fits?',
 			options: [
 				'Software that is explicitly versioned, or with several versions supported in the wild',
-				'A web app deployed many times a day',
-				'Any team that hosts its code on GitHub',
-				'A team with no automated tests'
+				'A web app deployed many times a day, where each release needs its own branch',
+				'Any team that hosts its code on GitHub and reviews changes with pull requests',
+				'A team with no automated tests, which needs long manual release phases'
 			],
 			answer: 0,
 			why: 'For continuously delivered web apps he suggests a simpler flow. GitFlow is for explicitly versioned software, or when you support several versions at once.'

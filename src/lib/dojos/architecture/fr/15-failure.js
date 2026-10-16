@@ -107,13 +107,13 @@ export default {
 	quiz: [
 		{
 			q: 'Un appel pour débiter une carte part en timeout. Que sais-tu du débit ?',
-			options: ['Rien : il a peut-être eu lieu, peut-être pas, donc un retry doit être sûr dans les deux cas', 'Il a échoué, donc réessayer est sans risque', 'Il a réussi, la réponse était juste lente', 'Il sera annulé par le serveur'],
+			options: ['Rien : il a peut-être eu lieu, peut-être pas, donc un retry doit être sûr', 'Il a échoué : aucune réponse n’est revenue, donc réessayer est sans risque', 'Il a réussi : le serveur l’a reçu, la réponse était juste lente à venir', 'Il a été annulé : un serveur défait le travail quand l’appelant expire'],
 			answer: 0,
 			why: 'Un timeout ne fait que libérer l’appelant. Le travail a pu être fait, à moitié fait ou jamais commencé. C’est pour ça que le retry doit être idempotent.'
 		},
 		{
 			q: 'Pourquoi Mastodon ajoute-t-il une durée aléatoire à chaque délai de retry d’un job de livraison ?',
-			options: ['Pour rendre les tests moins prévisibles', 'Parce que les timers de Redis ne sont pas précis', 'Pour que les livraisons qui ont échoué au même moment ne réessaient pas toutes au même moment', 'Pour que le délai grandisse après chaque échec'],
+			options: ['Pour rendre les tests de livraison moins prévisibles et trouver des bugs de timing', 'Parce que les timers de Redis ne sont pas précis, donc chaque délai est arrondi au hasard', 'Pour que les livraisons qui ont échoué ensemble ne réessaient pas toutes à la même seconde', 'Pour que le délai grandisse après chaque échec, et laisse le serveur distant se remettre'],
 			answer: 2,
 			why: 'C’est le jitter. La croissance, c’est le backoff. L’aléatoire disperse la foule, donc un serveur qui redémarre n’est pas frappé par des vagues synchronisées.'
 		},

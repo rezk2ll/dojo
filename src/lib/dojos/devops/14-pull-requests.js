@@ -117,10 +117,10 @@ export default {
 		{
 			q: 'What does a CODEOWNERS file do on its own, without branch protection?',
 			options: [
-				'It blocks merges until an owner approves',
-				'It gives the owners admin rights on those paths',
-				'It stops other people from editing those files',
-				'It automatically requests the owners as reviewers on PRs that touch their files'
+				'It blocks merges until one of the listed owners approves the PR',
+				'It gives the owners admin rights on the paths listed next to them',
+				'It stops anyone who is not an owner from editing those files',
+				'It requests the owners as reviewers on PRs that touch their files'
 			],
 			answer: 3,
 			why: 'CODEOWNERS only routes review requests. A branch protection rule or a ruleset with "Require review from Code Owners" is what makes the approval mandatory.'

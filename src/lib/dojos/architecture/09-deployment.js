@@ -145,10 +145,10 @@ export default {
 		{
 			q: 'A Mastodon server runs a single Redis instance. Per the scaling guide, what can happen if it goes down, and what does the guide offer?',
 			options: [
-				'Only caching stops. Nothing to do',
+				'Only caching stops, feeds and jobs keep running. Nothing to do',
 				'Only the streaming server stops. Add more streaming processes',
-				'It can bring the whole instance down. Use Redis Sentinel for automatic failover',
-				'Sidekiq switches to PostgreSQL for its queues. Nothing to do'
+				'It can bring the whole instance down. Use Redis Sentinel for failover',
+				'Sidekiq falls back to PostgreSQL for its job queues. Nothing to do'
 			],
 			answer: 2,
 			why: 'Feeds, job queues and streaming all depend on Redis, so the guide calls it critical. Sentinel watches the instances and points clients to a new primary when one goes down.'

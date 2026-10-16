@@ -124,9 +124,9 @@ export default {
 			q: 'After `chmod 644 ~/.ssh/id_ed25519`, ssh stops using that key. Why?',
 			options: [
 				'ssh ignores a private key file that is accessible by others',
-				'chmod changed the key format',
-				'ssh-agent locks keys with the wrong mode',
-				'The server rejects keys stored with mode 644'
+				'chmod rewrote the key file in a format ssh cannot read',
+				'ssh-agent locks any key that has the wrong file mode',
+				'The server rejects keys that are stored with mode 644'
 			],
 			answer: 0,
 			why: 'The ssh manual says it simply ignores a private key file if it is accessible by others. `chmod 600` fixes it. The server never sees the file mode.'

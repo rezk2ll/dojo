@@ -128,7 +128,7 @@ export default {
 		},
 		{
 			q: 'ActivityPub est un standard ouvert, et pourtant Mastodon l’implémente dans son propre code. Qu’est-ce que ça montre ?',
-			options: ['Les standards sont toujours du cœur', 'Mastodon n’a pas trouvé de bibliothèque', 'Quelque chose de générique pour la plupart des entreprises peut être du cœur pour l’une d’elles, quand c’est le produit', 'ActivityPub est un sous-domaine de support'],
+			options: ['Les standards sont toujours du cœur, parce que tout produit en dépend', 'Mastodon n’a pas trouvé de bibliothèque assez mûre pour la réutiliser telle quelle', 'Ce qui est générique pour la plupart peut être du cœur pour une entreprise, quand c’est son produit', 'ActivityPub est un sous-domaine de support, donc on peut le construire en interne'],
 			answer: 2,
 			why: 'Pour la plupart des applis, un protocole, ça s’adopte. Pour un réseau fédéré, la fédération est sa raison d’être, donc elle reçoit l’effort interne. Le classement dépend de ton métier, pas de la technologie.'
 		}

@@ -113,10 +113,10 @@ spec:
 		{
 			q: 'Qu’est-ce qui fait d’un serveur du « cattle » plutôt qu’un « pet » ?',
 			options: [
-				'Il tourne dans un cloud public',
-				'Il est construit par automatisation et peut être détruit et remplacé à tout moment sans drame',
-				'Il a plus d’une interface réseau',
-				'Il fait tourner des conteneurs au lieu de paquets système'
+				'Il tourne dans un cloud public, où chaque VM se loue ou se libère à la demande',
+				'Il est construit par automatisation et peut être détruit et remplacé à tout moment',
+				'Il a plus d’une interface réseau, donc le trafic peut basculer sur une autre',
+				'Il fait tourner des conteneurs au lieu de paquets système, donc rien n’est installé à la main'
 			],
 			answer: 1,
 			why: 'La frontière, c’est le caractère jetable, pas l’endroit ni la technologie. Une VM cloud modifiée à la main reste un pet. Un serveur physique construit depuis une recette peut être du cattle.'
@@ -124,10 +124,10 @@ spec:
 		{
 			q: 'Qu’est-ce que la dérive de configuration ?',
 			options: [
-				'Le temps entre un commit et un déploiement',
-				'L’horloge d’un serveur qui perd peu à peu sa précision',
+				'Le temps entre un commit et son déploiement, qui grandit quand les pipelines sont lents',
+				'L’horloge d’un serveur qui perd peu à peu sa précision, jusqu’à fausser certificats et logs',
 				'Des changements ponctuels non enregistrés qui font qu’un serveur s’écarte de sa configuration connue',
-				'Le déplacement d’une VM d’un hôte à un autre'
+				'Le déplacement d’une VM d’un hôte à un autre pendant qu’elle continue de tourner'
 			],
 			answer: 2,
 			why: 'Chaque correction manuelle qui n’est pas reportée dans la recette éloigne un peu plus le serveur de ce que quelqu’un sait reconstruire.'
@@ -135,10 +135,10 @@ spec:
 		{
 			q: 'Tes serveurs web sont immuables. Un correctif de sécurité pour nginx sort. Que fais-tu ?',
 			options: [
-				'Construire une nouvelle image avec le correctif, la tester, puis remplacer les serveurs en marche par des neufs',
-				'Te connecter en SSH sur chaque serveur et lancer la mise à jour du paquet',
-				'Corriger un serveur à la main, puis copier son disque sur les autres',
-				'Attendre le prochain redémarrage prévu pour l’appliquer'
+				'Construire une nouvelle image avec le correctif, la tester, puis remplacer les serveurs en marche',
+				'Te connecter en SSH sur chaque serveur, lancer la mise à jour du paquet, puis redémarrer nginx',
+				'Corriger un serveur à la main, le tester, puis copier son image disque sur tous les autres',
+				'Attendre le prochain redémarrage prévu, quand les serveurs récupèrent le correctif tout seuls'
 			],
 			answer: 0,
 			why: 'Immuable veut dire que tu ne modifies jamais un serveur en marche. La correction va dans l’image, et les serveurs construits depuis l’ancienne image sont remplacés.'

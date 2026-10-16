@@ -115,7 +115,7 @@ export default {
 	quiz: [
 		{
 			q: 'In a strangler fig migration, what is the **seam**?',
-			options: ['The day you switch every user from the old system to the new one', 'The test suite that compares the old and new systems', 'The one place that decides, per request or per piece of data, whether old or new code handles it', 'The database both systems share'],
+			options: ['The day you switch every user from the old system to the new one, all at once', 'The test suite that compares the old and new systems on the same requests', 'The one place that decides, per request or piece of data, if old or new code handles it', 'The database both systems share, so each one always sees the same data'],
 			answer: 2,
 			why: 'Without a seam you cannot move one piece at a time. With one, moving a route or a column is a small, reversible change.'
 		},
@@ -127,7 +127,7 @@ export default {
 		},
 		{
 			q: 'What is the trigger from `rename_column_concurrently`, architecturally?',
-			options: ['Transitional architecture: code that keeps old and new working side by side, deleted when the move is done', 'A permanent part of the schema', 'A security check on writes', 'A cache for the new column'],
+			options: ['Transitional architecture: it keeps old and new working side by side until the move is done', 'A permanent part of the schema that keeps both column names valid for good', 'A security check that blocks writes to the old column during the rename', 'A cache that serves the new column\'s values while the batch copy is running'],
 			answer: 0,
 			why: 'It lives only between the two migrations. `cleanup_concurrent_column_rename` removes it together with the old column.'
 		}

@@ -124,10 +124,10 @@ export default {
 		{
 			q: 'Le filtre JWT d’Envoy est configuré sans `audiences`. Qu’accepte-t-il ?',
 			options: [
-				'Aucun token, tant que les audiences ne sont pas définies',
-				'Seulement les tokens sans claim `aud`',
-				'Seulement les tokens dont l’audience est le nom de la gateway elle-même',
-				'N’importe quel token avec une signature et un émetteur valides, quel que soit le service auquel il était destiné'
+				'Aucun token, le filtre rejette toutes les requêtes tant que les audiences ne sont pas définies',
+				'Seulement les tokens sans claim `aud`, puisqu’il n’y a aucune audience à laquelle les comparer',
+				'Seulement les tokens dont l’audience est le nom de la gateway elle-même, qu’Envoy remplit seul',
+				'N’importe quel token avec une signature et un émetteur valides, quel que soit le service visé'
 			],
 			answer: 3,
 			why: 'La doc dit : « If not specified, the audiences in JWT will not be checked. » Un token émis pour un autre service par le même SSO passe alors. Définis l’audience.'

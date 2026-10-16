@@ -131,9 +131,9 @@ module "ec2_instances" {
 			q: 'Deux ingénieurs gardent chacun leur propre `terraform.tfstate` local pour la même infrastructure. Qu’est-ce qui ne va pas ?',
 			options: [
 				'Rien : Terraform demande à AWS ce qui existe à chaque exécution, donc le fichier de state ne compte pas',
-				'Chaque state ignore les changements de l’autre, donc les plans peuvent proposer des doublons ou de mauvaises destructions, et aucun verrou n’empêche deux apply en même temps',
-				'Terraform refuse de démarrer quand il trouve deux fichiers de state',
-				'AWS rejette les appels d’API du deuxième ingénieur'
+				'Chaque state ignore ce que l’autre a fait : le plan propose doublons ou mauvaises destructions, sans verrou entre deux apply',
+				'Terraform refuse de démarrer quand il trouve deux fichiers de state pour la même infrastructure',
+				'AWS rejette les appels d’API du deuxième ingénieur, parce que le premier possède déjà ces resources'
 			],
 			answer: 1,
 			why: 'Le state est la façon dont Terraform relie les blocs aux objets réels. Deux copies, ce sont deux mémoires différentes. Un backend distant partagé avec verrou donne une seule mémoire et un seul écrivain à la fois.'
@@ -141,10 +141,10 @@ module "ec2_instances" {
 		{
 			q: 'Que fait `terraform apply -refresh-only` ?',
 			options: [
-				'Remet AWS en accord avec le code',
-				'Met à jour le state pour qu’il corresponde à l’infrastructure réelle, sans modifier l’infrastructure',
-				'Supprime les resources qui ont dérivé',
-				'Télécharge des versions plus récentes des providers'
+				'Remet AWS en accord avec le code, sans toucher au fichier de state',
+				'Met à jour le state pour qu’il corresponde à l’infrastructure réelle, sans la modifier',
+				'Supprime les resources qui ont dérivé, pour que le prochain apply les recrée',
+				'Télécharge des versions plus récentes des providers, puis réécrit le lock file'
 			],
 			answer: 1,
 			why: 'Une exécution refresh-only n’écrit que le state. Elle n’essaie pas de faire correspondre AWS à la configuration. C’est le rôle d’un `apply` normal.'

@@ -117,10 +117,10 @@ export default {
 		{
 			q: 'Que fait un fichier CODEOWNERS tout seul, sans protection de branche ?',
 			options: [
-				'Il bloque les merges jusqu’à ce qu’un owner approuve',
-				'Il donne aux owners les droits admin sur ces chemins',
-				'Il empêche les autres de modifier ces fichiers',
-				'Il demande automatiquement la revue des owners sur les PR qui touchent leurs fichiers'
+				'Il bloque les merges jusqu’à ce qu’un des owners listés approuve la PR',
+				'Il donne aux owners les droits admin sur les chemins listés à côté d’eux',
+				'Il empêche quiconque n’est pas owner de modifier ces fichiers',
+				'Il demande la revue des owners sur les PR qui touchent leurs fichiers'
 			],
 			answer: 3,
 			why: 'CODEOWNERS ne fait qu’envoyer les demandes de revue. C’est une règle de protection ou un ruleset avec « Require review from Code Owners » qui rend l’approbation obligatoire.'

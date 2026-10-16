@@ -133,10 +133,10 @@ export default {
 		{
 			q: 'Que t’apporte `ansible-vault encrypt group_vars/prod/vault.yml` ?',
 			options: [
-				'Le fichier est retiré de l’historique Git et stocké sur le nœud de contrôle',
-				'Le fichier est chiffré (AES256) pour que tu puisses le committer, et Ansible le déchiffre à l’exécution avec le mot de passe du vault',
-				'Les valeurs sont envoyées sur un serveur HashiCorp Vault',
-				'Les valeurs sont masquées dans les logs mais restent lisibles dans le fichier'
+				'Le fichier est retiré de l’historique Git et stocké seulement sur le nœud de contrôle, hors du repo',
+				'Le fichier est chiffré (AES256) pour que tu puisses le committer, et Ansible le déchiffre à l’exécution avec le mot de passe',
+				'Les valeurs sont envoyées sur un serveur HashiCorp Vault, et le fichier ne garde que des références',
+				'Les valeurs sont masquées dans les logs à l’exécution, mais restent lisibles en clair dans le fichier'
 			],
 			answer: 1,
 			why: 'Ansible Vault chiffre un fichier ou une valeur. Le texte chiffré vit dans ton repo, et tu passes le mot de passe avec `--ask-vault-pass` ou `--vault-password-file` à l’exécution.'

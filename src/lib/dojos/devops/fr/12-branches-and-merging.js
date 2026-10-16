@@ -119,10 +119,10 @@ You might also consider changing your \`.git/config\` file via
 		{
 			q: '`main` n’a pas bougé depuis que tu as créé `feature`. Tu lances `git merge feature` sur `main`. Que se passe-t-il ?',
 			options: [
-				'Git écrit un commit de merge avec deux parents',
+				'Git écrit un commit de merge avec deux parents, `main` et `feature`',
 				'Git fait un fast-forward : il déplace `main` au bout de `feature`, sans nouveau commit',
-				'Git rebase `feature` sur `main`',
-				'Git signale un conflit'
+				'Git rebase `feature` sur `main`, puis déplace `main` sur le résultat',
+				'Git s’arrête sur un conflit, car `feature` a modifié des fichiers que `main` contient aussi'
 			],
 			answer: 1,
 			why: 'Quand le bout de `feature` est juste devant `main`, il n’y a rien à combiner. Git avance simplement le pointeur.'

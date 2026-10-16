@@ -106,7 +106,7 @@ drwho:
 	quiz: [
 		{
 			q: 'Une directrice demande : « Un client peut-il un jour voir les données d’un autre client ? » Quelle réponse convient à cet étage ?',
-			options: ['Ça dépend du fonctionnement interne de PostgreSQL', 'Nous suivons les bonnes pratiques du secteur', 'Non : les données de chaque client sont dans une base séparée, donc une requête pour un site ne touche jamais les tables d’un autre. Le prix, c’est plus de bases à exploiter.', 'Dérouler la recherche de connexion par nom d’hôte et la tâche de migration'],
+			options: ['Ça dépend de la façon dont PostgreSQL isole les lignes et les schémas', 'Nous suivons les bonnes pratiques du secteur, le risque est couvert', 'Non, chaque client a sa propre base. Le prix : plus de bases à exploiter', 'Dérouler la recherche de connexion par nom d’hôte et la tâche de migration'],
 			answer: 2,
 			why: 'Une réponse directe, la raison en mots simples, et un coût honnête. Le mécanisme est vrai mais inutile à cette altitude, et « bonnes pratiques » ne dit rien.'
 		},
@@ -118,7 +118,7 @@ drwho:
 		},
 		{
 			q: 'Entre les versions développeur, PM et directrice, qu’est-ce qui doit changer ?',
-			options: ['Le niveau de détail et la conséquence sur laquelle chaque public agit, alors que les faits restent identiques', 'Les faits', 'Seulement la longueur', 'La décision elle-même'],
+			options: ['Le détail et la conséquence sur laquelle chaque public agit, jamais les faits', 'Les faits, un peu plus simplifiés à chaque étage en montant', 'Seulement la longueur, avec le même détail tassé en moins de lignes', 'La décision elle-même, ajustée à ce que chaque public veut entendre'],
 			answer: 0,
 			why: 'L’altitude change les mots et le détail. Si les faits changent d’un étage à l’autre, tu as trois décisions, et un jour elles se retrouveront dans la même réunion.'
 		}

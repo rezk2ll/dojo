@@ -146,9 +146,9 @@ export default {
 			q: 'La résolution d’un compte distant mentionné échoue avec une erreur de connexion. Que fait Mastodon du post ?',
 			options: [
 				'Il publie le post, avec la mention laissée en texte brut',
-				'Il répond 502 et n’enregistre pas le post',
+				'Il répond 502 au client et n’enregistre pas le post',
 				'Il retente la mention indéfiniment avant d’enregistrer',
-				'Il enregistre le post comme brouillon'
+				'Il garde le post en brouillon le temps de résoudre la mention'
 			],
 			answer: 0,
 			why: 'Le `rescue` met `mentioned_account = nil`, et le code garde ensuite le texte original pour cette mention. L’utilisateur obtient son post, peut-être après une attente, et aucune erreur.'

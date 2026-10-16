@@ -8,11 +8,10 @@ export default {
 	minutes: 10,
 	hook: [
 		'Tu as déjà eu l’astreinte de 3 h du matin qui disait « disque à 81 % sur db-02 ». Tu t’es levé, tu as regardé, et le site allait très bien. La semaine suivante, le site est tombé une heure et **rien n’a sonné**.',
-		'C’est alerter sur des **causes**. Il y a mille causes, et la plupart ne gênent personne. Les utilisateurs ne ressentent que quelques **symptômes** : des erreurs, de la lenteur, rien qui charge.',
-		'Aujourd’hui : les trois types de signaux que tu collectes, comment Prometheus en fait des alertes sur les symptômes, et ce qui se passe après l’appel, de l’astreinte au **postmortem sans reproche**.'
+		'L’alerte disque surveillait une **cause**. Un système a mille causes de panne possibles, et la plupart ne gênent personne. Les utilisateurs ne ressentent que quelques symptômes : des erreurs, de la lenteur, des pages qui ne chargent pas.',
+		'Prometheus collecte des métriques et en tire des alertes sur ces symptômes. Après l’appel, la personne d’astreinte limite les dégâts, et l’équipe écrit un postmortem sans reproche.'
 	],
 	terms: [
-		{ term: 'Métriques, logs, traces', def: 'Les métriques sont des nombres dans le temps (requêtes par seconde). Les logs sont des enregistrements d’événements. Une trace suit une requête à travers chaque service qu’elle touche.' },
 		{ term: 'Quatre signaux en or', def: 'Du livre SRE de Google : latence, trafic, erreurs, saturation. Si tu ne peux mesurer que quatre choses sur un système exposé aux utilisateurs, mesure celles-là.' },
 		{ term: 'Symptôme ou cause', def: 'Le symptôme, c’est ce qui est cassé pour les utilisateurs (« des HTTP 500 »). La cause, c’est pourquoi (« la base refuse les connexions »). Alerte sur les symptômes, cherche les causes sur les tableaux de bord.' },
 		{ term: 'SLO et error budget', def: 'Un SLO est un objectif, par exemple 99 % des requêtes réussissent et sont rapides. L’error budget, c’est ce qui reste : 1 % peut échouer. Le **burn rate** dit à quelle vitesse tu le dépenses.' },
@@ -28,7 +27,7 @@ export default {
 					'prom -->|"scrape"| app'
 				],
 				highlight: ['app', 'prom'],
-				note: 'Prometheus **tire** : à intervalle fixe (une minute par défaut), il récupère `/metrics` sur chaque cible et stocke les nombres. Les logs et les traces vont dans leurs propres stockages, mais c’est en général sur les métriques que tu alertes.'
+				note: 'Prometheus **tire** les métriques, des nombres dans le temps comme les requêtes par seconde. À intervalle fixe (une minute par défaut), il récupère `/metrics` sur chaque cible et stocke les nombres. Les logs (des enregistrements d’événements) et les traces (une requête suivie à travers chaque service) vont dans leurs propres stockages. La plupart des règles d’alerte interrogent les métriques de Prometheus.'
 			},
 			{
 				add: [
@@ -36,7 +35,7 @@ export default {
 					'prom --> rule'
 				],
 				highlight: ['rule'],
-				note: 'Une règle d’alerte, c’est une requête PromQL plus une durée `for`. Tant que la condition est vraie mais que la durée n’est pas écoulée, l’alerte est **pending**. Ensuite elle passe **firing**. Le `for` filtre les petits pics.'
+				note: 'Une règle d’alerte, c’est une requête PromQL plus une durée `for`. Tant que la condition est vraie mais que la durée n’est pas écoulée, l’alerte est pending. Quand la condition a tenu toute la durée `for`, l’alerte passe **firing**. Un pic plus court que la durée `for` ne fait appeler personne.'
 			},
 			{
 				add: [
@@ -58,7 +57,7 @@ export default {
 					'pm -.->|"actions"| rule'
 				],
 				highlight: ['fix', 'pm'],
-				note: 'D’abord arrêter l’hémorragie (rollback, scale up), ensuite chercher la cause. Après, écris le **postmortem** : chronologie, impact, causes contributives, actions. Souvent, une des actions est une meilleure alerte.'
+				note: 'Tu limites d’abord les dégâts pour les utilisateurs (rollback, scale up), puis tu cherches la cause. Après, écris le **postmortem** : chronologie, impact, causes contributives, actions. Une des actions modifie souvent une règle d’alerte.'
 			}
 		]
 	},
@@ -96,22 +95,22 @@ export default {
         severity: critical
         short: 30m`,
 		notes: [
-			'Cette alerte surveille l’API server Kubernetes tel que ses utilisateurs le vivent. `burnrate1h` est une [recording rule](https://github.com/prometheus-operator/kube-prometheus/blob/f81c076ab8f542c457840cd4c62656b8d6b4f43a/manifests/kubernetesControlPlane-prometheusRule.yaml#L1146-L1172) : les requêtes **trop lentes ou en erreur 5xx**, divisées par toutes les requêtes. Un pur symptôme.',
-			'`0.01000` est l’error budget d’un [objectif à 99 %](https://github.com/kubernetes-monitoring/kubernetes-mixin/blob/f57ebcd21d8fb67fe9708b7f6d1d30aed26b2be4/config.libsonnet#L18-L21). `14.40` est le burn rate : dépenser le budget 14,4 fois plus vite que prévu. Le workbook SRE dit qu’à ce rythme pendant une heure, tu manges **2 % d’un budget sur 30 jours**.',
-			'Deux fenêtres reliées par `and` : la longue (1h) prouve que c’est sérieux, la courte (5m) prouve que **ça continue**. Le workbook conseille une fenêtre courte de 1/12 de la longue, et 5m, c’est 1/12 de 1h.',
-			'Chaque alerte porte un `runbook_url`. La personne réveillée à 3 h reçoit un lien vers ce qu’il faut vérifier en premier, pas juste un nom.'
+			'La ligne 7 lit `burnrate1h`, une [recording rule](https://github.com/prometheus-operator/kube-prometheus/blob/f81c076ab8f542c457840cd4c62656b8d6b4f43a/manifests/kubernetesControlPlane-prometheusRule.yaml#L1146-L1172) : les requêtes **trop lentes ou en erreur 5xx**, divisées par toutes les requêtes. L’alerte mesure donc un symptôme que vivent les clients de l’API server Kubernetes.',
+			'Sur la ligne 7, `0.01000` est l’error budget d’un [objectif à 99 %](https://github.com/kubernetes-monitoring/kubernetes-mixin/blob/f57ebcd21d8fb67fe9708b7f6d1d30aed26b2be4/config.libsonnet#L18-L21). `14.40` est le burn rate : tu dépenses le budget 14,4 fois plus vite que prévu. D’après le workbook SRE, une heure à ce rythme consomme **2 % d’un budget sur 30 jours**.',
+			'Les lignes 7 à 9 relient deux fenêtres par `and`. La longue (1h) montre que le taux d’erreur dure assez pour compter, la courte (5m) montre qu’il est **encore là**. Le workbook conseille une fenêtre courte de 1/12 de la longue, et 5m font 1/12 de 1h.',
+			'Les lignes 4 et 18 donnent à chaque alerte un `runbook_url`. La personne réveillée à 3 h reçoit, avec le nom de l’alerte, un lien vers ce qu’il faut vérifier en premier.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Moins d’appels, et de meilleurs : chacun veut dire que des utilisateurs souffrent maintenant.',
+			'L’astreinte reçoit moins d’appels, et chaque appel signale des erreurs ou de la lenteur que des utilisateurs voient maintenant.',
 			'Les alertes sur le burn rate attrapent une fuite lente et une panne brutale avec le même jeu de règles.',
-			'Les postmortems sans reproche poussent les gens à raconter ce qui s’est vraiment passé, donc le même incident ne revient pas.'
+			'Dans un postmortem sans reproche, les gens racontent ce qu’ils ont vraiment fait, et les actions visent les vraies causes.'
 		],
 		cost: [
-			'Il faut d’abord définir un SLO, et se mettre d’accord dessus avec le responsable produit. C’est une discussion, pas un fichier de config.',
-			'Les métriques de cause (disque, CPU) comptent toujours. Elles passent sur des tableaux de bord et des tickets, que quelqu’un doit lire.',
-			'Métriques, logs et traces, ce sont trois systèmes à faire tourner, stocker et payer. La cardinalité (trop de valeurs de labels) peut faire exploser Prometheus.'
+			'Avant d’écrire les règles d’alerte, tu dois te mettre d’accord sur un SLO avec le responsable produit.',
+			'Les métriques de disque et de CPU partent sur des tableaux de bord et des tickets, et quelqu’un doit encore les lire.',
+			'Métriques, logs et traces demandent trois systèmes à faire tourner, stocker et payer. Trop de valeurs de labels (forte cardinalité) peut surcharger Prometheus.'
 		]
 	},
 	task: {
@@ -120,7 +119,7 @@ export default {
 		answer: [
 			'Garde l’appel sur le **symptôme** : le taux d’erreur. Mieux, définis un SLO (par exemple 99,5 % des paiements réussissent en moins d’1 s) et alerte sur le burn rate sur deux fenêtres.',
 			'Ajoute un symptôme de **latence** : un paiement lent gêne autant qu’un paiement raté.',
-			'CPU et redémarrages de pods deviennent des **panneaux de tableau de bord** ou des tickets peu prioritaires, pas des appels. Ils aident à trouver la cause une fois appelé.',
+			'Déplace le CPU et les redémarrages de pods vers des **panneaux de tableau de bord** ou des tickets peu prioritaires, sans appel. Ils t’aident à trouver la cause une fois appelé.',
 			'Le disque à 85 % est un vrai problème à venir : alerte sur « disque plein dans 4 heures » sous forme de ticket, pas sur un pourcentage fixe en pleine nuit.',
 			'Chaque alerte restante reçoit un résumé, une sévérité et un `runbook_url`. Après le prochain incident, le postmortem vérifie si l’alerte a sonné assez tôt.'
 		]
@@ -160,7 +159,10 @@ export default {
 			why: 'Le reproche pousse les gens à cacher ce qu’ils ont fait, et les vraies causes restent cachées. Le livre SRE définit le sans-reproche comme trouver les causes sans mettre personne en accusation.'
 		}
 	],
-	takeaway: 'Collecte métriques, logs et traces, mais n’appelle que sur les symptômes que vivent les utilisateurs, idéalement sous forme de burn rate de SLO. Après chaque incident, écris un postmortem sans reproche et transforme ses leçons en actions.',
+	recall: {
+		q: 'Quelles alertes doivent appeler la personne d’astreinte, et quand `KubeAPIErrorBudgetBurn` se déclenche-t-elle ?',
+		a: 'Seulement les alertes sur des symptômes que vivent les utilisateurs, comme les erreurs et la latence. `KubeAPIErrorBudgetBurn` se déclenche quand l’error budget d’un objectif à 99 % brûle 14,4 fois trop vite sur 1 heure et sur 5 minutes, pendant 2 minutes.'
+	},
 	sources: [
 		{ title: 'Livre SRE de Google, Monitoring distributed systems', url: 'https://sre.google/sre-book/monitoring-distributed-systems/' },
 		{ title: 'Workbook SRE de Google, Alerting on SLOs', url: 'https://sre.google/workbook/alerting-on-slos/' },

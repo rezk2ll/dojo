@@ -8,12 +8,10 @@ export default {
 	minutes: 10,
 	hook: [
 		'Friday, 6 p.m. Someone ran `kubectl edit` on production to "just bump the memory". Nobody wrote it down. Monday, the next deploy puts the old value back and the app falls over.',
-		'You know this story from the server days: the hand-edited `nginx.conf` that nobody had in Git. Kubernetes did not fix it. It only made `kubectl` faster to type.',
-		'**GitOps** turns it around. The cluster state lives in a Git repo. An agent **inside the cluster** pulls that repo and makes the cluster match it, again and again. Want a change? Open a pull request.'
+		'You know this story from the server days: the hand-edited `nginx.conf` that nobody had in Git. `kubectl edit` does the same on Kubernetes: it changes the live object and leaves nothing in Git.',
+		'With GitOps, the desired state of the cluster lives in a Git repo. An agent **inside the cluster** pulls that repo and keeps applying it to the cluster. To change production, you open a pull request.'
 	],
 	terms: [
-		{ term: 'GitOps', def: 'Desired state is declared, stored versioned and immutable (in practice, in Git), pulled automatically by an agent and continuously reconciled. These are the four OpenGitOps principles.' },
-		{ term: 'Push deploy', def: 'The CI pipeline holds cluster credentials and runs `kubectl apply` or `helm upgrade` against the cluster.' },
 		{ term: 'Pull deploy', def: 'An agent running in the cluster watches Git and applies changes itself. CI never touches the cluster.' },
 		{ term: 'Argo CD Application', def: 'A Kubernetes object that says: take the manifests at this repo, revision and path, and keep them applied in this cluster and namespace.' },
 		{ term: 'Drift', def: 'The live state in the cluster no longer matches Git. Argo CD shows the app as **OutOfSync**.' },
@@ -29,7 +27,7 @@ export default {
 					'class repo ext'
 				],
 				highlight: ['ci'],
-				note: 'The **push** way, from the CI/CD part. It works, but CI needs admin credentials to the cluster, and nothing notices when someone changes the cluster by hand.'
+				note: 'In a push deploy, as in the CI/CD part, the pipeline runs `kubectl apply` or `helm upgrade` itself. CI then needs admin credentials to the cluster. Nothing notices when someone changes the cluster by hand.'
 			},
 			{
 				add: [
@@ -39,7 +37,7 @@ export default {
 					'argo -->|"pulls"| repo'
 				],
 				highlight: ['argo'],
-				note: 'The **pull** way. Argo CD runs in the cluster and polls the repo (every 3 minutes at most by default). The credentials stay inside. CI only has to push to Git.'
+				note: 'In a pull deploy, Argo CD runs in the cluster and polls the repo (every 3 minutes at most by default). The cluster credentials stay inside the cluster. CI only has to push to Git.'
 			},
 			{
 				add: [
@@ -48,7 +46,7 @@ export default {
 					'app -->|"sync"| k8s'
 				],
 				highlight: ['app'],
-				note: 'An **Application** links one path in Git to one namespace in a cluster. Argo CD compares the **target state** (Git) with the **live state** (cluster) and shows Synced or OutOfSync.'
+				note: 'An **Application** links one path in Git to one namespace in a cluster. Argo CD compares the target state (Git) with the live state (cluster) and shows Synced or OutOfSync.'
 			},
 			{
 				add: [
@@ -99,20 +97,20 @@ spec:
       prune: true # Specifies if resources should be pruned during auto-syncing ( false by default ).
       selfHeal: true # Specifies if partial app sync should be executed when resources are changed only in target Kubernetes cluster and no git change detected ( false by default ).`,
 		notes: [
-			'This is Argo CD\'s own reference file, every field with a comment. A real Application is only the parts kept here: **source**, **destination**, **syncPolicy**.',
-			'`source` points at a real repo, [argocd-example-apps](https://github.com/argoproj/argocd-example-apps/tree/8088f4c0d970abb09e250248cc97e35623447cb5/guestbook), folder `guestbook`: a plain Deployment and Service.',
-			'`server: https://kubernetes.default.svc` is the cluster Argo CD itself runs in. The same Argo CD can also manage other clusters.',
-			'`prune: true` deletes objects you removed from Git. It is off by default, as a safety net. `selfHeal: true` undoes manual changes. Also off by default.'
+			'Argo CD\'s reference file has a comment on every field. A real Application needs only the three blocks kept here: `source`, `destination` and `syncPolicy`.',
+			'Lines 13 to 16, `source`, point at a real repo, [argocd-example-apps](https://github.com/argoproj/argocd-example-apps/tree/8088f4c0d970abb09e250248cc97e35623447cb5/guestbook), folder `guestbook`: a plain Deployment and Service.',
+			'Line 21, `server: https://kubernetes.default.svc`, is the cluster Argo CD itself runs in. The same Argo CD can also manage other clusters.',
+			'Line 31, `prune: true`, deletes objects you removed from Git. Line 32, `selfHeal: true`, undoes manual changes. As a safety net, Argo CD sets **both to `false`** by default.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'Every change is a commit: reviewed, signed off, and easy to revert with `git revert`.',
-			'Cluster credentials never leave the cluster. CI only needs write access to a Git repo.',
-			'Drift is visible on a dashboard, and self-heal can undo it.'
+			'CI only needs write access to a Git repo, and the cluster credentials never leave the cluster.',
+			'Argo CD shows drift as OutOfSync on its dashboard, and self-heal can undo it.'
 		],
 		cost: [
-			'One more system to run and upgrade, with its own RBAC and its own outages.',
+			'You run and upgrade Argo CD, with its own RBAC and its own outages.',
 			'An emergency `kubectl edit` gets reverted. In an incident, you fix forward through Git, or pause auto-sync first.',
 			'Secrets need care: you cannot commit them in plain text, so you add a tool that encrypts them or fetches them from a vault.'
 		]
@@ -125,7 +123,7 @@ spec:
 			'Install Argo CD in the cluster. Create one Application per environment pointing at that path, with `automated` sync.',
 			'Start with `selfHeal` off and watch the OutOfSync reports. Fix the drift you find, then turn self-heal on.',
 			'The CI job now builds the image, pushes it, and **commits the new image tag** to the values file. It no longer talks to the cluster.',
-			'Delete the cluster-admin kubeconfig from CI variables. That is the security win.'
+			'Delete the cluster-admin kubeconfig from CI variables. CI then holds no credential for the cluster.'
 		]
 	},
 	quiz: [
@@ -163,7 +161,10 @@ spec:
 			why: 'As a safety mechanism, automated sync will not delete resources missing from Git. You prune by hand, or set `prune: true`.'
 		}
 	],
-	takeaway: 'With GitOps the cluster pulls its state from Git instead of CI pushing into it. Every change is a commit, and drift is something you can see and undo.',
+	recall: {
+		q: 'Someone runs `kubectl edit` on an app that Argo CD manages with automated sync. What does Argo CD do, with and without `selfHeal`?',
+		a: 'It compares the live state with Git and shows the app as OutOfSync. Only with `selfHeal: true` does it put the Git version back on its own.'
+	},
 	sources: [
 		{ title: 'OpenGitOps, the four principles', url: 'https://opengitops.dev/' },
 		{ title: 'Argo CD docs, Core concepts', url: 'https://argo-cd.readthedocs.io/en/stable/core_concepts/' },

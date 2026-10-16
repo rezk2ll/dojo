@@ -7,14 +7,12 @@ export default {
 	title: 'Cluster management: upgrade without an outage',
 	minutes: 10,
 	hook: [
-		'You know the patch night. You put a server in maintenance, move its traffic away, run the updates, reboot, and bring it back. One machine at a time, so the service stays up.',
-		'A Kubernetes cluster needs the same care, and it needs it often: the project only maintains the **three most recent minor releases**. So you will upgrade a few times a year.',
-		'The good news: Kubernetes has the maintenance mode built in. You **cordon** a node, **drain** it, and a **PodDisruptionBudget** stops the drain from taking down too many copies of an app at once.'
+		'You know the patch night. You put a server in maintenance, move its traffic away, run the updates, reboot, and bring it back. You do one machine at a time, so the service stays up.',
+		'A Kubernetes cluster needs the same steps, several times a year: the project only maintains the **three most recent minor releases**.',
+		'Kubernetes has the maintenance steps built in. You cordon a node and drain it, and a PodDisruptionBudget stops the drain from taking down too many copies of an app at once.'
 	],
 	terms: [
-		{ term: 'Node pool', def: 'A group of identical nodes (same machine type, same version). Clouds call it a node pool or a node group. You upgrade or resize a pool as one unit.' },
-		{ term: 'Cordon', def: 'Mark a node unschedulable: no new pods land on it. Pods already there keep running.' },
-		{ term: 'Drain', def: 'Cordon the node, then evict its pods so they restart elsewhere. `kubectl drain` waits for each pod to stop gracefully.' },
+		{ term: 'Drain', def: 'Mark a node unschedulable (cordon), so no new pods land on it, then evict its pods so they restart elsewhere. `kubectl drain` waits for each pod to stop gracefully.' },
 		{ term: 'PodDisruptionBudget (PDB)', def: 'A rule for one app: how many of its pods must stay up (`minAvailable`) or may be down (`maxUnavailable`) during a voluntary disruption like a drain.' },
 		{ term: 'HPA', def: 'HorizontalPodAutoscaler: adds or removes pods of a Deployment based on a metric, usually CPU use compared to the pods\' requests.' },
 		{ term: 'Cluster autoscaler', def: 'Adds nodes when pods are pending because no node has room for them, and removes nodes that sit underused.' }
@@ -33,7 +31,7 @@ export default {
 					'cp --> n2'
 				],
 				highlight: ['cp'],
-				note: 'The order is fixed: **control plane first, nodes after**. A kubelet must never be newer than the API server. It may be up to three minor versions older, so old nodes keep working while you go.'
+				note: 'You upgrade the **control plane first, the nodes after**. A kubelet must never be newer than the API server. It may be up to three minor versions older, so old nodes keep working during the upgrade.'
 			},
 			{
 				add: [
@@ -43,7 +41,7 @@ export default {
 					'cp --> n3'
 				],
 				highlight: ['n3'],
-				note: 'A common pattern on managed clusters: create a **new node pool** at the new version, move the pods over, delete the old pool. Rebuild, do not repair. Same idea as cattle, applied to nodes.'
+				note: 'On managed clusters a common method is to create a **new node pool** at the new version, move the pods over, and delete the old pool. A node pool is a group of identical nodes that you upgrade or resize as one unit. You replace the nodes instead of patching them in place.'
 			},
 			{
 				add: [
@@ -62,7 +60,7 @@ export default {
 					'ca -.->|"adds a node"| newp'
 				],
 				highlight: ['hpa', 'ca'],
-				note: 'Two autoscalers, two levels. The **HPA** changes the number of pods. When those pods cannot fit, they stay **pending**, and the **cluster autoscaler** adds a node to a pool. It also removes nodes that are underused, which is a drain too.'
+				note: 'The HPA changes the number of pods. When those pods cannot fit, they stay **pending**, and the cluster autoscaler adds a node to a pool. It also removes nodes that are underused, and it drains them first.'
 			}
 		]
 	},
@@ -81,21 +79,21 @@ spec:
     matchLabels:
       app: zookeeper`,
 		notes: [
-			'Nine lines protect a three-node ZooKeeper quorum. The `selector` finds the pods by **label**, the same way a Service does.',
-			'`minAvailable: 2` with three replicas means **one pod at a time** may be evicted. The [drain docs](https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/) use this exact case: run several drains in parallel and Kubernetes still keeps two pods up.',
+			'These nine lines protect a three-node ZooKeeper quorum. The `selector` finds the pods by **label**, the same way a Service does.',
+			'`minAvailable: 2` with three replicas means **one pod at a time** may be evicted. The [drain docs](https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/) use this exact case: you run several drains in parallel and Kubernetes still keeps two pods up.',
 			'The same file exists with [`maxUnavailable: 1`](https://github.com/kubernetes/website/blob/2f85f2802e59eb2128543dbfbf114ad641db4be0/content/en/examples/policy/zookeeper-pod-disruption-budget-maxunavailable.yaml#L1-L9) instead. You pick one of the two fields per PDB.',
 			'A PDB only guards **voluntary** disruptions that go through the Eviction API. A node that loses power, or someone running `kubectl delete pod`, bypasses it.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Upgrades become a routine: cordon, drain, replace, one node at a time, while apps stay up.',
-			'PDBs let app owners say what they can survive, so the cluster team can drain nodes without asking each team first.',
-			'Autoscaling follows real load: more pods at noon, fewer nodes at night, less money spent.'
+			'You upgrade with the same steps each time: cordon, drain, replace, one node at a time, while apps stay up.',
+			'App owners write a PDB once, so the cluster team can drain nodes without asking each team first.',
+			'The HPA and the cluster autoscaler follow load: more pods at noon, fewer nodes at night.'
 		],
 		cost: [
 			'A strict PDB (say `minAvailable` equal to the replica count) blocks the drain forever. Someone has to notice and fix it.',
-			'You must upgrade often. Fall behind the three supported minor releases and you lose security patches.',
+			'A cluster that falls behind the three supported minor releases gets no more security patches, so you upgrade a few times a year.',
 			'The HPA needs a metrics source (usually metrics-server) and CPU requests on the pods. Without them it has nothing to compare against.'
 		]
 	},
@@ -145,7 +143,10 @@ spec:
 			why: 'The HPA only changes the pod count. The cluster autoscaler watches for pods that cannot be scheduled and adds nodes so they fit.'
 		}
 	],
-	takeaway: 'Upgrade the control plane first, then replace nodes one at a time with cordon and drain. A PodDisruptionBudget is how an app tells the drain how much it can lose.',
+	recall: {
+		q: 'In which order do you upgrade a cluster, and what stops a drain from evicting too many pods of one app?',
+		a: 'The control plane first, then the nodes, one minor version per round. A PodDisruptionBudget: with 3 replicas and `minAvailable: 2`, the Eviction API lets only one pod go at a time.'
+	},
 	sources: [
 		{ title: 'Kubernetes docs, Safely drain a node', url: 'https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/' },
 		{ title: 'Kubernetes docs, Disruptions', url: 'https://kubernetes.io/docs/concepts/workloads/pods/disruptions/' },

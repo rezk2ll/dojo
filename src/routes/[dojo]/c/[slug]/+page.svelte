@@ -412,7 +412,7 @@
 					>{c.example.repo} · {c.example.title} ↗</a
 				>
 				<div class="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-					<pre class="bg-muted overflow-x-auto rounded-xl p-4 font-mono text-xs leading-relaxed [tab-size:4] xl:self-start">{c.example.code}</pre>
+					<div class="code bg-muted overflow-x-auto rounded-xl p-4 font-mono text-xs leading-relaxed [tab-size:4] xl:self-start">{@html data.code}</div>
 					<ul class="space-y-3">
 						{#each c.example.notes as n, i (i)}
 							<li class="border-brand/60 border-l-2 pl-3 leading-relaxed">{@html fmt(n)}</li>

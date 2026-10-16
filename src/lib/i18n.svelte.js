@@ -36,7 +36,7 @@ const strings = {
 		showCube: 'Show the cube',
 		cubeSize: 'Size',
 		sizes: { s: 'Small', m: 'Medium', l: 'Large' },
-		cubeReview: (/** @type {number} */ n) => `${n} ${n === 1 ? 'card' : 'cards'} to review`,
+		cubeReview: (/** @type {number} */ n) => `${n} card${en(n)} to review`,
 		otherLang: 'FR',
 		toOtherLang: 'Passer en français',
 
@@ -158,7 +158,7 @@ const strings = {
 		showCube: 'Afficher le cube',
 		cubeSize: 'Taille',
 		sizes: { s: 'Petit', m: 'Moyen', l: 'Grand' },
-		cubeReview: (/** @type {number} */ n) => `${n} ${n === 1 ? 'carte' : 'cartes'} à réviser`,
+		cubeReview: (/** @type {number} */ n) => `${n} carte${fr(n)} à réviser`,
 		otherLang: 'EN',
 		toOtherLang: 'Switch to English',
 

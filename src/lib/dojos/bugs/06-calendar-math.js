@@ -7,7 +7,7 @@ export default {
 	title: 'The last Thursday of February',
 	minutes: 10,
 	hook: [
-		'A Discourse event starts on **Thursday 26 February 2026** and repeats every month. Its email says **"The last Thursday of every month"**. It should say the fourth Thursday.',
+		'A Discourse event starts on Thursday 26 February 2026 and repeats every month. Its email says **"The last Thursday of every month"**. It should say the fourth Thursday.',
 		'In February 2026 the two mean the same day. In April 2026 they do not: the fourth Thursday is the 23rd and the last is the 30th. The code below picks the word for the email from the start date of the event.'
 	],
 	terms: [
@@ -51,10 +51,10 @@ export default {
 +      key = nth == 5 ? "last" : RECURRENCE_ORDINALS[nth - 1]
        card_t("builder_modal.recurrence.ordinals.#{key}")`,
 		notes: [
-			'**The check looks at one month only.** `day_of_month + 7 > days_in_month` asks whether there is another Thursday later in this month. For 26 February 2026 that is 26 + 7 = 33, more than 28, so the code says "last". But the event repeats in other months, and the word must be true in all of them.',
-			'**Where it goes wrong.** The 26th is the fourth Thursday: `(26 / 7.0).ceil` is 4. February 2026 has Thursdays on 5, 12, 19 and 26, so the fourth is also the last. April 2026 has Thursdays on 2, 9, 16, 23 and 30. "Last" now means the 30th, a fifth Thursday, one week after the fourth.',
-			'**The same check made the repeat rule.** The commit fixed it in three places: this email text, the label in the browser, and `RRuleConfigurator`, which built the rule. The pull request: "a monthly event created on a fourth weekday that was also the last one (ie. short months like February) in its month generated `BYDAY=-1`, moving the series to the fifth weekday in every month that had one."',
-			'**The fix.** The position comes from the day number alone: days 1 to 7 are first, 22 to 28 fourth, 29 to 31 fifth. Only a fifth becomes "last", because some months have no fifth Thursday and "last" still finds one day in each month. A new test runs the rule from 26 February 2026 and expects 26 February, 26 March and 23 April.'
+			'Line 15, `day_of_month + 7 > days_in_month`, asks whether another Thursday comes later in the start month. For 26 February 2026 that is 26 + 7 = 33, more than 28, so the code says "last". The event repeats in other months, and the word has to be true in each of them.',
+			'The 26th is the fourth Thursday: `(26 / 7.0).ceil` is 4. February 2026 has Thursdays on 5, 12, 19 and 26, so the fourth is also the last. April 2026 has Thursdays on 2, 9, 16, 23 and 30, and "last" there means the 30th, one week after the fourth.',
+			'The commit fixed the same check in three places: this email text, the label in the browser, and `RRuleConfigurator`, which built the repeat rule. The pull request: "a monthly event created on a fourth weekday that was also the last one (ie. short months like February) in its month generated `BYDAY=-1`, moving the series to the fifth weekday in every month that had one."',
+			'The fixed code takes the position from the day number alone: days 1 to 7 are first, 22 to 28 fourth, 29 to 31 fifth. It uses "last" only for a fifth, because some months have no fifth Thursday and "last" still finds one day in each month. A new test runs the rule from 26 February 2026 and expects 26 February, 26 March and 23 April.'
 		]
 	},
 	quiz: [
@@ -84,10 +84,13 @@ export default {
 				'An event that starts at midnight UTC'
 			],
 			answer: 0,
-			why: 'That is the only case where "fourth" and "last" are the same in the start month and differ in a month with five of that weekday.'
+			why: 'Only for that date are "fourth" and "last" the same day in the start month and different days in a month with five of that weekday.'
 		}
 	],
-	takeaway: 'A word like "last" or a day like the 31st can be right in the start month and wrong in the next one. Test a repeating date over months of 28, 30 and 31 days, and check that it keeps the same position.',
+	recall: {
+		q: 'An event starts on Thursday 26 February 2026 and repeats monthly. Why is "last Thursday" wrong for it, and when does it fail first?',
+		a: 'The 26th is the fourth Thursday, and February 2026 has only four. April 2026 has five, so "last" gives 30 April instead of 23 April.'
+	},
 	sources: [
 		{ title: 'discourse pull request #42852', url: `${DISCOURSE}/pull/42852` },
 		{ title: 'The fix commit, with the three changed files', url: `${DISCOURSE}/commit/b6e8cdad93506447ff0ef99c1d719c9d6a630231` }

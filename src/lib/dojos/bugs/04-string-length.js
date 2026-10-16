@@ -4,7 +4,7 @@ const GO = 'https://github.com/golang/go';
 export default {
 	slug: 'string-length',
 	part: 'Counting',
-	title: 'Two characters, six bytes',
+	title: 'Sizing a UTF-8 buffer with the string length',
 	minutes: 10,
 	hook: [
 		'A Go program is built for WebAssembly and run under Node with `node wasm_exec.js main.wasm hello 世界`. It crashes before `main` starts, with **"RangeError: Source is too large"**. The same program run with `hello world` prints its arguments.',
@@ -55,11 +55,11 @@ this.argv.forEach((arg) => {
  	return ptr;
  };`,
 		notes: [
-			'**Two lengths in two units.** `str.length` counts UTF-16 code units. `encoder.encode` returns UTF-8 bytes. The view is sized with the first and filled with the second. For ASCII text both give the same number, so `hello world` works.',
-			'**Where it breaks.** Take `世界`. `str.length` is 2, so the view is 2 + 1 = **3 bytes**. Each character is 3 bytes in UTF-8, so `encode("世界\\0")` returns **7 bytes**. `set` cannot copy 7 bytes into a 3-byte window and throws "Source is too large".',
-			'**Line 9 has the same mistake.** It moves `offset` by the character count. With only line 8 fixed, `ééééééé` (7 characters, 14 bytes plus the zero byte) would write 15 bytes, and `offset` would move by 7 + 1 = 8. The next argument would start inside this one and overwrite its last 7 bytes.',
-			'**The fix.** It encodes once and uses `bytes.length` for both the view and the offset. Then it rounds `offset` up to the next multiple of 8 only when it is not one already.',
-			'**How it was found.** Issue [#31645](' + GO + '/issues/31645), "misc/wasm: wrong string length in strPtr function in wasm_exec.js". The reporter showed it in the Node REPL: `"世界".length` gives 2 and the encoded bytes have length 6.'
+			'Line 8 sizes the view with `str.length`, which counts UTF-16 code units. It fills the view with `encoder.encode`, which returns UTF-8 bytes. For ASCII text both give the same number, so `hello world` works.',
+			'Take `世界`. `str.length` is 2, so the view on line 8 is 2 + 1 = 3 bytes. Each character is 3 bytes in UTF-8, so `encode("世界\\0")` returns **7 bytes**. `set` cannot copy 7 bytes into a 3-byte window and throws "Source is too large".',
+			'Line 9 moves `offset` by the character count too. With only line 8 fixed, `ééééééé` (7 characters, 14 bytes plus the zero byte) would write 15 bytes, and `offset` would move by 7 + 1 = 8. The next argument would start inside this one and overwrite its last 7 bytes.',
+			'The fix encodes once and uses `bytes.length` for both the view and the offset. Then it rounds `offset` up to the next multiple of 8 only when it is not one already.',
+			'Issue [#31645](' + GO + '/issues/31645), "misc/wasm: wrong string length in strPtr function in wasm_exec.js". The reporter showed it in the Node REPL: `"世界".length` gives 2 and the encoded bytes have length 6.'
 		]
 	},
 	quiz: [
@@ -97,7 +97,10 @@ this.argv.forEach((arg) => {
 			why: 'Only non-ASCII characters make the encoded size differ from the character count. The other inputs keep both counts equal.'
 		}
 	],
-	takeaway: 'When you size a buffer or move an offset for encoded text, take the length from the encoded bytes, not from the string. Test it with at least one character outside ASCII.',
+	recall: {
+		q: 'For the argument `世界`, what does `str.length` give, how many bytes does `encode("世界\\0")` return, and which length does the fix use?',
+		a: '`str.length` is 2 and the encoded bytes are 7. The fix sizes the view and moves `offset` with `bytes.length`.'
+	},
 	sources: [
 		{ title: 'go issue #31645', url: `${GO}/issues/31645` },
 		{ title: 'The review, CL 173877', url: 'https://go-review.googlesource.com/c/go/+/173877' }

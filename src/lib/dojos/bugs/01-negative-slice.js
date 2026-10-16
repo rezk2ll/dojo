@@ -4,7 +4,7 @@ const VITE = 'https://github.com/vitejs/vite';
 export default {
 	slug: 'negative-slice',
 	part: 'Counting',
-	title: 'One column too far',
+	title: 'Off-by-one between a column and an offset',
 	minutes: 10,
 	hook: [
 		'A Vite beta came out, and some projects stopped building. The HTML plugin crashed with **"end must be greater than start"**. Nothing in those projects had changed.',
@@ -45,10 +45,10 @@ const nodeStartWithLeadingWhitespace = (
              node.sourceCodeLocation!.startOffset,
            )`,
 		notes: [
-			'**Two counts that start in different places.** `startOffset` counts from 0 and `startCol` counts from 1. The pull request says it: "`startCol` is 1-indexed, while `startOffset` is 0 indexed."',
-			'**Where it breaks.** Take a tag on the first line of the file, at column 3. Its offset is 2. The code computes 2 minus 3, which is **-1**, and passes that to `s.slice`. On later lines the result is the newline before the line, which is what the comment wants. Only the first line has no newline before it.',
-			'**The fix.** `Math.max(0, lineStartOffset)` never goes below the start of the file. The early return above it already handled a tag at offset 0, but not a tag further along the first line.',
-			'**How it showed up.** A user reported the crash on the pull request that added this code ([comment](' + VITE + '/pull/14274#issuecomment-1758742149)): "[vite:build-html] end must be greater than start".'
+			'Lines 11 to 13 subtract `startCol` from `startOffset`. `startOffset` counts from 0 and `startCol` counts from 1. The pull request: "`startCol` is 1-indexed, while `startOffset` is 0 indexed."',
+			'Take a tag on the first line of the file, at column 3. Its offset is 2, so line 11 computes 2 minus 3, which is **-1**. Line 15 passes that -1 to `s.slice`. On later lines the result is the newline before the line, as the comment on lines 9 and 10 wants.',
+			'Line 15 now passes `Math.max(0, lineStartOffset)`, which never goes below the start of the file. The early return on line 6 already handled a tag at offset 0, but not a tag further along the first line.',
+			'A user reported the crash on the pull request that added this code ([comment](' + VITE + '/pull/14274#issuecomment-1758742149)): "[vite:build-html] end must be greater than start".'
 		]
 	},
 	quiz: [
@@ -81,7 +81,10 @@ const nodeStartWithLeadingWhitespace = (
 			why: 'The first line has nothing before it, so a result that is one too small falls outside the file. Later lines hide the mistake because the character before them exists.'
 		}
 	],
-	takeaway: 'When you subtract a 1-based column from a 0-based offset, the first line of the file gives -1. Clamp the result, or convert both values to the same base first.',
+	recall: {
+		q: 'Vite subtracts the column of a tag from its offset. Which tags get a start of -1, and what fixed it?',
+		a: 'Tags on the first line after its first character, because the column counts from 1 and the offset from 0. `Math.max(0, lineStartOffset)` keeps the start at 0 or above.'
+	},
 	sources: [
 		{ title: 'vite pull request #14589', url: `${VITE}/pull/14589` },
 		{ title: 'The bug report on pull request #14274', url: `${VITE}/pull/14274#issuecomment-1758742149` }

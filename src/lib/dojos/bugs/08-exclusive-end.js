@@ -46,10 +46,10 @@ export default {
 +    this.contents = tmpl.slice(this.el.sourceSpan.start.offset, this.el.sourceSpan.end.offset);
      this.children = '';`,
 		notes: [
-			'**The end is already exclusive.** `sourceSpan.end.offset` points just past the last `>` of `</ng-template>`, and `slice` stops before its second argument. The `+ 1` adds the character after the template. Four lines below, the `children` slice uses `end.offset` with no `+ 1`, and that one is right.',
-			'**Where the extra character goes.** Take `<ng-template #elseTmpl> 0 </ng-template></span>`. The template is 40 characters long. If it starts at offset 100, its end offset is 140, and `slice(100, 141)` also takes the `<` at offset 140. The migration then runs `template.replace(t.contents, \'\')` ([util.ts](' + NG + '/blob/' + PARENT + '/packages/core/schematics/ng-generate/control-flow-migration/util.ts#L348)), which deletes that `<` too and leaves `/span>` in the file.',
-			'**Why most files came out fine.** When a space or a newline follows `</ng-template>`, the extra character is whitespace and losing it does not break the HTML. The commit message says it: "an extra space was being added when it was unnecessary. This resulted in malformed html if there was no space afterwards."',
-			'**How it was found.** Issue [#53248](' + NG + '/issues/53248), "control-flow schematic fails on some multi-line elements", with a template that ends in `</ng-template></span`. The fix removes the `+ 1`, and its test puts `</span>` right after `</ng-template>`.'
+			'On line 11, `sourceSpan.end.offset` already points just past the last `>` of `</ng-template>`, and `slice` stops before its second argument. The `+ 1` adds the character after the template. Lines 14 to 16 slice `children` with `end.offset` and no `+ 1`, which is right.',
+			'Take `<ng-template #elseTmpl> 0 </ng-template></span>`. The template is 40 characters long. If it starts at offset 100, its end offset is 140, and `slice(100, 141)` also takes the `<` at offset 140. The migration then runs `template.replace(t.contents, \'\')` ([util.ts](' + NG + '/blob/' + PARENT + '/packages/core/schematics/ng-generate/control-flow-migration/util.ts#L348)), which deletes that `<` too and leaves `/span>` in the file.',
+			'Most files came out fine: when a space or a newline follows `</ng-template>`, the extra character is whitespace, and deleting it leaves valid HTML. The commit message: "an extra space was being added when it was unnecessary. This resulted in malformed html if there was no space afterwards."',
+			'A user opened issue [#53248](' + NG + '/issues/53248), "control-flow schematic fails on some multi-line elements", with a template that ends in `</ng-template></span`. The fix removes the `+ 1`, and its test puts `</span>` right after `</ng-template>`.'
 		]
 	},
 	quiz: [
@@ -84,10 +84,13 @@ export default {
 				'A template with no children inside it at all'
 			],
 			answer: 2,
-			why: 'With no whitespace after the template, the extra character is the `<` of the next tag. That is the input the fix commit added as a test.'
+			why: 'With no whitespace after the template, the extra character is the `<` of the next tag. The fix commit added this input as a test.'
 		}
 	],
-	takeaway: 'Before adding 1 to an end offset, check whether the API already gives you the position after the last character. Test with something written right after the range, with no space in between.',
+	recall: {
+		q: 'Why was `slice(start, end.offset + 1)` one character too long, and which input showed it?',
+		a: '`end.offset` already points just past the last character, and `slice` stops before its second argument. A closing tag written right after `</ng-template>`, like `</span>`, lost its `<`.'
+	},
 	sources: [
 		{ title: 'angular pull request #53255', url: `${NG}/pull/53255` },
 		{ title: 'angular issue #53248', url: `${NG}/issues/53248` }

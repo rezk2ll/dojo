@@ -4,7 +4,7 @@ const VITE = 'https://github.com/vitejs/vite';
 export default {
 	slug: 'negative-slice',
 	part: 'Compter',
-	title: 'Une colonne de trop',
+	title: 'Décalage d’un entre une colonne et un offset',
 	minutes: 10,
 	hook: [
 		'Une bêta de Vite sort, et certains projets ne buildent plus. Le plugin HTML plante avec **"end must be greater than start"**. Rien n’a changé dans ces projets.',
@@ -45,10 +45,10 @@ const nodeStartWithLeadingWhitespace = (
              node.sourceCodeLocation!.startOffset,
            )`,
 		notes: [
-			'**Deux comptes qui ne partent pas du même endroit.** `startOffset` compte à partir de 0, `startCol` à partir de 1. La pull request le dit : "`startCol` is 1-indexed, while `startOffset` is 0 indexed."',
-			'**Où ça casse.** Prends une balise sur la première ligne du fichier, en colonne 3. Son offset vaut 2. Le code calcule 2 moins 3, soit **-1**, et le passe à `s.slice`. Sur les lignes suivantes, le résultat tombe sur le retour à la ligne d’avant, ce que veut le commentaire. Seule la première ligne n’a pas de retour à la ligne avant elle.',
-			'**Le correctif.** `Math.max(0, lineStartOffset)` ne descend jamais sous le début du fichier. Le `return` du dessus gérait déjà une balise à l’offset 0, mais pas une balise plus loin sur la première ligne.',
-			'**Comment ça s’est vu.** Un utilisateur a signalé le plantage sur la pull request qui avait ajouté ce code ([commentaire](' + VITE + '/pull/14274#issuecomment-1758742149)) : "[vite:build-html] end must be greater than start".'
+			'Les lignes 11 à 13 retirent `startCol` de `startOffset`. Or `startOffset` compte à partir de 0, et `startCol` à partir de 1. La pull request : "`startCol` is 1-indexed, while `startOffset` is 0 indexed."',
+			'Prends une balise en colonne 3 sur la première ligne du fichier. Son offset vaut 2, donc la ligne 11 calcule 2 moins 3, soit **-1**. La ligne 15 passe ce -1 à `s.slice`. Sur les autres lignes, on tombe sur le retour à la ligne d’avant, comme le veut le commentaire des lignes 9 et 10.',
+			'La ligne 15 passe maintenant `Math.max(0, lineStartOffset)`, qui ne descend jamais sous le début du fichier. Le `return` de la ligne 6 gérait déjà une balise à l’offset 0, mais pas une balise plus loin sur la première ligne.',
+			'Un utilisateur a signalé le plantage sur la pull request qui avait ajouté ce code ([commentaire](' + VITE + '/pull/14274#issuecomment-1758742149)) : "[vite:build-html] end must be greater than start".'
 		]
 	},
 	quiz: [
@@ -81,7 +81,10 @@ const nodeStartWithLeadingWhitespace = (
 			why: 'La première ligne n’a rien avant elle, donc un résultat trop petit d’un sort du fichier. Sur les lignes suivantes, l’erreur passe inaperçue parce que le caractère d’avant existe.'
 		}
 	],
-	takeaway: 'Quand tu soustrais une colonne comptée à partir de 1 d’un offset compté à partir de 0, la première ligne du fichier donne -1. Borne le résultat, ou ramène les deux valeurs à la même base d’abord.',
+	recall: {
+		q: 'Vite retire la colonne d’une balise de son offset. Quelles balises obtiennent un début à -1, et qu’est-ce qui a corrigé ça ?',
+		a: 'Les balises de la première ligne placées après son premier caractère, car la colonne compte à partir de 1 et l’offset à partir de 0. `Math.max(0, lineStartOffset)` garde le début à 0 ou plus.'
+	},
 	sources: [
 		{ title: 'vite, pull request #14589', url: `${VITE}/pull/14589` },
 		{ title: 'Le signalement sur la pull request #14274', url: `${VITE}/pull/14274#issuecomment-1758742149` }

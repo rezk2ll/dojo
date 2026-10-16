@@ -7,7 +7,7 @@ export default {
 	title: 'Le dernier jeudi de février',
 	minutes: 10,
 	hook: [
-		'Un événement Discourse commence le **jeudi 26 février 2026** et revient tous les mois. Son e-mail annonce **"The last Thursday of every month"** (le dernier jeudi de chaque mois). Il devrait dire le quatrième jeudi.',
+		'Un événement Discourse commence le jeudi 26 février 2026 et revient tous les mois. Son e-mail annonce **"The last Thursday of every month"** (le dernier jeudi de chaque mois). Il devrait dire le quatrième jeudi.',
 		'En février 2026, les deux tombent le même jour. En avril 2026, non : le quatrième jeudi est le 23 et le dernier le 30. Le code ci-dessous choisit le mot de l’e-mail à partir de la date de début de l’événement.'
 	],
 	terms: [
@@ -51,10 +51,10 @@ export default {
 +      key = nth == 5 ? "last" : RECURRENCE_ORDINALS[nth - 1]
        card_t("builder_modal.recurrence.ordinals.#{key}")`,
 		notes: [
-			'**Le test ne regarde qu’un seul mois.** `day_of_month + 7 > days_in_month` demande s’il reste un autre jeudi plus loin dans ce mois. Pour le 26 février 2026, ça donne 26 + 7 = 33, plus que 28, donc le code dit "last". Mais l’événement revient les autres mois, et le mot doit être vrai pour tous.',
-			'**Où ça déraille.** Le 26 est le quatrième jeudi : `(26 / 7.0).ceil` vaut 4. Février 2026 a des jeudis les 5, 12, 19 et 26, donc le quatrième est aussi le dernier. Avril 2026 a des jeudis les 2, 9, 16, 23 et 30. « Dernier » veut alors dire le 30, un cinquième jeudi, une semaine après le quatrième.',
-			'**Le même test fabriquait la règle de répétition.** Le commit le corrige à trois endroits : ce texte d’e-mail, le libellé dans le navigateur, et `RRuleConfigurator`, qui construisait la règle. La pull request : "a monthly event created on a fourth weekday that was also the last one (ie. short months like February) in its month generated `BYDAY=-1`, moving the series to the fifth weekday in every month that had one."',
-			'**Le correctif.** La position vient du seul numéro du jour : du 1 au 7 c’est le premier, du 22 au 28 le quatrième, du 29 au 31 le cinquième. Seul un cinquième devient "last", parce que certains mois n’ont pas de cinquième jeudi, alors que « dernier » trouve un jour dans chaque mois. Un nouveau test lance la règle depuis le 26 février 2026 et attend le 26 février, le 26 mars et le 23 avril.'
+			'La ligne 15, `day_of_month + 7 > days_in_month`, vérifie s’il reste un autre jeudi plus loin dans le mois de départ. Pour le 26 février 2026, 26 + 7 = 33 dépasse 28, donc le code écrit "last". L’événement revient pourtant chaque mois, et le mot doit rester vrai dans chacun.',
+			'Le 26 est le quatrième jeudi : `(26 / 7.0).ceil` vaut 4. En février 2026, les jeudis tombent les 5, 12, 19 et 26, donc le quatrième est aussi le dernier. En avril 2026, ils tombent les 2, 9, 16, 23 et 30, et « dernier » désigne le 30, une semaine après le quatrième.',
+			'Le commit corrige le même test à trois endroits : ce texte d’e-mail, le libellé dans le navigateur, et `RRuleConfigurator`, qui construisait la règle de répétition. La pull request : "a monthly event created on a fourth weekday that was also the last one (ie. short months like February) in its month generated `BYDAY=-1`, moving the series to the fifth weekday in every month that had one."',
+			'Le code corrigé tire la position du seul numéro du jour : du 1 au 7 le premier, du 22 au 28 le quatrième, du 29 au 31 le cinquième. Il n’écrit "last" que pour un cinquième, parce que certains mois n’ont pas de cinquième jeudi et que « dernier » trouve un jour dans chaque mois. Un nouveau test lance la règle depuis le 26 février 2026 et attend le 26 février, le 26 mars et le 23 avril.'
 		]
 	},
 	quiz: [
@@ -84,10 +84,13 @@ export default {
 				'Un événement qui commence à minuit UTC'
 			],
 			answer: 0,
-			why: 'C’est le seul cas où « quatrième » et « dernier » coïncident dans le mois de départ et divergent dans un mois qui a cinq fois ce jour.'
+			why: 'Seule cette date fait tomber « quatrième » et « dernier » le même jour dans le mois de départ, puis sur deux jours différents dans un mois qui compte cinq fois ce jour.'
 		}
 	],
-	takeaway: 'Un mot comme « dernier » ou un jour comme le 31 peut être juste le mois de départ et faux le mois suivant. Teste une date qui se répète sur des mois de 28, 30 et 31 jours, et vérifie qu’elle garde la même position.',
+	recall: {
+		q: 'Un événement commence le jeudi 26 février 2026 et revient chaque mois. Pourquoi « dernier jeudi » est-il faux, et quand l’erreur apparaît-elle la première fois ?',
+		a: 'Le 26 est le quatrième jeudi, et février 2026 n’en compte que quatre. Avril 2026 en compte cinq, donc « dernier » donne le 30 avril au lieu du 23.'
+	},
 	sources: [
 		{ title: 'discourse, pull request #42852', url: `${DISCOURSE}/pull/42852` },
 		{ title: 'Le commit du correctif, avec les trois fichiers modifiés', url: `${DISCOURSE}/commit/b6e8cdad93506447ff0ef99c1d719c9d6a630231` }

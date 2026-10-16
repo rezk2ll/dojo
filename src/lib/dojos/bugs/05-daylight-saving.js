@@ -4,7 +4,7 @@ const RUBY = 'https://github.com/ruby/ruby';
 export default {
 	slug: 'daylight-saving',
 	part: 'Counting',
-	title: 'October lasts one hour longer',
+	title: 'Daylight saving time in monthly log rotation',
 	minutes: 10,
 	hook: [
 		'Ruby’s `Logger` can rotate its file once a month: `Logger.new("app.log", "monthly")`. At the end of each month it renames `app.log` and starts a new one.',
@@ -51,11 +51,11 @@ end`,
 +        return Time.mktime(t.year, t.month, 1)
        else`,
 		notes: [
-			'**A day is not always 86,400 seconds.** `SiD * 31` adds 31 times 86,400 seconds to midnight on the 1st. In Europe the clocks go back on the last Sunday of October, so October lasts 31 days and one hour. October 1 at 00:00 plus 31 × 86,400 seconds is **October 31 at 23:00** on the local clock, not November 1.',
-			'**Where it breaks.** `t.mday` is 31, so `t.mday > 1` is true and the method returns `Time.mktime(t.year, t.month, 1)`: October 1, the start of the current month. That time is already past, so `now >= @next_rotate_time` is true on the next write, and on the one after. The pull request: "which lead every single line of log during october to rotate the log file."',
-			'**Why the other months worked.** With European clock changes, a 30-day month such as April gives May 2, and the `t.mday > 1` branch returns May 1. A 31-day month without a clock change gives the 1st at 00:00 and falls through. In March the clocks go forward, so the result is April 1 at 01:00, and the hour check below rounds it down to April 1.',
-			'**The fix.** 32 days from the 1st always lands in the next month: no month is longer than 31 days and one hour, and February 1 plus 32 days is March 5. So `Time.mktime(t.year, t.month, 1)` is always the 1st of the next month, and the `if` is no longer needed.',
-			'**How it was found.** A user sent the fix as [pull request #1458](' + RUBY + '/pull/1458). Its description says "With DST the month of october can actually last more than 31 days. It can last 31 days plus 1 hour."'
+			'Line 10 adds 31 times 86,400 seconds (`SiD`, line 1) to midnight on the 1st. In Europe the clocks go back on the last Sunday of October, so October lasts 31 days and one hour. October 1 at 00:00 plus 31 × 86,400 seconds is **October 31 at 23:00** on the local clock, one hour before November 1.',
+			'On line 11, `t.mday` is 31, so `t.mday > 1` is true and the method returns `Time.mktime(t.year, t.month, 1)`: October 1, the start of the current month. That time is already past, so `now >= @next_rotate_time` is true on the next write, and on the one after. The pull request: "which lead every single line of log during october to rotate the log file."',
+			'With European clock changes, a 30-day month such as April gives May 2, and line 11 returns May 1. A 31-day month without a clock change gives the 1st at 00:00 and falls through. In March the clocks go forward, so the result is April 1 at 01:00, and lines 15 to 19 round it down to April 1.',
+			'Line 10 now adds 32 days, which always lands in the next month: no month is longer than 31 days and one hour, and February 1 plus 32 days is March 5. So line 11 always returns the 1st of the next month, and its `if` is gone.',
+			'A user sent the fix as [pull request #1458](' + RUBY + '/pull/1458). Its description says "With DST the month of october can actually last more than 31 days. It can last 31 days plus 1 hour."'
 		]
 	},
 	quiz: [
@@ -88,7 +88,10 @@ end`,
 			why: 'UTC never changes its clocks, so it hides the bug. A zone with DST and a start date in every month includes October 1, the input that fails.'
 		}
 	],
-	takeaway: 'Adding 86,400 seconds per day to a local time is wrong on the days the clocks change. Build the date you want from year, month and day, and test it in a time zone with DST.',
+	recall: {
+		q: 'Where does October 1 at 00:00 plus 31 × 86,400 seconds land in a European time zone, and what did the logger do with it?',
+		a: 'October 31 at 23:00, because October has an extra hour. The logger took October 1 as the next rotation time, which was already past, so every write rotated the file.'
+	},
 	sources: [
 		{ title: 'ruby pull request #1458', url: `${RUBY}/pull/1458` },
 		{ title: 'The fix commit', url: `${RUBY}/commit/8fc170a34eff0190533b669b3e9f6b6aba42e48c` }

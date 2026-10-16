@@ -4,7 +4,7 @@ const GO = 'https://github.com/golang/go';
 export default {
 	slug: 'string-length',
 	part: 'Compter',
-	title: 'Deux caractères, six octets',
+	title: 'Dimensionner un buffer UTF-8 avec la longueur de la chaîne',
 	minutes: 10,
 	hook: [
 		'Un programme Go est compilé pour WebAssembly et lancé sous Node avec `node wasm_exec.js main.wasm hello 世界`. Il plante avant même que `main` démarre, avec **"RangeError: Source is too large"**. Le même programme lancé avec `hello world` affiche bien ses arguments.',
@@ -55,11 +55,11 @@ this.argv.forEach((arg) => {
  	return ptr;
  };`,
 		notes: [
-			'**Deux longueurs, deux unités.** `str.length` compte des unités UTF-16. `encoder.encode` renvoie des octets UTF-8. La vue est dimensionnée avec la première et remplie avec la seconde. Pour du texte ASCII, les deux donnent le même nombre, donc `hello world` passe.',
-			'**Où ça casse.** Prends `世界`. `str.length` vaut 2, donc la vue fait 2 + 1 = **3 octets**. Chaque caractère prend 3 octets en UTF-8, donc `encode("世界\\0")` renvoie **7 octets**. `set` ne peut pas copier 7 octets dans une fenêtre de 3 et lève "Source is too large".',
-			'**La ligne 9 fait la même erreur.** Elle avance `offset` du nombre de caractères. Si seule la ligne 8 était corrigée, `ééééééé` (7 caractères, 14 octets plus l’octet nul) écrirait 15 octets, et `offset` n’avancerait que de 7 + 1 = 8. L’argument suivant commencerait au milieu de celui-ci et écraserait ses 7 derniers octets.',
-			'**Le correctif.** Il encode une seule fois et utilise `bytes.length` pour la vue comme pour l’offset. Puis il arrondit `offset` au multiple de 8 suivant, seulement s’il n’en est pas déjà un.',
-			'**Comment ça s’est vu.** Issue [#31645](' + GO + '/issues/31645), "misc/wasm: wrong string length in strPtr function in wasm_exec.js". Le rapporteur l’a montré dans le REPL de Node : `"世界".length` donne 2 et les octets encodés ont une longueur de 6.'
+			'La ligne 8 dimensionne la vue avec `str.length`, qui compte des unités UTF-16. Elle la remplit avec `encoder.encode`, qui renvoie des octets UTF-8. En ASCII, les deux donnent le même nombre, donc `hello world` passe.',
+			'Prends `世界`. `str.length` vaut 2, donc la vue de la ligne 8 fait 2 + 1 = 3 octets. En UTF-8, chaque caractère prend 3 octets : `encode("世界\\0")` renvoie **7 octets**. `set` ne peut pas copier 7 octets dans une fenêtre de 3 et lève "Source is too large".',
+			'La ligne 9 avance elle aussi `offset` du nombre de caractères. Si on corrigeait seulement la ligne 8, `ééééééé` (7 caractères, 14 octets plus l’octet nul) écrirait 15 octets, et `offset` n’avancerait que de 7 + 1 = 8. L’argument suivant commencerait au milieu de celui-ci et écraserait ses 7 derniers octets.',
+			'Le correctif encode une seule fois et utilise `bytes.length` pour la vue comme pour l’offset. Puis il arrondit `offset` au multiple de 8 suivant, seulement s’il n’en est pas déjà un.',
+			'Issue [#31645](' + GO + '/issues/31645), "misc/wasm: wrong string length in strPtr function in wasm_exec.js". Le rapporteur l’a montré dans le REPL de Node : `"世界".length` donne 2 et les octets encodés ont une longueur de 6.'
 		]
 	},
 	quiz: [
@@ -97,7 +97,10 @@ this.argv.forEach((arg) => {
 			why: 'Seuls les caractères hors ASCII rendent la taille encodée différente du nombre de caractères. Avec les autres entrées, les deux comptes restent égaux.'
 		}
 	],
-	takeaway: 'Quand tu dimensionnes un buffer ou avances un offset pour du texte encodé, prends la longueur des octets encodés, pas celle de la chaîne. Teste avec au moins un caractère hors ASCII.',
+	recall: {
+		q: 'Pour l’argument `世界`, que vaut `str.length`, combien d’octets renvoie `encode("世界\\0")`, et quelle longueur le correctif utilise-t-il ?',
+		a: '`str.length` vaut 2 et les octets encodés sont 7. Le correctif dimensionne la vue et avance `offset` avec `bytes.length`.'
+	},
 	sources: [
 		{ title: 'go, issue #31645', url: `${GO}/issues/31645` },
 		{ title: 'La revue, CL 173877', url: 'https://go-review.googlesource.com/c/go/+/173877' }

@@ -4,16 +4,16 @@ const NUMPY = 'https://github.com/numpy/numpy';
 export default {
 	slug: 'integer-overflow',
 	part: 'Compter',
-	title: 'Deux milliards d’octets, signe moins compris',
+	title: 'Débordement d’entier dans un compte d’éléments NumPy',
 	minutes: 10,
 	hook: [
-		'Un utilisateur enregistre un tableau NumPy de forme `(2**30, 2)` dans un fichier `.npz` avec `np.savez`. L’enregistrement passe. Le rechargement échoue avec **"ValueError: negative dimensions are not allowed"**.',
+		'Un utilisateur enregistre un tableau NumPy de forme `(2**30, 2)` dans un fichier `.npz` avec `np.savez`. L’enregistrement passe. Le rechargement échoue avec "ValueError: negative dimensions are not allowed".',
 		'Le tableau a 2 147 483 648 éléments d’un octet chacun. Sur la machine 64 bits de l’utilisateur, `np.int_`, le type entier que NumPy utilise par défaut, faisait 32 bits. Le chargeur calcule le nombre d’éléments à partir de la forme avant d’allouer le tableau.'
 	],
 	terms: [
 		{ term: 'int32', def: 'Un entier signé sur 32 bits. Sa plus grande valeur est 2 147 483 647, soit 2**31 moins 1.' },
 		{ term: 'Débordement circulaire', def: 'Quand un entier de taille fixe dépasse sa plus grande valeur, il repart de la plus petite au lieu de lever une erreur.' },
-		{ term: 'multiply.reduce', def: 'Le produit de tous les éléments dans NumPy. Il convertit d’abord l’entrée en tableau, donc les int Python deviennent des entiers NumPy de taille fixe.' }
+		{ term: 'multiply.reduce', def: 'Le produit de tous les éléments dans NumPy. Il convertit d’abord l’entrée en tableau, qui stocke les int Python comme des entiers NumPy de taille fixe.' }
 	],
 	bug: {
 		title: 'BUG: Cast size to int64 when loading from archive',
@@ -48,10 +48,10 @@ else:
 
      # Now read the actual data.`,
 		notes: [
-			'**Le produit prend la taille par défaut.** `shape` est un tuple d’int Python, qui ne débordent jamais. `numpy.multiply.reduce` convertit d’abord le tuple en tableau de `np.int_` et multiplie dans ce type. Là où `np.int_` fait 32 bits, tout produit au-dessus de 2 147 483 647 déborde.',
-			'**Les chiffres du signalement.** 2**30 fois 2 donne 2**31, soit 2 147 483 648. C’est un de plus que le maximum d’un int32, donc le résultat repart à **-2 147 483 648**. La pull request l’affiche : `np.multiply.reduce(a.shape)` donne `-2147483648`. Un fichier `.npz` est une archive zip, pas un vrai fichier, donc le code passe par `numpy.empty(count, ...)`, qui lève une erreur sur la taille négative.',
-			'**Le correctif.** `dtype=numpy.int64` fait multiplier la réduction sur 64 bits, quelle que soit la plateforme. 2**31 y tient sans problème, comme tout nombre d’éléments qu’une machine peut garder en mémoire.',
-			'**Comment ça s’est vu.** L’auteur a ouvert la [pull request #7598](' + NUMPY + '/pull/7598) avec un court script qui enregistre puis recharge le tableau. Elle dit que le compte "defaults to `int32` on some systems, including 64bit systems where it is possible to create arrays large enough to cause that value to overflow" (passe en int32 sur certains systèmes, y compris en 64 bits).'
+			'À la ligne 7, `shape` est un tuple d’int Python, qui ne débordent jamais. `numpy.multiply.reduce` convertit d’abord ce tuple en tableau de `np.int_`, puis multiplie dans ce type. Là où `np.int_` fait 32 bits, tout produit au-dessus de 2 147 483 647 déborde.',
+			'2**30 fois 2 donne 2 147 483 648, un de plus que le maximum d’un int32 : la ligne 7 obtient donc -2 147 483 648. La pull request l’affiche : `np.multiply.reduce(a.shape)` donne `-2147483648`. Un `.npz` est une archive zip, donc `isfileobj(fp)` vaut faux à la ligne 13. La ligne 20 appelle alors `numpy.empty(count, ...)`, qui lève une erreur sur la taille négative.',
+			'La ligne 7 passe maintenant `dtype=numpy.int64` : la réduction multiplie sur 64 bits, quelle que soit la plateforme. 2**31 tient sur 64 bits, comme tout nombre d’éléments qu’une machine peut garder en mémoire.',
+			'L’auteur a ouvert la [pull request #7598](' + NUMPY + '/pull/7598) avec un court script qui enregistre puis recharge le tableau. Elle dit que le compte "defaults to `int32` on some systems, including 64bit systems where it is possible to create arrays large enough to cause that value to overflow" (passe en int32 sur certains systèmes, y compris en 64 bits).'
 		]
 	},
 	quiz: [
@@ -84,7 +84,10 @@ else:
 			why: 'Le bug demande un produit au-delà de la limite des 32 bits et un type sur 32 bits. Forcer int32 dans le test le reproduit sur n’importe quelle machine, sans tableau de 2 Go.'
 		}
 	],
-	takeaway: 'Quand tu multiplies des tailles ou des comptes avec NumPy, regarde dans quel type entier se fait le produit. Passe `dtype=numpy.int64` ou reste en int Python, et teste avec un produit juste au-dessus de 2**31.',
+	recall: {
+		q: 'Pourquoi le chargement d’un tableau `(2**30, 2)` donnait-il une taille négative, et quel argument a corrigé ça ?',
+		a: '`numpy.multiply.reduce` multipliait la forme en `np.int_`, qui faisait 32 bits sur cette machine : 2 147 483 648 repartait à -2 147 483 648. Avec `dtype=numpy.int64`, le produit se fait sur 64 bits.'
+	},
 	sources: [
 		{ title: 'numpy, pull request #7598', url: `${NUMPY}/pull/7598` },
 		{ title: 'Le commit du correctif', url: `${NUMPY}/commit/da668fc74653e5caae9f741461c4d20f9df6e5c1` }

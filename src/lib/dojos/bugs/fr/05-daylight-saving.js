@@ -4,7 +4,7 @@ const RUBY = 'https://github.com/ruby/ruby';
 export default {
 	slug: 'daylight-saving',
 	part: 'Compter',
-	title: 'Octobre dure une heure de plus',
+	title: 'Heure d’été et rotation mensuelle des logs',
 	minutes: 10,
 	hook: [
 		'Le `Logger` de Ruby peut faire tourner son fichier une fois par mois : `Logger.new("app.log", "monthly")`. À la fin de chaque mois, il renomme `app.log` et en commence un nouveau.',
@@ -51,11 +51,11 @@ end`,
 +        return Time.mktime(t.year, t.month, 1)
        else`,
 		notes: [
-			'**Un jour ne fait pas toujours 86 400 secondes.** `SiD * 31` ajoute 31 fois 86 400 secondes à minuit le 1er. En Europe, on recule les horloges le dernier dimanche d’octobre, donc octobre dure 31 jours et une heure. Le 1er octobre à 00:00 plus 31 × 86 400 secondes donne **le 31 octobre à 23:00** sur l’horloge locale, pas le 1er novembre.',
-			'**Où ça casse.** `t.mday` vaut 31, donc `t.mday > 1` est vrai et la méthode renvoie `Time.mktime(t.year, t.month, 1)` : le 1er octobre, le début du mois en cours. Cette date est déjà passée, donc `now >= @next_rotate_time` est vrai à l’écriture suivante, et à celle d’après. La pull request : "which lead every single line of log during october to rotate the log file." (chaque ligne de log écrite en octobre faisait tourner le fichier).',
-			'**Pourquoi les autres mois marchaient.** Avec les changements d’heure européens, un mois de 30 jours comme avril donne le 2 mai, et la branche `t.mday > 1` renvoie le 1er mai. Un mois de 31 jours sans changement d’heure donne le 1er à 00:00 et continue plus bas. En mars, les horloges avancent : le résultat est le 1er avril à 01:00, et le test sur l’heure en dessous le ramène au 1er avril.',
-			'**Le correctif.** 32 jours après le 1er tombent toujours dans le mois suivant : aucun mois ne dépasse 31 jours et une heure, et le 1er février plus 32 jours donne le 5 mars. `Time.mktime(t.year, t.month, 1)` est donc toujours le 1er du mois suivant, et le `if` ne sert plus.',
-			'**Comment ça s’est vu.** Un utilisateur a envoyé le correctif dans la [pull request #1458](' + RUBY + '/pull/1458). Sa description dit : "With DST the month of october can actually last more than 31 days. It can last 31 days plus 1 hour."'
+			'La ligne 10 ajoute 31 fois 86 400 secondes (`SiD`, ligne 1) à minuit le 1er. En Europe, on recule les horloges le dernier dimanche d’octobre : octobre dure alors 31 jours et une heure. Le 1er octobre à 00:00 plus 31 × 86 400 secondes donne **le 31 octobre à 23:00** sur l’horloge locale, une heure avant le 1er novembre.',
+			'À la ligne 11, `t.mday` vaut 31, donc `t.mday > 1` est vrai et la méthode renvoie `Time.mktime(t.year, t.month, 1)` : le 1er octobre, début du mois en cours. Cette date est déjà passée, donc `now >= @next_rotate_time` est vrai à l’écriture suivante, et à celle d’après. La pull request : "which lead every single line of log during october to rotate the log file." (chaque ligne de log écrite en octobre faisait tourner le fichier).',
+			'Avec les changements d’heure européens, un mois de 30 jours comme avril donne le 2 mai, et la ligne 11 renvoie le 1er mai. Un mois de 31 jours sans changement d’heure donne le 1er à 00:00 et continue plus bas. En mars, les horloges avancent : on obtient le 1er avril à 01:00, que les lignes 15 à 19 ramènent au 1er avril à minuit.',
+			'La ligne 10 ajoute maintenant 32 jours, ce qui tombe toujours dans le mois suivant : aucun mois ne dépasse 31 jours et une heure, et le 1er février plus 32 jours donne le 5 mars. La ligne 11 renvoie donc toujours le 1er du mois suivant, et son `if` a disparu.',
+			'Un utilisateur a envoyé le correctif dans la [pull request #1458](' + RUBY + '/pull/1458). Sa description dit : "With DST the month of october can actually last more than 31 days. It can last 31 days plus 1 hour."'
 		]
 	},
 	quiz: [
@@ -88,7 +88,10 @@ end`,
 			why: 'UTC ne change jamais d’heure, donc il cache le bug. Un fuseau avec heure d’été et une date de départ dans chaque mois inclut le 1er octobre, l’entrée qui échoue.'
 		}
 	],
-	takeaway: 'Ajouter 86 400 secondes par jour à une heure locale est faux les jours où l’heure change. Construis la date voulue à partir de l’année, du mois et du jour, et teste dans un fuseau avec heure d’été.',
+	recall: {
+		q: 'Dans un fuseau européen, où tombe le 1er octobre à 00:00 plus 31 × 86 400 secondes, et qu’en faisait le logger ?',
+		a: 'Le 31 octobre à 23:00, car octobre a une heure de plus. Le logger prenait le 1er octobre comme prochaine rotation, une date déjà passée, donc chaque écriture refaisait tourner le fichier.'
+	},
 	sources: [
 		{ title: 'ruby, pull request #1458', url: `${RUBY}/pull/1458` },
 		{ title: 'Le commit du correctif', url: `${RUBY}/commit/8fc170a34eff0190533b669b3e9f6b6aba42e48c` }

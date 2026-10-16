@@ -46,10 +46,10 @@ export default {
 +    this.contents = tmpl.slice(this.el.sourceSpan.start.offset, this.el.sourceSpan.end.offset);
      this.children = '';`,
 		notes: [
-			'**La fin est déjà exclusive.** `sourceSpan.end.offset` pointe juste après le dernier `>` de `</ng-template>`, et `slice` s’arrête avant son second argument. Le `+ 1` ajoute le caractère qui suit le template. Quatre lignes plus bas, le `slice` de `children` utilise `end.offset` sans `+ 1`, et celui-là est juste.',
-			'**Où part le caractère en trop.** Prends `<ng-template #elseTmpl> 0 </ng-template></span>`. Le template fait 40 caractères. S’il commence à l’offset 100, son offset de fin vaut 140, et `slice(100, 141)` prend aussi le `<` de l’offset 140. La migration lance ensuite `template.replace(t.contents, \'\')` ([util.ts](' + NG + '/blob/' + PARENT + '/packages/core/schematics/ng-generate/control-flow-migration/util.ts#L348)), qui supprime ce `<` avec le reste et laisse `/span>` dans le fichier.',
-			'**Pourquoi la plupart des fichiers passaient.** Quand une espace ou un retour à la ligne suit `</ng-template>`, le caractère en trop est un blanc, et le perdre ne casse pas le HTML. Le message du commit le dit : "an extra space was being added when it was unnecessary. This resulted in malformed html if there was no space afterwards."',
-			'**Comment ça s’est vu.** L’issue [#53248](' + NG + '/issues/53248), "control-flow schematic fails on some multi-line elements", avec un template qui finit par `</ng-template></span`. Le correctif retire le `+ 1`, et son test place `</span>` juste après `</ng-template>`.'
+			'À la ligne 11, `sourceSpan.end.offset` pointe déjà juste après le dernier `>` de `</ng-template>`, et `slice` s’arrête avant son second argument. Le `+ 1` ajoute donc le caractère qui suit le template. Les lignes 14 à 16 découpent `children` avec `end.offset` sans `+ 1`, ce qui est juste.',
+			'Prends `<ng-template #elseTmpl> 0 </ng-template></span>`. Le template fait 40 caractères. S’il commence à l’offset 100, son offset de fin vaut 140, et `slice(100, 141)` prend aussi le `<` de l’offset 140. La migration lance ensuite `template.replace(t.contents, \'\')` ([util.ts](' + NG + '/blob/' + PARENT + '/packages/core/schematics/ng-generate/control-flow-migration/util.ts#L348)), qui supprime ce `<` avec le reste et laisse `/span>` dans le fichier.',
+			'La plupart des fichiers passaient : quand une espace ou un retour à la ligne suit `</ng-template>`, le caractère en trop est un blanc, et le HTML reste valide sans lui. Le message du commit : "an extra space was being added when it was unnecessary. This resulted in malformed html if there was no space afterwards."',
+			'Un utilisateur a ouvert l’issue [#53248](' + NG + '/issues/53248), "control-flow schematic fails on some multi-line elements", avec un template qui finit par `</ng-template></span`. Le correctif retire le `+ 1`, et son test place `</span>` juste après `</ng-template>`.'
 		]
 	},
 	quiz: [
@@ -84,10 +84,13 @@ export default {
 				'Un template qui ne contient aucun enfant'
 			],
 			answer: 2,
-			why: 'Sans blanc après le template, le caractère en trop est le `<` de la balise suivante. C’est l’entrée que le commit de correction a ajoutée en test.'
+			why: 'Sans blanc après le template, le caractère en trop est le `<` de la balise suivante. Le commit de correction a ajouté cette entrée comme test.'
 		}
 	],
-	takeaway: 'Avant d’ajouter 1 à un offset de fin, vérifie si l’API te donne déjà la position après le dernier caractère. Teste avec quelque chose écrit juste après la plage, sans espace entre les deux.',
+	recall: {
+		q: 'Pourquoi `slice(start, end.offset + 1)` prenait-il un caractère de trop, et quelle entrée l’a montré ?',
+		a: '`end.offset` pointe déjà juste après le dernier caractère, et `slice` s’arrête avant son second argument. Une balise fermante collée à `</ng-template>`, comme `</span>`, perdait son `<`.'
+	},
 	sources: [
 		{ title: 'angular, pull request #53255', url: `${NG}/pull/53255` },
 		{ title: 'angular, issue #53248', url: `${NG}/issues/53248` }

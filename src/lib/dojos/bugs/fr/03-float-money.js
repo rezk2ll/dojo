@@ -4,10 +4,10 @@ const DISCOURSE = 'https://github.com/discourse/discourse';
 export default {
 	slug: 'float-money',
 	part: 'Compter',
-	title: 'Un prix de 19,99 refusé par Stripe',
+	title: 'Erreur de virgule flottante dans la conversion des dollars en centimes',
 	minutes: 10,
 	hook: [
-		'Un admin Discourse crée un abonnement payant à **19,99 $**. L’enregistrement échoue. Stripe, le prestataire de paiement, répond **"Invalid integer 1998.9999999999998"**.',
+		'Un admin Discourse crée un abonnement payant à 19,99 $. L’enregistrement échoue. Stripe, le prestataire de paiement, répond **"Invalid integer 1998.9999999999998"**.',
 		'Stripe prend les prix en centimes, sous forme de nombre entier. L’admin saisit des dollars dans un formulaire, et une petite classe modèle les convertit en centimes avant l’envoi. Le test existant utilisait 22,12 $ et passait.'
 	],
 	terms: [
@@ -38,11 +38,11 @@ export default {
      this.set("unit_amount", decimal);
    }`,
 		notes: [
-			'**Multiplier par 100 n’est pas exact.** `parseFloat("19.99")` donne le nombre binaire le plus proche de 19,99, qui est un peu en dessous. Multiplié par 100, ça donne **1998.9999999999998**, pas 1999. Le commit le dit : "Due to IEEE-754 floating point arithmetic, `parseFloat(\"19.99\") * 100` produces `1998.9999999999998` instead of `1999`."',
-			'**Quels prix cassent.** Ça dépend de la valeur. 22,12 fois 100 donne exactement 2212, c’est pour ça que l’ancien test passait. 19,99 donne 1998.9999999999998, 4,35 donne 434.99999999999994 et 1,15 donne 114.99999999999999.',
-			'**Le getter masque le problème.** Relire le prix divise par 100 et appelle `toFixed(2)`, qui arrondit. 1998.9999999999998 / 100 s’affiche "19.99", donc le formulaire a l’air juste. Seul Stripe, qui vérifie qu’il reçoit un entier, voit l’erreur.',
-			'**Le correctif.** `Math.round(parseFloat(value) * 100)` ramène le résultat au centime entier le plus proche. L’erreur est bien plus petite qu’un demi-centime, donc l’arrondi tombe toujours sur le centime saisi. Le correctif ajoute un test avec "19.99" qui attend 1999.',
-			'**Comment ça s’est vu.** Le commit renvoie à un signalement sur Discourse Meta ([sujet 393466](https://meta.discourse.org/t/393466)) : "Setting a subscription price like $19.99 would fail with \"Invalid integer 1998.9999999999998\" from the Stripe API."'
+			'À la ligne 8, `parseFloat("19.99")` renvoie le nombre binaire le plus proche de 19,99, un peu en dessous. Multiplié par 100, il donne **1998.9999999999998** au lieu de 1999. Le commit : "Due to IEEE-754 floating point arithmetic, `parseFloat(\"19.99\") * 100` produces `1998.9999999999998` instead of `1999`."',
+			'22,12 fois 100 donne exactement 2212 : voilà pourquoi l’ancien test passait. 19,99 donne 1998.9999999999998, 4,35 donne 434.99999999999994 et 1,15 donne 114.99999999999999.',
+			'Le getter de la ligne 4 divise par 100 et appelle `toFixed(2)`, qui arrondit. 1998.9999999999998 / 100 s’affiche "19.99", donc le formulaire montre le prix saisi. Seul Stripe vérifie qu’il reçoit un entier, donc seul Stripe refuse le montant.',
+			'La ligne 8 appelle maintenant `Math.round(parseFloat(value) * 100)`, qui donne le centime entier le plus proche. L’erreur du flottant reste bien sous le demi-centime, donc l’arrondi tombe toujours sur le centime saisi. Le correctif ajoute un test avec "19.99" qui attend 1999.',
+			'Le commit renvoie à un signalement sur Discourse Meta ([sujet 393466](https://meta.discourse.org/t/393466)) : "Setting a subscription price like $19.99 would fail with \"Invalid integer 1998.9999999999998\" from the Stripe API."'
 		]
 	},
 	quiz: [
@@ -75,7 +75,10 @@ export default {
 			why: 'Math.floor transformerait 1998.9999999999998 en 1998 et perdrait un centime. Arrondir à l’entier le plus proche donne 1999, parce que l’erreur du flottant est bien plus petite que 0,5.'
 		}
 	],
-	takeaway: 'Quand tu convertis un montant décimal en centimes entiers, arrondis le produit avec Math.round, ou parse la chaîne directement en centimes sans passer par un flottant. Teste avec des valeurs comme 19,99, 4,35 et 1,15, pas seulement avec celles qui tombent juste.',
+	recall: {
+		q: 'Que donne `parseFloat("19.99") * 100`, et qu’est-ce qui ramène le résultat à 1999 ?',
+		a: '1998.9999999999998, car 19,99 n’a pas de valeur binaire exacte. `Math.round` donne 1999, puisque l’erreur reste bien sous le demi-centime.'
+	},
 	sources: [
 		{ title: 'discourse, pull request #37877', url: `${DISCOURSE}/pull/37877` },
 		{ title: 'Le signalement sur Discourse Meta', url: 'https://meta.discourse.org/t/393466' }

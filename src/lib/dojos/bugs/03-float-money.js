@@ -4,10 +4,10 @@ const DISCOURSE = 'https://github.com/discourse/discourse';
 export default {
 	slug: 'float-money',
 	part: 'Counting',
-	title: 'A price of 19.99 that Stripe refused',
+	title: 'Floating point error when converting dollars to cents',
 	minutes: 10,
 	hook: [
-		'A Discourse admin sets up a paid subscription plan at **$19.99**. Saving it fails. Stripe, the payment provider, answers **"Invalid integer 1998.9999999999998"**.',
+		'A Discourse admin sets up a paid subscription plan at $19.99. Saving it fails. Stripe, the payment provider, answers **"Invalid integer 1998.9999999999998"**.',
 		'Stripe takes prices in cents, as a whole number. The admin types dollars into a form, and a small model class turns them into cents before the plan is sent. The existing test used $22.12 and passed.'
 	],
 	terms: [
@@ -38,11 +38,11 @@ export default {
      this.set("unit_amount", decimal);
    }`,
 		notes: [
-			'**Multiplying by 100 is not exact.** `parseFloat("19.99")` is the closest binary number to 19.99, which is a little below it. Times 100, that gives **1998.9999999999998**, not 1999. The commit says it: "Due to IEEE-754 floating point arithmetic, `parseFloat(\"19.99\") * 100` produces `1998.9999999999998` instead of `1999`."',
-			'**Which prices break.** It depends on the value. 22.12 times 100 gives exactly 2212, which is why the old test passed. 19.99 gives 1998.9999999999998, 4.35 gives 434.99999999999994 and 1.15 gives 114.99999999999999.',
-			'**The getter hides it.** Reading the price back divides by 100 and calls `toFixed(2)`, which rounds. 1998.9999999999998 / 100 shows as "19.99", so the form looks right. Only Stripe, which checks for a whole number, sees the problem.',
-			'**The fix.** `Math.round(parseFloat(value) * 100)` snaps the result to the nearest whole cent. The error is far smaller than half a cent, so rounding always lands on the cent the admin typed. The fix adds a test with "19.99" that expects 1999.',
-			'**How it was found.** The commit links a report on Discourse Meta ([topic 393466](https://meta.discourse.org/t/393466)): "Setting a subscription price like $19.99 would fail with \"Invalid integer 1998.9999999999998\" from the Stripe API."'
+			'On line 8, `parseFloat("19.99")` is the closest binary number to 19.99, which is a little below it. Times 100, that gives **1998.9999999999998** instead of 1999. The commit: "Due to IEEE-754 floating point arithmetic, `parseFloat(\"19.99\") * 100` produces `1998.9999999999998` instead of `1999`."',
+			'22.12 times 100 gives exactly 2212, which is why the old test passed. 19.99 gives 1998.9999999999998, 4.35 gives 434.99999999999994 and 1.15 gives 114.99999999999999.',
+			'The getter on line 4 divides by 100 and calls `toFixed(2)`, which rounds. 1998.9999999999998 / 100 shows as "19.99", so the form shows the price the admin typed. Only Stripe checks for a whole number, so only Stripe rejects it.',
+			'Line 8 now calls `Math.round(parseFloat(value) * 100)`, which gives the nearest whole cent. The float error is far smaller than half a cent, so rounding always lands on the cent the admin typed. The fix adds a test with "19.99" that expects 1999.',
+			'The commit links a report on Discourse Meta ([topic 393466](https://meta.discourse.org/t/393466)): "Setting a subscription price like $19.99 would fail with \"Invalid integer 1998.9999999999998\" from the Stripe API."'
 		]
 	},
 	quiz: [
@@ -75,7 +75,10 @@ export default {
 			why: 'Math.floor would turn 1998.9999999999998 into 1998 and lose a cent. Rounding to the nearest integer gives 1999, because the float error is much smaller than 0.5.'
 		}
 	],
-	takeaway: 'When you turn a decimal amount into integer cents, round the product with Math.round, or parse the string into cents without going through a float. Test with values like 19.99, 4.35 and 1.15, not only with ones that come out exact.',
+	recall: {
+		q: 'What does `parseFloat("19.99") * 100` give, and what makes it 1999?',
+		a: '1998.9999999999998, because 19.99 has no exact binary value. `Math.round` brings it to 1999, since the error is far below half a cent.'
+	},
 	sources: [
 		{ title: 'discourse pull request #37877', url: `${DISCOURSE}/pull/37877` },
 		{ title: 'The report on Discourse Meta', url: 'https://meta.discourse.org/t/393466' }

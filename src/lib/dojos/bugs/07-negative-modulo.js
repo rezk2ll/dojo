@@ -56,10 +56,10 @@ static void slideleft##name##_transition(AVFilterContext *ctx, \\
 +                const int zz = zx % width + width * (zx % width < 0); \\
                  dst[x] = (zx >= 0) && (zx < width) ? xf1[zz] : xf0[zz]; \\`,
 		notes: [
-			'**The test looks at the wrong value.** The code adds `width` when `zx` is negative. It should add `width` when the remainder `zx % width` is negative. The two differ in one case: `zx` is negative and a whole multiple of the width, so the remainder is 0.',
-			'**Where it breaks.** Take a frame 1920 pixels wide. On the first frame `progress` is 1, so `z` is -1920. For `x = 0`, `zx` is -1920 and `-1920 % 1920` is 0. `zx < 0` is true, so `zz` becomes 0 + 1920 = **1920**. A row holds indexes 0 to 1919, so `xf0[1920]` is one past the row. For `x = 1`, `zx` is -1919, the remainder is -1919 and `zz` is 1, which is right.',
-			'**The fix.** `(zx % width < 0)` adds `width` only when the remainder is below 0. For -1920 the remainder is 0, so nothing is added and `zz` is 0. The same line was fixed in `slideleft`, `slideright`, `slideup` and `slidedown`. In the up and down versions the index picks a row, so 1920 there would be a whole row past the plane.',
-			'**What the commit says.** "At the first transition frame the offset equals the frame size, so the first row or column had a remainder of zero and was still pushed up by one size, reading past the plane."'
+			'Line 20 adds `width` when `zx` is negative. It should add `width` when the remainder `zx % width` is negative. The two differ in one case: `zx` is a negative whole multiple of the width, so the remainder is 0.',
+			'Take a frame 1920 pixels wide. On the first frame `progress` is 1, so line 10 sets `z` to -1920. For `x = 0`, `zx` is -1920 and `-1920 % 1920` is 0, but `zx < 0` is true, so `zz` is 0 + 1920 = **1920**. A row holds indexes 0 to 1919, so line 21 reads `xf0[1920]`, one past the row. For `x = 1`, the remainder is -1919 and `zz` is 1, which is right.',
+			'The fixed line tests `(zx % width < 0)`, so it adds `width` only when the remainder is below 0. For -1920 the remainder is 0, nothing is added and `zz` is 0. The commit changed the same line in `slideleft`, `slideright`, `slideup` and `slidedown`. In the up and down versions the index picks a row, so the extra 1920 there points a whole row past the plane.',
+			'The commit message: "At the first transition frame the offset equals the frame size, so the first row or column had a remainder of zero and was still pushed up by one size, reading past the plane."'
 		]
 	},
 	quiz: [
@@ -87,6 +87,9 @@ static void slideleft##name##_transition(AVFilterContext *ctx, \\
 			why: 'At -n the remainder is 0, so any test on the sign of `i` instead of the remainder adds `n` once too many. -1 gives a remainder of -1 and works either way.'
 		}
 	],
-	takeaway: 'When you wrap an index with `%` in C, check the sign of the remainder, not the sign of the index, or use `((i % n) + n) % n`. Test with an index that is an exact negative multiple of `n`.',
+	recall: {
+		q: 'You wrap an index with `i % n` in C and add `n` when needed. Which sign do you test, and which input catches the mistake?',
+		a: 'Test the sign of the remainder `i % n`, or write `((i % n) + n) % n`. An index of exactly -n catches it: its remainder is 0, and a test on `i < 0` adds `n` and gives index n.'
+	},
 	sources: [{ title: 'FFmpeg commit 16a4ce48c7', url: `${FFMPEG}/commit/16a4ce48c7ca4cd0b97a7753029c7f92a0379fc8` }]
 };

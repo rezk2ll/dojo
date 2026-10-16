@@ -108,6 +108,25 @@ export const dojos = [
 			en: 'Read the brief, sketch for ten minutes, check your design against the list, then compare with one answer.',
 			fr: 'Lis l’énoncé, dessine pendant dix minutes, vérifie ton design avec la liste, puis compare avec une réponse.'
 		}
+	},
+	{
+		id: 'incident',
+		name: 'Incident Dojo',
+		hue: 25,
+		chroma: 0.1,
+		hex: { top: '#e6a49e', left: '#a65e58', right: '#ce7f78' },
+		description: {
+			en: 'Real outages from public postmortems, replayed one decision at a time, one 10-minute chapter a day.',
+			fr: 'De vraies pannes tirées de postmortems publics, rejouées une décision à la fois, un chapitre de 10 minutes par jour.'
+		},
+		heroTitle: {
+			en: 'Be on call for real outages, ten minutes a day.',
+			fr: 'Sois d’astreinte sur de vraies pannes, dix minutes par jour.'
+		},
+		heroText: {
+			en: 'Each chapter is a real incident: you decide what to do at each step, then read what the team found.',
+			fr: 'Chaque chapitre est un vrai incident : tu décides quoi faire à chaque étape, puis tu lis ce que l’équipe a trouvé.'
+		}
 	}
 ];
 

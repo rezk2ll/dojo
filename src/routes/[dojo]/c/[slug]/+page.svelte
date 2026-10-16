@@ -11,7 +11,7 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { focus, toggleFocus } from '#lib/focus.svelte.js';
-	import { cue, react } from '#lib/companion.svelte.js';
+	import { answered, cue } from '#lib/companion.svelte.js';
 	import Cube from '#lib/components/cube.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
@@ -209,7 +209,7 @@
 		if (picked[id] !== undefined) return;
 		picked[id] = i;
 		answer(dojo, id, i === q.answer);
-		react(i === q.answer);
+		answered(i === q.answer);
 	}
 </script>
 

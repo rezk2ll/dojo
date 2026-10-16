@@ -4,7 +4,7 @@ const RAILS = 'https://github.com/rails/rails';
 export default {
 	slug: 'regex-backtracking',
 	part: 'Inputs',
-	title: 'An email with too few words',
+	title: 'Regex backtracking on an email with too few words',
 	minutes: 10,
 	hook: [
 		'`String#truncate_words` was new in Rails 4.2. It keeps the first N words of a text and adds `...`. A user called it on the body of an inbound email, with 30 as the limit, and **the Rails console hung**. With 20 it returned at once.',
@@ -37,10 +37,10 @@ end`,
 +    if self =~ /\\A((?>.+?#{sep}){#{words_count - 1}}.+?)#{sep}.*/m
        $1 + (options[:omission] || '...')`,
 		notes: [
-			'**A piece can hold anything.** For `truncate_words(30)` the regex is `\\A((?:.+?\\s+){29}.+?)\\s+.*`. Each of the 29 pieces is `.+?` then whitespace. With the `/m` flag, `.` matches any character, spaces and newlines included. So one piece can be one word, three words, or a single space taken out of a run like `"\\n    "`.',
-			'**Where it breaks.** The text has 23 words and the regex needs 29 pieces, then one more word and a separator. No split works. The engine only knows that after it has tried the splits: each lazy `.+?` grows one character at a time, and every run of spaces adds places to cut. With 20 as the limit, the very first split already matches, so the call returns at once.',
-			'**The fix.** `(?>.+?#{sep})` makes each piece atomic. The lazy `.+?` stops at the first whitespace, `\\s+` takes the whole run, and the engine never reopens the piece. Each piece is now one word and the spaces after it, so a text with too few words fails after a single pass.',
-			'**How it was found.** Issue [#19070](' + RAILS + '/issues/19070): "When you cut and paste the following into rails console with Rails 4.2. It hangs..." The reporter was parsing inbound emails: "The hanging is causing 504s to happen eventually". The pull request added a test that wraps the call in `Timeout.timeout(10)`.'
+			'For `truncate_words(30)`, line 4 builds `\\A((?:.+?\\s+){29}.+?)\\s+.*`. Each of the 29 pieces is `.+?` then whitespace. With the `/m` flag, `.` matches any character, spaces and newlines included. So one piece can be one word, three words, or a single space taken out of a run like `"\\n    "`.',
+			'The text has 23 words, and the regex needs 29 pieces, then one more word and a separator, so no split can match. The engine learns that only after it has tried the splits. Each lazy `.+?` grows one character at a time, and every run of spaces adds places to cut. With 20 as the limit, the first split already matches, so the call returns at once.',
+			'Line 4 now wraps each piece in an atomic group: `(?>.+?#{sep})`. The lazy `.+?` stops at the first whitespace, `\\s+` takes the whole run, and the engine never reopens the piece. Each piece is then one word and the spaces after it, so a text with too few words fails after a single pass.',
+			'Issue [#19070](' + RAILS + '/issues/19070): "When you cut and paste the following into rails console with Rails 4.2. It hangs..." The reporter was parsing inbound emails: "The hanging is causing 504s to happen eventually". The pull request added a test that wraps the call in `Timeout.timeout(10)`.'
 		]
 	},
 	quiz: [
@@ -73,7 +73,10 @@ end`,
 			why: 'A regex that matches can stop at the first success. A regex that fails has to try every split first, and runs of spaces give it more splits to try.'
 		}
 	],
-	takeaway: 'When a repeated group can also match its own separator, a text that does not match can take a very long time. Test the regex on input that fails, and use an atomic group or a plain `split` instead.',
+	recall: {
+		q: 'Why did `truncate_words(30)` hang on a 23-word email while `truncate_words(20)` returned at once?',
+		a: 'With 30 the regex cannot match, and each `.+?` piece could also swallow spaces and words, so the engine tried every split before failing. With 20 the first split matched. The fix makes each piece an atomic group, `(?>.+?#{sep})`.'
+	},
 	sources: [
 		{ title: 'rails issue #19070', url: `${RAILS}/issues/19070` },
 		{ title: 'rails pull request #19076', url: `${RAILS}/pull/19076` }

@@ -50,10 +50,10 @@ export default {
      return setTimeout(resolveIfNotStale, explicitTimeout)
    }`,
 		notes: [
-			'**`if` asks the wrong question.** The type says `number | null`. `null` means "no duration given". The check should ask "is it null?", but `if (explicitTimeout)` asks "is it truthy?". 0 is falsy, so a duration of 0 is treated like no duration at all.',
-			'**What happens with 0.** `normalizeDuration(0)` returns `[0, 0]`, so `explicitTimeout` is 0. The `if` is skipped, and the code goes on to `getTransitionInfo`. If the element has a CSS transition of 300ms, Vue waits for it, and the animation plays as if `duration` was never set.',
-			'**The fix.** `explicitTimeout != null` is false only for `null` and `undefined`. A duration of 0 now takes the timer branch: `setTimeout(resolveIfNotStale, 0)` resolves almost at once, and the CSS timing is never read.',
-			'**Other values were fine.** `:duration="500"` or `{ enter: 200, leave: 400 }` gave non-zero numbers, which are truthy. Only 0 hit the wrong branch.'
+			'Line 14 tests `if (explicitTimeout)`. The type is `number | null`, and `null` means "no duration given". The `if` checks for a truthy value instead of checking for `null`. 0 is falsy, so a duration of 0 is handled like no duration at all.',
+			'`normalizeDuration(0)` returns `[0, 0]`, so `explicitTimeout` is 0. Line 14 skips the timer, and line 18 calls `getTransitionInfo`. If the element has a CSS transition of 300ms, Vue waits for it, and the animation plays as if `duration` was never set.',
+			'Line 14 now tests `explicitTimeout != null`, which is false only for `null` and `undefined`. A duration of 0 takes the timer on line 15: `setTimeout(resolveIfNotStale, 0)` resolves almost at once, and Vue never reads the CSS timing.',
+			'`:duration="500"` or `{ enter: 200, leave: 400 }` gave non-zero numbers, which are truthy, so they always took the timer. Only 0 went to the CSS branch.'
 		]
 	},
 	quiz: [
@@ -76,7 +76,10 @@ export default {
 			why: '`!= null` is false for null and undefined only. The other three all treat 0 as missing.'
 		}
 	],
-	takeaway: 'When 0 is a valid value for a setting, test for "not set" with `!= null` or `??`, not with `if (x)` or `x || default`. Add a test that passes 0 on purpose.',
+	recall: {
+		q: 'Why did `<Transition :duration="0">` still wait for the CSS transition?',
+		a: '`if (explicitTimeout)` treats 0 as falsy, so Vue skipped the timer and read the CSS time with `getTransitionInfo`. The fix tests `explicitTimeout != null`, which lets 0 through.'
+	},
 	sources: [
 		{ title: 'vue pull request #11967', url: `${VUE}/pull/11967` }
 	]

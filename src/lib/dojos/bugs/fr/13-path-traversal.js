@@ -12,7 +12,7 @@ export default {
 	],
 	terms: [
 		{ term: 'Path traversal', def: 'Un nom de fichier avec des segments `..`, ou un chemin absolu, qui fait sortir une écriture ou une lecture du dossier prévu.' },
-		{ term: 'os.path.abspath', def: 'Rend un chemin absolu et résout les segments `..` comme du texte. `/tmp/proj/../x` devient `/tmp/x`.' },
+		{ term: 'os.path.abspath', def: 'Rend un chemin absolu et résout les segments `..` comme du texte. Pour `/tmp/proj/../x`, il renvoie `/tmp/x`.' },
 		{ term: 'SuspiciousOperation', def: 'L’exception Django pour une entrée qui ressemble à une attaque. Ici, elle arrête l’extraction.' }
 	],
 	bug: {
@@ -49,10 +49,10 @@ def extract(self, to_path):
 +            # Different drives on Windows raises ValueError.
              raise SuspiciousOperation("Archive contains invalid path: '%s'" % name)`,
 		notes: [
-			'**Un préfixe de texte n’est pas un dossier.** `startswith` compare des caractères. `/tmp/proj` est un préfixe de `/tmp/proj2/run.py`, mais `/tmp/proj2` est un autre dossier, à côté de la cible.',
-			'**Une entrée qui passe.** Extrais dans `/tmp/proj` un zip qui contient `README` et `../proj2/run.py`. Les deux entrées n’ont pas de dossier racine commun, donc `leading` est faux et le nom reste tel quel. `abspath` le transforme en `/tmp/proj2/run.py`, qui commence par `/tmp/proj`, et le fichier est écrit là. Une entrée comme `../etc/x` reste refusée, d’où le terme "partial directory-traversal" de la note de version.',
-			'**Le correctif.** `os.path.commonpath` compare des morceaux de chemin entiers. Pour `/tmp/proj` et `/tmp/proj2/run.py`, il renvoie `/tmp`, qui n’est pas la cible, donc Django lève `SuspiciousOperation`. `commonpath` lève `ValueError` quand les deux chemins sont sur des lecteurs différents, et ce cas est refusé lui aussi.',
-			'**Comment ça s’est vu.** Le commit dit "Thanks stackered for the report." et "Follow up to 05413afa8c18cdb978fcdf470e09f7a12b234a23", le commit de 2021 qui avait ajouté `target_filename`. La [note de version](' + DJANGO + '/blob/main/docs/releases/5.2.7.txt) dit que la fonction "allowed partial directory-traversal via an archive with file paths sharing a common prefix with the target directory" (des chemins qui partagent un préfixe avec le dossier cible).'
+			'La ligne 4 teste `filename.startswith(target_path)`, qui compare des caractères. `/tmp/proj` est un préfixe de `/tmp/proj2/run.py`, mais `/tmp/proj2` est un autre dossier, à côté de la cible.',
+			'Extrais dans `/tmp/proj` un zip qui contient `README` et `../proj2/run.py`. Les deux entrées n’ont pas de dossier racine commun : `leading` est faux à la ligne 14 et le nom reste tel quel. La ligne 3 le résout en `/tmp/proj2/run.py`, qui commence par `/tmp/proj`, et Django écrit le fichier là. La ligne 4 refuse toujours `../etc/x`, d’où le terme "partial directory-traversal" de la note de version.',
+			'Le correctif remplace la ligne 4 par `os.path.commonpath`, qui compare des morceaux de chemin entiers. Pour `/tmp/proj` et `/tmp/proj2/run.py`, il renvoie `/tmp`, qui n’est pas la cible, et Django lève `SuspiciousOperation`. `commonpath` lève `ValueError` quand les deux chemins sont sur des lecteurs différents, et Django refuse aussi ce cas.',
+			'Le commit dit "Thanks stackered for the report." et "Follow up to 05413afa8c18cdb978fcdf470e09f7a12b234a23", le commit de 2021 qui avait ajouté `target_filename`. La [note de version](' + DJANGO + '/blob/main/docs/releases/5.2.7.txt) dit que le code "allowed partial directory-traversal via an archive with file paths sharing a common prefix with the target directory" (des chemins qui partagent un préfixe avec le dossier cible).'
 		]
 	},
 	quiz: [
@@ -85,7 +85,10 @@ def extract(self, to_path):
 			why: 'Un voisin comme `../proj2/x` quand la cible est `proj`, c’est l’entrée qui distingue un test de préfixe d’un vrai test de dossier. Les autres entrées restent dans la cible avec les deux tests.'
 		}
 	],
-	takeaway: 'Pour vérifier qu’un chemin reste dans un dossier, compare des morceaux de chemin avec `os.path.commonpath` ou `Path.is_relative_to`, pas des chaînes. Un test de préfixe accepte aussi chaque dossier voisin dont le nom commence par les mêmes lettres.',
+	recall: {
+		q: 'La cible est `/tmp/proj`. Pourquoi `../proj2/run.py` passait-il le test de 2021 ?',
+		a: 'Le nom se résout en `/tmp/proj2/run.py`, et `startswith` ne compare que des caractères : `/tmp/proj` correspond. `os.path.commonpath` renvoie `/tmp` pour ces deux chemins, et le test corrigé refuse l’entrée.'
+	},
 	sources: [
 		{ title: 'Notes de version de Django 5.2.7 (CVE-2025-59682)', url: `${DJANGO}/blob/main/docs/releases/5.2.7.txt` },
 		{ title: 'Le commit du correctif', url: `${DJANGO}/commit/924a0c092e65fa2d0953fd1855d2dc8786d94de2` },

@@ -4,7 +4,7 @@ const PRETTIER = 'https://github.com/prettier/prettier';
 export default {
 	slug: 'text-encoding',
 	part: 'Les entrées',
-	title: 'Le premier caractère invisible',
+	title: 'Les offsets après le retrait d’un BOM',
 	minutes: 10,
 	hook: [
 		'Prettier sait formater une partie d’un fichier : tu passes `rangeStart` et `rangeEnd`, et il laisse le reste tranquille. Sur les fichiers qui commencent par un byte order mark, il formatait du code **hors de la plage**.',
@@ -68,10 +68,10 @@ if (hasUnicodeBOM) {
 +      opts.rangeEnd--;
      }`,
 		notes: [
-			'**Les offsets bougent dans le mauvais sens.** `text.slice(1)` retire le premier caractère, donc tous les caractères suivants reculent d’une place. Un offset qui pointait sur `f` (indice 1) doit maintenant valoir 0. Le code ajoute 1 à la place, et la plage finit deux caractères trop à droite.',
-			'**L’exemple du changelog, calculé.** Avec le BOM, `rangeStart: 1` et `rangeEnd: 13` couvrent `foo = 1.0000`. Après le slice, la bonne plage va de 0 à 12. Le code bogué donne 2 à 14, ce qui englobe le `;` et le `b` de `bar`. La plage touche alors la seconde instruction, et Prettier formate les deux : "the real range is wrongly calculated."',
-			'**L’autre `++` est juste.** À la fin, le code remet le BOM avec `BOM + result.formatted`. Le texte grandit d’un caractère, donc `result.cursorOffset++` est correct à cet endroit. Retirer le BOM demande l’opération inverse, et le correctif passe les trois offsets en `--`.',
-			'**Comment ça s’est vu.** La pull request dit : "Found this in #8811, turns out this is simple to fix." La pull request #8811 portait sur la couverture de tests. Le correctif ajoute des tests avec un BOM pour le curseur et pour une plage.'
+			'La ligne 3 retire le premier caractère avec `text.slice(1)`, et tous les caractères suivants reculent d’une place. Un offset qui pointait sur `f` (indice 1) doit maintenant valoir 0. Les lignes 5, 8 et 11 ajoutent 1 à la place, et la plage finit deux caractères trop à droite.',
+			'Avec le BOM, `rangeStart: 1` et `rangeEnd: 13` couvrent `foo = 1.0000`. Après le slice, la bonne plage va de 0 à 12. Le code bogué donne 2 à 14 et englobe le `;` et le `b` de `bar`. Cette plage touche la seconde instruction, et Prettier formate les deux ("the real range is wrongly calculated").',
+			'La ligne 29, `result.cursorOffset++`, est juste. La ligne 26 remet le BOM avec `BOM + result.formatted` : le texte gagne un caractère et le curseur doit avancer d’une place. Le correctif ne touche que les lignes 5, 8 et 11, qui passent de `++` à `--`.',
+			'La pull request dit : "Found this in #8811, turns out this is simple to fix." La pull request #8811 portait sur la couverture de tests. Le correctif ajoute des tests avec un BOM pour le curseur et pour une plage.'
 		]
 	},
 	quiz: [
@@ -104,7 +104,10 @@ if (hasUnicodeBOM) {
 			why: 'Un offset décalé dans le mauvais sens se voit comme une plage qui déborde sur le mot ou l’instruction suivante. Une plage sur le premier mot le montre tout de suite.'
 		}
 	],
-	takeaway: 'Quand tu retires des caractères au début d’un texte, chaque offset dans ce texte doit baisser d’autant. Teste les options de plage ou de curseur sur un fichier qui commence par un BOM.',
+	recall: {
+		q: 'Prettier retire un BOM d’un caractère avant de formater. Que doivent faire `rangeStart`, `rangeEnd` et l’offset du curseur ?',
+		a: 'Chacun baisse de 1, car chaque caractère après le BOM a reculé d’une place. Le code bogué ajoutait 1, et une plage sur `foo` débordait sur `bar`.'
+	},
 	sources: [
 		{ title: 'prettier, pull request #8936', url: `${PRETTIER}/pull/8936` },
 		{ title: 'L’entrée du changelog pour #8936', url: `${PRETTIER}/blob/6833310f87c597f0a204b06f2e84cb1b3b33ff54/changelog_unreleased/api/pr-8936.md` }

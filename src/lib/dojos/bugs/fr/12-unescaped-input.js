@@ -42,10 +42,10 @@ func (b *tocBuilder) indent(n int) {
 +		b.s.WriteString("<a href=\\"#" + template.HTMLEscapeString(h.ID) + "\\">" + h.Title + "</a>")
  	}`,
 		notes: [
-			'**L’ID entre tel quel.** La ligne 5 colle `h.ID` entre `href="#` et `">` avec `+`. Rien entre les deux ne touche à un guillemet ou à un `<`. Le message du commit le dit : "Explicit heading IDs (e.g. `## Foo {id="..."}`) were written unescaped into the ToC href, allowing attribute breakout."',
-			'**Ce que lit le navigateur.** Avec l’ID du début, la ligne 5 écrit `<a href="#x"><img src=x onerror=alert(1)><a class="">Intro</a>`. Le premier `"` ferme `href`. Le `>` ferme le lien. Vient ensuite un `<img>` dont la source `x` ne se charge pas, donc `onerror` s’exécute.',
-			'**Pourquoi le titre était sûr.** Le `<h2>` est écrit par un autre moteur de rendu qui échappe ses attributs, et le correctif n’y touche pas. Seule cette fonction construit son HTML en collant des chaînes, donc seule la ToC a laissé passer le guillemet.',
-			'**Le correctif.** `template.HTMLEscapeString(h.ID)` transforme le même ID en `x&#34;&gt;&lt;img src=x onerror=alert(1)&gt;&lt;a class=&#34;`. Le test ajouté avec lui vérifie aussi que `a&b<c>` devient `a&amp;b&lt;c&gt;` et que la page ne contient aucun `<img src=x`.'
+			'La ligne 5 colle `h.ID` entre `href="#` et `">` avec `+`. Aucun code sur cette ligne ne touche à un guillemet ou à un `<`. Le message du commit : "Explicit heading IDs (e.g. `## Foo {id="..."}`) were written unescaped into the ToC href, allowing attribute breakout."',
+			'Avec l’ID du début, la ligne 5 écrit `<a href="#x"><img src=x onerror=alert(1)><a class="">Intro</a>`. Le premier `"` ferme `href`, et le `>` ferme le lien. Le navigateur lit ensuite un `<img>` dont la source `x` ne se charge pas, et `onerror` s’exécute.',
+			'Un autre moteur de rendu écrit le `<h2>`, et il échappe ses attributs. Le correctif ne touche pas à ce moteur. Seule `writeHeading` construit son HTML en collant des chaînes, donc seule la ToC a laissé passer le guillemet.',
+			'La ligne 5 fait maintenant passer l’ID par `template.HTMLEscapeString(h.ID)`, qui l’écrit `x&#34;&gt;&lt;img src=x onerror=alert(1)&gt;&lt;a class=&#34;`. Le test ajouté avec le correctif vérifie que `a&b<c>` sort en `a&amp;b&lt;c&gt;` et que la page ne contient aucun `<img src=x`.'
 		]
 	},
 	quiz: [
@@ -83,7 +83,10 @@ func (b *tocBuilder) indent(n int) {
 			why: 'Seuls les caractères qui ont un sens en HTML montrent si la valeur est échappée. Dans un attribut, c’est le guillemet qui compte le plus.'
 		}
 	],
-	takeaway: 'Quand du code construit du HTML en collant des chaînes, fais passer chaque valeur qu’un auteur ou un utilisateur contrôle par une fonction d’échappement. Dans un attribut, c’est le `"` qui permet d’en sortir.',
+	recall: {
+		q: 'Le même ID de titre était sans danger dans le `<h2>` et lançait `onerror` dans la ToC. Pourquoi ?',
+		a: 'La ligne 5 de `writeHeading` collait `h.ID` brut dans `href="#..."`, et son `"` fermait l’attribut. Le moteur des titres échappait l’ID. Le correctif l’entoure de `template.HTMLEscapeString`.'
+	},
 	sources: [
 		{ title: 'Le commit du correctif, avec son test', url: `${HUGO}/commit/671fbf2c11ef721996dc3fcb7dd6dd0d8d2ac8df` }
 	]

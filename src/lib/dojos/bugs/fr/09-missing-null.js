@@ -8,11 +8,11 @@ export default {
 	minutes: 10,
 	hook: [
 		'Sur Godot 4.7 beta 3, un utilisateur crée une `DrawableTexture2D` et appelle tout de suite `blit_rect` dessus, sans passer par `setup`. Le jeu **plante**. Appeler d’abord `setup(-1, -1, ...)`, avec une taille invalide, le fait planter aussi.',
-		'Une texture jamais initialisée a un handle vide : le serveur de rendu ne la trouve pas et renvoie un pointeur nul. La fonction ci-dessous prévoit déjà ce cas, avec un message d’erreur. Le plantage arrive quand même.'
+		'Une texture jamais initialisée a un handle vide : le serveur de rendu ne la trouve pas et renvoie un pointeur nul. La fonction ci-dessous teste déjà ce pointeur nul et affiche une erreur, mais le jeu plante avant que le test s’exécute.'
 	],
 	terms: [
 		{ term: 'RID', def: 'Un handle que Godot utilise pour désigner un objet détenu par un serveur, ici une texture. Un RID vide ne désigne rien.' },
-		{ term: 'ERR_FAIL_NULL_MSG', def: 'Une macro de Godot. Si le pointeur est nul, elle affiche le message et sort de la fonction.' },
+		{ term: 'ERR_FAIL_NULL_MSG', def: 'Une macro de Godot qui affiche le message et sort de la fonction quand le pointeur est nul.' },
 		{ term: 'Déréférencement nul', def: 'Lire un champ à travers un pointeur nul. En C++, ça fait en général planter le processus.' }
 	],
 	bug: {
@@ -51,10 +51,10 @@ while (i < 4) {
 +            srgb_mask += tex->drawable_type == RSE::TEXTURE_DRAWABLE_FORMAT_RGBA8_SRGB ? srgbMaskArray[i] : 0;
              tar_textures[i] = tex->cached_rd_slices[p_to_mipmap];`,
 		notes: [
-			'**La lecture passe avant la garde.** `get_texture` renvoie `texture_owner.get_or_null(p_rid)`, donc peut renvoyer nul. La ligne `srgb_mask` lit `->drawable_type` sur ce résultat. Le test de nullité est à la ligne suivante : il ne s’exécute que si le pointeur était bon.',
-			'**Ce que l’appelant envoie.** Avant `setup`, le champ `texture` d’une `DrawableTexture2D` est un RID vide, et `blit_rect` le met tel quel dans le tableau. `get_texture` ne trouve rien et renvoie nul, puis `->drawable_type` lit à travers. Le processus plante au lieu d’afficher "Drawable Texture target cannot be null."',
-			'**Deux recherches pour une valeur.** La ligne boguée rappelle aussi `get_texture(p_textures[i])` au lieu d’utiliser `tex`. Le correctif descend la ligne sous toutes les vérifications et lit `tex->drawable_type`, le pointeur que la garde a déjà testé.',
-			'**Comment ça a été trouvé.** [L’issue #119927](' + GODOT + '/issues/119927), "Calling `blit_rect` on `DrawableTexture2D` before calling `setup` causes crash", fournissait un script qui plante au clic sur un bouton. Le correctif est [la pull request #119930](' + GODOT + '/pull/119930).'
+			'La ligne 11 appelle `get_texture`, qui renvoie `texture_owner.get_or_null(p_rid)` et peut donc renvoyer nul. La ligne 12 lit `->drawable_type` sur ce résultat. Le test de nullité n’arrive qu’à la ligne 13 : il ne s’exécute que si le pointeur était bon.',
+			'Avant `setup`, le champ `texture` d’une `DrawableTexture2D` est un RID vide, et `blit_rect` le met tel quel dans le tableau. `get_texture` ne trouve rien et renvoie nul, puis `->drawable_type` lit à travers. Le processus plante au lieu d’afficher "Drawable Texture target cannot be null."',
+			'La ligne 12 rappelle aussi `get_texture(p_textures[i])` au lieu d’utiliser `tex`. Le correctif la descend sous les vérifications des lignes 13 à 17 et lit `tex->drawable_type`, le pointeur que la garde a déjà testé.',
+			'[L’issue #119927](' + GODOT + '/issues/119927), "Calling `blit_rect` on `DrawableTexture2D` before calling `setup` causes crash", fournissait un script qui plante au clic sur un bouton. La pull request #119930 a corrigé le bug.'
 		]
 	},
 	quiz: [
@@ -92,7 +92,10 @@ while (i < 4) {
 			why: 'La garde existe pour une cible invalide. Un test qui en envoie une tombe sur la ligne au-dessus de la garde et plante, ce qui montre que la garde est mal placée.'
 		}
 	],
-	takeaway: 'Quand une fonction récupère un pointeur puis le teste contre nul, regarde chaque ligne entre la récupération et le test. Place le test juste après la récupération, et réutilise le pointeur testé au lieu de le chercher à nouveau.',
+	recall: {
+		q: 'Le `blit_rect` de Godot contenait déjà `ERR_FAIL_NULL_MSG(tex, ...)`. Pourquoi une texture jamais initialisée le faisait-elle quand même planter ?',
+		a: 'La ligne `srgb_mask` lisait `get_texture(...)->drawable_type` une ligne au-dessus du test. Le correctif la descend sous les vérifications et lit `tex->drawable_type`.'
+	},
 	sources: [
 		{ title: 'godot, issue #119927', url: `${GODOT}/issues/119927` },
 		{ title: 'godot, pull request #119930', url: `${GODOT}/pull/119930` }

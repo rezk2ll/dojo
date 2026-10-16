@@ -4,7 +4,7 @@ const PRETTIER = 'https://github.com/prettier/prettier';
 export default {
 	slug: 'text-encoding',
 	part: 'Inputs',
-	title: 'The invisible first character',
+	title: 'Offsets after stripping a BOM',
 	minutes: 10,
 	hook: [
 		'Prettier can format part of a file: you pass `rangeStart` and `rangeEnd`, and it leaves the rest alone. On files that start with a byte order mark, it formatted code **outside the range**.',
@@ -68,10 +68,10 @@ if (hasUnicodeBOM) {
 +      opts.rangeEnd--;
      }`,
 		notes: [
-			'**The offsets move the wrong way.** `text.slice(1)` removes the first character, so every character after it moves one place to the left. An offset that pointed at `f` (index 1) must now be 0. The code adds 1 instead, so the range ends up two characters to the right of where it should be.',
-			'**The changelog example, worked out.** With the BOM, `rangeStart: 1` and `rangeEnd: 13` cover `foo = 1.0000`. After the slice, the right range is 0 to 12. The buggy code gives 2 to 14, which takes in the `;` and the `b` of `bar`. The range now touches the second statement, so Prettier formats both: "the real range is wrongly calculated."',
-			'**The other `++` is correct.** At the end, the code puts the BOM back with `BOM + result.formatted`. The text grows by one character, so `result.cursorOffset++` is right there. Removing the BOM needs the opposite step, and the fix changes the three offsets to `--`.',
-			'**How it was found.** The pull request says: "Found this in #8811, turns out this is simple to fix." Pull request #8811 was about test coverage. The fix adds tests with a BOM for the cursor and for a range.'
+			'Line 3 removes the first character with `text.slice(1)`, so every character after it moves one place to the left. An offset that pointed at `f` (index 1) must now be 0. Lines 5, 8 and 11 add 1 instead, so the range ends up two characters to the right of where it should be.',
+			'With the BOM, `rangeStart: 1` and `rangeEnd: 13` cover `foo = 1.0000`. After the slice, the right range is 0 to 12. The buggy code gives 2 to 14, which takes in the `;` and the `b` of `bar`. That range touches the second statement, so Prettier formats both ("the real range is wrongly calculated").',
+			'Line 29, `result.cursorOffset++`, is correct. Line 26 puts the BOM back with `BOM + result.formatted`, so the text grows by one character and the cursor must move right by one. The fix changes only lines 5, 8 and 11, from `++` to `--`.',
+			'The pull request says: "Found this in #8811, turns out this is simple to fix." Pull request #8811 was about test coverage. The fix adds tests with a BOM for the cursor and for a range.'
 		]
 	},
 	quiz: [
@@ -104,7 +104,10 @@ if (hasUnicodeBOM) {
 			why: 'An offset shifted the wrong way shows up as a range that grows into the next word or statement. A range on the first word makes that visible right away.'
 		}
 	],
-	takeaway: 'When you remove characters from the front of a text, every offset into that text must go down by the number removed. Test range or cursor options on a file that starts with a BOM.',
+	recall: {
+		q: 'Prettier strips a one-character BOM before formatting. What must happen to `rangeStart`, `rangeEnd` and the cursor offset?',
+		a: 'Each one goes down by 1, because every character after the BOM moved one place left. The buggy code added 1, so a range on `foo` reached into `bar`.'
+	},
 	sources: [
 		{ title: 'prettier pull request #8936', url: `${PRETTIER}/pull/8936` },
 		{ title: 'The changelog entry for #8936', url: `${PRETTIER}/blob/6833310f87c597f0a204b06f2e84cb1b3b33ff54/changelog_unreleased/api/pr-8936.md` }

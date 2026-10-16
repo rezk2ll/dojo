@@ -12,7 +12,7 @@ export default {
 	],
 	terms: [
 		{ term: 'Path traversal', def: 'A file name with `..` segments, or an absolute path, that makes a write or a read leave the directory it was meant for.' },
-		{ term: 'os.path.abspath', def: 'Turns a path into an absolute one and resolves `..` segments as text. `/tmp/proj/../x` becomes `/tmp/x`.' },
+		{ term: 'os.path.abspath', def: 'Turns a path into an absolute one and resolves `..` segments as text. It returns `/tmp/x` for `/tmp/proj/../x`.' },
 		{ term: 'SuspiciousOperation', def: 'The Django exception for input that looks like an attack. Here it stops the extraction.' }
 	],
 	bug: {
@@ -49,10 +49,10 @@ def extract(self, to_path):
 +            # Different drives on Windows raises ValueError.
              raise SuspiciousOperation("Archive contains invalid path: '%s'" % name)`,
 		notes: [
-			'**A string prefix is not a folder.** `startswith` compares characters. `/tmp/proj` is a prefix of `/tmp/proj2/run.py`, but `/tmp/proj2` is a different folder next to the target.',
-			'**An entry that gets through.** Extract into `/tmp/proj` a zip that holds `README` and `../proj2/run.py`. The two entries have no common top folder, so `leading` is false and the name is kept as is. `abspath` turns it into `/tmp/proj2/run.py`, which starts with `/tmp/proj`, and the file is written there. An entry like `../etc/x` is still refused, which is why the release note calls it "partial directory-traversal".',
-			'**The fix.** `os.path.commonpath` compares whole path parts. For `/tmp/proj` and `/tmp/proj2/run.py` it returns `/tmp`, which is not the target, so Django raises `SuspiciousOperation`. `commonpath` raises `ValueError` when the two paths are on different drives, and that case is refused too.',
-			'**How it was found.** The commit says "Thanks stackered for the report." and "Follow up to 05413afa8c18cdb978fcdf470e09f7a12b234a23", the 2021 commit that added `target_filename`. The [release note](' + DJANGO + '/blob/main/docs/releases/5.2.7.txt) says it "allowed partial directory-traversal via an archive with file paths sharing a common prefix with the target directory".'
+			'Line 4 tests `filename.startswith(target_path)`, which compares characters. `/tmp/proj` is a prefix of `/tmp/proj2/run.py`, but `/tmp/proj2` is a different folder next to the target.',
+			'Extract into `/tmp/proj` a zip that holds `README` and `../proj2/run.py`. The two entries have no common top folder, so `leading` is false on line 14 and the name stays as is. Line 3 resolves it to `/tmp/proj2/run.py`, which starts with `/tmp/proj`, so Django writes the file there. Line 4 still refuses `../etc/x`, which is why the release note calls it "partial directory-traversal".',
+			'The fix replaces line 4 with `os.path.commonpath`, which compares whole path parts. For `/tmp/proj` and `/tmp/proj2/run.py` it returns `/tmp`, which is not the target, so Django raises `SuspiciousOperation`. `commonpath` raises `ValueError` when the two paths are on different drives, and Django refuses that case too.',
+			'The commit says "Thanks stackered for the report." and "Follow up to 05413afa8c18cdb978fcdf470e09f7a12b234a23", the 2021 commit that added `target_filename`. The [release note](' + DJANGO + '/blob/main/docs/releases/5.2.7.txt) says the code "allowed partial directory-traversal via an archive with file paths sharing a common prefix with the target directory".'
 		]
 	},
 	quiz: [
@@ -85,7 +85,10 @@ def extract(self, to_path):
 			why: 'A sibling such as `../proj2/x` when the target is `proj` is the input that separates a prefix test from a real folder test. The other entries stay inside the target with either check.'
 		}
 	],
-	takeaway: 'To check that a path stays inside a folder, compare path parts with `os.path.commonpath` or `Path.is_relative_to`, not strings. A string prefix test also accepts every sibling folder whose name starts with the same letters.',
+	recall: {
+		q: 'The target is `/tmp/proj`. Why did `../proj2/run.py` pass the 2021 check?',
+		a: 'It resolves to `/tmp/proj2/run.py`, and `startswith` only compares characters, so `/tmp/proj` matched. `os.path.commonpath` returns `/tmp` for these two paths, and the fixed check refuses the entry.'
+	},
 	sources: [
 		{ title: 'Django 5.2.7 release notes (CVE-2025-59682)', url: `${DJANGO}/blob/main/docs/releases/5.2.7.txt` },
 		{ title: 'The fix commit', url: `${DJANGO}/commit/924a0c092e65fa2d0953fd1855d2dc8786d94de2` },

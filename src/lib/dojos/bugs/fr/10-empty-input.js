@@ -39,10 +39,10 @@ export default {
              except TypeError:
                  return None`,
 		notes: [
-			'**Une liste vide arrive dans `max()`.** Quand `items()` ne renvoie rien, la compréhension de liste construit `[]`. `max([])` lève ValueError. Le `except` n’attrape que TypeError, donc l’erreur sort de la méthode et la vue d’index renvoie une 500.',
-			'**Ce sont les données qui déclenchent, pas le code.** Une section avec `lastmod` défini comme méthode et zéro objet suffit, par exemple une section de blog sans article publié pour l’instant. Le même sitemap remarche dès qu’un objet existe.',
-			'**Le correctif.** `default=None` fait renvoyer `None` à `max()` pour une liste vide. `None`, c’est déjà ce que la méthode renvoie quand elle ne peut pas calculer de date, et la vue d’index le traite comme « pas de date pour cette section ».',
-			'**Comment ça s’est vu.** Michal Čihař l’a signalé dans le [ticket #34088](https://code.djangoproject.com/ticket/34088) : "When sitemap contains not items, but supports returning lastmod for an item, it fails with a `ValueError`". Le commit indique un "Bug in 480191244d12fefbf95854b2b117c71ffe44749a", le changement qui a ajouté `lastmod` à l’index du sitemap.'
+			'Quand `items()` ne renvoie rien, la compréhension de liste de la ligne 6 construit `[]`, et `max([])` lève ValueError. La ligne 7 n’attrape que TypeError : l’erreur sort de la méthode et la vue d’index renvoie une 500.',
+			'Le plantage ne demande aucune modification du code, seulement des données : une section avec `lastmod` défini comme méthode et zéro objet, par exemple une section de blog sans article publié pour l’instant. Le même sitemap remarche dès qu’un objet existe.',
+			'Le correctif passe `default=None` à la ligne 6 : `max()` renvoie alors `None` pour une liste vide. La méthode renvoie déjà `None` quand elle ne peut pas calculer de date, et la vue d’index le traite comme « pas de date pour cette section ».',
+			'Michal Čihař l’a signalé dans le [ticket #34088](https://code.djangoproject.com/ticket/34088) : "When sitemap contains not items, but supports returning lastmod for an item, it fails with a `ValueError`". Le commit indique un "Bug in 480191244d12fefbf95854b2b117c71ffe44749a", le changement qui a ajouté `lastmod` à l’index du sitemap.'
 		]
 	},
 	quiz: [
@@ -66,7 +66,7 @@ export default {
 				'Vérifier `hasattr(self, "items")` d’abord'
 			],
 			answer: 0,
-			why: 'C’est ce que proposait le ticket. Un générateur ne donne toujours rien à comparer à `max()`, et `sorted([])[-1]` lève IndexError à la place.'
+			why: 'Le ticket #34088 proposait ce changement. Un générateur ne donne toujours rien à comparer à `max()`, et `sorted([])[-1]` lève IndexError à la place.'
 		},
 		{
 			q: 'Tu appelles `max()`, `min()` ou `[0]` sur le résultat d’une requête. Quel test ajoutes-tu en premier ?',
@@ -80,7 +80,10 @@ export default {
 			why: 'Un résultat vide est l’entrée où ces appels n’ont pas de réponse. Avec une ligne ou avec beaucoup, `max()` a toujours quelque chose à renvoyer.'
 		}
 	],
-	takeaway: 'Chaque `max()`, `min()` ou `[0]` sur le résultat d’une requête doit avoir une réponse pour zéro ligne. Passe `default=` ou teste le vide, et ajoute un test avec un queryset vide.',
+	recall: {
+		q: 'Pourquoi le `/sitemap.xml` de Django 4.1 renvoyait-il une 500 pour une section sans objet, et quel argument a suffi à corriger ?',
+		a: '`max([])` levait ValueError, et le `except` n’attrapait que TypeError. Le correctif passe `default=None` à `max()`.'
+	},
 	sources: [
 		{ title: 'Django, ticket #34088', url: 'https://code.djangoproject.com/ticket/34088' },
 		{ title: 'Le commit du correctif', url: `${DJANGO}/commit/5eab4d1924613a5506e517f157054b4852ae7dc2` }

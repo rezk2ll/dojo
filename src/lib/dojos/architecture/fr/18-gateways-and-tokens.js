@@ -7,16 +7,15 @@ export default {
 	title: 'Gateways, tokens et SSO',
 	minutes: 10,
 	hook: [
-		'Tu as cinq services. Chacun doit savoir qui l’appelle. Imagine que chacun construise sa propre page de connexion et stocke ses propres mots de passe. Tu obtiens cinq écrans de connexion, cinq fuites de mots de passe possibles, et cinq façons de te tromper.',
-		'Alors tu découpes le travail. **Un seul système prouve qui tu es** (le SSO), et te donne un token. Chaque service vérifie le token. C’est l’**authentification** : qui appelle.',
-		'Puis vient une deuxième question : **cet appelant a-t-il le droit de faire ça, sur ces données ?** C’est l’**autorisation**, et le chapitre d’hier t’a dit où elle se place : chez le propriétaire des données. Une gateway peut vérifier le token à l’entrée. Elle ne peut pas savoir si Alice a le droit de voir ce post privé-là.'
+		'Tu as cinq services, et chacun doit savoir qui l’appelle. Imagine que chacun construise sa propre page de connexion et stocke ses propres mots de passe. Tu obtiens cinq écrans de connexion, cinq stockages de mots de passe qui peuvent fuiter, et cinq implémentations où te tromper.',
+		'À la place, un seul système, le SSO, vérifie le mot de passe et donne un token à l’appelant. Chaque service vérifie ensuite ce token pour savoir qui appelle, et cette vérification s’appelle l’**authentification**.',
+		'Décider si cet appelant a le droit de faire cette action sur ces données, ça s’appelle l’autorisation. Le chapitre d’hier l’a placée chez le propriétaire des données. Une gateway, le service par lequel passe chaque requête, peut vérifier le token. Elle ne peut pas savoir si Alice a le droit de voir tel post privé.'
 	],
 	terms: [
-		{ term: 'Authentification', def: 'Prouver qui est l’appelant. On y répond en vérifiant un mot de passe une fois, puis un token à chaque requête.' },
-		{ term: 'Autorisation', def: 'Décider ce que cet appelant peut faire sur ces données. Il faut les règles des données, donc elle vit chez le propriétaire.' },
-		{ term: 'SSO / fournisseur d’identité', def: 'Une seule connexion pour plusieurs applis. Il émet des tokens auxquels les autres services font confiance. Keycloak est un fournisseur open source bien connu.' },
-		{ term: 'Token', def: 'Une preuve signée que l’appelant envoie à chaque requête. Un JWT porte ses propres claims, comme qui l’a émis, pour quelle audience, et jusqu’à quand.' },
-		{ term: 'Gateway', def: 'Un service par lequel passe chaque requête, pour que les vérifications transverses (rate limits, vérification de token, CORS) soient écrites une seule fois.' }
+		{ term: 'Authentification', def: 'Vérifier qui est l’appelant : un mot de passe une fois, puis un token à chaque requête.' },
+		{ term: 'Autorisation', def: 'Décider ce que cet appelant peut faire sur ces données. Il faut les règles des données, donc c’est le propriétaire des données qui le fait.' },
+		{ term: 'SSO / fournisseur d’identité', def: 'Une seule connexion pour plusieurs applis. Il émet des tokens auxquels les autres services font confiance. Keycloak est un fournisseur d’identité open source très utilisé.' },
+		{ term: 'Token', def: 'Une preuve signée que l’appelant envoie à chaque requête. Un JWT porte ses propres claims, comme qui l’a émis, pour quelle audience, et jusqu’à quand.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -24,22 +23,22 @@ export default {
 			{
 				add: ['user(["Utilisateur"]) -->|"se connecte une fois"| sso["Keycloak : SSO"]', 'sso -->|"token OIDC"| app["Appli cliente"]', 'class sso ext'],
 				highlight: ['user', 'sso', 'app'],
-				note: 'Le SSO est le **seul endroit qui voit le mot de passe**. Il parle OpenID Connect et remet à l’appli un token signé, pas le mot de passe.'
+				note: 'Le SSO est le **seul endroit qui voit le mot de passe**. Il parle OpenID Connect et remet à l’appli un token signé à la place du mot de passe.'
 			},
 			{
 				add: ['app -->|"Bearer token"| gw["Gateway : Envoy jwt_authn"]', 'gw -.->|"clés publiques, en cache"| sso'],
 				highlight: ['gw'],
-				note: 'La gateway **authentifie**. Le filtre JWT d’Envoy vérifie la signature avec les clés publiées par le fournisseur (JWKS), l’émetteur, l’audience et l’expiration. Token invalide : la requête s’arrête là.'
+				note: 'La gateway fait l’authentification. Le filtre JWT d’Envoy vérifie la signature avec les clés publiées par le fournisseur (JWKS), puis l’émetteur, l’audience et l’expiration. Si une vérification échoue, la requête s’arrête à la gateway.'
 			},
 			{
 				add: ['gw -->|"identité vérifiée"| svc["Service posts"]'],
 				highlight: ['svc'],
-				note: 'Le service reçoit une requête dont il sait qu’elle vient d’Alice. La doc d’Envoy : le payload « can be forwarded to the upstream for **further authorization** if desired ». La gateway ne termine pas le travail.'
+				note: 'Le service reçoit une requête dont il sait qu’elle vient d’Alice. La doc d’Envoy dit que le payload « can be forwarded to the upstream for **further authorization** if desired ». Le service doit encore décider ce qu’Alice a le droit de faire.'
 			},
 			{
 				add: ['svc --> pol["Policy : Alice peut-elle voir ce post ?"]', 'pol --> db[("Posts, abonnements, blocages")]'],
 				highlight: ['pol', 'db'],
-				note: 'C’est le propriétaire des données qui fait l’**autorisation**. Le post est-il public, privé ou direct ? Alice suit-elle l’auteur ? L’auteur l’a-t-il bloquée ? Seul le service qui détient les posts et les abonnements peut répondre.'
+				note: 'Le propriétaire des données fait l’autorisation. Le post est-il public, privé ou direct ? Alice suit-elle l’auteur ? L’auteur l’a-t-il bloquée ? **Seul le service qui détient les posts et les abonnements peut répondre.**'
 			}
 		]
 	},
@@ -70,22 +69,22 @@ export default {
     owned?
   end`,
 		notes: [
-			'L’**authentification** vient en premier, dans le [contrôleur](' + MASTODON + '/app/controllers/api/v1/statuses_controller.rb#L7-L8) : `doorkeeper_authorize! :write, :\'write:statuses\'` vérifie le token OAuth et son **scope**. Un scope est grossier : il dit que cette appli peut écrire des posts, pas lesquels.',
-			'L’**autorisation**, c’est cette policy. Elle lit la visibilité du post, ses mentions, les abonnements et les blocages. Ce sont toutes des données que Mastodon possède. Aucune gateway placée devant ne pourrait trancher.',
-			'Quand `show?` dit non, [`set_status`](' + MASTODON + '/app/controllers/api/v1/statuses_controller.rb#L99-L104) répond **not found**, exactement comme pour un post qui n’existe pas. Un inconnu ne peut même pas apprendre qu’un post privé est là.',
-			'La vérification des tokens a ses propres pièges. La doc d’Envoy sur `audiences` : « If not specified, the audiences in JWT will not be checked. » Oublie-le, et un token que ton SSO a émis pour un service est accepté par un autre.'
+			'L’authentification a lieu avant ce fichier, dans le [contrôleur](' + MASTODON + '/app/controllers/api/v1/statuses_controller.rb#L7-L8) : `doorkeeper_authorize! :write, :\'write:statuses\'` vérifie le token OAuth et son **scope**. Le scope dit que cette appli peut écrire des posts, mais pas lesquels.',
+			'Les lignes 1 à 11 font l’autorisation. `show?` lit la visibilité du post, ses mentions, les abonnements et les blocages, des données que Mastodon stocke. Une gateway placée devant n’a aucune de ces données.',
+			'Quand `show?` renvoie false, [`set_status`](' + MASTODON + '/app/controllers/api/v1/statuses_controller.rb#L99-L104) répond **not found**, exactement comme pour un post qui n’existe pas. Un inconnu ne peut même pas apprendre que le post privé existe.',
+			'La vérification des tokens demande aussi de l’attention. La doc d’Envoy sur `audiences` : « If not specified, the audiences in JWT will not be checked. » Si tu l’oublies, un token que ton SSO a émis pour un service est accepté par un autre.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Une seule connexion, un seul stockage de mots de passe, un seul endroit où ajouter le MFA.',
+			'Les utilisateurs ont une seule connexion et un seul stockage de mots de passe, et tu ajoutes le MFA à un seul endroit.',
 			'Les vérifications transverses (CORS, rate limits, signature et expiration du token) sont écrites et testées une seule fois, dans la gateway.',
-			'Les services derrière restent petits : ils font confiance à une identité vérifiée et se concentrent sur leurs propres règles.'
+			'Les services derrière font confiance à une identité vérifiée, et leur code ne vérifie que leurs propres règles, comme `StatusPolicy`.'
 		],
 		cost: [
-			'Le SSO et la gateway sont sur le chemin de chaque requête. S’ils tombent, tout tombe.',
-			'Un saut de plus, et un appel au fournisseur d’identité, sauf si ses clés ou ses réponses sont en cache (le sujet de demain).',
-			'La tentation de pousser l’autorisation dans la gateway. Ses règles s’éloignent alors des données qu’elles protègent.'
+			'Le SSO et la gateway sont sur le chemin de chaque requête, donc quand ils tombent, plus aucun service ne répond.',
+			'Chaque requête fait un saut de plus, et un appel au fournisseur d’identité, sauf si ses clés ou ses réponses sont en cache (le chapitre de demain).',
+			'Si tu recopies des règles d’autorisation dans la gateway, elles s’éloignent des données qu’elles protègent.'
 		]
 	},
 	task: {
@@ -108,7 +107,7 @@ export default {
 				'Dans l’appli navigateur, avant l’envoi de la requête'
 			],
 			answer: 0,
-			why: 'L’authentification dit qui est Alice, et la gateway ou le SSO savent le faire. L’autorisation a besoin des règles des données, donc elle revient au propriétaire des données. Une copie de ces règles dans une gateway finit par dériver.'
+			why: 'La gateway ou le SSO peuvent dire qui est Alice. La règle de modification a besoin des données de la facture, donc c’est le service de facturation qui décide. Une copie de cette règle dans une gateway n’est plus à jour dès que le service la change.'
 		},
 		{
 			q: 'Une appli Mastodon a un token avec le scope `read:statuses`. Elle demande un post privé d’une personne que l’utilisateur ne suit pas. Que se passe-t-il ?',
@@ -119,7 +118,7 @@ export default {
 				'403, avec un message qui dit que le post est privé'
 			],
 			answer: 2,
-			why: 'Le scope, c’est l’authentification plus une permission grossière. `StatusPolicy#show?` vérifie ensuite la visibilité et les abonnements. Mastodon répond not found, donc l’existence du post n’est pas révélée.'
+			why: 'Le token et son scope passent la vérification du contrôleur. `StatusPolicy#show?` vérifie ensuite la visibilité et les abonnements, et renvoie false. Mastodon répond not found, donc l’existence du post n’est pas révélée.'
 		},
 		{
 			q: 'Le filtre JWT d’Envoy est configuré sans `audiences`. Qu’accepte-t-il ?',
@@ -130,10 +129,13 @@ export default {
 				'N’importe quel token avec une signature et un émetteur valides, quel que soit le service visé'
 			],
 			answer: 3,
-			why: 'La doc dit : « If not specified, the audiences in JWT will not be checked. » Un token émis pour un autre service par le même SSO passe alors. Définis l’audience.'
+			why: 'La doc dit : « If not specified, the audiences in JWT will not be checked. » Un token émis pour un autre service par le même SSO passe alors, donc renseigne `audiences`.'
 		}
 	],
-	takeaway: 'Authentifie à l’entrée, une seule fois. Autorise là où vivent les données.',
+	recall: {
+		q: 'Chez Mastodon, quel code vérifie le token, et quel code décide si Alice peut voir un post privé ?',
+		a: 'Le `doorkeeper_authorize!` du contrôleur vérifie le token OAuth et son scope. `StatusPolicy#show?` décide, à partir de la visibilité du post, des mentions, des abonnements et des blocages.'
+	},
 	sources: [
 		{ title: 'Chris Richardson, API gateway pattern', url: 'https://microservices.io/patterns/apigateway.html' },
 		{ title: 'OpenID Connect Core 1.0', url: 'https://openid.net/specs/openid-connect-core-1_0.html' },

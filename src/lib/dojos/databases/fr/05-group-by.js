@@ -10,13 +10,12 @@ export default {
 	hook: [
 		'L’équipe marketing veut quatre chiffres pour la semaine dernière : pages vues, visiteurs, visites et taux de rebond. Les données, c’est une table avec **une ligne par événement** : une page vue, un clic, une inscription.',
 		'Tu pourrais charger tous les événements dans l’app et compter dans une boucle. Avec dix millions d’événements, **ça fait dix millions de lignes sur le réseau pour produire quatre chiffres**.',
-		'GROUP BY laisse la base compter là où vivent les données. **Il replie beaucoup de lignes en une ligne par groupe**, et les agrégats comme `count` et `sum` disent à quoi chaque groupe correspond. Le piège, c’est le taux de rebond : c’est un fait sur une visite, pas sur un événement, donc **tu regroupes deux fois**.'
+		'GROUP BY laisse la base compter là où sont les données. Il replie beaucoup de lignes en une ligne par groupe, et les agrégats comme `count` et `sum` calculent les valeurs de chaque groupe. Le taux de rebond décrit une visite, alors que chaque ligne est un événement, donc **tu regroupes deux fois** : les événements en visites, puis les visites en totaux.'
 	],
 	terms: [
 		{ term: 'Agrégat', def: 'Une fonction qui transforme beaucoup de lignes en une valeur : `count`, `sum`, `min`, `max`, `avg`. Sauf `count`, elles renvoient NULL quand aucune ligne n’arrive.' },
 		{ term: 'GROUP BY', def: 'Découpe les lignes en groupes qui partagent les mêmes valeurs, puis rend une ligne par groupe. Toute autre colonne de la liste SELECT doit être dans un agrégat, sauf si elle dépend d’une clé primaire regroupée.' },
 		{ term: 'HAVING', def: 'Un filtre sur les groupes, après le calcul des agrégats. WHERE filtre les lignes avant le regroupement et ne peut pas utiliser d’agrégat.' },
-		{ term: 'count(DISTINCT x)', def: 'Compte les valeurs différentes de `x` dans un groupe, pas les lignes. Les visiteurs sont des identifiants de session distincts, pas des événements.' },
 		{ term: 'Fonction de fenêtrage', def: 'Un calcul proche d’un agrégat, avec `OVER (...)`, qui ne replie pas les lignes : chaque ligne garde son identité et reçoit une valeur calculée à partir des lignes liées.' }
 	],
 	diagram: {
@@ -25,27 +24,27 @@ export default {
 			{
 				add: ['events[("website_event : une ligne par événement")] -->|"WHERE website_id, période"| rows["les événements de la semaine"]'],
 				highlight: ['events', 'rows'],
-				note: '**WHERE choisit l’entrée.** D’abord, on sélectionne les lignes d’un site et d’une semaine. La doc : « WHERE selects input rows before groups and aggregates are computed ». Un agrégat dans WHERE échoue avec `aggregate functions are not allowed in WHERE`.'
+				note: 'D’abord, WHERE sélectionne les lignes d’un site et d’une semaine. La doc : « WHERE selects input rows before groups and aggregates are computed ». Un agrégat dans WHERE échoue avec `aggregate functions are not allowed in WHERE`.'
 			},
 			{
 				add: ['rows -->|"GROUP BY session_id, visit_id"| visits["une ligne par visite : c = pages vues, has_custom_event"]'],
 				highlight: ['visits'],
-				note: '**Premier repli : des événements aux visites.** Regrouper par session et par visite donne une ligne par visite. Dans chaque groupe, `sum(case ... then 1 else 0 end)` compte les événements qui ne sont ni des événements personnalisés, ni des mesures de performance.'
+				note: 'Le regroupement par session et par visite replie les événements en une ligne par visite. Dans chaque groupe, `sum(case ... then 1 else 0 end)` compte les événements qui ne sont ni des événements personnalisés, ni des mesures de performance.'
 			},
 			{
 				add: ['visits -->|"HAVING c > 0"| kept["visites avec au moins une vue"]'],
 				highlight: ['kept'],
-				note: '**HAVING écarte des groupes entiers.** Une visite faite uniquement d’événements personnalisés a `c = 0`. HAVING la retire une fois les sommes connues, ce que WHERE ne peut pas faire : quand WHERE tourne, les sommes n’existent pas encore.'
+				note: 'Une visite faite uniquement d’événements personnalisés a `c = 0`, et HAVING écarte ce groupe entier. HAVING passe une fois les sommes connues, ce que WHERE ne peut pas faire : quand WHERE tourne, les sommes n’existent pas encore.'
 			},
 			{
 				add: ['kept -->|"agrégat sans GROUP BY"| totals["une ligne : pageviews, visitors, visits, bounces"]'],
 				highlight: ['totals'],
-				note: '**Second repli : des visites aux totaux.** La requête externe a des agrégats mais pas de GROUP BY, donc toute l’entrée forme un seul groupe. `count(distinct session_id)` donne les visiteurs, et un rebond est une visite avec une seule vue et aucun événement personnalisé.'
+				note: 'La requête externe replie les visites en totaux. Elle a des agrégats mais pas de GROUP BY, donc toute l’entrée forme un seul groupe. `count(distinct session_id)` donne les visiteurs, et un rebond est une visite avec une seule vue et aucun événement personnalisé.'
 			},
 			{
 				add: ['rows -.->|"row_number() OVER (PARTITION BY visit_id ORDER BY created_at)"| numbered["chaque événement garde sa ligne, plus son numéro d’étape"]'],
 				highlight: ['numbered'],
-				note: '**Une fenêtre ne replie pas.** Pour les parcours, Umami numérote les événements de chaque visite avec `row_number()`. La doc : les fonctions de fenêtrage « do not cause rows to become grouped into a single output row ». Chaque événement reste, avec sa position dans la visite.'
+				note: 'Pour les parcours, Umami numérote les événements de chaque visite avec `row_number()`, une fonction de fenêtrage. La doc : les fonctions de fenêtrage « do not cause rows to become grouped into a single output row ». Chaque événement reste, avec sa position dans la visite.'
 			}
 		]
 	},
@@ -92,11 +91,11 @@ export default {
       FUNCTION_NAME,
     ).then(result => result?.[0]);`,
 		notes: [
-			'**C’est le chemin PostgreSQL.** Umami choisit `relationalQuery` quand [`runQuery`](' + UMAMI + '/src/lib/db.ts#L37-L39) voit une URL PostgreSQL, et une requête ClickHouse sinon. Les types d’événements viennent de [`EVENT_TYPE`](' + UMAMI + '/src/lib/constants.ts#L119-L125) : 2 est un événement personnalisé et 5 une mesure de performance, donc `NOT IN (2, 5)` garde les pages vues, les clics sur liens et les pixels.',
-			'**`group by 1, 2` utilise des positions.** Les nombres désignent le premier et le deuxième élément de la liste SELECT, `session_id` et `visit_id`. La doc autorise « the name or ordinal number of an output column ». La clause HAVING répète tout le `sum(case ...)` au lieu de l’alias `c`.',
-			'**`coalesce` parce que sum peut valoir NULL.** La requête externe rend toujours une ligne, même pour un site sans trafic. La doc : « sum of no rows returns null, not zero as one might expect ». `coalesce(sum(t.c), 0)` en fait 0, alors que `count(distinct ...)` rend déjà 0.',
-			'**Le temps passé, à partir de deux agrégats.** Chaque visite garde le `min` et le `max` de `created_at`. [`getTimestampDiffSQL`](' + UMAMI + '/src/lib/prisma.ts#L127-L129) convertit l’écart en secondes avec `extract(epoch from ...)`, et le `sum` externe additionne les visites.',
-			'**Une fenêtre pour les parcours.** [`getJourney`](' + UMAMI + '/src/queries/sql/journeys/getJourney.ts#L112-L117) utilise `row_number() OVER (PARTITION BY visit_id ORDER BY website_event.created_at)`. Même idée de groupe, mais sans repli : chaque événement reçoit son numéro d’étape dans sa visite.'
+			'La ligne 1, `relationalQuery`, est le chemin PostgreSQL. Umami la choisit quand [`runQuery`](' + UMAMI + '/src/lib/db.ts#L37-L39) voit une URL PostgreSQL, et prend une requête ClickHouse sinon. Dans `EVENT_TYPE` (dans les sources), 2 est un événement personnalisé et 5 une mesure de performance, donc le `NOT IN (2, 5)` de la ligne 19 garde les pages vues, les clics sur liens et les pixels.',
+			'La ligne 31, `group by 1, 2`, désigne le premier et le deuxième élément de la liste SELECT interne, `session_id` et `visit_id`. La doc autorise « the name or ordinal number of an output column ». La ligne 32 répète tout le `sum(case ...)` dans HAVING au lieu de l’alias `c`.',
+			'La requête externe rend toujours une ligne, même pour un site sans trafic. La doc : « sum of no rows returns null, not zero as one might expect ». La ligne 10, `coalesce(sum(t.c), 0)`, remplace ce NULL par 0, alors que les `count(distinct ...)` des lignes 11 et 12 rendent déjà 0.',
+			'Les lignes 20 et 21 gardent le `min` et le `max` de `created_at` de chaque visite. [`getTimestampDiffSQL`](' + UMAMI + '/src/lib/prisma.ts#L127-L129) convertit l’écart en secondes avec `extract(epoch from ...)`, et le `sum` externe de la ligne 14 additionne les visites.',
+			'Pour les parcours, [`getJourney`](' + UMAMI + '/src/queries/sql/journeys/getJourney.ts#L112-L117) utilise `row_number() OVER (PARTITION BY visit_id ORDER BY website_event.created_at)`. Il groupe les événements par visite sans les replier : chaque événement reçoit son numéro d’étape dans sa visite.'
 		]
 	},
 	tradeoff: {
@@ -108,8 +107,8 @@ export default {
 		cost: [
 			'Chaque colonne non agrégée doit être dans GROUP BY. Sinon PostgreSQL refuse la requête : `must appear in the GROUP BY clause or be used in an aggregate function`.',
 			'`count(DISTINCT ...)` coûte plus cher que `count(*)`. L’[exécuteur](https://github.com/postgres/postgres/blob/26bd08fb5c069fbdf55867adc398cfca0f55d5c8/src/backend/executor/nodeAgg.c?plain=1#L33-L39) de PostgreSQL l’écrit : « we sort the input tuples and eliminate duplicates », et « partial aggregation is not supported in these cases » (pas d’agrégation partielle).',
-			'Les agrégats lisent chaque ligne qui correspond. Sur un site chargé, un tableau de bord sur un an parcourt un an d’événements. Les moteurs analytiques existent pour ça (jour 38).',
-			'Les règles des NULL s’oublient vite : `count(x)` ignore les NULL, `count(*)` non, et `sum` de rien vaut NULL.'
+			'Un agrégat lit chaque ligne qui correspond, donc sur un site chargé, un tableau de bord sur un an parcourt un an d’événements. Les moteurs analytiques existent pour ça (jour 38).',
+			'Trois règles des NULL s’appliquent : `count(x)` ignore les NULL, `count(*)` non, et `sum` de rien vaut NULL.'
 		]
 	},
 	task: {
@@ -157,8 +156,12 @@ export default {
 			why: 'GROUP BY replie les lignes de chaque visite en une seule. Une fonction de fenêtrage calcule le même compte, mais « the rows retain their separate identities », donc chaque ligne d’événement porte le total de sa visite.'
 		}
 	],
-	takeaway: 'GROUP BY replie les lignes en une ligne par groupe et HAVING filtre ces groupes ; quand un fait appartient à une visite et pas à un événement, regroupe d’abord par visite, puis agrège encore.',
+	recall: {
+		q: 'Pourquoi le compte des rebonds d’Umami demande-t-il deux niveaux de regroupement, et quelle clause écarte les visites sans page vue ?',
+		a: 'Un rebond décrit une visite : une seule vue et aucun événement personnalisé. La requête interne regroupe les événements par `session_id, visit_id`, et `HAVING sum(...) > 0` écarte les visites sans vue. La requête externe compte ensuite les rebonds sur ces visites.'
+	},
 	sources: [
+		{ title: 'Umami, src/lib/constants.ts (EVENT_TYPE)', url: `${UMAMI}/src/lib/constants.ts#L119-L125` },
 		{ title: 'Doc PostgreSQL, GROUP BY and HAVING Clauses', url: 'https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-GROUP' },
 		{ title: 'Tutoriel PostgreSQL, Aggregate Functions', url: 'https://www.postgresql.org/docs/current/tutorial-agg.html' },
 		{ title: 'Doc PostgreSQL, Aggregate Functions', url: 'https://www.postgresql.org/docs/current/functions-aggregate.html' },

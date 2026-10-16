@@ -5,19 +5,17 @@ const QUERY = `${DJANGO}/django/db/models/sql/query.py`;
 export default {
 	slug: 'null',
 	part: 'Data and questions',
-	title: 'NULL is not a value',
+	title: 'NULL in SQL: comparisons, NOT IN and unique keys',
 	minutes: 10,
 	hook: [
-		'Your dashboard lists the projects that are not archived: `WHERE status <> \'archived\'`. A customer says three of their projects are missing. They are not archived. **They never had a status at all**: the column is NULL.',
-		'In SQL, **NULL means "unknown"**, not "empty" and not zero. Is an unknown status different from `\'archived\'`? Nobody knows, so the answer is NULL too. And `WHERE` keeps a row only when the answer is true.',
-		'Your ORM hides some of this, and not always the same way raw SQL does. This chapter gives you the rules, the two classic traps (`= NULL` and `NOT IN`), and the tools that answer true or false every time.'
+		'Your dashboard lists the projects that are not archived: `WHERE status <> \'archived\'`. A customer says three of their projects are missing. They are not archived. They never had a status at all: the column is NULL.',
+		'In SQL, **NULL means "unknown"**. Is an unknown status different from `\'archived\'`? Nobody knows, so the answer is NULL too. And `WHERE` keeps a row only when the answer is true.',
+		'Your ORM handles NULL in some places, and not always the same way raw SQL does. Two queries drop rows this way: `= NULL` and `NOT IN`.'
 	],
 	terms: [
-		{ term: 'NULL', def: 'A marker for a missing or unknown value. It is not a value of the column type: not 0, not the empty string, not false.' },
+		{ term: 'NULL', def: 'A marker for a missing or unknown value. It is not 0, the empty string or false.' },
 		{ term: 'Three-valued logic', def: 'SQL conditions return true, false or NULL (unknown). `NULL AND false` is false, `NULL OR true` is true, almost everything else with a NULL is NULL.' },
-		{ term: 'IS NULL', def: 'The only correct test for a missing value. `x = NULL` is always NULL, even when `x` is NULL.' },
 		{ term: 'IS DISTINCT FROM', def: 'A comparison that treats NULL like an ordinary value. It always returns true or false, never NULL.' },
-		{ term: 'COALESCE', def: 'Returns its first argument that is not NULL. `COALESCE(status, \'none\')` turns a missing status into a value you can show or compare.' },
 		{ term: 'NULLS NOT DISTINCT', def: 'A clause on a unique index or constraint (PostgreSQL 15 and later) that makes two NULLs count as equal, so only one is allowed.' }
 	],
 	diagram: {
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['row["Row: status is NULL"] --> cmp["status != \'archived\'"]'],
 				highlight: ['row', 'cmp'],
-				note: '**A comparison with NULL gives NULL.** The PostgreSQL docs say it plainly: "7 = NULL yields null, as does 7 <> NULL". The same goes for `<`, `>` and `!=`. NULL means unknown, so the result of comparing it is unknown too.'
+				note: 'A comparison with NULL gives NULL. The PostgreSQL docs: "7 = NULL yields null, as does 7 <> NULL". The same goes for `<`, `>` and `!=`. So `x = NULL` is NULL even when `x` is NULL, and only `x IS NULL` tests for a missing value.'
 			},
 			{
 				add: ['cmp -->|"unknown"| where["WHERE keeps only true"]', 'where --> drop["Row dropped"]'],
 				highlight: ['where', 'drop'],
-				note: '**WHERE wants true, not "not false".** The docs: "If the result of the condition is true, the row is kept in the output table, otherwise (i.e., if the result is false or null) it is discarded." So the project with no status disappears from both `status = \'archived\'` and `status != \'archived\'`.'
+				note: 'WHERE keeps a row only when the condition is true. The docs: "If the result of the condition is true, the row is kept in the output table, otherwise (i.e., if the result is false or null) it is discarded." So the project with no status disappears from both `status = \'archived\'` and `status != \'archived\'`.'
 			},
 			{
 				add: ['notin["id NOT IN (1, NULL)"] -->|"never true"| where'],
 				highlight: ['notin'],
-				note: '**The NOT IN trap.** `id NOT IN (1, NULL)` means `id <> 1 AND id <> NULL`. The second half is always NULL, so the whole thing is never true. One NULL in the subquery and **NOT IN returns no rows at all**. Use `NOT EXISTS`, which does not have this problem.'
+				note: '`id NOT IN (1, NULL)` means `id <> 1 AND id <> NULL`. The second half is always NULL, so the whole condition is never true. With one NULL in the subquery, **NOT IN returns no rows at all**. `NOT EXISTS` still returns the rows that have no match when the subquery holds a NULL.'
 			},
 			{
 				add: ['fix["IS NULL, IS DISTINCT FROM, COALESCE"] -->|"always true or false"| keep["Row kept"]'],
 				highlight: ['fix', 'keep'],
-				note: '**Ask a question that has an answer.** `status IS DISTINCT FROM \'archived\'` is true for the NULL row. `COALESCE(status, \'none\')` replaces the NULL before you compare. `IS NULL` asks the question directly. None of them ever returns NULL.'
+				note: '`status IS DISTINCT FROM \'archived\'` is true for the NULL row. `COALESCE(status, \'none\')` returns its first argument that is not NULL, so it replaces the NULL with `\'none\'` before you compare. `status IS NULL` tests for the missing value directly. None of the three ever returns NULL.'
 			},
 			{
 				add: ['uniq[("unique (user_id, team_id)")] -->|"(7, NULL) twice: both accepted"| dup["Duplicate rows"]', 'uniq -.->|"NULLS NOT DISTINCT"| one["Second insert rejected"]'],
 				highlight: ['uniq', 'dup', 'one'],
-				note: '**Unique indexes let NULLs through.** By default "null values in a unique column are not considered equal, allowing multiple nulls in the column". So `(7, NULL)` can be stored twice. Since PostgreSQL 15, `NULLS NOT DISTINCT` makes the second insert fail.'
+				note: 'A unique index accepts many NULLs. By default "null values in a unique column are not considered equal, allowing multiple nulls in the column". So `(7, NULL)` can be stored twice. Since PostgreSQL 15, `NULLS NOT DISTINCT` makes the second insert fail.'
 			}
 		]
 	},
@@ -106,22 +104,22 @@ export default {
                 clause.add(lookup_class(value, False), AND)
         return clause, used_joins if not require_outer else ()`,
 		notes: [
-			'**`= None` becomes IS NULL.** In [`build_lookup`](' + QUERY + '#L1440-L1446), `filter(status=None)` is rewritten to the `isnull` lookup, so Django never sends `status = NULL`. Any other lookup with `None`, like `status__gt=None`, raises `ValueError("Cannot use None as a query value")`.',
-			'**`exclude()` keeps the NULL rows.** For a nullable column, [`build_filter`](' + QUERY + '#L1636-L1663) adds `col IS NOT NULL` inside the negation. `exclude(status="archived")` becomes `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. Hand-written `WHERE status <> \'archived\'` drops those rows. **Same intent, different answer.**',
-			'**None inside `in` is thrown away.** The [`In` lookup](' + DJANGO + '/django/db/models/lookups.py#L530-L539) says why: "Remove None from the list as NULL is never equal to anything." If nothing is left, it raises `EmptyResultSet` and no query is sent. When an `exclude(...__in=[...])` list holds a None, `build_filter` adds `OR col IS NULL` instead, so the NULL rows are excluded too.',
-			'**Unique and NULL.** `UniqueConstraint(..., nulls_distinct=False)` is turned into SQL by [`_unique_index_nulls_distinct_sql`](' + DJANGO + '/django/db/backends/base/schema.py#L1847-L1852), which emits `NULLS NOT DISTINCT`. The Django docs warn: "Unique constraints with `nulls_distinct` are ignored for databases besides PostgreSQL."'
+			'Lines 1 to 7: in [`build_lookup`](' + QUERY + '#L1440-L1446), `filter(status=None)` is rewritten to the `isnull` lookup, so Django never sends `status = NULL`. Any other lookup with `None`, like `status__gt=None`, raises `ValueError("Cannot use None as a query value")`.',
+			'Lines 17 to 44: for a nullable column, [`build_filter`](' + QUERY + '#L1636-L1663) adds `col IS NOT NULL` inside the negation. Django sends `exclude(status="archived")` as `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. A hand-written `WHERE status <> \'archived\'` drops those rows.',
+			'Lines 34 to 42 handle a None inside `in`. The [`In` lookup](' + DJANGO + '/django/db/models/lookups.py#L530-L539) says why: "Remove None from the list as NULL is never equal to anything." If nothing is left, it raises `EmptyResultSet` and no query is sent. When an `exclude(...__in=[...])` list holds a None, `build_filter` adds `OR col IS NULL` instead, so the NULL rows are excluded too.',
+			'`UniqueConstraint(..., nulls_distinct=False)` is turned into SQL by [`_unique_index_nulls_distinct_sql`](' + DJANGO + '/django/db/backends/base/schema.py#L1847-L1852), which emits `NULLS NOT DISTINCT`. The Django docs warn: "Unique constraints with `nulls_distinct` are ignored for databases besides PostgreSQL."'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'NULL is honest. A price of 0 or a name of `\'\'` looks like real data, and `avg(price)` would count it. Aggregates like `avg` and `count(price)` skip NULLs instead.',
-			'An optional fact needs no fake value: a nullable foreign key is an optional link, and a nullable unique column accepts many rows that have no value yet.',
-			'The rules are written down. `IS NULL`, `IS DISTINCT FROM`, `COALESCE` and `NULLS NOT DISTINCT` let you say exactly what a missing value should mean.'
+			'NULL keeps a missing price out of `avg(price)` and `count(price)`. A stored 0 or `\'\'` would look like real data and pull the average down.',
+			'A nullable foreign key stores an optional link with no fake value, and a nullable unique column accepts many rows that have no value yet.',
+			'`IS NULL`, `IS DISTINCT FROM`, `COALESCE` and `NULLS NOT DISTINCT` let you say what a missing value means in each query and key.'
 		],
 		cost: [
-			'Every condition on a nullable column has a third case. Forget it and rows vanish from a report without any error.',
-			'One NULL in a `NOT IN` subquery empties the result. The bug appears the day someone inserts that first NULL, not the day you wrote the query.',
-			'The ORM and raw SQL disagree. Django\'s `exclude()` keeps NULL rows, the `<>` you write by hand drops them.',
+			'Every condition on a nullable column has a third case, NULL. If you forget it, rows vanish from a report without any error.',
+			'One NULL in a `NOT IN` subquery empties the result. The bug appears the day someone inserts that first NULL, and the query itself has not changed.',
+			'Django\'s `exclude()` keeps the NULL rows, and the `<>` you write by hand drops them.',
 			'Unique constraints let duplicates in when a column is NULL, until you add `NULLS NOT DISTINCT` or make the column `NOT NULL`.'
 		]
 	},
@@ -171,7 +169,10 @@ export default {
 			why: 'Django adds `IS NOT NULL` inside the negation, so the SQL is `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. A hand-written `status <> \'archived\'` would drop those rows.'
 		}
 	],
-	takeaway: 'NULL means unknown, and anything compared with unknown is unknown. WHERE keeps only true, so test missing values with IS NULL, IS DISTINCT FROM or COALESCE, prefer NOT EXISTS to NOT IN, and decide what NULL means in your unique keys.',
+	recall: {
+		q: 'A project has a NULL status. Why does `WHERE status <> \'archived\'` drop it, and which condition keeps it?',
+		a: '`NULL <> \'archived\'` is NULL, and WHERE keeps only rows where the condition is true. `status IS DISTINCT FROM \'archived\'` is true for that row, so it keeps it.'
+	},
 	sources: [
 		{ title: 'PostgreSQL docs, Comparison Functions and Operators', url: 'https://www.postgresql.org/docs/current/functions-comparison.html' },
 		{ title: 'PostgreSQL docs, Subquery Expressions', url: 'https://www.postgresql.org/docs/current/functions-subquery.html' },

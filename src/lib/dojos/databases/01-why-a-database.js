@@ -4,20 +4,18 @@ const ANKI = 'https://github.com/ankitects/anki/blob/c3139c607373c99c81854d61f1d
 export default {
 	slug: 'why-a-database',
 	part: 'Data and questions',
-	title: 'Why not just files?',
+	title: 'Why use a database instead of a file',
 	minutes: 10,
 	hook: [
 		'Your side project keeps its data in `tasks.json`. Load the file, change the list, write the file back. It works for months.',
-		'Then the laptop dies halfway through a save. Or two browser tabs save at the same moment, and **one tab\'s changes vanish without an error**. Or someone asks for "every task due this week", and the only way to answer is **to read the whole file and loop**.',
-		'You could write a fix for each one yourself. A database is **those fixes, written once, tested for years**. And sometimes the right database is still a single file: SQLite\'s own docs say it "does not compete with client/server databases. SQLite competes with fopen()."'
+		'Then the laptop dies halfway through a save. Or two browser tabs save at the same moment, and **one tab\'s changes vanish without an error**. Or someone asks for "every task due this week", and the only way to answer is to read the whole file and loop.',
+		'You could write a fix for each of these three problems yourself. A database already ships all three fixes. And sometimes the right database is still a single file: SQLite\'s own docs say it "does not compete with client/server databases. SQLite competes with fopen()."'
 	],
 	terms: [
 		{ term: 'Atomic commit', def: 'A group of changes lands completely or not at all. A crash halfway leaves the old state, never a mix.' },
 		{ term: 'Durability', def: 'Once the database says "committed", the change survives a crash or a power cut. It is on disk, not only in a cache.' },
 		{ term: 'Concurrent access', def: 'Several readers and writers use the same data at once without corrupting it or silently losing writes.' },
-		{ term: 'Query', def: 'Asking for data by what it looks like ("tasks due this week") instead of by where it sits in a file.' },
-		{ term: 'Rollback journal', def: 'SQLite\'s classic trick: copy the original pages to a side file first, change the database, delete the side file to commit.' },
-		{ term: 'Embedded database', def: 'A database that is a library inside your program, reading and writing one file. SQLite is one. PostgreSQL, by contrast, is a server you connect to.' }
+		{ term: 'Rollback journal', def: 'A side file where SQLite copies the original pages before it changes the database. Deleting the side file commits the change.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,27 +23,27 @@ export default {
 			{
 				add: ['app["App: BEGIN, change 3 pages"] -->|"copy original pages"| journal[("rollback journal")]'],
 				highlight: ['app', 'journal'],
-				note: '**Save the old version first.** Before touching the database file, SQLite "creates a separate rollback journal file and writes into the rollback journal the original content of the database pages that are to be altered". The journal holds everything needed to undo the change.'
+				note: 'Before it touches the database file, SQLite "creates a separate rollback journal file and writes into the rollback journal the original content of the database pages that are to be altered". The journal holds everything needed to undo the change.'
 			},
 			{
 				add: ['journal -->|"fsync"| disk1["journal on disk"]'],
 				highlight: ['disk1'],
-				note: '**Force it to disk.** A new file usually lives only in the OS cache. SQLite flushes the journal to storage, often with two `fsync()` calls, before it changes anything else. The docs call this "a critical step in insuring that the database can survive an unexpected power loss".'
+				note: 'A new file usually lives only in the OS cache. SQLite then forces the journal to disk, often with two `fsync()` calls, before it changes anything else. The docs call this "a critical step in insuring that the database can survive an unexpected power loss".'
 			},
 			{
 				add: ['app -->|"write new pages, fsync"| db[("database file")]'],
 				highlight: ['db'],
-				note: '**Now change the real file.** With an exclusive lock held, SQLite writes the new pages and flushes again. The two flushes take most of the time of a commit. That is the price of crash safety.'
+				note: 'With an exclusive lock held, SQLite writes the new pages into the database file and flushes again. The two flushes take most of the time of a commit.'
 			},
 			{
 				add: ['db -->|"delete journal"| commit["Committed"]'],
 				highlight: ['commit'],
-				note: '**One delete is the commit.** "This is the instant where the transaction commits." Deleting a file looks atomic to a process: the journal is either there or not. No journal means the change is complete.'
+				note: 'Deleting the journal commits the transaction: "This is the instant where the transaction commits." To a process, a file delete looks atomic, so the journal is either there or not. Once it is gone, the new pages are the database.'
 			},
 			{
 				add: ['crash["Crash before the delete"] -.->|"hot journal found on next open"| journal', 'journal -.->|"play back old pages"| db'],
 				highlight: ['crash'],
-				note: '**Recovery is automatic.** On the next open, SQLite sees a leftover "hot journal" and copies the original pages back. The database looks as if the transaction never started. Your `tasks.json` has no such journal.'
+				note: 'On the next open, SQLite finds the leftover "hot journal" and copies the original pages back. The database then looks as if the transaction never started. Your `tasks.json` has no journal to play back.'
 			}
 		]
 	},
@@ -101,24 +99,24 @@ export default {
         Ok(())
     }`,
 		notes: [
-			'**SQLite as a file format.** Anki does not write its own file format. A collection is one SQLite file, opened with `Connection::open(path)`. SQLite\'s docs list this use by name: the File/Open menu "calls sqlite3_open() to attach to the database file", and "the File/Save menu option becomes superfluous".',
-			'**One app owns the file.** [`locking_mode` exclusive](' + ANKI + '#L64) keeps the file lock for as long as the connection is open. The pragma docs give that as the first reason to use it: "The application wants to prevent other processes from accessing the database file." With [`busy_timeout` of zero](' + ANKI + '#L62), a second process gets `SQLITE_BUSY` at once instead of waiting.',
-			'**WAL needs a checkpoint before a copy.** [`journal_mode` wal](' + ANKI + '#L68) writes changes to a separate `-wal` file first. That is why [`checkpoint`](' + ANKI + '#L559-L569) exists: "Flush data from WAL file into DB, so the DB is safe to copy." The [backup code](https://github.com/ankitects/anki/blob/c3139c607373c99c81854d61f1ddc45e4606343c/rslib/src/collection/backup.rs#L41-L42) calls it right before reading the file.',
-			'**All or nothing, from the app side.** Creating or upgrading a collection runs inside [`begin exclusive`](' + ANKI + '#L505-L508), so a crash mid-upgrade leaves the old schema. Normal edits go through [`begin_trx` and `commit_trx`](' + ANKI + '#L585-L595), and the code [says plainly](' + ANKI + '#L607-L608) that Anki "uses long-running transactions as an undo mechanism".',
-			'**Trust, but check.** On request, the open path runs [`integrity_check`](' + ANKI + '#L499-L503) and refuses a file that does not answer "ok". A hand-rolled JSON format would need its own checksum to do the same.'
+			'Line 2 opens the collection with `Connection::open(path)`. Anki has no file format of its own: a collection is one SQLite file. SQLite\'s docs describe this use: the File/Open menu "calls sqlite3_open() to attach to the database file", and "the File/Save menu option becomes superfluous".',
+			'Line 6 sets `locking_mode` exclusive, so Anki keeps the file lock for as long as the connection is open. The pragma docs give that as the first reason to use it: "The application wants to prevent other processes from accessing the database file." Line 4 sets `busy_timeout` to zero, so a second process gets `SQLITE_BUSY` at once instead of waiting.',
+			'Line 10 turns on `journal_mode` wal, which writes changes to a separate `-wal` file first. Lines 24 to 34 hold `checkpoint`, which copies the `-wal` file into the database: "Flush data from WAL file into DB, so the DB is safe to copy." The [backup code](https://github.com/ankitects/anki/blob/c3139c607373c99c81854d61f1ddc45e4606343c/rslib/src/collection/backup.rs#L41-L42) calls it right before it reads the file.',
+			'Line 21 runs the creation or upgrade of a collection inside `begin exclusive`, so a crash mid-upgrade leaves the old schema. Lines 36 to 46 open and commit the transaction for normal edits. A comment in the same file says Anki ["uses long-running transactions as an undo mechanism"](' + ANKI + '#L607-L608).',
+			'Lines 13 to 16 run `integrity_check` when the caller asks for it, and refuse a file that does not answer "ok". A hand-rolled JSON format would need its own checksum to do the same.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Crash safety for free: a change lands completely or not at all, and recovery runs by itself on the next open.',
+			'A change lands completely or not at all, and SQLite runs the recovery itself on the next open.',
 			'Concurrent use without hand-written locks: SQLite serializes writers, a server like PostgreSQL lets many write at once.',
-			'Questions instead of loops: "tasks due this week" is one query, and an index makes it fast without reading everything.',
+			'"Tasks due this week" is one query, and an index answers it without reading every task.',
 			'SQLite keeps the simple parts of a file: one file to copy, mail or back up, and no server to run.'
 		],
 		cost: [
-			'Durability costs time: each commit waits for the disk. SQLite\'s FAQ: it "will easily do 50,000 or more INSERT statements per second" but "only do a few dozen transactions per second". Group many changes in one transaction.',
-			'A database file is not human-readable. You need `sqlite3` or a tool to look inside, where a JSON file opens in any editor.',
-			'SQLite has limits on purpose: "it will only allow one writer at any instant in time", and it should not sit on a network filesystem shared by many computers.',
+			'Each commit waits for the disk. SQLite\'s FAQ: it "will easily do 50,000 or more INSERT statements per second" but "only do a few dozen transactions per second". Group many changes in one transaction.',
+			'You need `sqlite3` or another tool to look inside a database file. A JSON file opens in any editor.',
+			'SQLite "will only allow one writer at any instant in time", and it should not sit on a network filesystem shared by many computers.',
 			'A server database (PostgreSQL) adds a process to run, upgrade, back up and secure.'
 		]
 	},
@@ -127,9 +125,9 @@ export default {
 		hint: 'Ask three questions: does a crash halfway hurt, does more than one process write, and do you need to find data by what it contains?',
 		answer: [
 			'(1) A plain file. It is read once, written rarely, by one process, and a person may want to edit it by hand.',
-			'(2) SQLite. One user, one machine, but edits must survive a crash and search must not read every note. This is the "application file format" case, like Anki.',
+			'(2) SQLite. One user, one machine, but edits must survive a crash and search must not read every note. SQLite\'s docs call this an "application file format", and Anki uses SQLite this way.',
 			'(3) PostgreSQL. Four servers write at once over the network. SQLite\'s docs say to "avoid using SQLite in situations where the same database will be accessed directly (without an intervening application server) and simultaneously from many computers over a network".',
-			'(4) A plain file. Its job is to be read by another program. A database can produce it, but the export itself is a file.'
+			'(4) A plain file. Another program reads it. A database can produce it, but the export itself is a file.'
 		]
 	},
 	quiz: [
@@ -167,7 +165,10 @@ export default {
 			why: 'File locking "is buggy in many network filesystem implementations", and two clients might then write the same part of the file at once, "resulting in corruption". The other three are cases the docs list as a good fit.'
 		}
 	],
-	takeaway: 'A database is crash safety, safe sharing and questions you do not have to code yourself; SQLite gives you that in a single file, a server earns its place when many machines write at once.',
+	recall: {
+		q: 'Which three problems of `tasks.json` does a database solve, and when do you pick PostgreSQL over SQLite?',
+		a: 'A crash halfway through a save, two writers losing each other\'s changes, and reading the whole file to answer a question. Pick PostgreSQL when many machines write at once, because SQLite allows one writer at a time.'
+	},
 	sources: [
 		{ title: 'SQLite docs, Appropriate Uses For SQLite', url: 'https://www.sqlite.org/whentouse.html' },
 		{ title: 'SQLite docs, Atomic Commit In SQLite', url: 'https://www.sqlite.org/atomiccommit.html' },

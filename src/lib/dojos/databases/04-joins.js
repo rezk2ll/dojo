@@ -9,15 +9,14 @@ export default {
 	minutes: 10,
 	hook: [
 		'Your forum\'s admin page shows each topic with its number of posts. It was right. Then someone added the topic\'s tags to the same query, and **a topic with 3 posts and 2 tags now shows 6 posts**.',
-		'Nothing is broken in the database. **A join pairs rows**: each post meets each tag of its topic, so 3 posts times 2 tags gives 6 rows, and `count` counts rows.',
-		'Joins are how a relational database answers any question that spans two tables. To use them without surprises you need three ideas: **which rows survive**, **how many copies each row becomes**, and **how to ask for rows that have no match at all**.'
+		'The database returned what the query asked for. **A join pairs rows**: each post meets each tag of its topic, so 3 posts times 2 tags gives 6 rows, and `count` counts rows.',
+		'Joins are how a relational database answers any question that spans two tables. To use them without surprises, you need to know which rows survive a join, how many copies of each row it makes, and how to ask for rows that have no match at all.'
 	],
 	terms: [
 		{ term: 'Inner join', def: '`A JOIN B ON ...` keeps only the pairs where the condition is true. A row of A with no match in B disappears.' },
 		{ term: 'Left join', def: '`A LEFT JOIN B ON ...` keeps every row of A. When B has no match, the B columns are NULL.' },
-		{ term: 'Fan-out', def: 'One row of A that matches 5 rows of B becomes 5 rows. Join two such tables and the counts multiply.' },
-		{ term: 'Anti-join', def: 'Rows of A with no match in B: `NOT EXISTS (...)`, or a left join followed by `WHERE b.id IS NULL`.' },
-		{ term: 'ON vs WHERE', def: 'In a left join, a condition in ON decides what matches. The same condition in WHERE runs after the join and can drop the unmatched rows.' }
+		{ term: 'Fan-out', def: 'One row of A that matches 5 rows of B gives 5 rows in the result. Join two such tables and the counts multiply.' },
+		{ term: 'Anti-join', def: 'Rows of A with no match in B: `NOT EXISTS (...)`, or a left join followed by `WHERE b.id IS NULL`.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,22 +24,22 @@ export default {
 			{
 				add: ['topics[("topics: 1, 2, 3")] -->|"JOIN ON posts.topic_id = topics.id"| inner["4 rows: topic 1 three times, topic 2 once"]', 'posts[("posts: 10, 11, 12 on topic 1, 20 on topic 2")] --> inner'],
 				highlight: ['inner'],
-				note: '**An inner join pairs matching rows.** The docs: "For each row R1 of T1, the joined table has a row for each row in T2 that satisfies the join condition with R1." Topic 1 has three posts, so it appears three times. Topic 3 has none, so it is gone.'
+				note: 'An inner join pairs matching rows. The docs: "For each row R1 of T1, the joined table has a row for each row in T2 that satisfies the join condition with R1." Topic 1 has three posts, so it appears three times. Topic 3 has none, so it is gone.'
 			},
 			{
 				add: ['topics -->|"LEFT JOIN"| left["5 rows: topic 3 is back, with NULL post columns"]'],
 				highlight: ['left'],
-				note: '**A left join keeps the left side.** "The joined table always has at least one row for each row in T1." Topic 3 comes back once, with NULL in every posts column. `count(posts.id)` gives 0 for it, because count skips NULLs.'
+				note: 'A left join keeps every row of the left table: "The joined table always has at least one row for each row in T1." Topic 3 comes back once, with NULL in every posts column. `count(posts.id)` gives 0 for it, because count skips NULLs.'
 			},
 			{
 				add: ['tags[("tags: x, y on topic 1")] -->|"LEFT JOIN tags too"| fan["topic 1: 3 posts x 2 tags = 6 rows"]', 'left --> fan'],
 				highlight: ['fan'],
-				note: '**Two joins from one row multiply.** Each of topic 1\'s three rows meets both of its tags. `count(posts.id)` now says 6. The fix is `count(DISTINCT posts.id)`, or better, count posts and tags in separate subqueries and join the totals.'
+				note: 'Each of topic 1\'s three rows now meets both of its tags. `count(posts.id)` now says 6. The fix is `count(DISTINCT posts.id)`, or better, count posts and tags in separate subqueries and join the totals.'
 			},
 			{
 				add: ['anti["NOT EXISTS: topics with no post"] -->|"keeps"| t3["topic 3"]', 'topics --> anti'],
 				highlight: ['anti', 't3'],
-				note: '**An anti-join asks what is missing.** `WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.topic_id = topics.id)` keeps topics without a post. EXISTS stops at the first matching row. On PostgreSQL 18 the plan shows an Anti Join node.'
+				note: 'An anti-join keeps the rows with no match: `WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.topic_id = topics.id)` keeps topics without a post. EXISTS stops at the first matching row. On PostgreSQL 18 the plan shows an Anti Join node.'
 			}
 		]
 	},
@@ -99,10 +98,10 @@ export default {
         .pluck(:id)
     end`,
 		notes: [
-			'**A left join as an anti-join.** `clean_topics` reads `topic_search_data LEFT JOIN topics`. Every search row is kept. When the topic is gone, `topics.id` is NULL, and `WHERE topics.id IS NULL` picks exactly those rows. The `OR` adds topics soft-deleted before [`@cleanup_grace_period`](' + JOB + '#L9), one day ago.',
-			'**An inner join undoes a left join.** In `clean_posts`, `LEFT JOIN posts` is followed by `JOIN topics ON posts.topic_id = topics.id`. A search row whose post is gone has NULL in `posts.topic_id`, and NULL matches no topic, so the inner join drops it. As written, `posts.id IS NULL` can never be true there. The soft-delete branches still work. Making the second join a LEFT JOIN brings the missing rows back.',
-			'**The other direction.** [`load_problem_topic_ids`](' + JOB + '#L137-L148) starts from `topics` and left joins the search data: a topic with no search row, or a stale `version`, needs reindexing. `topic_id` is the [primary key](' + DISCOURSE + '/app/models/topic_search_data.rb#L15) of `topic_search_data`, so each topic matches at most one row and the join cannot fan out.',
-			'**Same idea, two spellings.** Both jobs could use `NOT EXISTS`. The docs describe how it runs: "The subquery will generally only be executed long enough to determine whether at least one row is returned". The left join form makes it easy to add more conditions with `OR`, as both jobs do.'
+			'Line 11 of `clean_topics` reads `topic_search_data LEFT JOIN topics`, which keeps every search row. When the topic is gone, `topics.id` is NULL, and `WHERE topics.id IS NULL` picks exactly those rows. The `OR` adds topics soft-deleted before [`@cleanup_grace_period`](' + JOB + '#L9), one day ago.',
+			'In `clean_posts`, line 28 `LEFT JOIN posts` is followed by line 29 `JOIN topics ON posts.topic_id = topics.id`. A search row whose post is gone has NULL in `posts.topic_id`, and NULL matches no topic, so the inner join drops it. As written, `posts.id IS NULL` on line 30 can never be true, while the soft-delete branches still work. Making line 29 a LEFT JOIN brings the missing rows back.',
+			'In lines 38 to 49, `load_problem_topic_ids` starts from `topics` and left joins the search data: a topic with no search row, or a stale `version`, needs reindexing. `topic_id` is the [primary key](' + DISCOURSE + '/app/models/topic_search_data.rb#L15) of `topic_search_data`, so each topic matches at most one row and the join cannot fan out.',
+			'Both jobs could use `NOT EXISTS` instead of the left join. The docs describe how it runs: "The subquery will generally only be executed long enough to determine whether at least one row is returned". The left join form makes it easy to add more conditions with `OR`, as both jobs do.'
 		]
 	},
 	tradeoff: {
@@ -112,9 +111,9 @@ export default {
 			'An anti-join finds orphans and gaps directly: rows to clean up, records still to index.'
 		],
 		cost: [
-			'Fan-out is silent. A join through two one-to-many relations multiplies rows, and `count` or `sum` will overcount without any error.',
+			'A join through two one-to-many relations multiplies rows, and `count` or `sum` overcount without any error.',
 			'`count(DISTINCT ...)` hides the fan-out but still builds all the extra rows first.',
-			'Outer joins are order-sensitive. The docs: a condition in ON "is processed before the join", one in WHERE "after the join", and "it matters a lot with outer joins".',
+			'In a left join, moving a condition from ON to WHERE changes the result. The docs: a condition in ON "is processed before the join", one in WHERE "after the join", and "it matters a lot with outer joins".',
 			'One inner join placed after a left join can quietly turn it back into an inner join, as Discourse\'s `clean_posts` shows.'
 		]
 	},
@@ -163,8 +162,12 @@ export default {
 			why: 'The left join produces the row with NULL post columns, then the inner join needs `posts.topic_id = topics.id`, which is never true for NULL. The row is gone before WHERE runs. NULL comparisons get their own chapter (day 6).'
 		}
 	],
-	takeaway: 'A join makes one row per matching pair: left joins keep the unmatched, anti-joins find them, and two one-to-many joins from the same row multiply your counts.',
+	recall: {
+		q: 'A topic has 3 posts and 2 tags. Why does a query that left joins both tables count 6 posts, and how do you get 3?',
+		a: 'Each post row pairs with each tag, so the join makes 3 x 2 = 6 rows. Count the posts per topic in a subquery before the join, or use `count(DISTINCT p.id)`.'
+	},
 	sources: [
+		{ title: 'Discourse, reindex_search.rb (load_problem_topic_ids)', url: `${JOB}#L137-L148` },
 		{ title: 'PostgreSQL docs, Joined Tables', url: 'https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-JOIN' },
 		{ title: 'PostgreSQL docs, Subquery Expressions (EXISTS)', url: 'https://www.postgresql.org/docs/current/functions-subquery.html' },
 		{ title: 'PostgreSQL tutorial, Joins Between Tables', url: 'https://www.postgresql.org/docs/current/tutorial-join.html' },

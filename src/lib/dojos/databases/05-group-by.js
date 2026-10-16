@@ -10,13 +10,12 @@ export default {
 	hook: [
 		'Your marketing team wants four numbers for last week: page views, visitors, visits, and the bounce rate. The data is a table with **one row per event**: a page view, a click, a sign-up.',
 		'You could load every event into the app and count in a loop. With ten million events, **that is ten million rows over the network to produce four numbers**.',
-		'GROUP BY lets the database do the counting where the data lives. **It folds many rows into one row per group**, and aggregates like `count` and `sum` say what each group adds up to. The tricky part is the bounce rate: it is a fact about a visit, not about an event, so **you group twice**.'
+		'GROUP BY lets the database count where the data lives. It folds many rows into one row per group, and aggregates like `count` and `sum` compute each group\'s values. The bounce rate is a fact about a visit, while each row is an event, so **you group twice**: events into visits, then visits into totals.'
 	],
 	terms: [
 		{ term: 'Aggregate', def: 'A function that turns many rows into one value: `count`, `sum`, `min`, `max`, `avg`. Except for `count`, they return NULL when no rows come in.' },
 		{ term: 'GROUP BY', def: 'Splits the rows into groups that share the same values, then returns one row per group. Every other column in the SELECT list must be inside an aggregate, unless it depends on a grouped primary key.' },
 		{ term: 'HAVING', def: 'A filter on groups, after the aggregates are computed. WHERE filters rows before grouping and cannot use aggregates.' },
-		{ term: 'count(DISTINCT x)', def: 'Counts the different values of `x` in a group, not the rows. Visitors are distinct session ids, not events.' },
 		{ term: 'Window function', def: 'An aggregate-like calculation with `OVER (...)` that does not fold rows: each row keeps its identity and gets a value computed from related rows.' }
 	],
 	diagram: {
@@ -25,27 +24,27 @@ export default {
 			{
 				add: ['events[("website_event: one row per event")] -->|"WHERE website_id, date range"| rows["the week\'s events"]'],
 				highlight: ['events', 'rows'],
-				note: '**WHERE picks the input.** First the rows of one site and one week are selected. The docs: "WHERE selects input rows before groups and aggregates are computed". An aggregate in WHERE fails with `aggregate functions are not allowed in WHERE`.'
+				note: 'First, WHERE selects the rows of one site and one week. The docs: "WHERE selects input rows before groups and aggregates are computed". An aggregate in WHERE fails with `aggregate functions are not allowed in WHERE`.'
 			},
 			{
 				add: ['rows -->|"GROUP BY session_id, visit_id"| visits["one row per visit: c = page views, has_custom_event"]'],
 				highlight: ['visits'],
-				note: '**The first fold: events into visits.** Grouping by session and visit gives one row per visit. Inside each group, `sum(case ... then 1 else 0 end)` counts the events that are not custom events or performance timings.'
+				note: 'Grouping by session and visit folds the events into one row per visit. Inside each group, `sum(case ... then 1 else 0 end)` counts the events that are not custom events or performance timings.'
 			},
 			{
 				add: ['visits -->|"HAVING c > 0"| kept["visits with at least one view"]'],
 				highlight: ['kept'],
-				note: '**HAVING drops whole groups.** A visit made only of custom events has `c = 0`. HAVING removes it after the sums are known, which WHERE cannot do: when WHERE runs, the sums do not exist yet.'
+				note: 'A visit made only of custom events has `c = 0`, and HAVING drops that whole group. HAVING runs after the sums are known, which WHERE cannot do: when WHERE runs, the sums do not exist yet.'
 			},
 			{
 				add: ['kept -->|"aggregate with no GROUP BY"| totals["one row: pageviews, visitors, visits, bounces"]'],
 				highlight: ['totals'],
-				note: '**The second fold: visits into totals.** The outer query has aggregates but no GROUP BY, so the whole input is one group. `count(distinct session_id)` gives visitors, and a bounce is a visit with exactly one view and no custom event.'
+				note: 'The outer query folds the visits into totals. It has aggregates but no GROUP BY, so the whole input is one group. `count(distinct session_id)` gives visitors, and a bounce is a visit with exactly one view and no custom event.'
 			},
 			{
 				add: ['rows -.->|"row_number() OVER (PARTITION BY visit_id ORDER BY created_at)"| numbered["each event keeps its row, plus its step number"]'],
 				highlight: ['numbered'],
-				note: '**A window does not fold.** For user journeys, Umami numbers the events of each visit with `row_number()`. The docs: window functions "do not cause rows to become grouped into a single output row". Every event stays, with its position in the visit.'
+				note: 'For user journeys, Umami numbers the events of each visit with `row_number()`, a window function. The docs: window functions "do not cause rows to become grouped into a single output row". Every event stays, with its position in the visit.'
 			}
 		]
 	},
@@ -92,11 +91,11 @@ export default {
       FUNCTION_NAME,
     ).then(result => result?.[0]);`,
 		notes: [
-			'**This is the PostgreSQL path.** Umami picks `relationalQuery` when [`runQuery`](' + UMAMI + '/src/lib/db.ts#L37-L39) sees a PostgreSQL URL, and a ClickHouse query otherwise. Event types come from [`EVENT_TYPE`](' + UMAMI + '/src/lib/constants.ts#L119-L125): 2 is a custom event and 5 a performance timing, so `NOT IN (2, 5)` keeps page views, link events and pixel events.',
-			'**`group by 1, 2` uses positions.** The numbers point at the first and second SELECT list items, `session_id` and `visit_id`. The docs allow "the name or ordinal number of an output column". The HAVING clause repeats the full `sum(case ...)` instead of the alias `c`.',
-			'**`coalesce` because sum can be NULL.** The outer query always returns one row, even for a site with no traffic. The docs: "sum of no rows returns null, not zero as one might expect". `coalesce(sum(t.c), 0)` turns that into 0, while `count(distinct ...)` already returns 0.',
-			'**Time on site from two aggregates.** Each visit keeps `min` and `max` of `created_at`. [`getTimestampDiffSQL`](' + UMAMI + '/src/lib/prisma.ts#L127-L129) turns the gap into seconds with `extract(epoch from ...)`, and the outer `sum` adds the visits up.',
-			'**A window for journeys.** [`getJourney`](' + UMAMI + '/src/queries/sql/journeys/getJourney.ts#L112-L117) uses `row_number() OVER (PARTITION BY visit_id ORDER BY website_event.created_at)`. Same grouping idea, but without folding: each event gets its step number inside its visit.'
+			'Line 1, `relationalQuery`, is the PostgreSQL path. Umami picks it when [`runQuery`](' + UMAMI + '/src/lib/db.ts#L37-L39) sees a PostgreSQL URL, and a ClickHouse query otherwise. In `EVENT_TYPE` (in the sources), 2 is a custom event and 5 a performance timing, so `NOT IN (2, 5)` on line 19 keeps page views, link events and pixel events.',
+			'Line 31, `group by 1, 2`, points at the first and second items of the inner SELECT list, `session_id` and `visit_id`. The docs allow "the name or ordinal number of an output column". Line 32 repeats the full `sum(case ...)` in HAVING instead of the alias `c`.',
+			'The outer query always returns one row, even for a site with no traffic. The docs: "sum of no rows returns null, not zero as one might expect". Line 10, `coalesce(sum(t.c), 0)`, turns that NULL into 0, while `count(distinct ...)` on lines 11 and 12 already returns 0.',
+			'Lines 20 and 21 keep the `min` and `max` of `created_at` for each visit. [`getTimestampDiffSQL`](' + UMAMI + '/src/lib/prisma.ts#L127-L129) turns the gap into seconds with `extract(epoch from ...)`, and the outer `sum` on line 14 adds the visits up.',
+			'For journeys, [`getJourney`](' + UMAMI + '/src/queries/sql/journeys/getJourney.ts#L112-L117) uses `row_number() OVER (PARTITION BY visit_id ORDER BY website_event.created_at)`. It groups the events by visit without folding them: each event gets its step number inside its visit.'
 		]
 	},
 	tradeoff: {
@@ -108,8 +107,8 @@ export default {
 		cost: [
 			'Every non-aggregated column must be in GROUP BY. PostgreSQL rejects the query otherwise: `must appear in the GROUP BY clause or be used in an aggregate function`.',
 			'`count(DISTINCT ...)` costs more than `count(*)`. PostgreSQL\'s [executor](https://github.com/postgres/postgres/blob/26bd08fb5c069fbdf55867adc398cfca0f55d5c8/src/backend/executor/nodeAgg.c?plain=1#L33-L39) says: "we sort the input tuples and eliminate duplicates", and "partial aggregation is not supported in these cases".',
-			'Aggregates read every matching row. On a busy site, a dashboard query over a year scans a year of events. Analytics engines exist for this (day 38).',
-			'NULL rules are easy to forget: `count(x)` skips NULLs, `count(*)` does not, and `sum` of nothing is NULL.'
+			'An aggregate reads every matching row, so on a busy site a dashboard query over a year scans a year of events. Analytics engines exist for this (day 38).',
+			'Three NULL rules apply: `count(x)` skips NULLs, `count(*)` does not, and `sum` of nothing is NULL.'
 		]
 	},
 	task: {
@@ -157,8 +156,12 @@ export default {
 			why: 'GROUP BY folds each visit\'s rows into one. A window function computes the same count but "the rows retain their separate identities", so each event row carries its visit\'s total.'
 		}
 	],
-	takeaway: 'GROUP BY folds rows into one row per group and HAVING filters those groups; when a fact belongs to a visit and not to an event, group by visit first, then aggregate again.',
+	recall: {
+		q: 'Why does Umami\'s bounce count need two levels of grouping, and which clause drops the visits with no page view?',
+		a: 'A bounce is a fact about a visit: one view and no custom event. The inner query groups events by `session_id, visit_id`, and `HAVING sum(...) > 0` drops visits with no view. The outer query then counts the bounces over those visits.'
+	},
 	sources: [
+		{ title: 'Umami, src/lib/constants.ts (EVENT_TYPE)', url: `${UMAMI}/src/lib/constants.ts#L119-L125` },
 		{ title: 'PostgreSQL docs, GROUP BY and HAVING Clauses', url: 'https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-GROUP' },
 		{ title: 'PostgreSQL tutorial, Aggregate Functions', url: 'https://www.postgresql.org/docs/current/tutorial-agg.html' },
 		{ title: 'PostgreSQL docs, Aggregate Functions', url: 'https://www.postgresql.org/docs/current/functions-aggregate.html' },

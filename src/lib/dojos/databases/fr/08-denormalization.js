@@ -5,20 +5,18 @@ const RAILS = 'https://github.com/rails/rails/blob/ccaef690ee7a1f1d02642edd5f710
 export default {
 	slug: 'denormalization',
 	part: 'Les données et les questions',
-	title: 'Copier des données exprès',
+	title: 'La dénormalisation : copier des données exprès',
 	minutes: 10,
 	hook: [
 		'Un forum liste ses tags avec un nombre à côté de chacun : « sql, 1 204 sujets ». Compter ça depuis `topic_tags` à chaque affichage, c’est une jointure et un `count` pour chaque tag, pour chaque visiteur.',
-		'Alors Discourse **range le compte sur la ligne du tag**. Ça enfreint la règle d’hier : ce nombre est une deuxième copie d’un fait que `topic_tags` contient déjà. Fait exprès, pour des lectures rapides, ça s’appelle la **dénormalisation**.',
-		'Chaque copie a un prix : **elle peut dériver** de sa source. La vraie question de conception n’est donc pas « copier ou pas ». C’est **qui garde la copie à jour, et qui la répare quand elle est fausse**.'
+		'Alors Discourse **range le compte sur la ligne du tag**. Ça enfreint la règle d’hier : ce nombre est une deuxième copie d’un fait que `topic_tags` contient déjà. Ranger une telle copie exprès, pour lire plus vite, s’appelle la dénormalisation.',
+		'Une copie peut dériver de sa source : une écriture change l’une et pas l’autre. Chaque copie a donc besoin d’un code qui la met à jour à chaque écriture, et d’une tâche qui trouve et corrige les lignes fausses.'
 	],
 	terms: [
 		{ term: 'Dénormalisation', def: 'Ranger un fait une deuxième fois, exprès, pour que les lectures coûtent moins cher. L’original reste la source de vérité.' },
 		{ term: 'Source de vérité', def: 'Les données à partir desquelles une copie est calculée. Si les deux ne sont pas d’accord, la source gagne et la copie est reconstruite.' },
 		{ term: 'Counter cache', def: 'Un compte rangé sur la ligne parente, comme `tags.public_topic_count`, mis à jour à chaque ajout ou retrait d’une ligne enfant.' },
-		{ term: 'Vue matérialisée', def: 'Une requête dont PostgreSQL range le résultat comme une table. Elle ne change que quand tu lances `REFRESH MATERIALIZED VIEW`.' },
-		{ term: 'Dérive', def: 'La copie ne correspond plus à sa source, parce qu’une écriture a changé l’une et pas l’autre.' },
-		{ term: 'Réconciliation', def: 'Une tâche qui recalcule la copie depuis la source et corrige les lignes qui diffèrent.' }
+		{ term: 'Dérive', def: 'La copie ne correspond plus à sa source, parce qu’une écriture a changé l’une et pas l’autre.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['src[("topic_tags : source de vérité")] --> count["count par tag, à chaque affichage"]'],
 				highlight: ['src', 'count'],
-				note: '**La voie normalisée.** Le nombre de sujets par tag est déjà dans `topic_tags`. Le lire, c’est une jointure et un `GROUP BY` (jour 5) à chaque fois. Juste, toujours frais, et trop lent pour une page que chaque visiteur charge.'
+				note: 'Dans le schéma normalisé, le nombre de sujets par tag est déjà dans `topic_tags`. Le lire, c’est une jointure et un `GROUP BY` (jour 5) à chaque fois. Le résultat est toujours juste, et la requête est trop lente pour une page que chaque visiteur charge.'
 			},
 			{
 				add: ['src -->|"after_create +1, after_destroy -1"| cache[("tags.public_topic_count")]'],
 				highlight: ['cache'],
-				note: '**Tenir la copie à jour à chaque écriture.** Le modèle `TopicTag` de Discourse a des callbacks qui ajoutent ou retirent 1 aux compteurs du tag. Rails lance les callbacks de `save` et `destroy` dans la même transaction que l’écriture, donc la ligne et le compte sont validés ensemble.'
+				note: 'Le modèle `TopicTag` de Discourse a des callbacks qui ajoutent ou retirent 1 aux compteurs du tag. Rails lance les callbacks de `save` et `destroy` dans la même transaction que l’écriture, donc la ligne et le compte sont validés ensemble.'
 			},
 			{
 				add: ['bulk["update_all, SQL brut, une correction en console"] -.->|"saute les callbacks"| src', 'cache --- wrong["Le compte est faux"]'],
 				highlight: ['bulk', 'wrong'],
-				note: '**Comment une copie dérive.** La copie n’est juste que si **chaque** écriture passe par le code qui la met à jour. Rails dit que `update_all` « does not trigger Active Record callbacks or validations » (ne déclenche ni callbacks ni validations). Une suppression en masse, une migration ou une correction SQL à la main change la source et laisse le compteur derrière. Aucune erreur n’est levée.'
+				note: 'La copie n’est juste que si **chaque** écriture passe par le code qui la met à jour. Rails dit que `update_all` « does not trigger Active Record callbacks or validations » (ne déclenche ni callbacks ni validations). Une suppression en masse, une migration ou une correction SQL à la main change la source et laisse le compteur derrière, sans lever d’erreur.'
 			},
 			{
 				add: ['job["EnsureDbConsistency, toutes les 12 heures"] -->|"recompte, corrige les lignes qui diffèrent"| cache'],
 				highlight: ['job'],
-				note: '**Réparer à intervalles réguliers.** Discourse lance une tâche toutes les 12 heures qui recalcule les comptes depuis la source et n’écrit que les lignes fausses. La copie peut être fausse un moment, mais jamais longtemps, et jamais pour de bon.'
+				note: 'Discourse lance toutes les 12 heures une tâche qui recalcule les comptes depuis la source et n’écrit que les lignes fausses. Un compte qui dérive reste faux jusqu’au passage suivant, au plus 12 heures plus tard.'
 			},
 			{
 				add: ['mv[("vue matérialisée")] -->|"REFRESH : tout recalculer"| mv2["Fraîche jusqu’à la prochaine écriture"]'],
 				highlight: ['mv', 'mv2'],
-				note: '**L’autre sorte de copie.** Une vue matérialisée range le résultat d’une requête. La doc : « REFRESH MATERIALIZED VIEW completely replaces the contents of a materialized view. » (remplace tout son contenu). Entre deux refresh, elle est périmée. Sans `CONCURRENTLY`, un refresh peut bloquer les lecteurs, et `CONCURRENTLY` exige un index unique sur la vue.'
+				note: 'La vue matérialisée est une deuxième sorte de copie : PostgreSQL range le résultat d’une requête comme une table. La doc : « REFRESH MATERIALIZED VIEW completely replaces the contents of a materialized view. » (remplace tout son contenu). Entre deux refresh, elle est périmée. Sans `CONCURRENTLY`, un refresh peut bloquer les lecteurs, et `CONCURRENTLY` exige un index unique sur la vue.'
 			}
 		]
 	},
@@ -100,23 +98,23 @@ export default {
       AND x.topic_count <> t.public_topic_count;
     SQL`,
 		notes: [
-			'**Le chemin d’écriture.** [`TopicTag`](' + DISCOURSE + '/app/models/topic_tag.rb#L7-L47) appelle `Tag.update_counters(tag.id, ...)` avec `+1` après une création et `-1` après une suppression. Rails en fait une seule instruction, [`SET comments_count = COALESCE(comments_count, 0) + 1`](' + RAILS + '/counter_cache.rb#L108-L124) : la base ajoute à la valeur actuelle, au lieu que l’appli réécrive un nombre lu plus tôt.',
-			'**Rails s’attend à la dérive.** La doc de [`reset_counters`](' + RAILS + '/counter_cache.rb#L14-L16) dit qu’il sert « when adding new counter caches, or if the counter has been corrupted or modified directly by SQL » (à l’ajout d’un compteur, ou quand il a été corrompu ou modifié directement en SQL). Discourse écrit son propre recomptage, qui contient des règles qu’un simple compte raterait : seulement les sujets vivants, pas de messages privés, et pour le compte public, pas de catégories à accès restreint.',
-			'**La tâche de réparation.** [`EnsureDbConsistency`](' + DISCOURSE + '/app/jobs/scheduled/ensure_db_consistency.rb#L5-L46) tourne `every 12.hours` et appelle `ensure_consistency!` sur vingt modèles, dont `Tag`. Chaque appel est entouré d’un `rescue` : un modèle qui échoue est journalisé, et les autres tournent quand même.',
-			'**N’écrire que ce qui est faux.** `x.topic_count <> t.staff_topic_count` saute les tags déjà justes. Le comportement normal de PostgreSQL « always performs a physical row update regardless of whether or not the data has changed » (écrit physiquement la ligne même si rien n’a changé, jour 16), donc ce filtre garde un recomptage complet bon marché.',
-			'**Zéro aussi est une valeur.** Dans le compte public, la sous-requête en `INNER JOIN` ne contient que les tags qui ont encore des sujets publics. Le `LEFT JOIN` externe depuis `tags` avec `COALESCE(..., 0)` donne 0 à tous les autres. Sans lui, le recomptage ne remettrait jamais à zéro un tag qui a perdu son dernier sujet public (les règles de NULL, jour 6).'
+			'À l’écriture, [`TopicTag`](' + DISCOURSE + '/app/models/topic_tag.rb#L7-L47) appelle `Tag.update_counters(tag.id, ...)` avec `+1` après une création et `-1` après une suppression. Rails en fait une seule instruction, `SET comments_count = COALESCE(comments_count, 0) + 1` : la base ajoute à la valeur actuelle, au lieu que l’appli réécrive un nombre lu plus tôt.',
+			'La doc Rails de [`reset_counters`](' + RAILS + '/counter_cache.rb#L14-L16) dit qu’il sert « when adding new counter caches, or if the counter has been corrupted or modified directly by SQL » (à l’ajout d’un compteur, ou quand il a été corrompu ou modifié directement en SQL). Discourse écrit son propre recomptage, avec des règles qu’un simple compte raterait : il ne compte que les sujets vivants, écarte les messages privés et, pour le compte public, les catégories à accès restreint.',
+			'Les lignes 1 à 3 sont le point d’entrée de la tâche de réparation. [`EnsureDbConsistency`](' + DISCOURSE + '/app/jobs/scheduled/ensure_db_consistency.rb#L5-L46) tourne `every 12.hours` et appelle `ensure_consistency!` sur vingt modèles, dont `Tag`. Chaque appel est entouré d’un `rescue` : un modèle qui échoue est journalisé, et les autres tournent quand même.',
+			'La ligne 19, `x.topic_count <> t.staff_topic_count`, saute les tags déjà justes. Le comportement normal de PostgreSQL « always performs a physical row update regardless of whether or not the data has changed » (écrit physiquement la ligne même si rien n’a changé, jour 16), donc ce filtre garde un recomptage complet bon marché.',
+			'Lignes 26 à 35 : dans le compte public, la sous-requête en `INNER JOIN` ne contient que les tags qui ont encore des sujets publics. Aux lignes 36 à 40, le `LEFT JOIN` externe depuis `tags` avec `COALESCE(..., 0)` donne 0 à tous les autres. Sans lui, le recomptage ne remettrait jamais à zéro un tag qui a perdu son dernier sujet public (les règles de NULL, jour 6).'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Les lectures deviennent bon marché : une colonne sur une ligne que tu charges de toute façon, au lieu d’une jointure et d’un compte.',
+			'Une lecture charge une colonne sur une ligne que tu charges de toute façon, au lieu de lancer une jointure et un compte.',
 			'Tu peux indexer la copie, donc « tags triés par nombre de sujets » ou « produits les plus notés » ne lit que quelques pages d’index.',
 			'Une vue matérialisée calcule un rapport lourd une seule fois, et tous les lecteurs partagent le résultat.'
 		],
 		cost: [
-			'Chaque chemin d’écriture doit mettre la copie à jour : le modèle, les scripts en masse, les migrations, la console d’admin. Oublies-en un et la copie dérive sans erreur.',
+			'Chaque chemin d’écriture doit mettre la copie à jour : le modèle, les scripts en masse, les migrations, la console d’admin. Si tu en oublies un, la copie dérive sans erreur.',
 			'Il te faut une tâche de réparation, et elle coûte une vraie charge : Discourse recompte chaque tag deux fois par jour.',
-			'Un compteur sur une ligne parente populaire devient un point chaud. Chaque nouvel enfant met à jour la même ligne, et les mises à jour concurrentes d’une même ligne attendent les verrous les unes des autres.',
+			'Un compteur sur une ligne parente populaire est un point chaud. Chaque nouvel enfant met à jour la même ligne, et les mises à jour concurrentes d’une même ligne attendent les verrous les unes des autres.',
 			'Une vue matérialisée est périmée entre deux refresh, et un refresh sans `CONCURRENTLY` peut bloquer les lecteurs qu’elle devait aider.'
 		]
 	},
@@ -132,7 +130,7 @@ export default {
 	},
 	quiz: [
 		{
-			q: 'Un script de nettoyage lance `TopicTag.where(tag_id: 7).delete_all`. Que devient `tags.public_topic_count` pour le tag 7 ?',
+			q: 'Un script de nettoyage lance `TopicTag.where(tag_id: 7).delete_all`. Qu’arrive-t-il à `tags.public_topic_count` pour le tag 7 ?',
 			options: [
 				'Il garde son ancienne valeur jusqu’à ce que le prochain recomptage le corrige',
 				'Il baisse du nombre de lignes supprimées, grâce aux callbacks',
@@ -162,11 +160,15 @@ export default {
 				'Chaque refresh n’ajoute que les lignes modifiées depuis le refresh précédent'
 			],
 			answer: 1,
-			why: 'Une vue matérialisée est un résultat rangé. Elle ne change qu’au `REFRESH`, qui remplace tout son contenu. Sans `CONCURRENTLY`, ce refresh peut bloquer les lecteurs ; avec, la vue a besoin d’un index unique.'
+			why: 'PostgreSQL range le résultat de la vue, qui ne change qu’au `REFRESH`. Ce `REFRESH` remplace tout son contenu. Sans `CONCURRENTLY`, ce refresh peut bloquer les lecteurs ; avec, la vue a besoin d’un index unique.'
 		}
 	],
-	takeaway: 'Dénormalise pour rendre les lectures bon marché, mais nomme la source de vérité, mets la copie à jour dans la même transaction que la source, et fais tourner un recomptage qui corrige la dérive et te dit qu’elle a eu lieu.',
+	recall: {
+		q: 'Un script supprime des lignes avec `delete_all`. Pourquoi le `tags.public_topic_count` de Discourse est-il faux ensuite, et qu’est-ce qui le corrige ?',
+		a: '`delete_all` ne lance aucun callback, donc le `-1` ne s’exécute jamais. La tâche `EnsureDbConsistency` recompte depuis `topic_tags` toutes les 12 heures et réécrit les tags dont le compte diffère.'
+	},
 	sources: [
+		{ title: 'Rails, counter_cache.rb update_counters', url: `${RAILS}/counter_cache.rb#L108-L124` },
 		{ title: 'PostgreSQL docs, REFRESH MATERIALIZED VIEW', url: 'https://www.postgresql.org/docs/current/sql-refreshmaterializedview.html' },
 		{ title: 'PostgreSQL docs, Materialized Views', url: 'https://www.postgresql.org/docs/current/rules-materializedviews.html' },
 		{ title: 'Rails API, ActiveRecord::CounterCache', url: 'https://api.rubyonrails.org/classes/ActiveRecord/CounterCache/ClassMethods.html' },

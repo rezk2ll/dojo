@@ -9,14 +9,13 @@ export default {
 	hook: [
 		'Monthly maintenance window, Saturday night. You apply thirty changes in one go: a kernel update, a new nginx config, two app releases, a firewall rule. Sunday morning, **latency has doubled**.',
 		'Which of the thirty did it? You do not know. You roll back everything, lose the month\'s work, and the next window is even bigger.',
-		'Now picture one change at a time, each checked within minutes. When latency doubles, **you know exactly which change to look at**. That is the whole idea of today: small batches and fast feedback.'
+		'Now picture one change at a time, each checked within minutes. When latency doubles, **you know exactly which change to look at**.'
 	],
 	terms: [
 		{ term: 'Value stream', def: 'Every step a change goes through, from idea to running in production for users.' },
 		{ term: 'The Three Ways', def: 'Gene Kim\'s three principles behind DevOps: flow, feedback, and continual experimentation and learning.' },
 		{ term: 'Batch size', def: 'How much change you ship at once. One commit is a small batch. A quarterly release is a huge one.' },
-		{ term: 'Feedback loop', def: 'The path information takes back to the people who made a change: a failing test, an alert, a user complaint. Shorter is better.' },
-		{ term: 'Work in progress (WIP)', def: 'Work that is started but not finished. A WIP limit caps how many items can be in one step at the same time.' }
+		{ term: 'Work in progress (WIP)', def: 'Work that someone has started and not finished. A WIP limit caps how many items can be in one step at the same time.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -30,7 +29,7 @@ export default {
 					'class users ext'
 				],
 				highlight: ['idea', 'build', 'test', 'prod'],
-				note: '**The First Way: flow.** Look at the whole value stream, left to right, not at one team. A fast Build step is useless if work then waits two weeks in Test. Never pass a known defect downstream.'
+				note: 'The First Way is flow: look at the whole value stream, left to right, across every team. A fast Build step gains nothing if work then waits two weeks in Test. A known defect stays in the step where it was found.'
 			},
 			{
 				add: [
@@ -38,7 +37,7 @@ export default {
 					'users -.->|"complaints, usage"| idea'
 				],
 				highlight: ['prod', 'users'],
-				note: '**The Second Way: feedback.** Information flows right to left, back to the people who can act on it. The goal is to make these loops **shorter and louder**, so mistakes are fixed while they are still small.'
+				note: 'The Second Way is feedback: alerts, logs and complaints flow right to left, back to the people who can act on them. You make each loop **shorter and harder to miss**, so they fix a mistake while it is still small.'
 			},
 			{
 				add: [
@@ -47,17 +46,17 @@ export default {
 					'ci -.->|"red or green"| build'
 				],
 				highlight: ['ci'],
-				note: 'The shortest loop you can build. Every small change is checked automatically and the answer comes back in minutes, not at the end of the month. Small batches only work when checking them is cheap.'
+				note: 'CI checks every push automatically, and the author gets red or green within minutes, while the change is still fresh in their head. Without a cheap check like this, thirty small changes mean thirty manual checks.'
 			},
 			{
 				add: ['wip["WIP limit: max 3 cards in Build"]', 'wip -.-> build'],
 				highlight: ['wip'],
-				note: 'Start less, finish more. A WIP limit stops people juggling ten half-done tasks. DORA\'s advice: when you hit the limit and someone is idle, **do not raise the limit**. Help unblock the step that is stuck.'
+				note: 'With a limit of 3 cards, nobody can juggle ten half-done tasks in Build. DORA\'s advice: when you hit the limit and someone is idle, **keep the limit**. The idle person helps unblock the step that is stuck.'
 			},
 			{
 				add: ['learn["Learn and practice"]', 'prod -.->|"postmortem"| learn', 'learn --> idea'],
 				highlight: ['learn'],
-				note: '**The Third Way: experimentation and learning.** Take risks, learn from failure, and practice until it is routine. Time to improve daily work is planned, not left for "later".'
+				note: 'The Third Way is experimentation and learning: the team takes risks, learns from failures in postmortems, and practices until a task is routine. The team puts time to improve daily work in the plan, so it does not wait for "later".'
 			}
 		]
 	},
@@ -82,32 +81,32 @@ export default {
       run: |
         pytest`,
 		notes: [
-			'The workflow runs on **every push and every pull request** to the default branch. `$default-branch` is a template placeholder: GitHub replaces it with your repo\'s default branch name when you create the workflow ([docs](https://docs.github.com/en/actions/how-tos/reuse-automations/create-workflow-templates)). You will learn GitHub Actions in part 5.',
-			'The first `flake8` call only selects a few serious codes: `E9` (errors such as a file that does not even parse) and `F` codes such as `F82` (undefined names). Those fail the job. Cheap checks first, so the most common mistakes come back in seconds.',
-			'The second call adds `--exit-zero`: flake8 then exits with status 0 even when it finds problems ([flake8 options](https://flake8.pycqa.org/en/latest/user/options.html)). Style issues are reported, but they never stop the line. Choosing **which feedback blocks and which only informs** is a design decision.',
-			'Steps run in order. By default a step only runs if all previous steps succeeded ([status check functions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions)), so a broken lint skips `pytest`. You get the first failure fast instead of every failure slowly.'
+			'Lines 1 to 5: the workflow runs on **every push and every pull request** to the default branch. `$default-branch` is a template placeholder: GitHub replaces it with your repo\'s default branch name when you create the workflow ([docs](https://docs.github.com/en/actions/how-tos/reuse-automations/create-workflow-templates)). You will learn GitHub Actions in part 5.',
+			'Line 10: the first `flake8` call only selects a few serious codes: `E9` (errors such as a file that does not even parse) and `F` codes such as `F82` (undefined names). Those fail the job. These checks are cheap, so the most common mistakes come back in seconds.',
+			'Line 12 adds `--exit-zero`: flake8 then exits with status 0 even when it finds problems ([flake8 options](https://flake8.pycqa.org/en/latest/user/options.html)). Style issues show in the log and never fail the job. The team chose **which checks block a merge and which only report**.',
+			'Lines 13 to 15 run `pytest` after the lint step. By default a step only runs if all previous steps succeeded ([status check functions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions)), so a failing lint skips `pytest`. The author sees the lint failure after seconds instead of waiting for the full test suite.'
 		]
 	},
 	tradeoff: {
 		gain: [
 			'When something breaks, you know which small change to look at, and rolling back one change loses little.',
 			'Feedback arrives while the change is still fresh in the author\'s head.',
-			'Lower WIP means work actually finishes, and blockers become visible instead of hidden behind busy people.'
+			'With a WIP limit, started work gets finished, and a stuck step shows up as a full column instead of hiding behind busy people.'
 		],
 		cost: [
 			'Small batches need cheap checks and cheap deploys. Without automation, shipping thirty times costs thirty times the manual effort.',
 			'Unfinished features have to ship hidden (feature flags, dark launches), which is extra work and extra code paths.',
-			'WIP limits sometimes leave people waiting. That feels wasteful even when it is the right call.'
+			'A WIP limit sometimes leaves people with nothing to start, and the team has to accept that idle time.'
 		]
 	},
 	task: {
 		prompt: 'Take the monthly maintenance window from the hook: thirty changes, applied together on Saturday night, latency doubled and nobody knows why. Redesign it using the Three Ways. Name at least one concrete change for flow, one for feedback and one for learning.',
 		hint: 'Ask three questions. How can each change travel alone? How soon would you know it hurt latency? What will the team do differently next month?',
 		answer: [
-			'**Flow:** stop batching. Apply each change on its own (one kernel update, then the nginx config, then each release), ideally on a schedule of small daily or weekly changes instead of one big window.',
-			'**Feedback:** after each change, check a few key numbers (latency, error rate) before the next one. Automate those checks so the answer comes in minutes. Test config changes in CI before they reach a server.',
-			'**WIP:** do not start the next change until the current one is checked and done.',
-			'**Learning:** hold a short blameless review of the Saturday incident. The output is a change to the process (for example "each change has a rollback step written before it is applied"), not a person to blame.'
+			'Flow: stop batching. Apply each change on its own (one kernel update, then the nginx config, then each release), ideally on a schedule of small daily or weekly changes instead of one big window.',
+			'Feedback: after each change, check a few key numbers (latency, error rate) before the next one. Automate those checks so the answer comes in minutes. Test config changes in CI before they reach a server.',
+			'WIP: do not start the next change until the current one is checked and done.',
+			'Learning: hold a short blameless review of the Saturday incident. It ends with a change to the process, for example "each change has a rollback step written before it is applied". It names no one to blame.'
 		]
 	},
 	quiz: [
@@ -120,7 +119,7 @@ export default {
 				'Automating every server with configuration management'
 			],
 			answer: 1,
-			why: 'First Way: flow. Second Way: feedback loops, made shorter and louder. Third Way: experimentation and learning.'
+			why: 'First Way: flow, left to right. Second Way: feedback loops from right to left, made shorter and harder to miss. Third Way: experimentation and learning.'
 		},
 		{
 			q: 'Why does shipping in small batches make failures easier to fix?',
@@ -131,7 +130,7 @@ export default {
 				'Small batches need fewer servers, so there are fewer places for a failure to hide'
 			],
 			answer: 0,
-			why: 'One change per deploy means one suspect per incident. Thirty changes per deploy means thirty suspects.'
+			why: 'With one change per deploy, an incident has one suspect, and you roll back only that change. With thirty changes per deploy, you have thirty suspects.'
 		},
 		{
 			q: 'Your team has reached its WIP limit in the "In progress" column and two people have nothing to pick up. What does DORA recommend?',
@@ -142,10 +141,13 @@ export default {
 				'Track their new work in a separate, hidden column so the limit holds'
 			],
 			answer: 2,
-			why: 'The limit exists to expose bottlenecks. Raising it, splitting people or hiding work all bury the problem the limit just revealed.'
+			why: 'The limit shows where work is stuck. Raising it, splitting people or hiding work hides that stuck step again.'
 		}
 	],
-	takeaway: 'Ship less at once and learn sooner. Flow left to right, feedback right to left, and time set aside to learn from both.',
+	recall: {
+		q: 'What are Gene Kim\'s Three Ways, and what does DORA say to do when a team hits its WIP limit?',
+		a: 'Flow (left to right), feedback (right to left) and experimentation and learning. Keep the limit and have idle people help unblock the stuck step.'
+	},
 	sources: [
 		{ title: 'Gene Kim, The Three Ways: The Principles Underpinning DevOps', url: 'https://itrevolution.com/articles/the-three-ways-principles-underpinning-devops/' },
 		{ title: 'DORA, Working in small batches', url: 'https://dora.dev/capabilities/working-in-small-batches/' },

@@ -7,14 +7,13 @@ export default {
 	title: 'Networking: debug one layer at a time',
 	minutes: 10,
 	hook: [
-		'A user says the site is down. You ssh in, `systemctl status nginx` says active, and `curl localhost` works. It works on the server. So **where** does it break?',
-		'A request crosses four layers before nginx answers: **DNS** turns the name into an IP, **TCP** opens a connection to a port, **TLS** checks the certificate, and only then **HTTP** asks for the page. Each layer fails in its own way.',
-		'Today you test each layer on its own, with `dig`, `ss` and `curl`. Later you will debug containers and clusters the same way: one layer at a time, from the name down to the page.'
+		'A user says the site is down, so you ssh in. `systemctl status nginx` says active, and `curl localhost` works. It works on the server. So **where** does it break?',
+		'A request crosses four layers before nginx answers. DNS turns the name into an IP, TCP opens a connection to a port, TLS checks the certificate, and only then **HTTP asks for the page**.',
+		'You test each layer on its own, with `dig`, `ss` and `curl`, from the name down to the page. Containers and clusters later in the course are debugged in the same order.'
 	],
 	terms: [
 		{ term: 'DNS record', def: 'A name to value mapping. `A` gives an IPv4 address, `AAAA` an IPv6 address, `CNAME` another name. The TTL says how long resolvers may cache the answer.' },
 		{ term: 'Port', def: 'A number that picks one listening program on a host. On Linux, by default, a process needs root or the `CAP_NET_BIND_SERVICE` capability to bind a port below 1024.' },
-		{ term: 'TCP vs UDP', def: 'TCP opens a connection, then delivers bytes in order or reports failure. UDP sends single packets with no connection. DNS uses UDP, and [TCP too](https://www.rfc-editor.org/rfc/rfc7766) for big answers.' },
 		{ term: 'TLS certificate', def: 'A file that proves a server owns a name. The client checks that the name matches the URL, that a trusted CA signed it, and that it has not expired.' },
 		{ term: 'SNI', def: 'Server Name Indication: the client sends the host name inside the TLS handshake, so one IP can serve many certificates.' }
 	],
@@ -24,22 +23,22 @@ export default {
 			{
 				add: ['cl["curl https://example.com"]', 'cl -->|"1. name"| dns["DNS: example.com to 203.0.113.10"]', 'class dns ext'],
 				highlight: ['cl', 'dns'],
-				note: '`dig example.com +short` asks the DNS server listed in `/etc/resolv.conf` directly. `getent hosts example.com` does the same lookup your programs do, **`/etc/hosts` included**. When they disagree, you found your bug.'
+				note: '`dig example.com +short` asks the DNS server listed in `/etc/resolv.conf` directly. `getent hosts example.com` does the same lookup your programs do, **`/etc/hosts` included**. If the two print different addresses, look in `/etc/hosts` first.'
 			},
 			{
 				add: ['cl -->|"2. TCP connect"| port["Port 443 on 203.0.113.10"]'],
 				highlight: ['port'],
-				note: '**Connection refused**: the packet arrived, nothing listens there (or a firewall rejects). **Timeout**: the packet was dropped on the way. On the server, `ss -tlnp` lists listening TCP sockets with the process that owns each.'
+				note: 'Connection refused means the packet arrived and nothing listens there (or a firewall rejects it). A timeout means the packet was dropped on the way. On the server, `ss -tlnp` lists listening TCP sockets with **the process that owns each**.'
 			},
 			{
 				add: ['subgraph srv["Server"]', 'ngx["nginx: server_name example.com"]', 'end', 'port -->|"3. TLS with SNI"| ngx'],
 				highlight: ['ngx'],
-				note: 'The client sends the name in SNI, nginx picks a certificate. curl then checks that the **certificate name matches the URL** and that a trusted CA signed it. If not, it stops with exit code 60.'
+				note: 'The client sends the name in SNI, and nginx picks a certificate. curl then checks that the **certificate name matches the URL** and that a trusted CA signed it. If either check fails, curl stops with exit code 60.'
 			},
 			{
 				add: ['ngx -->|"4. HTTP with Host header"| app["Site files or app"]'],
 				highlight: ['app'],
-				note: 'Only now does HTTP start. nginx picks the `server` block by the **Host header**. No match means the default server for that port. `curl -I` shows the status line and headers.'
+				note: 'Only now does HTTP start. nginx picks the `server` block by the **Host header**. If no block matches, the default server for that port answers. `curl -I` shows the status line and headers.'
 			},
 			{
 				add: [],
@@ -78,11 +77,11 @@ server {
   include h5bp/tls/certificate_files.conf;
   include h5bp/tls/policy_balanced.conf;`,
 		notes: [
-			'Two `server` blocks on the same port 443. nginx tells them apart by **name**: SNI during the TLS handshake, then the Host header. With no match, the first block for that port is the default.',
-			'`listen [::]:443` and `listen 443` are separate sockets, one for IPv6, one for IPv4. If DNS publishes an `AAAA` record and you forget the IPv6 line, IPv6 users fail while your IPv4 test passes.',
-			'The `www` block only redirects, but it still needs a certificate that covers `www.example.com`. TLS comes **before** HTTP, so a wrong certificate stops the browser before it ever sees the 301.',
-			'The included [certificate_files.conf](https://github.com/h5bp/server-configs-nginx/blob/d2f2c3e2fac76f429adb738894499b8fb756d2f3/h5bp/tls/certificate_files.conf#L5-L24) points at `default.crt`, served when a client sends no SNI. Replace it with your real certificate and key.',
-			'The `http2` parameter on `listen` is [deprecated in current nginx](https://nginx.org/en/docs/http/ngx_http_core_module.html#listen) in favour of the `http2` directive. Configs you copy age. Check them against the docs of the version you run.'
+			'Lines 1 and 14 open two `server` blocks on the same port 443. nginx tells them apart by the names on lines 5 and 20: SNI during the TLS handshake, then the Host header. With no match, the first block for that port is the default.',
+			'Lines 2 and 3 are separate sockets, one for IPv6, one for IPv4. If DNS publishes an `AAAA` record and you forget the IPv6 line, IPv6 users fail while your IPv4 test passes.',
+			'Line 11: the `www` block only redirects, but it still needs a certificate that covers `www.example.com`. TLS comes **before** HTTP, so a wrong certificate stops the browser before it ever sees the 301.',
+			'Line 8 includes [certificate_files.conf](https://github.com/h5bp/server-configs-nginx/blob/d2f2c3e2fac76f429adb738894499b8fb756d2f3/h5bp/tls/certificate_files.conf#L5-L24), which points at `default.crt`, served when a client sends no SNI. Replace it with your real certificate and key.',
+			'Lines 2 and 3 use the `http2` parameter on `listen`, which [current nginx deprecates](https://nginx.org/en/docs/http/ngx_http_core_module.html#listen) in favour of the `http2` directive. Check a copied config against the docs of the nginx version you run.'
 		]
 	},
 	tradeoff: {
@@ -92,18 +91,18 @@ server {
 			'The same method works later inside a container or a Kubernetes cluster: name, port, TLS, HTTP.'
 		],
 		cost: [
-			'`dig` does not read `/etc/hosts`, so `dig` and `curl` can disagree. That is a feature, but it confuses people.',
-			'DNS answers are cached for their TTL. A fixed record is not fixed everywhere at once.',
-			'`curl -k` skips certificate checks. It makes the error go away and hides the very problem you were debugging.'
+			'`dig` does not read `/etc/hosts`, so `dig` and `curl` can return different addresses for the same name.',
+			'Resolvers cache a DNS answer for its TTL, so after you change a record, some users get the old address until the TTL runs out.',
+			'`curl -k` skips certificate checks. The error goes away, and the certificate problem you were debugging stays hidden.'
 		]
 	},
 	task: {
 		prompt: 'You move example.com to a new server, 198.51.100.7, and update DNS. Some users still get the old site, others get a certificate error. Write the checks you run, layer by layer.',
 		hint: 'Test the new server under its real name **without** DNS first. Then look at what each resolver answers, for IPv4 and IPv6.',
 		answer: [
-			'**TCP** on the new server: `ss -tlnp` shows nginx listening on 443, on both `0.0.0.0` and `[::]`.',
-			'**TLS and HTTP** without DNS: `curl -v --resolve example.com:443:198.51.100.7 https://example.com/`. Read the certificate subject and the status line. Repeat for `www.example.com`.',
-			'**DNS**: `dig example.com +short` against your resolver and against a public one (`dig @1.1.1.1 example.com +short`). Old answers stay until the TTL runs out.',
+			'TCP on the new server: `ss -tlnp` shows nginx listening on 443, on both `0.0.0.0` and `[::]`.',
+			'TLS and HTTP without DNS: `curl -v --resolve example.com:443:198.51.100.7 https://example.com/`. Read the certificate subject and the status line. Repeat for `www.example.com`.',
+			'DNS: `dig example.com +short` against your resolver and against a public one (`dig @1.1.1.1 example.com +short`). Old answers stay until the TTL runs out.',
 			'Also `dig example.com AAAA +short`: an old IPv6 record still sends IPv6 users to the old server.',
 			'Never "fix" the certificate error with `-k`. Find which name the certificate does not cover.'
 		]
@@ -143,12 +142,16 @@ server {
 			why: 'The certificate is part of the TLS handshake, and HTTP only starts once TLS is set up. SNI puts the name inside the handshake itself.'
 		}
 	],
-	takeaway: 'Name, port, TLS, HTTP: test them in that order, one tool each, and you will always know which layer broke.',
+	recall: {
+		q: 'In which order do you test the layers of a failing HTTPS request, and which tool checks each one?',
+		a: 'Name, port, TLS, HTTP. `dig` checks the name, `ss -tlnp` the port, and `curl -v` the TLS and HTTP.'
+	},
 	sources: [
 		{ title: 'curl manual (--resolve, -w, --fail, exit codes)', url: 'https://curl.se/docs/manpage.html' },
 		{ title: 'BIND 9 manual pages, dig', url: 'https://bind9.readthedocs.io/en/stable/manpages.html#dig-dns-lookup-utility' },
 		{ title: 'ss(8) manual page', url: 'https://man7.org/linux/man-pages/man8/ss.8.html' },
 		{ title: 'nginx, Configuring HTTPS servers (SNI, certificate chains)', url: 'https://nginx.org/en/docs/http/configuring_https_servers.html' },
-		{ title: 'nginx, How nginx processes a request', url: 'https://nginx.org/en/docs/http/request_processing.html' }
+		{ title: 'nginx, How nginx processes a request', url: 'https://nginx.org/en/docs/http/request_processing.html' },
+		{ title: 'RFC 7766, DNS transport over TCP', url: 'https://www.rfc-editor.org/rfc/rfc7766' }
 	]
 };

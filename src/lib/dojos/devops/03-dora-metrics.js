@@ -9,15 +9,13 @@ export default {
 	hook: [
 		'Your manager asks: "Are we getting better at this?" You show uptime (99.9%) and tickets closed (212). Neither number says **whether changes reach users faster, or break things less often**.',
 		'DORA, a research program run by Google Cloud, has studied software teams for over a decade. It found a small set of numbers that describe software delivery and predict how well the organization does.',
-		'The surprise in the data: **speed and stability are not a trade-off**. For most teams they move together. Top performers do well on all five numbers, low performers do poorly on all five.'
+		'In DORA\'s data, **speed and stability move together** for most teams. Top performers do well on all five numbers, and low performers do poorly on all five.'
 	],
 	terms: [
 		{ term: 'Change lead time', def: 'Time from a change being committed to version control to that change running in production.' },
-		{ term: 'Deployment frequency', def: 'How many deployments to production in a period, or the time between deployments.' },
 		{ term: 'Failed deployment recovery time', def: 'How long it takes to recover from a deployment that fails and needs immediate intervention.' },
 		{ term: 'Change fail rate', def: 'The share of deployments that need immediate intervention afterwards, usually a rollback or a hotfix.' },
-		{ term: 'Deployment rework rate', def: 'The share of deployments that were not planned, but happened because of an incident in production.' },
-		{ term: 'Throughput and instability', def: 'DORA\'s two groups. Throughput: lead time, deployment frequency, recovery time. Instability: change fail rate, rework rate.' }
+		{ term: 'Deployment rework rate', def: 'The share of deployments that someone made unplanned, because of an incident in production.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -25,27 +23,27 @@ export default {
 			{
 				add: ['commit["Commit in version control"] -->|"change lead time"| deploy["Running in production"]'],
 				highlight: ['commit', 'deploy'],
-				note: '**Change lead time** starts at the commit, not at the ticket. It shows how long finished code waits: in review, in a queue for the test environment, in the next release window.'
+				note: 'Change lead time starts at the commit, so the time a ticket spent in the backlog does not count. It shows how long finished code waits: in review, in a queue for the test environment, until the next release window.'
 			},
 			{
 				add: ['deploy -->|"how often"| freq["Deployments per week"]'],
 				highlight: ['freq'],
-				note: '**Deployment frequency.** Counted per application or service. Frequent deploys usually mean small batches, which is why this number moves together with the others.'
+				note: 'Deployment frequency is counted per application or service. Frequent deploys usually mean small batches, which is why this number moves together with the others.'
 			},
 			{
 				add: ['deploy -->|"needs rollback or hotfix"| fail["Failed deployment"]'],
 				highlight: ['fail'],
-				note: '**Change fail rate** is failed deployments divided by all deployments. 1 failure out of 4 deploys is 25%. The hard part is deciding, for each incident, **which deployment caused it**.'
+				note: 'Change fail rate is failed deployments divided by all deployments. 1 failure out of 4 deploys is 25%. The hard part is deciding, for each incident, **which deployment caused it**.'
 			},
 			{
 				add: ['fail -->|"failed deployment recovery time"| ok["Service recovered"]'],
 				highlight: ['ok'],
-				note: '**Failed deployment recovery time.** In 2023 DORA replaced "time to restore service" (MTTR) with this narrower metric. It only counts failures caused by a change, not a data center outage you had no part in.'
+				note: 'In 2023 DORA replaced "time to restore service" (MTTR) with failed deployment recovery time. The new metric only counts failures caused by a change. A data center outage you had no part in stays out of it.'
 			},
 			{
 				add: ['fail -.->|"unplanned"| hotfix["Hotfix deployment"]', 'hotfix --> deploy'],
 				highlight: ['hotfix'],
-				note: '**Deployment rework rate**, added in 2024: the share of deployments that are unplanned fixes for production incidents. Together with change fail rate it measures **instability**. Five metrics in total.'
+				note: 'DORA added deployment rework rate in 2024: the share of deployments that are unplanned fixes for production incidents. Together with change fail rate it measures **instability**. The other three measure throughput, for five metrics in total.'
 			}
 		]
 	},
@@ -73,33 +71,33 @@ GROUP BY 1,2
 HAVING max(bug) is True
 ;`,
 		notes: [
-			'Four Keys is an open-source project from the DORA team to compute the metrics in BigQuery from events sent by tools such as GitHub, GitLab or PagerDuty. The repo is **archived** and its README still lists the old four names, such as "Time to Restore Services". Read it for the idea, not as the current definitions.',
-			'An incident is a GitHub or GitLab issue with the label `Incident`, or any PagerDuty event. **No label, no incident**: a failure handled in a chat channel never reaches the numbers.',
-			'The link between a failure and a deployment is plain text: the event must contain `root cause: <commit id>`. The `LEFT JOIN` matches that id against the commits each deployment shipped. This is how a failure gets blamed on a deploy, and it depends on people writing that line.',
-			'`time_created` takes the earlier of the deploy time and the issue time. So recovery is measured from the deployment that caused the failure until the issue is closed, which is how the [README](https://github.com/dora-team/fourkeys/blob/6cc642e037a95a280ed8d3b1624dd003b647d797/README.md?plain=1#L416-L418) defines it.'
+			'Four Keys is an open-source project from the DORA team to compute the metrics in BigQuery from events sent by tools such as GitHub, GitLab or PagerDuty. The repo is **archived** and its README still lists the old four names, such as "Time to Restore Services". Use it to see how the numbers are computed, and take the current definitions from dora.dev.',
+			'Lines 10 to 13: an incident is a GitHub or GitLab issue with the label `Incident`, or any PagerDuty event. **A failure handled in a chat channel, with no labelled issue, never reaches the numbers.**',
+			'Line 9 links a failure to a deployment through plain text: the event must contain `root cause: <commit id>`. The `LEFT JOIN` on line 15 matches that id against the commits each deployment shipped. If nobody writes that line, the failure is never tied to a deploy.',
+			'Line 5: `time_created` takes the earlier of the deploy time and the issue time. So recovery is measured from the deployment that caused the failure until the issue is closed, which is how the [README](https://github.com/dora-team/fourkeys/blob/6cc642e037a95a280ed8d3b1624dd003b647d797/README.md?plain=1#L416-L418) defines it.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Speed and stability are measured together, so nobody can win one by sacrificing the other without it showing.',
-			'Dev and ops look at the same few numbers for the same service, which gives them a shared language.',
+			'A team that deploys more often by skipping tests sees it in its change fail rate, because DORA measures speed and stability side by side.',
+			'Dev and ops look at the same five numbers for the same service.',
 			'You can track one service over time and see whether a change to the process really helped.'
 		],
 		cost: [
-			'Turn a metric into a target and people game it (Goodhart\'s law): split one deploy into ten, close incidents early.',
-			'The data is scattered across Git, CI, the deploy tool and the incident tracker. Linking a failure to its deploy takes discipline.',
-			'The numbers are meant per application. Comparing a mobile app with a mainframe system, or team against team, misleads.'
+			'When a metric is a target, people game it (Goodhart\'s law): they split one deploy into ten, or close incidents early.',
+			'The data is scattered across Git, CI, the deploy tool and the incident tracker. A failure counts only if someone writes `root cause: <commit id>` on it.',
+			'The numbers describe one application each, so ranking a mobile app against a mainframe system, or one team against another, misleads.'
 		]
 	},
 	task: {
-		prompt: 'One service, last four weeks: **20** deployments. **3** of them needed a rollback or hotfix right away; recovery took 30 min, 2 h and 40 min. **2** of the 20 were unplanned hotfix deploys made because of production incidents. A typical commit is merged on Monday and deployed on Thursday. Compute the five metrics, then say which one you would work on first and why.',
-		hint: 'Rates are "how many out of all deployments". For recovery time, a median is less fooled by one bad incident than an average.',
+		prompt: 'One service, last four weeks: **20 deployments**. 3 of them needed a rollback or hotfix right away; recovery took 30 min, 2 h and 40 min. 2 of the 20 were unplanned hotfix deploys made because of production incidents. A typical commit is merged on Monday and deployed on Thursday. Compute the five metrics, then say which one you would work on first and why.',
+		hint: 'A rate counts how many deployments out of all deployments. For recovery time, one bad incident moves a median less than an average.',
 		answer: [
-			'**Deployment frequency:** 20 in 4 weeks, so about 5 per week.',
-			'**Change fail rate:** 3 / 20 = 15%. **Deployment rework rate:** 2 / 20 = 10%.',
-			'**Failed deployment recovery time:** median of 30 min, 40 min, 2 h = 40 min.',
-			'**Change lead time:** at least 3 days: Monday merge to Thursday deploy, plus any time the commit spent in review before the merge.',
-			'Work on **lead time** first: code that is done sits for three days. Ask what it waits for (a release day? a manual approval? a shared test environment?). Shorter waits also mean smaller batches, which tends to lower the fail rate too. And do not announce a target number: improve the process and watch the metric.'
+			'Deployment frequency: 20 in 4 weeks, so about 5 per week.',
+			'Change fail rate: 3 / 20 = 15%. Deployment rework rate: 2 / 20 = 10%.',
+			'Failed deployment recovery time: median of 30 min, 40 min, 2 h = 40 min.',
+			'Change lead time: at least 3 days: Monday merge to Thursday deploy, plus any time the commit spent in review before the merge.',
+			'Work on **lead time** first: code that is done sits for three days. Ask what it waits for (a release day? a manual approval? a shared test environment?). Shorter waits also mean smaller batches, which tends to lower the fail rate too. Do not announce a target number: improve the process and watch the metric.'
 		]
 	},
 	quiz: [
@@ -137,7 +135,10 @@ HAVING max(bug) is True
 			why: 'DORA cites Goodhart\'s law: once the metric is the target, teams find ways to hit the number without improving delivery.'
 		}
 	],
-	takeaway: 'Five numbers per service: change lead time, deployment frequency, failed deployment recovery time, change fail rate, deployment rework rate. Use them to see if you improve, never as a target.',
+	recall: {
+		q: 'Which five numbers does DORA track per service, and why should a manager not set one of them as a target?',
+		a: 'Change lead time, deployment frequency, failed deployment recovery time, change fail rate and deployment rework rate. A target invites gaming (Goodhart\'s law), like splitting one deploy into ten.'
+	},
 	sources: [
 		{ title: 'DORA, Software delivery performance metrics', url: 'https://dora.dev/guides/dora-metrics/' },
 		{ title: 'DORA, A history of DORA\'s software delivery metrics', url: 'https://dora.dev/insights/dora-metrics-history/' },

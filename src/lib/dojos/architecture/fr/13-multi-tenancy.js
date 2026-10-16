@@ -13,10 +13,10 @@ export default {
 		'Ce que les tenants partagent, ce n’est pas oui ou non. C’est un **spectre** : de tout partager jusqu’à un déploiement par tenant. Le multisite de Discourse se place au milieu, volontairement, et il le paie d’une façon bien précise.'
 	],
 	terms: [
-		{ term: 'Tenant', def: 'Tenant (locataire) : un client dont les données doivent rester séparées de celles des autres. Dans le multisite de Discourse, un tenant est un site, identifié par son nom d’hôte.' },
+		{ term: 'Tenant (locataire)', def: 'Un client dont les données doivent rester séparées de celles des autres. Dans le multisite de Discourse, un tenant est un site, identifié par son nom d’hôte.' },
 		{ term: 'Multi-tenant', def: 'Un seul système en marche qui sert plusieurs tenants, au lieu d’une copie par tenant.' },
 		{ term: 'Niveau d’isolation', def: 'Ce que les tenants partagent : les mêmes tables, le même serveur mais des bases à eux, ou un déploiement à eux. Plus d’isolation coûte plus cher à faire tourner.' },
-		{ term: 'Noisy neighbour', def: 'Noisy neighbour (voisin bruyant) : la charge d’un tenant qui ralentit les autres, parce qu’ils partagent du CPU, des workers ou une base de données.' }
+		{ term: 'Noisy neighbour (voisin bruyant)', def: 'La charge d’un tenant qui ralentit les autres, parce qu’ils partagent du CPU, des workers ou une base de données.' }
 	],
 	diagram: {
 		direction: 'TD',

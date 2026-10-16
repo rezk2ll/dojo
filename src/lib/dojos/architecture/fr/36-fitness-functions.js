@@ -9,11 +9,11 @@ export default {
 	hook: [
 		'Ta boutique en ligne a une règle de couches comme celle du jour 10 : `web` appelle `service`, `service` appelle `repository`, jamais dans l’autre sens. Rien ne la vérifie. L’an prochain, quelqu’un de pressé importe un helper web depuis un repository. La CI est verte, le relecteur ne voit rien, et **la règle disparaît sans que personne ait décidé de l’abandonner**.',
 		'Les règles qui vivent seulement dans un document ou dans la tête d’un relecteur dérivent. La solution est la même que pour les fonctionnalités : un test. Pas pour la fonctionnalité, pour la **caractéristique d’architecture**.',
-		'Le livre Building Evolutionary Architectures appelle ça une **fitness function**. Comme le dit un article de Thoughtworks : « Les fitness functions décrivent à quel point une architecture est proche d’atteindre un objectif architectural. » Apache Kafka en a une pour ses couches, et elle tourne sur chaque pull request. Allons la lire.'
+		'Le livre Building Evolutionary Architectures appelle ça une **fitness function**. Comme le dit un article de Thoughtworks : « Fitness functions describe how close an architecture is to achieving an architectural aim. » (les fitness functions décrivent à quel point une architecture est proche d’atteindre un objectif d’architecture). Apache Kafka en a une pour ses couches, et elle tourne sur chaque pull request. Allons la lire.'
 	],
 	terms: [
 		{ term: 'Fitness function', def: 'Une vérification objective d’une caractéristique d’architecture. La plupart sont automatisées et donnent un succès ou un échec, pas une opinion. Le livre admet aussi des vérifications manuelles, qui demandent un humain.' },
-		{ term: 'Architecture évolutive', def: 'Une architecture conçue pour changer par petits pas. Selon les auteurs, elle rend « explicite ce que “adapté” veut dire, avec autant d’automatisation que possible ».' },
+		{ term: 'Architecture évolutive', def: 'Une architecture conçue pour changer par petits pas. Selon les auteurs, elle rend « explicit what “fit” means with as much automation as possible » (explicite ce que « adapté » veut dire, avec autant d’automatisation que possible).' },
 		{ term: 'Dérive', def: 'Le code qui s’éloigne lentement d’une décision, un changement d’apparence raisonnable à la fois.' },
 		{ term: 'Allowlist', def: 'Une règle qui interdit tout sauf ce qu’elle nomme. Les exceptions connues sont listées une par une, donc une nouvelle violation ne peut pas passer inaperçue.' },
 		{ term: 'Déclenchée ou continue', def: 'Les vérifications déclenchées tournent sur un événement (un commit, une release, un lancement manuel). Les continues tournent en permanence, comme le monitoring de production.' }

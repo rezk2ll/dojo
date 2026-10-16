@@ -15,11 +15,11 @@ export default {
 		'Les jours 20 et 21 ont tracé les frontières entre les bounded contexts. Aujourd’hui, on regarde l’intérieur d’un seul. Eric Evans a nommé les pièces : **value objects**, **entities**, **aggregates**, **repositories**, et plus tard **domain events**. On les lit dans Spring PetClinic, l’application d’exemple classique de Spring.'
 	],
 	terms: [
-		{ term: 'Value object', def: 'Objet valeur : défini uniquement par sa valeur. Immuable, comparé par son contenu, il se vérifie lui-même à sa construction. Deux dates qui disent toutes les deux 2026-03-14 sont la même date.' },
-		{ term: 'Entity', def: 'Entité : elle a une identité qui dure pendant que ses attributs changent. Leo reste le même animal quand on corrige son nom ou sa date de naissance.' },
-		{ term: 'Aggregate', def: 'Agrégat : un groupe d’objets modifiés comme une seule unité, à travers une seule **racine**. Ses **invariants**, les règles qui doivent toujours tenir, sont vérifiés à l’intérieur.' },
-		{ term: 'Repository', def: 'Dépôt : il ressemble à une collection d’aggregates. On ajoute, on cherche, on retire des aggregates entiers. La base de données reste derrière.' },
-		{ term: 'Domain event', def: 'Événement du domaine : un fait qui compte pour le domaine, au passé : « une visite a été réservée ». D’autres y réagissent sans que l’aggregate les connaisse.' }
+		{ term: 'Value object (objet valeur)', def: 'Défini uniquement par sa valeur. Immuable, comparé par son contenu, il se vérifie lui-même à sa construction. Deux dates qui disent toutes les deux 2026-03-14 sont la même date.' },
+		{ term: 'Entity (entité)', def: 'Elle a une identité qui dure pendant que ses attributs changent. Leo reste le même animal quand on corrige son nom ou sa date de naissance.' },
+		{ term: 'Aggregate (agrégat)', def: 'Un groupe d’objets modifiés comme une seule unité, à travers une seule **racine**. Ses **invariants**, les règles qui doivent toujours tenir, sont vérifiés à l’intérieur.' },
+		{ term: 'Repository (dépôt)', def: 'Il ressemble à une collection d’aggregates. On ajoute, on cherche, on retire des aggregates entiers. La base de données reste derrière.' },
+		{ term: 'Domain event (événement du domaine)', def: 'Un fait qui compte pour le domaine, au passé : « une visite a été réservée ». D’autres y réagissent sans que l’aggregate les connaisse.' }
 	],
 	diagram: {
 		direction: 'TD',

@@ -8,12 +8,12 @@ export default {
 	title: 'CQRS et event sourcing',
 	minutes: 10,
 	hook: [
-		'Un client de ta boutique en ligne écrit au support : « Pourquoi la commande 1042 a-t-elle été annulée ? » La ligne `orders` dit `Cancelled`. Elle ne dit pas quand, par qui, ni à quoi ressemblait la commande avant. **La ligne garde le dernier état et oublie comment elle y est arrivée.**',
-		'L’**event sourcing** garde le « comment ». Chaque changement est ajouté comme **événement** à l’historique de la commande, et l’état courant est ce que tu obtiens en **rejouant** cet historique.',
+		'Un client de ta boutique en ligne écrit au support au sujet de la commande client 1042 : « Pourquoi a-t-elle été annulée ? » La ligne `orders` dit `Cancelled`. Elle ne dit pas quand, par qui, ni à quoi ressemblait la commande client avant. **La ligne garde le dernier état et oublie comment elle y est arrivée.**',
+		'L’**event sourcing** garde le « comment ». Chaque changement est ajouté comme **événement** à l’historique de la commande client, et l’état courant est ce que tu obtiens en **rejouant** cet historique.',
 		'Rejouer à chaque lecture prend du temps, et les écrans veulent de toute façon d’autres formes. Alors tu sépares le modèle qui modifie les données de celui qui les lit. Cette séparation, c’est **CQRS**, et ça marche avec ou sans event sourcing.'
 	],
 	terms: [
-		{ term: 'Commande', def: 'Une demande de changement, qui peut être refusée. À l’impératif : `CancelOrder`.' },
+		{ term: 'Command (commande)', def: 'Une demande de changement, qui peut être refusée. À l’impératif : `CancelOrder`.' },
 		{ term: 'Événement', def: 'Un fait qui s’est produit, au passé, jamais modifié : `OrderCancelled`. Stocké dans l’ordre, numéroté par stream.' },
 		{ term: 'Event store', def: 'Un journal d’événements en ajout seul (append-only), un stream par agrégat. L’état courant est un replay du stream.' },
 		{ term: 'Snapshot', def: 'Une copie sauvegardée de l’état à un numéro d’événement donné, pour qu’un replay puisse partir de là plutôt que de l’événement zéro.' },
@@ -36,7 +36,7 @@ export default {
 			{
 				add: ['es[("event stream : order-1042")] -.->|"replay : Placed, Paid, Cancelled"| agg["Order, reconstruite"]', 'agg -.->|"ajoute l’événement n+1"| es'],
 				highlight: ['es', 'agg'],
-				note: '**L’event sourcing, comme design pour ta boutique.** Au lieu d’écraser une ligne, `CancelOrder` ajoute `OrderCancelled` au stream de la commande. Pour décider de la prochaine demande, tu pars d’une commande vide et tu appliques chaque événement passé dans l’ordre.'
+				note: '**L’event sourcing, comme design pour ta boutique.** Au lieu d’écraser une ligne, la command ajoute `OrderCancelled` au stream de la commande client. Pour décider de la prochaine command, tu pars d’une commande client vide et tu appliques chaque événement passé dans l’ordre.'
 			},
 			{
 				add: ['w2["second écrivain, aussi en version n"] -.->|"ajout refusé, recharge, réessaie"| es'],
@@ -44,7 +44,7 @@ export default {
 				note: '**Concurrence optimiste.** Chaque ajout indique à quelle version il s’attend à trouver le stream. Si quelqu’un a déjà écrit l’événement n+1, le store refuse l’ajout. Le perdant recharge l’historique et décide à nouveau. Aucun verrou n’est tenu.'
 			},
 			{
-				add: ['es --> proj["projection"]', 'proj --> rt[("table de lecture : commandes par client")]'],
+				add: ['es --> proj["projection"]', 'proj --> rt[("table de lecture : commandes client, par client")]'],
 				highlight: ['proj', 'rt'],
 				note: '**Modèle de lecture.** Une projection lit les événements et tient une table façonnée pour un écran. Elle a un peu de retard sur le stream. Et comme les événements sont la vérité, tu peux supprimer la table et la reconstruire en les rejouant.'
 			}
@@ -86,14 +86,14 @@ export default {
   end`,
 		notes: [
 			'**C’est une reconstruction de projection.** Elle remplit le fil d’accueil d’un utilisateur à partir de zéro, en lisant les posts dans la base : ceux de l’utilisateur, puis ceux de chaque compte qu’il suit. Le chemin quotidien est moins coûteux : [`push_to_home`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/lib/feed_manager.rb#L74-L83) ajoute un nouveau post à un fil, puis le tronque.',
-			'Le modèle de lecture est **jetable**. Un fil garde au plus [`MAX_ITEMS = 800`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/lib/feed_manager.rb#L7-L8) ids, et seuls les utilisateurs connectés récemment reçoivent les pushs. Quand un utilisateur inactif revient, Mastodon [met en file une régénération](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/models/user.rb#L532-L553). La commande d’admin [`tootctl feeds build`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/lib/mastodon/cli/feeds.rb#L15-L43) reconstruit les fils « stockés dans Redis depuis la base de données ».',
+			'Le modèle de lecture est **jetable**. Un fil garde au plus [`MAX_ITEMS = 800`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/lib/feed_manager.rb#L7-L8) ids, et seuls les utilisateurs connectés récemment reçoivent les pushs. Quand un utilisateur inactif revient, Mastodon [met en file une régénération](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/models/user.rb#L532-L553). L’outil d’admin [`tootctl feeds build`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/lib/mastodon/cli/feeds.rb#L15-L43) reconstruit les fils « stored in Redis from the database » (stockés dans Redis, depuis la base de données).',
 			'**Le retard se voit.** Pendant qu’un fil est reconstruit, l’API du fil d’accueil [répond `206` au lieu de `200`](https://github.com/mastodon/mastodon/blob/7f90e0fd72457065096d13cdcbfd0713c88de933/app/controllers/api/v1/timelines/home_controller.rb#L11-L23), pour que l’appli sache que la liste est peut-être incomplète.',
-			'Mastodon fait du CQRS **sans** event sourcing : la source de vérité est l’état courant de chaque post, pas un journal d’événements. Pour de l’event sourcing à grande échelle, regarde Temporal : chaque workflow garde un [Event History](' + TEMPORAL + '/workflow-execution/event), « un journal d’événements en ajout seul », et un worker qui crashe [rejoue le code contre lui](' + TEMPORAL + '/encyclopedia/event-history) pour reconstruire son état.'
+			'Mastodon fait du CQRS **sans** event sourcing : la source de vérité est l’état courant de chaque post, pas un journal d’événements. Pour de l’event sourcing à grande échelle, regarde Temporal : chaque workflow garde un [Event History](' + TEMPORAL + '/workflow-execution/event), « an append-only log of Events » (un journal d’événements en ajout seul), et un worker qui crashe [rejoue le code contre lui](' + TEMPORAL + '/encyclopedia/event-history) pour reconstruire son état.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Un historique complet gratuit. Chaque changement est un fait stocké, dans l’ordre, donc « pourquoi la 1042 a-t-elle été annulée ? » a une réponse. Temporal dit que son Event History « sert aussi de journal d’audit pour le débogage ».',
+			'Un historique complet gratuit. Chaque changement est un fait stocké, dans l’ordre, donc « pourquoi la 1042 a-t-elle été annulée ? » a une réponse. Temporal dit que son Event History « also serves as an audit log for debugging » (sert aussi de journal d’audit pour le débogage).',
 			'De la concurrence sans verrous : deux écrivains à la même version ne peuvent pas ajouter tous les deux l’événement n+1.',
 			'Des modèles de lecture façonnés pour un écran, que tu peux reconstruire depuis la source de vérité. Le fil d’accueil de Mastodon est une courte liste d’ids, lue en un seul appel.'
 		],
@@ -104,7 +104,7 @@ export default {
 		]
 	},
 	task: {
-		prompt: 'Ta boutique fait de l’event sourcing sur ses commandes : un stream par commande, deux ans d’événements. Le produit veut une nouvelle page, « annulations par jour ». Écris les étapes pour construire son modèle de lecture, dans l’ordre, et dis ce que la page affiche si tu abonnes seulement la projection aux nouveaux événements.',
+		prompt: 'Ta boutique fait de l’event sourcing sur ses commandes client : un stream par commande client, deux ans d’événements. Le produit veut une nouvelle page, « annulations par jour ». Écris les étapes pour construire son modèle de lecture, dans l’ordre, et dis ce que la page affiche si tu abonnes seulement la projection aux nouveaux événements.',
 		hint: 'Une projection ne voit que les événements qu’on lui donne. Où sont les deux ans d’anciens événements ? Et qu’arrive-t-il à un événement qui arrive deux fois ?',
 		answer: [
 			'Sans backfill, la page démarre à zéro le jour du déploiement. Deux ans d’annulations ont l’air de n’avoir jamais existé.',
@@ -115,15 +115,15 @@ export default {
 	},
 	quiz: [
 		{
-			q: 'Dans un système en event sourcing, d’où vient l’état courant d’un agrégat quand une commande arrive ?',
+			q: 'Dans un système en event sourcing, d’où vient l’état courant d’un agrégat quand une command arrive ?',
 			options: [
 				'D’une colonne de statut écrasée à chaque changement',
 				'Du replay des événements de son stream dans l’ordre, en partant éventuellement d’un snapshot',
 				'De la table du modèle de lecture qui sert les écrans',
-				'Du client, qui envoie l’état complet avec chaque commande'
+				'Du client, qui envoie l’état complet avec chaque command'
 			],
 			answer: 1,
-			why: 'Le stream d’événements est la vérité. Tu pars de rien, ou d’un snapshot, et tu appliques chaque événement dans l’ordre. Les modèles de lecture sont dérivés des événements et peuvent avoir du retard, donc les commandes ne décident pas à partir d’eux.'
+			why: 'Le stream d’événements est la vérité. Tu pars de rien, ou d’un snapshot, et tu appliques chaque événement dans l’ordre. Les modèles de lecture sont dérivés des événements et peuvent avoir du retard, donc les commands ne décident pas à partir d’eux.'
 		},
 		{
 			q: 'Mastodon enregistre les posts dans sa base et garde le fil d’accueil de chaque utilisateur comme une liste d’ids de posts dans Redis, reconstruite depuis la base au besoin. Aucun événement n’est stocké. Est-ce du CQRS ?',
@@ -137,7 +137,7 @@ export default {
 			why: 'CQRS veut dire un modèle pour modifier les données et un autre pour les lire. Fowler note que les deux modèles peuvent même partager une base. L’event sourcing est une façon d’alimenter un côté lecture, pas une obligation.'
 		},
 		{
-			q: 'Deux requêtes chargent la commande 1042 en version 7, et toutes deux essaient d’ajouter un événement. Le store utilise la concurrence optimiste. Que se passe-t-il ?',
+			q: 'Deux requêtes chargent la commande client 1042 en version 7, et toutes deux essaient d’ajouter un événement. Le store utilise la concurrence optimiste. Que se passe-t-il ?',
 			options: [
 				'Le premier ajout devient l’événement 8 ; le second est refusé parce que le stream n’est plus en version 7, donc il recharge et décide à nouveau',
 				'Les deux sont stockés comme événement 8, et le replay garde le plus récent',

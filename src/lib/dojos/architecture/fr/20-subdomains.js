@@ -23,7 +23,7 @@ export default {
 			{
 				add: ['core["Cœur : réseau social fédéré"]', 'core --> fan["Timelines : fan-out à l’écriture"]', 'core --> ap["Fédération : ActivityPub"]'],
 				highlight: ['core', 'fan', 'ap'],
-				note: '**Cœur.** Le README : un « social network server based on ActivityPub », où les utilisateurs « can seamlessly communicate with users from another » serveur, avec des « real-time, chronological timeline updates ». Ma lecture : les timelines et la fédération sont ce qui fait Mastodon. C’est un jugement, et l’équipe pourrait le discuter.'
+				note: '**Cœur.** Le README : un « social network server based on ActivityPub » (serveur de réseau social basé sur ActivityPub), où les utilisateurs « can seamlessly communicate with users from another server » (peuvent communiquer sans effort avec les utilisateurs d’un autre serveur), avec des « real-time, chronological timeline updates » (mises à jour des timelines en temps réel, dans l’ordre chronologique). Ma lecture : les timelines et la fédération sont ce qui fait Mastodon. C’est un jugement, et l’équipe pourrait le discuter.'
 			},
 			{
 				add: ['supp["Support : réglages admin, export de données, règles de rate limit"]'],
@@ -116,7 +116,7 @@ export default {
 	quiz: [
 		{
 			q: 'Ton équipe a un ingénieur senior disponible ce trimestre. Selon la classification en sous-domaines, sur quoi doit-il travailler ?',
-			options: ['Sur les parties génériques, puisque ce sont les plus difficiles à bien intégrer', 'Sur les sous-domaines de support, puisqu’ils sont simples et donnent des victoires rapides', 'Là où le backlog est le plus long, pour que l’équipe rattrape son retard au plus vite', 'Sur le domaine cœur, la partie qui rend le produit différent'],
+			options: ['Sur les parties génériques, puisque ce sont les plus difficiles à bien intégrer', 'Sur les sous-domaines de support, puisqu’ils sont simples et donnent des victoires rapides', 'Là où le backlog est le plus long, pour que l’équipe rattrape son retard au plus vite', 'Sur le sous-domaine cœur, la partie qui rend le produit différent'],
 			answer: 3,
 			why: 'Evans : « Mettez les meilleurs talents sur le domaine cœur. » Les parties génériques doivent être adoptées, les parties de support gardées simples. La classification est un outil pour répartir les gens.'
 		},

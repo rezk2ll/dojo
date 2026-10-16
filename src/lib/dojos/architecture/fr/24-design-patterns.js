@@ -17,12 +17,12 @@ export default {
 		'Le jour 11 en a déjà montré un, le **decorator** : une enveloppe qui ajoute du comportement et garde l’interface. Aujourd’hui, six de plus, tous sur le chemin d’une seule connexion : strategy, factory, template method, chain of responsibility, observer et adapter.'
 	],
 	terms: [
-		{ term: 'Strategy', def: 'Stratégie : plusieurs implémentations interchangeables d’une même interface. L’appelant en choisit une, ou les essaie l’une après l’autre, sans connaître leurs classes.' },
-		{ term: 'Factory', def: 'Fabrique : une fonction ou une classe dont le rôle est de créer le bon objet, pour que les appelants demandent « l’encodeur de mots de passe par défaut » au lieu d’appeler un constructeur.' },
-		{ term: 'Template method', def: 'Patron de méthode : une classe de base fixe les étapes d’un algorithme et laisse une ou plusieurs étapes abstraites. Les sous-classes remplissent les étapes, jamais l’ordre.' },
-		{ term: 'Observer', def: 'Observateur : un sujet garde une liste d’abonnés et prévient chacun quand quelque chose se passe. Le sujet ne sait pas ce qu’ils en font.' },
-		{ term: 'Chain of responsibility', def: 'Chaîne de responsabilité : une requête traverse une liste de handlers dans l’ordre. Chacun peut la modifier, la passer au suivant, ou l’arrêter.' },
-		{ term: 'Adapter', def: 'Adaptateur : une enveloppe qui fait rentrer un objet dans une interface pour laquelle il n’a pas été écrit. Un decorator garde l’interface et ajoute du comportement ; un adapter change l’interface.' }
+		{ term: 'Strategy (stratégie)', def: 'Plusieurs implémentations interchangeables d’une même interface. L’appelant en choisit une, ou les essaie l’une après l’autre, sans connaître leurs classes.' },
+		{ term: 'Factory (fabrique)', def: 'Une fonction ou une classe dont le rôle est de créer le bon objet, pour que les appelants demandent « l’encodeur de mots de passe par défaut » au lieu d’appeler un constructeur.' },
+		{ term: 'Template method (patron de méthode)', def: 'Une classe de base fixe les étapes d’un algorithme et laisse une ou plusieurs étapes abstraites. Les sous-classes remplissent les étapes, jamais l’ordre.' },
+		{ term: 'Observer (observateur)', def: 'Un sujet garde une liste d’abonnés et prévient chacun quand quelque chose se passe. Le sujet ne sait pas ce qu’ils en font.' },
+		{ term: 'Chain of responsibility (chaîne de responsabilité)', def: 'Une requête traverse une liste de handlers dans l’ordre. Chacun peut la modifier, la passer au suivant, ou l’arrêter.' },
+		{ term: 'Adapter (adaptateur)', def: 'Une enveloppe qui fait rentrer un objet dans une interface pour laquelle il n’a pas été écrit. Un decorator garde l’interface et ajoute du comportement ; un adapter change l’interface.' }
 	],
 	diagram: {
 		direction: 'TD',

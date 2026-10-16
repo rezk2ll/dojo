@@ -112,7 +112,7 @@ export default {
 		},
 		{
 			q: 'Quel signe indique une **cohésion faible** dans un module ?',
-			options: ['Il a beaucoup de petits fichiers', 'Il mélange du code qui change pour des raisons sans rapport, comme la plomberie réseau et les règles de TVA', 'Il est importé par beaucoup d’autres modules', 'Il n’a pas de tests'],
+			options: ['Il a beaucoup de petits fichiers', 'Il mélange du code qui change pour des raisons sans rapport, comme la plomberie réseau et les règles fiscales', 'Il est importé par beaucoup d’autres modules', 'Il n’a pas de tests'],
 			answer: 1,
 			why: 'La cohésion, c’est savoir si le contenu va ensemble. Deux raisons de changer tirent un même module dans deux directions.'
 		},

@@ -47,7 +47,7 @@ export default {
 			{
 				add: [],
 				highlight: ['cleanup'],
-				note: 'La suppression est le **point de non-retour**. Le guide de GitLab décrit la suppression d’une colonne comme « une opération destructive qu’on ne peut pas annuler facilement ». C’est donc une seule étape, et elle vient en dernier.'
+				note: 'La suppression est le **point de non-retour**. Le guide de GitLab décrit la suppression d’une colonne comme « a destructive operation that can’t be rolled back easily » (une opération destructive qu’on ne peut pas annuler facilement). C’est donc une seule étape, et elle vient en dernier.'
 			}
 		]
 	},

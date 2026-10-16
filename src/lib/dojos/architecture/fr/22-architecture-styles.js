@@ -17,7 +17,7 @@ export default {
 		{ term: 'Style', def: 'La forme globale d’un système : son découpage, sa communication et ses unités de déploiement. Un style a des compromis typiques que tu peux aller vérifier.' },
 		{ term: 'Partitionnement technique ou par domaine', def: 'Découper le code par couche (controllers, models, jobs) ou par zone métier (topics, sondages, chat). C’est ce qui distingue un monolithe en couches d’un monolithe modulaire.' },
 		{ term: 'Microkernel', def: 'Un petit cœur plus des plugins qui ajoutent des fonctionnalités. On dit aussi architecture à plugins.' },
-		{ term: 'Event-driven', def: 'Pilotée par les événements : les parties réagissent à des événements au lieu de s’appeler directement. Bien pour découpler, plus dur à tracer et à tester.' }
+		{ term: 'Event-driven (pilotée par les événements)', def: 'Les parties réagissent à des événements au lieu de s’appeler directement. Bien pour découpler, plus dur à tracer et à tester.' }
 	],
 	diagram: {
 		direction: 'TD',

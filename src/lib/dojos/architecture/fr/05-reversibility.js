@@ -62,7 +62,7 @@ export default {
 		notes: [
 			'Chaque ligne est une garde devant la porte à sens unique. Le réglage du site passe en premier, et il [vaut `false` par défaut](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/config/site_settings.yml#L3271-L3274).',
 			'`return false if !post.deleted_at` : tu ne peux détruire que ce qui est déjà soft-deleted. L’étape peu coûteuse et réversible doit venir en premier.',
-			'`PERMANENT_DELETE_TIMER` vaut [5 minutes](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/post.rb#L26-L27). Le message de refus dit « Tu dois attendre … ou un autre administrateur doit le faire. » En pratique : une pause, ou une deuxième personne.',
+			'`PERMANENT_DELETE_TIMER` vaut [5 minutes](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/post.rb#L26-L27). Le message de refus dit « You must wait … or a different administrator must do it. » (tu dois attendre, ou un autre administrateur doit le faire). En pratique : une pause, ou une deuxième personne.',
 			'La porte à double sens est minuscule. [`trash!` et `recover!`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/app/models/concerns/trashable.rb#L18-L36) ne font que remplir ou vider `deleted_at` et `deleted_by_id`. La porte à sens unique n’est qu’à un ternaire de là, dans [`PostDestroyer`](https://github.com/discourse/discourse/blob/9252651c5c25df36cb0a3cf3f06e0c9c30974d5a/lib/post_destroyer.rb#L198-L199) : `permanent? ? @post.destroy! : @post.trash!(@user)`. Ce sont les gardes qui les tiennent à distance.'
 		]
 	},

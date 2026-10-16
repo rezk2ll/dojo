@@ -13,11 +13,11 @@ export default {
 		'Le DDD appelle cette frontière un **bounded context** : la zone où un modèle et un vocabulaire font foi. Une **context map** montre ensuite comment les contextes sont reliés, et qui doit s’adapter à qui. Aujourd’hui, on en lit une dans Mastodon.'
 	],
 	terms: [
-		{ term: 'Bounded context', def: 'Bounded context (contexte délimité) : une frontière à l’intérieur de laquelle chaque terme a exactement un sens. Souvent un service ou une équipe.' },
-		{ term: 'Upstream / downstream', def: 'Amont / aval : les changements en amont touchent l’aval, pas l’inverse. La source des événements ou de l’API est en amont.' },
-		{ term: 'Published language', def: 'Langage publié : un format partagé et documenté que plusieurs contextes acceptent de parler à la frontière, comme une forme de message que tous les serveurs envoient.' },
-		{ term: 'Conformist', def: 'Conformiste : l’aval adopte simplement le modèle de l’amont tel quel, parce qu’il n’a pas son mot à dire ou que traduire n’en vaut pas la peine.' },
-		{ term: 'Anti-corruption layer', def: 'Couche anti-corruption : une couche de traduction côté aval qui transforme le modèle de l’amont dans ses propres termes, pour que les mots étrangers restent à la porte.' }
+		{ term: 'Bounded context (contexte délimité)', def: 'Une frontière à l’intérieur de laquelle chaque terme a exactement un sens. Souvent un service ou une équipe.' },
+		{ term: 'Upstream / downstream (amont / aval)', def: 'Les changements en amont touchent l’aval, pas l’inverse. La source des événements ou de l’API est en amont.' },
+		{ term: 'Published language (langage publié)', def: 'Un format partagé et documenté que plusieurs contextes acceptent de parler à la frontière, comme une forme de message que tous les serveurs envoient.' },
+		{ term: 'Conformist (conformiste)', def: 'L’aval adopte simplement le modèle de l’amont tel quel, parce qu’il n’a pas son mot à dire ou que traduire n’en vaut pas la peine.' },
+		{ term: 'Anti-corruption layer (couche anti-corruption)', def: 'Une couche de traduction côté aval qui transforme le modèle de l’amont dans ses propres termes, pour que les mots étrangers restent à la porte.' }
 	],
 	diagram: {
 		direction: 'LR',

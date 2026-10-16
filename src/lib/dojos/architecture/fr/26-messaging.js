@@ -13,9 +13,9 @@ export default {
 	],
 	terms: [
 		{ term: 'Exchange et queue', def: 'Dans RabbitMQ, un exchange ne stocke rien. Il route chaque message vers les queues (files) dont le binding correspond, et un exchange fanout le copie dans chaque queue liée. Une queue garde les messages jusqu’à ce qu’un consommateur les prenne.' },
-		{ term: 'Competing consumers', def: 'Plusieurs consommateurs sur une même queue (consommateurs concurrents). Chaque message ne va qu’à l’un d’eux. Tu gagnes du débit, et tu perds l’ordre.' },
-		{ term: 'At-most-once', def: 'Au plus une fois : un message peut être perdu, mais n’arrive jamais deux fois. Tu l’obtiens en retirant le message avant le travail, ou en ne réessayant jamais.' },
-		{ term: 'At-least-once', def: 'Au moins une fois : un message n’est jamais perdu une fois que le broker l’a accepté, mais peut arriver deux fois. Le consommateur ne confirme qu’une fois le travail fait, et dédoublonne.' },
+		{ term: 'Competing consumers (consommateurs concurrents)', def: 'Plusieurs consommateurs sur une même queue. Chaque message ne va qu’à l’un d’eux. Tu gagnes du débit, et tu perds l’ordre.' },
+		{ term: 'At-most-once (au plus une fois)', def: 'Un message peut être perdu, mais n’arrive jamais deux fois. Tu l’obtiens en retirant le message avant le travail, ou en ne réessayant jamais.' },
+		{ term: 'At-least-once (au moins une fois)', def: 'Un message n’est jamais perdu une fois que le broker l’a accepté, mais peut arriver deux fois. Le consommateur ne confirme qu’une fois le travail fait, et dédoublonne.' },
 		{ term: 'Poison message', def: 'Un message qui échoue à chaque fois, quel que soit le nombre de retries : données invalides, bug, champ manquant. Laissé dans la queue, il la bloque ou tourne en boucle pour toujours.' },
 		{ term: 'Dead-letter queue (DLQ)', def: 'Là où vont les messages en échec. Traite-la comme une liste de tâches pour un humain, pas comme une poubelle : quelqu’un doit être alerté, la lire, et décider message par message.' }
 	],

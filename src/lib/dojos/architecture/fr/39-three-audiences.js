@@ -99,7 +99,7 @@ drwho:
 		answer: [
 			'**Développeur :** après un redémarrage, le kubelet garde le statut `Started` et `Ready` des conteneurs qui tournaient déjà, au lieu de les remettre à false. Un pod qui n’était pas Ready avant reste pas Ready jusqu’à ce que sa probe passe. Le gate `ChangeContainerStatusOnKubeletRestart` rétablit l’ancien comportement. Coût : un conteneur qui a cassé pendant que le kubelet était arrêté garde son statut Ready jusqu’au prochain cycle de probe.',
 			'**PM :** redémarrer l’agent du nœud, par exemple pendant une mise à jour, ne retire plus un instant les services sains de la rotation. Coût : un service vraiment cassé pendant ce redémarrage est repéré une probe plus tard.',
-			'**Directrice :** « La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. C’est le comportement par défaut depuis Kubernetes 1.35. »',
+			'**Directrice :** « La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. C’est le comportement par défaut à partir de Kubernetes 1.35. »',
 			'Vérifie : les mêmes faits dans les trois ? Un gain et un coût pour chacune ? Rien au dernier étage que tu ne pourrais pas appuyer par une ligne de la KEP ?'
 		]
 	},

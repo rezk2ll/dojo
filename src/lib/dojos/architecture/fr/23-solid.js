@@ -14,11 +14,11 @@ export default {
 		'Cinq principes popularisés par Robert C. Martin, connus sous le nom de **SOLID**, visent ce genre de douleur. Aujourd’hui, tu en lis trois sur du vrai code : une classe qui a trop de rôles, une interface trop large, et des implémentations qui font moins que ce que leur interface promet.'
 	],
 	terms: [
-		{ term: 'Single responsibility (S)', def: 'Responsabilité unique : un module a une seule raison de changer, un seul groupe de personnes ou une seule fonctionnalité qui demande des changements. Pas « il fait une seule chose », mais « une seule source de changement ».' },
-		{ term: 'Open/closed (O)', def: 'Ouvert/fermé : tu ajoutes du comportement en ajoutant du code, pas en modifiant du code qui marche. `BufferedInputStream` en Java ajoute un buffer à n’importe quel `InputStream` en l’enveloppant, sans toucher aux streams de fichier ou de socket.' },
-		{ term: 'Liskov substitution (L)', def: 'Substitution de Liskov : toute implémentation d’une interface doit marcher partout où l’interface est attendue. Si une implémentation lève une exception là où les autres marchent, les appelants doivent savoir laquelle ils ont reçue.' },
-		{ term: 'Interface segregation (I)', def: 'Ségrégation des interfaces : un appelant ne devrait pas dépendre de méthodes qu’il n’utilise pas. Une interface large force chaque implémentation à remplir des méthodes que personne n’appelle.' },
-		{ term: 'Dependency inversion (D)', def: 'Inversion des dépendances : le code de haut niveau dépend d’une interface qui lui appartient, et le code de bas niveau l’implémente. Le jour 11, c’est ce principe en grandeur nature.' }
+		{ term: 'Single responsibility (S, responsabilité unique)', def: 'Un module a une seule raison de changer : un seul groupe de personnes ou une seule fonctionnalité qui demande des changements. Pas « il fait une seule chose », mais « une seule source de changement ».' },
+		{ term: 'Open/closed (O, ouvert/fermé)', def: 'Tu ajoutes du comportement en ajoutant du code, pas en modifiant du code qui marche. `BufferedInputStream` en Java ajoute un buffer à n’importe quel `InputStream` en l’enveloppant, sans toucher aux streams de fichier ou de socket.' },
+		{ term: 'Liskov substitution (L, substitution de Liskov)', def: 'Toute implémentation d’une interface doit marcher partout où l’interface est attendue. Si une implémentation lève une exception là où les autres marchent, les appelants doivent savoir laquelle ils ont reçue.' },
+		{ term: 'Interface segregation (I, ségrégation des interfaces)', def: 'Un appelant ne devrait pas dépendre de méthodes qu’il n’utilise pas. Une interface large force chaque implémentation à remplir des méthodes que personne n’appelle.' },
+		{ term: 'Dependency inversion (D, inversion des dépendances)', def: 'Le code de haut niveau dépend d’une interface qui lui appartient, et le code de bas niveau l’implémente. Le jour 11, c’est ce principe en grandeur nature.' }
 	],
 	diagram: {
 		direction: 'TD',

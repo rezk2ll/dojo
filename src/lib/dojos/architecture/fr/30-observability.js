@@ -8,7 +8,7 @@ export default {
 	title: 'Observabilité : logs, métriques, traces',
 	minutes: 10,
 	hook: [
-		'Un client de ta boutique en ligne écrit : « Le paiement a mis dix secondes, puis il a échoué. » La requête est passée par le frontend, le service checkout, puis le service de paiement. Tu n’étais pas là.',
+		'Un client de ta boutique en ligne écrit : « Le checkout a pris dix secondes, puis mon paiement a échoué. » La requête est passée par le frontend, le service checkout, puis le service de paiement. Tu n’étais pas là.',
 		'Tu as trois questions. **Qu’est-il arrivé à cette requête-là ?** Les logs y répondent. **Est-ce que ça touche tout le monde, et depuis quand ?** Les métriques y répondent. **Où sont passées les dix secondes ?** Les traces y répondent.',
 		'Chaque outil seul te donne un morceau. L’astuce, c’est de les relier : **un même trace id sur chaque ligne de log et chaque span** d’une requête, et les mêmes noms de spans dans les métriques. Tu sautes alors d’un graphe à une ligne de log, puis à sa trace.'
 	],

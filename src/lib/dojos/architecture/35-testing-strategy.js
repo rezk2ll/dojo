@@ -8,16 +8,14 @@ export default {
 	title: 'Testing strategy',
 	minutes: 10,
 	hook: [
-		'Your shop\'s order service publishes `order.placed` with the customer\'s `firstName`. The email service turns it into "Hello Ana". Both teams test their side: the order service checks the message it publishes, and the email service feeds its handler a message written by hand. **Both suites are green.**',
-		'Now picture a cleanup in the order service: `firstName` becomes `givenName`, and its test is updated in the same commit. Still green. The email service\'s hand-written message still says `firstName`, so its tests stay green too. In production every email starts with **"Hello ,"**. No test failed, because no test ever put the two sides together.',
-		'More tests of the same kind would not have caught it. A testing strategy is not "how many tests". It is **which test protects which decision**. Fast tests guard what one service decides alone. **Contract tests** guard what two services agreed on. A few end-to-end tests check the wiring. Tomorrow\'s chapter (day 36) applies the same idea to the architecture itself.'
+		'Your shop\'s order service publishes `order.placed` with the customer\'s `firstName`. The email service uses it to write "Hello Ana". Both teams test their side, and both suites pass: the order service checks the message it publishes, and the email service feeds its handler a message written by hand.',
+		'Now picture a cleanup in the order service: `firstName` is renamed to `givenName`, and its test is updated in the same commit, so it passes. The email service\'s hand-written message still says `firstName`, so its tests stay green too. In production every email starts with **"Hello ,"**. No test failed, because no test ever put the two sides together.',
+		'More tests of each kind would not have caught it, because each new test would also use one side\'s copy of the message. A testing strategy says which test protects which decision. Fast tests guard what one service decides alone, and **contract tests** guard what two services agreed on. A few end-to-end tests check that the services are connected.'
 	],
 	terms: [
-		{ term: 'Test pyramid', def: 'Many fast, narrow tests at the bottom, fewer broad ones on top. Fowler: "many more low-level UnitTests than high level BroadStackTests running through a GUI."' },
 		{ term: 'Test double', def: 'A stand-in for something your code talks to: an in-memory store, a stub payment API, a hand-written message. It makes tests fast, and it is only as true as the last time someone compared it with the real thing.' },
-		{ term: 'Integration test', def: 'One service with its real infrastructure (its own database) and doubles for every service it does not own.' },
 		{ term: 'Contract test', def: 'A test that checks a double against the real thing it stands for. Fowler: "These check that all the calls against your test doubles return the same results as a call to the external service would."' },
-		{ term: 'Consumer-driven contract', def: 'Each consumer writes down the part of a message or API it actually reads, and the producer runs those expectations in its own CI. Pact is a tool built for it.' },
+		{ term: 'Consumer-driven contract', def: 'Each consumer writes down the part of a message or API it actually reads, and the producer runs those expectations in its own CI. The Pact tool implements this pattern.' },
 		{ term: 'End-to-end test', def: 'The built system, driven the way a user would. Slow and broad, so keep a few that prove the pieces are wired together.' }
 	],
 	diagram: {
@@ -26,27 +24,27 @@ export default {
 			{
 				add: ['unit["Unit: price rules, no I/O"] -->|"protects"| d1["A discount never makes a total negative"]'],
 				highlight: ['unit', 'd1'],
-				note: 'The bottom of the pyramid. The order service\'s price tests call pure functions with literal carts, in milliseconds. They guard a rule that lives **in one place**, so one fast test is enough.'
+				note: 'Unit tests are the many fast tests at the bottom of the test pyramid. The order service\'s price tests call pure functions with literal carts, in milliseconds. They guard a rule that lives **in one place**, so one fast test is enough.'
 			},
 			{
 				add: ['integ["Integration: order service on a real Postgres"] -->|"protects"| d2["A retried order is saved once"]', 'integ -.->|"fakes"| fakes["Payment API, email service"]', 'class fakes ext'],
 				highlight: ['integ', 'd2', 'fakes'],
-				note: 'One level up. The "saved once" rule lives in a unique index and a transaction, so the test needs **the real database**. **Everything the service does not own is a double**: the payment API, the email service.'
+				note: 'An integration test sits one level up. The "saved once" rule lives in a unique index and a transaction, so the test needs **the real database**. Everything the service does not own is a double: the payment API, the email service.'
 			},
 			{
 				add: ['beh["CacheStoreBehavior: written once"] --> mem["MemoryStore"]', 'beh --> redis[("RedisCacheStore on a real Redis")]'],
 				highlight: ['beh', 'mem', 'redis'],
-				note: 'A contract test for a double **you own**. Rails writes its cache tests once, as a module of behaviors. The memory store, the file store, Memcached and Redis each include it. Any test that uses the fast memory store can trust it to **behave like the real ones** on everything those shared modules test.'
+				note: 'Rails has a contract test for a double it owns: it writes its cache tests once, as a module of behaviors. The memory store, the file store, Memcached and Redis each include it. Any test that uses the fast memory store can trust it to **behave like the real ones** on everything those shared modules test.'
 			},
 			{
 				add: ['producer["Orders test: what it publishes"] -.->|"no test compares them"| consumer["Email fixture: what it reads"]', 'class producer ext'],
 				highlight: ['producer', 'consumer'],
-				note: 'A double **someone else owns** the truth of. The message exists in two hand-written copies, each checked only against its own code. This dotted line is where a **consumer-driven contract** belongs.'
+				note: 'The email fixture is a double of a message that the order service owns. The message exists in two hand-written copies, each checked only against its own code. This dotted line is where a **consumer-driven contract** belongs.'
 			},
 			{
 				add: ['e2e["E2E: checkout in a browser, stub payment"] -->|"protects"| d5["A paid cart becomes an order and an email"]'],
 				highlight: ['e2e', 'd5'],
-				note: 'The top: a handful of browser tests on the built system. Even they use doubles: a stub payment provider, maybe a fake mail inbox. **An end-to-end test with stand-ins tests the wiring, not the contract.**'
+				note: 'At the top are a handful of browser tests on the built system. Even they use doubles: a stub payment provider, maybe a fake mail inbox. With those stand-ins, the test checks that the services are connected, and never compares the real payment API with its stub.'
 			}
 		]
 	},
@@ -76,11 +74,11 @@ class MemoryStoreTest < StoreTest
     @cache = lookup_store(expires_in: 60)
   end`,
 		notes: [
-			'**The contract is a module.** [`CacheStoreBehavior`](' + CACHE + '/behaviors/cache_store_behavior.rb#L6-L19) opens with "Tests the base functionality that should be identical across all cache stores." Its tests only talk to `@cache`. Each store\'s test class says how to build one, in `setup`, and includes the behaviors.',
-			'**The real store runs the same tests.** [`RedisCacheStoreCommonBehaviorTest`](' + CACHE + '/stores/redis_cache_store_test.rb#L231-L242) includes `CacheStoreBehavior` too, against a real Redis built in [its `setup`](' + CACHE + '/stores/redis_cache_store_test.rb#L205-L221). So does [`MemCacheStoreTest`](' + CACHE + '/stores/mem_cache_store_test.rb#L87-L99), against a real Memcached.',
-			'**Each store signs only what it can keep.** The memory store includes `CacheDeleteMatchedBehavior`, Memcached does not. Memcached includes `FailureSafetyBehavior` and `ConnectionPoolBehavior`, the memory store does not. The contract is split into modules so a store can say exactly which parts it promises.',
-			'**The real thing costs infrastructure.** The Redis setup says `skip "Redis server is not up" unless REDIS_UP`, and [Memcached\'s](' + CACHE + '/stores/mem_cache_store_test.rb#L63-L64) does the same. A machine without them still runs the memory store\'s tests, and quietly skips the comparison.',
-			'**Across teams, the same idea needs a tool.** Inside one repo, Rails can include one module in every store. Two services cannot share a module, so consumer-driven contracts write the expectation down as data (a pact). In Pact\'s terms, for queues "the consumer is the application that reads the message" and the provider is the one that writes it. For messages, each interaction holds "the minimal expected message", the parts the consumer wants to use. For HTTP, in provider verification the provider\'s real response "is compared with the minimal expected response".'
+			'Line 8 includes [`CacheStoreBehavior`](' + CACHE + '/behaviors/cache_store_behavior.rb#L6-L19), which opens with "Tests the base functionality that should be identical across all cache stores." Its tests only talk to `@cache`. Lines 18 to 20 build the store for this class in `setup`, and lines 8 to 16 include the behaviors.',
+			'[`RedisCacheStoreCommonBehaviorTest`](' + CACHE + '/stores/redis_cache_store_test.rb#L231-L242) includes `CacheStoreBehavior` too, against a real Redis built in its `setup`. `MemCacheStoreTest` does the same against a real Memcached.',
+			'Line 13 includes `CacheDeleteMatchedBehavior` for the memory store, and Memcached does not include it. Memcached includes `FailureSafetyBehavior` and `ConnectionPoolBehavior`, and the memory store does not. The contract is split into modules so a store can say exactly which parts it promises.',
+			'The real stores need Redis and Memcached running. The Redis setup says `skip "Redis server is not up" unless REDIS_UP`, and [Memcached\'s](' + CACHE + '/stores/mem_cache_store_test.rb#L63-L64) does the same. A machine without them still runs the memory store\'s tests, and skips the comparison without failing.',
+			'Two services in two repos cannot share a Ruby module, so consumer-driven contracts write the expectation down as data (a pact). In Pact\'s terms, for queues "the consumer is the application that reads the message" and the provider is the one that writes it. For messages, each interaction holds "the minimal expected message", the parts the consumer wants to use. For HTTP, in provider verification the provider\'s real response "is compared with the minimal expected response".'
 		]
 	},
 	tradeoff: {
@@ -91,17 +89,17 @@ class MemoryStoreTest < StoreTest
 			'Keeping end-to-end tests few keeps them fast enough to run on every pull request.'
 		],
 		cost: [
-			'**Every double is a copy** of someone else\'s behavior, and copies drift (day 17). Two copies of one message means two places to forget.',
-			'**A contract test needs both teams.** The consumer writes the expectation, the producer runs it, and someone must own a red build in a repo that did not change.',
+			'Each double copies someone else\'s behavior, and the copy drifts when the original changes (day 17). The `order.placed` message has two copies, so a rename must be made in both.',
+			'A contract test needs both teams: the consumer writes the expectation, the producer runs it, and someone must own a red build in a repo that did not change.',
 			'Tests on a real store need that store in CI. Rails skips its Redis and Memcached tests when they are not up, so a missing service can hide as a green run.',
-			'End-to-end tests with stand-ins look like a guarantee and are not one. They prove the wiring, against copies.'
+			'An end-to-end suite that uses its own copy of a message stays green when the real message changes.'
 		]
 	},
 	task: {
 		prompt: 'For each decision in the shop, name the cheapest test that protects it, which service\'s CI runs it, and what is real or a double. (a) A discount never makes a total negative. (b) A retried order is saved once. (c) The in-memory order repository behaves like the Postgres one. (d) `order.placed` still carries every field the email service reads. (e) A paid cart in the browser becomes an order and an email.',
 		hint: 'Ask who owns the decision. If one service owns it alone, its own CI can guard it. If two services share it, the test has to run where the change would be made.',
 		answer: [
-			'(a) A **unit** test of the price function in the order service. Nothing to fake: it is pure code.',
+			'(a) A **unit** test of the price function in the order service. It needs no double, because the function does no I/O.',
 			'(b) An **integration** test in the order service: the handler on a real Postgres, because the rule lives in a unique index and a transaction. The payment API and the email service are doubles.',
 			'(c) An **adapter contract** test in the order service: one shared set of repository tests, run against the memory version and against Postgres in Docker, the way Rails runs `CacheStoreBehavior` against its memory, file, Memcached and Redis stores.',
 			'(d) A **consumer-driven contract**. The email service publishes the fields it reads (a pact or a schema). The order service\'s CI runs its real published message through it. A cheaper first step: the order service writes its captured message to a fixture file, and the email service loads that file instead of a hand-written copy.',
@@ -119,7 +117,7 @@ class MemoryStoreTest < StoreTest
 				'That a test double behaves the same as the real thing it stands for'
 			],
 			answer: 3,
-			why: 'Fowler\'s definition: the calls against your doubles "return the same results as a call to the external service would". It is what keeps the fast tests that use the double honest.'
+			why: 'Fowler\'s definition: the calls against your doubles "return the same results as a call to the external service would". Without that check, the fast tests that use the double can pass while the real service behaves differently.'
 		},
 		{
 			q: 'The order service renames `firstName` to `givenName` in `order.placed` and updates its own test. The email service tests its handler with a hand-written message. Which test fails?',
@@ -144,8 +142,13 @@ class MemoryStoreTest < StoreTest
 			why: 'The module "Tests the base functionality that should be identical across all cache stores". Code tested against the memory store can then trust the same calls on Redis or Memcached.'
 		}
 	],
-	takeaway: 'Test what one service decides alone with fast tests, test what two services agreed on with a contract test, and keep a few end-to-end tests for the wiring.',
+	recall: {
+		q: 'The order service renames a field in `order.placed`. Which test catches it before production, and in whose CI does it run?',
+		a: 'A consumer-driven contract. The email service writes down the fields it reads, and the order service\'s CI runs its real published message against them.'
+	},
 	sources: [
+		{ title: 'Rails, redis_cache_store_test.rb (setup with a real Redis)', url: `${CACHE}/stores/redis_cache_store_test.rb#L205-L221` },
+		{ title: 'Rails, mem_cache_store_test.rb (MemCacheStoreTest)', url: `${CACHE}/stores/mem_cache_store_test.rb#L87-L99` },
 		{ title: 'Martin Fowler, TestPyramid', url: 'https://martinfowler.com/bliki/TestPyramid.html' },
 		{ title: 'Ham Vocke, The Practical Test Pyramid', url: 'https://martinfowler.com/articles/practical-test-pyramid.html' },
 		{ title: 'Martin Fowler, ContractTest', url: 'https://martinfowler.com/bliki/ContractTest.html' },

@@ -8,16 +8,15 @@ export default {
 	title: 'Une décision, trois publics',
 	minutes: 10,
 	hook: [
-		'Discourse, le logiciel de forum, peut héberger plusieurs communautés sur un seul serveur. Chaque communauté, appelée **site**, a sa propre base PostgreSQL. La même semaine, trois questions sur cette décision. Une nouvelle développeuse demande pourquoi une migration tourne des dizaines de fois. Un product manager demande pourquoi « une seule recherche sur toutes nos communautés » est estimée en semaines. Une directrice demande : **un client peut-il un jour voir les messages d’un autre client ?**',
-		'Donne la même réponse aux trois et tu en perds deux. La développeuse reçoit un slogan, la directrice un cours sur les pools de connexions.',
-		'Gregor Hohpe appelle ça **prendre l’Architect Elevator** : l’architecte relie la salle des machines, où vit le code, au penthouse, où se décide la stratégie. **Les mêmes faits à chaque étage. D’autres mots, un autre niveau de détail, une autre longueur.**'
+		'Discourse, le logiciel de forum, peut héberger plusieurs communautés sur un seul serveur. Chaque communauté, appelée site, a sa propre base PostgreSQL. La même semaine, trois personnes t’interrogent sur cette décision. Une nouvelle développeuse demande pourquoi une migration tourne des dizaines de fois. Un product manager demande pourquoi « une seule recherche sur toutes nos communautés » est estimée en semaines. Une directrice demande : **un client peut-il un jour voir les messages d’un autre client ?**',
+		'Si les trois reçoivent la même réponse, deux d’entre eux ne peuvent rien en faire. Une réponse d’une ligne n’apprend rien à la développeuse sur les migrations, et un exposé sur les pools de connexions n’apprend rien à la directrice sur le risque.',
+		'Gregor Hohpe appelle ça **prendre l’Architect Elevator** : l’architecte relie la salle des machines, où vit le code, au penthouse, où se décide la stratégie. Les faits restent les mêmes à chaque étage. Les mots, le niveau de détail et la longueur changent selon la personne.'
 	],
 	terms: [
 		{ term: 'Architect Elevator', def: 'L’image de Hohpe : l’architecte fait l’ascenseur entre la salle des machines de l’IT et le penthouse de la direction, et garde les deux connectés.' },
-		{ term: 'Salle des machines', def: 'Là où vivent le code et l’infrastructure. Les gens qui y sont ont besoin du mécanisme, pour pouvoir construire dessus.' },
-		{ term: 'Penthouse', def: 'Là où se décident la stratégie, le budget et les risques. Les gens qui y sont ont besoin de la conséquence, pour pouvoir décider.' },
-		{ term: 'Altitude', def: 'La quantité de détail dont un public a besoin pour agir. Pas son niveau d’intelligence.' },
-		{ term: 'Multisite', def: 'Le mode de Discourse où un seul serveur héberge plusieurs sites, chacun avec sa propre base de données et ses propres noms d’hôte.' }
+		{ term: 'Salle des machines', def: 'L’étage où vivent le code et l’infrastructure. Les gens qui y sont ont besoin du mécanisme, pour pouvoir construire dessus.' },
+		{ term: 'Penthouse', def: 'L’étage où les gens décident de la stratégie, du budget et des risques. Ils ont besoin de la conséquence, pour pouvoir décider.' },
+		{ term: 'Altitude', def: 'La quantité de détail dont un public a besoin pour agir sur une décision.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -25,27 +24,27 @@ export default {
 			{
 				add: ['dec["Décision : une base de données par site"]'],
 				highlight: ['dec'],
-				note: 'Une seule décision, déjà prise (jour 4). Les faits ne changent pas dans ce chapitre. Seule la façon de les raconter change.'
+				note: 'Une seule décision, déjà prise (jour 4) : chaque site a sa propre base. Les trois étapes suivantes racontent ces mêmes faits à trois personnes.'
 			},
 			{
 				add: ['eng["Salle des machines : développeuse, 5 minutes"]', 'dec -.-> eng'],
 				highlight: ['eng'],
-				note: '**Développeuse, 5 min.** Le nom d’hôte de la requête choisit le site, et le site choisit sa base. Chaque migration tourne une fois par base. Aucune requête SQL ne peut joindre deux sites, donc tout ce qui traverse les sites est du code qui visite chaque base à tour de rôle.'
+				note: 'Pour la développeuse, en 5 minutes : le nom d’hôte de la requête choisit le site, et le site choisit sa base. Chaque migration tourne une fois par base. Aucune requête SQL ne peut joindre deux sites, donc tout ce qui traverse les sites est du code qui visite chaque base à tour de rôle.'
 			},
 			{
 				add: ['mid["Étage du milieu : product manager, 2 minutes"]', 'eng <-->|ascenseur| mid', 'dec -.-> mid'],
 				highlight: ['mid'],
-				note: '**Product manager, 2 min.** Les données de chaque communauté sont complètement séparées, donc une nouvelle communauté, c’est une nouvelle base et une entrée de config de plus. Le prix : une recherche sur toutes les communautés ne peut pas être une seule requête en base, donc elle prend plus de temps à construire.'
+				note: 'Pour le product manager, en 2 minutes : les données de chaque communauté sont complètement séparées, donc une nouvelle communauté demande une nouvelle base et une entrée de config de plus. Le prix : une recherche sur toutes les communautés ne peut pas être une seule requête en base, donc elle prend plus de temps à construire.'
 			},
 			{
 				add: ['pent["Penthouse : directrice, 30 secondes"]', 'mid <-->|ascenseur| pent', 'dec -.-> pent'],
 				highlight: ['pent'],
-				note: '**Directrice, 30 s.** Chaque client a une base de données séparée : une page d’une communauté n’interroge que la base de cette communauté. Le coût, c’est plus de bases à mettre à jour et à faire tourner : une ligne de budget d’exploitation, pas un risque.'
+				note: 'Pour la directrice, en 30 secondes : chaque client a une base de données séparée, et une page d’une communauté n’interroge que la base de cette communauté. Le coût : plus de bases à mettre à jour et à faire tourner, qui apparaissent comme une ligne du budget d’exploitation.'
 			},
 			{
 				add: [],
 				highlight: ['eng', 'mid', 'pent'],
-				note: 'Chaque version garde **un gain et un coût**. Retire le coût au dernier étage et tu vends au lieu d’informer. L’ascenseur descend aussi : rapporte ce qui compte pour le penthouse, pour que la salle des machines optimise la bonne chose.'
+				note: 'Chaque version garde **un gain et un coût**. Une directrice qui n’entend que le gain découvre plus tard les bases en plus, par quelqu’un d’autre. L’ascenseur descend aussi : rapporte ce qui compte pour le penthouse, pour que la salle des machines optimise dans ce sens.'
 			}
 		]
 	},
@@ -75,31 +74,31 @@ drwho:
   host_names:
     - discuss.tardis.gallifrey`,
 		notes: [
-			`Voici le fait de la salle des machines derrière chaque étage. Chaque site nomme **sa propre base, son propre utilisateur de base et ses propres noms d’hôte**. Le [guide du développeur](${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md#L7) le dit clairement : « Un serveur multisite utilise une base et un nom d’hôte différents pour chaque site qu’il sert. »`,
+			`Les lignes 1 à 12 et 14 à 20 contiennent le fait de la salle des machines derrière chaque étage. Chaque site nomme **sa propre \`database\`, son propre \`username\` et ses propres \`host_names\`**. Le [guide du développeur](${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md#L7) : « Un serveur multisite utilise une base et un nom d’hôte différents pour chaque site qu’il sert. »`,
 			`Vérifie ton affirmation de penthouse dans le code avant de la faire. Un [request spec](${DISCOURSE}/spec/integration/multisite_spec.rb#L10-L33) vérifie que chaque hôte connu reçoit le topic de son propre site, et qu’un hôte inconnu reçoit une 404 pour une page du forum.`,
-			`Le côté coût est dans la [tâche de migration](${DISCOURSE}/lib/tasks/db.rake#L112-L187) : elle boucle sur chaque base de site et migre chacune. Le commentaire explique l’option de concurrence : « nous avons beaucoup de sites », et elle fait gagner « énormément de temps ». C’est la ligne de budget de la directrice, vue d’en bas.`,
-			'Remarque le commentaire dans l’exemple : si tu changes les noms d’hôte, tu dois redémarrer Sidekiq et refaire le rendu des messages (rebake). Ce genre de détail a sa place dans la version développeuse. La directrice n’en a jamais besoin.'
+			`Le côté coût est dans la [tâche de migration](${DISCOURSE}/lib/tasks/db.rake#L112-L187) : elle boucle sur chaque base de site et migre chacune. Le commentaire explique l’option de concurrence : « nous avons beaucoup de sites », et elle fait gagner « énormément de temps ». Ces migrations, une par base de site, sont ce que la directrice voit comme une ligne du budget d’exploitation.`,
+			'Le fichier d’exemple complet contient un commentaire : si tu changes les noms d’hôte, tu dois redémarrer Sidekiq et refaire le rendu des messages (rebake). Ce détail va seulement dans la version pour la développeuse.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Les décisions sont comprises, financées et défendues par des gens qui ne liront jamais le code.',
-			'Les malentendus apparaissent tôt : « attends, donc la recherche entre communautés est difficile ? », mieux vaut l’entendre en réunion que lors d’une release.',
-			'Préparer la version courte t’oblige à trouver la seule conséquence qui compte.'
+			'Des gens qui ne liront jamais le code peuvent comprendre, financer et défendre la décision d’une base par site.',
+			'Le « attends, donc la recherche entre communautés est difficile ? » du PM arrive en réunion de planning, et pas après une release.',
+			'Écrire la version de 30 secondes t’oblige à choisir une conséquence : aucun client ne peut voir les messages d’un autre.'
 		],
 		cost: [
-			'Trois versions demandent du temps de préparation. Celle de 30 secondes est la plus dure à écrire.',
-			'Simplifier peut induire en erreur. Si la version du dernier étage cache le coût, tu perds la confiance dès la première fois où il se fait sentir.',
-			'Raconter des histoires différentes à chaque étage, c’est de la politique, pas de l’architecture. Les faits doivent rester identiques.'
+			'Trois versions demandent du temps de préparation, et celle de 30 secondes est la plus dure à écrire.',
+			'Si la version de la directrice cache le coût, elle ne te fait plus confiance la première fois que les bases en plus donnent du travail.',
+			'Si le PM entend que la recherche entre communautés est facile et la développeuse qu’elle est difficile, l’équipe se retrouve avec deux plans.'
 		]
 	},
 	task: {
 		prompt: 'Reprends la proposition d’hier, la KEP-4781 : le kubelet garde le dernier statut de chaque pod après un redémarrage au lieu de marquer tous les pods « pas Ready ». Écris-la pour un développeur de la plateforme (5 lignes), un PM (2 lignes), une directrice (1 phrase). Chaque version doit garder un gain et un coût.',
 		hint: 'Demande-toi ce que chaque personne va **faire** de ta réponse. Le développeur la construit et l’exploite, le PM planifie les mises à jour et le support, la directrice décide si ça compte pour les clients.',
 		answer: [
-			'**Développeur :** après un redémarrage, le kubelet garde le statut `Started` et `Ready` des conteneurs qui tournaient déjà, au lieu de les remettre à false. Un pod qui n’était pas Ready avant reste pas Ready jusqu’à ce que sa probe passe. Le gate `ChangeContainerStatusOnKubeletRestart` rétablit l’ancien comportement. Coût : un conteneur qui a cassé pendant que le kubelet était arrêté garde son statut Ready jusqu’au prochain cycle de probe.',
-			'**PM :** redémarrer l’agent du nœud, par exemple pendant une mise à jour, ne retire plus un instant les services sains de la rotation. Coût : un service vraiment cassé pendant ce redémarrage est repéré une probe plus tard.',
-			'**Directrice :** « La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. C’est le comportement par défaut depuis Kubernetes 1.35. »',
+			'Développeur : après un redémarrage, le kubelet garde le statut `Started` et `Ready` des conteneurs qui tournaient déjà, au lieu de les remettre à false. Un pod qui n’était pas Ready avant reste pas Ready jusqu’à ce que sa probe passe. Le gate `ChangeContainerStatusOnKubeletRestart` rétablit l’ancien comportement. Coût : un conteneur qui a cassé pendant que le kubelet était arrêté garde son statut Ready jusqu’au prochain cycle de probe.',
+			'PM : redémarrer l’agent du nœud, par exemple pendant une mise à jour, ne retire plus un instant les services sains de la rotation. Coût : un service vraiment cassé pendant ce redémarrage est repéré une probe plus tard.',
+			'Directrice : « La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. C’est le comportement par défaut depuis Kubernetes 1.35. »',
 			'Vérifie : les mêmes faits dans les trois ? Un gain et un coût pour chacune ? Rien au dernier étage que tu ne pourrais pas appuyer par une ligne de la KEP ?'
 		]
 	},
@@ -120,10 +119,13 @@ drwho:
 			q: 'Entre les versions développeur, PM et directrice, qu’est-ce qui doit changer ?',
 			options: ['Le détail et la conséquence sur laquelle chaque public agit, jamais les faits', 'Les faits, un peu plus simplifiés à chaque étage en montant', 'Seulement la longueur, avec le même détail tassé en moins de lignes', 'La décision elle-même, ajustée à ce que chaque public veut entendre'],
 			answer: 0,
-			why: 'L’altitude change les mots et le détail. Si les faits changent d’un étage à l’autre, tu as trois décisions, et un jour elles se retrouveront dans la même réunion.'
+			why: 'L’altitude change les mots et le détail. Si les faits changent d’un étage à l’autre, tu as décrit trois décisions, et les trois personnes s’en rendent compte le jour où elles sont dans la même réunion.'
 		}
 	],
-	takeaway: 'Les mêmes faits à chaque étage. Donne à chaque public le détail dont il a besoin pour agir, et toujours un gain et un coût.',
+	recall: {
+		q: 'Discourse donne à chaque site sa propre base. Qu’entend la directrice en 30 secondes, et qu’est-ce qui doit correspondre à la version de la développeuse ?',
+		a: 'Chaque client a une base séparée, donc aucun client ne voit les messages d’un autre, et le coût, ce sont plus de bases à mettre à jour et à faire tourner. Les faits et ce coût doivent correspondre ; la développeuse apprend en plus que chaque migration tourne une fois par base.'
+	},
 	sources: [
 		{ title: 'Gregor Hohpe, The Architect Elevator', url: 'https://architectelevator.com/' },
 		{ title: 'Gregor Hohpe, The Software Architect Elevator (book)', url: 'https://architectelevator.com/book/' },

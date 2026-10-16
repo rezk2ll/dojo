@@ -9,17 +9,15 @@ export default {
 	title: 'Faire grandir les données',
 	minutes: 10,
 	hook: [
-		'Ton SaaS de tickets garde les tickets de tous les clients dans un seul serveur Postgres. Chaque mois, il contient plus de lignes et reçoit plus d’écritures. Un jour, **une seule base ne suffit plus**.',
-		'Une machine plus grosse fait gagner du temps, une fois. Après, il y a deux problèmes et deux solutions. **Trop de lectures** : garde des copies, appelées réplicas, et répartis les lectures dessus. **Trop de données ou trop d’écritures** : les copies n’aident pas, puisque chaque copie reçoit chaque écriture. Tu dois **découper les données**, pour que chaque nœud n’en garde qu’une partie.',
-		'Découper est une porte à sens unique (jour 5). Une fois les lignes réparties selon une clé, chaque requête soit **nomme cette clé et touche un seul endroit, soit interroge tout le monde**. Aujourd’hui : comment Discourse place chaque site avec un annuaire, comment Kafka place chaque événement en hachant sa clé, et ce que coûte une requête sans la clé.'
+		'Ton SaaS de tickets garde les tickets de tous les clients dans un seul serveur Postgres. Chaque mois, il contient plus de lignes et reçoit plus d’écritures. Un jour, **un seul serveur Postgres ne suit plus**.',
+		'Une machine plus grosse aide jusqu’à ce que tu atteignes la plus grosse que tu puisses acheter. Si le problème vient de trop de lectures, garde des copies, appelées réplicas, et répartis les lectures dessus. Si le problème vient de trop de données ou de trop d’écritures, les copies n’aident pas, puisque chaque copie reçoit chaque écriture. Tu dois alors **découper les données**, pour que chaque nœud n’en garde qu’une partie.',
+		'Découper est une porte à sens unique (jour 5) : pour revenir en arrière, tu dois déplacer chaque ligne à nouveau. Une fois les lignes réparties selon une clé, une requête qui **nomme cette clé lit un seul endroit**, et une requête sans elle interroge chaque nœud. Discourse place chaque site avec un annuaire, et Kafka place chaque événement en hachant sa clé.'
 	],
 	terms: [
-		{ term: 'Partition (shard)', def: 'Une tranche des données, gardée par un nœud ou un cluster. Chaque ligne vit dans exactement une partition. Le sharding, c’est le partitionnement sur plusieurs machines.' },
+		{ term: 'Partition (shard)', def: 'Une tranche des données, gardée par un nœud ou un cluster. Chaque ligne vit dans exactement une partition. Répartir les partitions sur plusieurs machines s’appelle le sharding.' },
 		{ term: 'Clé de partition', def: 'Le champ qui décide dans quelle partition va une ligne. Une requête qui la nomme lit une seule partition. Une requête qui ne la nomme pas doit les interroger toutes.' },
 		{ term: 'Placement par annuaire', def: 'Une table de correspondance enregistre où vit chaque clé, au lieu de le calculer avec un hash. Facile d’y ajouter un nœud, mais la table elle-même doit toujours être lisible.' },
-		{ term: 'Réplica', def: 'Une copie d’une partition sur un autre nœud. Elle ajoute de la capacité de lecture et survit à la perte d’un nœud. Elle n’ajoute aucune capacité d’écriture : chaque écriture va sur chaque copie.' },
-		{ term: 'Scatter-gather', def: 'Envoyer une requête à chaque partition et fusionner les réponses. Son coût grandit avec le nombre de partitions, et la plus lente donne le rythme.' },
-		{ term: 'Partition chaude', def: 'Une clé avec bien plus de données ou de trafic que les autres. Ajouter des nœuds ne l’aide pas : elle vit toujours au même endroit.' }
+		{ term: 'Réplica', def: 'Une copie d’une partition sur un autre nœud. Elle ajoute de la capacité de lecture et survit à la perte d’un nœud. Elle n’ajoute aucune capacité d’écriture : chaque écriture va sur chaque copie.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['req(["Requête pour help.acme.example"]) --> app["Appli de tickets"]', 'app -->|"quelle base ?"| dir[("Annuaire : tenant vers base")]'],
 				highlight: ['app', 'dir'],
-				note: '**La clé de partition, c’est le tenant.** Avant toute requête, l’appli cherche où vit ce tenant. Le multisite de Discourse marche comme ça : un fichier de config associe les noms d’hôte de chaque site à sa propre base. C’est un **annuaire** : le placement est écrit, pas calculé.'
+				note: 'La clé de partition est le tenant, donc avant toute requête l’appli cherche où vit ce tenant. Le multisite de Discourse marche comme ça : un fichier de config associe les noms d’hôte de chaque site à sa propre base. Cette table de correspondance est un **annuaire** : le placement y est écrit au lieu d’être calculé à partir de la clé.'
 			},
 			{
 				add: ['app -->|"tenants 1 à 500"| db1[("Postgres A : plein, plus de nouveaux tenants")]', 'app -->|"nouveaux tenants"| db2[("Postgres B")]'],
 				highlight: ['db1', 'db2'],
-				note: 'Quand le serveur A est plein, ajoute un serveur B et envoie-y les **nouveaux tenants**. Les anciens restent où ils sont. Rien ne bouge, donc rien n’est rééquilibré. A continue de grossir à mesure que ses tenants ajoutent des tickets.'
+				note: 'Quand le serveur A est plein, ajoute un serveur B et envoie-y les **nouveaux tenants**. Les tenants déjà sur A restent sur A, donc aucune donnée ne bouge. A continue de grossir à mesure que ses tenants ajoutent des tickets.'
 			},
 			{
 				add: ['app -->|"ticket.updated, clé = id du ticket"| topic["Topic Kafka : 12 partitions"]'],
 				highlight: ['topic'],
-				note: '**Placement par hash.** Pour les événements, l’appli donne une clé à Kafka. Le producteur hache la clé et prend le modulo du nombre de partitions. **Même clé, même partition**, donc les événements d’un ticket restent dans l’ordre. Pas d’annuaire à lire, mais le nombre de partitions fait maintenant partie de l’adresse.'
+				note: 'Les événements utilisent le placement par hash : l’appli donne une clé à Kafka. Le producteur hache la clé et prend le modulo du nombre de partitions. **Même clé, même partition**, donc les événements d’un ticket restent dans l’ordre. Il n’y a pas d’annuaire à lire, mais un nouveau nombre de partitions envoie les clés vers de nouvelles partitions.'
 			},
 			{
 				add: ['topic --> rep["Chaque partition : 1 leader, 2 followers"]'],
 				highlight: ['rep'],
-				note: '**Des réplicas dans chaque partition.** Avec un facteur de réplication de 3, toutes les écritures vont au leader de la partition et les followers copient son log. Les copies survivent à la perte d’un broker et peuvent servir des lectures. Elles n’ajoutent **aucune capacité d’écriture** : chacune reçoit chaque écriture.'
+				note: 'Avec un facteur de réplication de 3, chaque partition a un leader et deux followers. Toutes les écritures vont au leader de la partition et les followers copient son log. Les copies survivent à la perte d’un broker et peuvent servir des lectures. Elles n’ajoutent **aucune capacité d’écriture** : chacune reçoit chaque écriture.'
 			},
 			{
 				add: ['report["Rapport : tickets ouverts de tous les tenants"] -->|"scatter"| db1', 'report -->|"scatter"| db2'],
 				highlight: ['report'],
-				note: '**Une requête sans la clé interroge tout le monde.** « Tickets ouverts du tenant 42 » lit une seule base. « Tickets ouverts de tous les tenants » les visite toutes et fusionne les réponses. Ajoute un troisième serveur, et le rapport a une base de plus à attendre.'
+				note: '« Tickets ouverts du tenant 42 » nomme la clé et lit une seule base. « Tickets ouverts de tous les tenants » n’a pas de clé, donc la requête visite chaque base et fusionne les réponses. Ajoute un troisième serveur, et le rapport a une base de plus à attendre.'
 			}
 		]
 	},
@@ -78,26 +76,25 @@ export default {
         }
     }`,
 		notes: [
-			'**Trois façons de placer un enregistrement.** L’appelant nomme une partition, un partitioner personnalisé en choisit une, ou la clé décide. Sans clé, `UNKNOWN_PARTITION` laisse le choix au [partitioner intégré](' + PRODUCER + '/internals/BuiltInPartitioner.java#L33-L40), qui reste sur une partition le temps d’un lot puis passe à la suivante. Les enregistrements sans clé se répartissent sur les partitions, sans ordre entre eux.',
-			'**Le hash est l’adresse.** [`partitionForKey`](' + PRODUCER + '/internals/BuiltInPartitioner.java#L410-L415), c’est le hash murmur2 de la clé, rendu positif, modulo le nombre de partitions. La [doc de conception](' + REPO + '/docs/design/design.md?plain=1#L127) donne l’intérêt : « if the key chosen was a user id then all data for a given user would be sent to the same partition » (si la clé est un id utilisateur, toutes les données d’un utilisateur vont dans la même partition). Ça veut aussi dire qu’un utilisateur avec dix fois plus de trafic chauffe dix fois plus **une seule** partition.',
-			'**Le nombre de partitions fait partie de l’adresse.** La [doc d’exploitation](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L63) prévient qu’après l’ajout de partitions, « messages with the same key may be routed to different partitions » (des messages de même clé peuvent partir vers des partitions différentes), et que « Kafka will not attempt to automatically redistribute existing data » (Kafka ne redistribue pas automatiquement les données existantes). Et [pas de retour en arrière](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L98) : « Kafka does not currently support reducing the number of partitions for a topic. »',
-			'**Les réplicas ne répartissent pas les écritures.** La [doc de conception](' + REPO + '/docs/design/design.md?plain=1#L285-L287) : « All writes go to the leader of the partition, and reads can go to the leader or the followers » (toutes les écritures vont au leader, les lectures peuvent aller au leader ou aux followers). Les followers « consume messages from the leader just as a normal Kafka consumer would » (consomment les messages du leader comme un consommateur Kafka normal).',
-			'**La version annuaire.** L’[exemple de `multisite.yml`](' + DISCOURSE + '/config/multisite.yml.production-sample#L1-L14) de Discourse donne à chaque site sa propre `database` et ses propres `host_names`. Le [guide multisite](' + DISCOURSE + '/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md?plain=1#L7-L34) dit « A multisite server uses a different DB and hostname for each site » (un serveur multisite utilise une base et un nom d’hôte différents pour chaque site), et que les tâches rake ciblent un site via `RAILS_DB`. Une migration devient une migration par site.'
+			'Les lignes 2 et 3 prennent la partition que nomme l’appelant, les lignes 5 à 13 demandent à un partitioner personnalisé, et la ligne 17 laisse la clé décider. Sans clé, la ligne 19 renvoie `UNKNOWN_PARTITION`, et le [partitioner intégré](' + PRODUCER + '/internals/BuiltInPartitioner.java#L33-L40) choisit : il reste sur une partition le temps d’un lot puis passe à la suivante. Les enregistrements sans clé se répartissent sur les partitions, sans ordre entre eux.',
+			'La ligne 17 appelle [`partitionForKey`](' + PRODUCER + '/internals/BuiltInPartitioner.java#L410-L415) : le hash murmur2 de la clé, rendu positif, modulo le nombre de partitions. La doc de conception donne la raison : « if the key chosen was a user id then all data for a given user would be sent to the same partition » (si la clé est un id utilisateur, toutes les données d’un utilisateur vont dans la même partition). Un utilisateur avec dix fois plus de trafic met alors dix fois plus de charge sur **une seule** partition.',
+			'Le nombre de partitions est dans cette formule, et la [doc d’exploitation](' + REPO + '/docs/operations/basic-kafka-operations.md?plain=1#L63) prévient qu’après l’ajout de partitions, « messages with the same key may be routed to different partitions » (des messages de même clé peuvent partir vers des partitions différentes), et que « Kafka will not attempt to automatically redistribute existing data » (Kafka ne redistribue pas automatiquement les données existantes). Elle dit aussi : « Kafka does not currently support reducing the number of partitions for a topic. »',
+			'La [doc de conception](' + REPO + '/docs/design/design.md?plain=1#L285-L287) montre pourquoi les réplicas ne répartissent pas les écritures : « All writes go to the leader of the partition, and reads can go to the leader or the followers » (toutes les écritures vont au leader, les lectures peuvent aller au leader ou aux followers). Les followers « consume messages from the leader just as a normal Kafka consumer would » (consomment les messages du leader comme un consommateur Kafka normal).',
+			'Discourse utilise le placement par annuaire : son [exemple de `multisite.yml`](' + DISCOURSE + '/config/multisite.yml.production-sample#L1-L14) donne à chaque site sa propre `database` et ses propres `host_names`. Le guide multisite dit « A multisite server uses a different DB and hostname for each site » (un serveur multisite utilise une base et un nom d’hôte différents pour chaque site), et que les tâches rake ciblent un site via `RAILS_DB`. Une migration de schéma tourne donc une fois par site.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'La capacité grandit en ajoutant des serveurs ou des partitions, pas en achetant une seule machine plus grosse qui a un plafond.',
+			'Tu ajoutes de la capacité en ajoutant des serveurs ou des partitions, au lieu d’acheter une seule machine plus grosse qui a un plafond.',
 			'Partitionner par tenant colle à la façon dont les données sont lues : presque chaque requête nomme un seul tenant, donc elle arrive sur une seule base.',
 			'Une requête qui nomme la clé de partition coûte à peu près pareil avec 10 nœuds ou 100.',
 			'Les réplicas ajoutent de la capacité de lecture et laissent un nœud mourir sans perte de données (jour 9).'
 		],
 		cost: [
-			'**Les requêtes sans la clé interrogent tout le monde.** Un rapport sur tous les tenants visite chaque base. Un consommateur qui a besoin de chaque événement lit chaque partition.',
-			'**La clé est difficile à changer.** Les lignes ont été placées selon elle. La changer veut dire copier les données dans une nouvelle disposition, une migration à part entière (jour 32).',
-			'**Le rééquilibrage est un travail à concevoir.** Un hash déplace des clés quand le nombre change. Un annuaire ne déplace rien, donc un vieux serveur reste aussi plein que le jour où il a cessé de prendre des tenants.',
-			'**Une clé chaude reste chaude.** Un tenant avec dix fois plus de données vit toujours sur une seule base, ou une seule partition.',
-			'**Les réplicas sont en retard ou coûtent des lectures en quorum.** Un réplica mis à jour de façon asynchrone peut répondre avec des données plus vieilles que l’écriture que tu viens de faire (jour 16). Attendre plus de copies coûte de la latence à la place.'
+			'Un rapport sur tous les tenants visite chaque base, et un consommateur qui a besoin de chaque événement lit chaque partition.',
+			'Les lignes ont été placées selon la clé, donc changer la clé veut dire copier les données dans une nouvelle disposition, une migration à part entière (jour 32).',
+			'Un hash déplace des clés quand le nombre de partitions change. Un annuaire ne déplace rien, donc un vieux serveur reste aussi plein que le jour où il a cessé de prendre des tenants.',
+			'Un réplica mis à jour de façon asynchrone peut répondre avec des données plus vieilles que l’écriture que tu viens de faire (jour 16). Les lectures en quorum évitent ça, mais chaque lecture attend plus de copies.'
 		]
 	},
 	task: {
@@ -143,11 +140,16 @@ export default {
 				'Le nom d’hôte de la requête, cherché dans `multisite.yml`'
 			],
 			answer: 3,
-			why: 'C’est le placement par annuaire : l’entrée de chaque site liste ses `host_names` et sa propre `database`. Un nouveau site, c’est une nouvelle entrée, et rien d’autre ne bouge.'
+			why: 'Discourse utilise le placement par annuaire : l’entrée de chaque site liste ses `host_names` et sa propre `database`. Un nouveau site, c’est une nouvelle entrée, et rien d’autre ne bouge.'
 		}
 	],
-	takeaway: 'Les réplicas font grandir les lectures, les partitions font grandir les données et les écritures. Choisis la clé de partition d’après ta requête la plus courante, et sache ce que coûtera chaque requête qui ne la nomme pas.',
+	recall: {
+		q: 'Qu’est-ce qui ajoute de la capacité d’écriture, les réplicas ou les partitions, et comment Kafka choisit-il la partition d’un enregistrement qui a une clé ?',
+		a: 'Les partitions, puisque chaque réplica reçoit chaque écriture. Kafka prend le hash murmur2 de la clé modulo le nombre de partitions, donc une clé reste sur une partition tant que ce nombre ne change pas.'
+	},
 	sources: [
+		{ title: 'Apache Kafka, Design: semantic partitioning by key', url: `${REPO}/docs/design/design.md?plain=1#L127` },
+		{ title: 'Apache Kafka, Operations: reducing partitions', url: `${REPO}/docs/operations/basic-kafka-operations.md?plain=1#L98` },
 		{ title: 'Apache Kafka, Introduction: partitions and replication', url: `${REPO}/docs/getting-started/introduction.md?plain=1#L83-L87` },
 		{ title: 'Apache Kafka, Design: replication', url: `${REPO}/docs/design/design.md?plain=1#L281-L287` },
 		{ title: 'Discourse, Set up a multisite development environment', url: `${DISCOURSE}/docs/developer-guides/docs/02-development-environments/09-multisite-setup.md?plain=1` },

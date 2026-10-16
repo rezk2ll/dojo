@@ -12,14 +12,13 @@ export default {
 	hook: [
 		'Ta boutique en ligne tourne sur un monolithe vieux de dix ans. Tu veux un nouveau service de paiement, et au passage un nom plus propre pour une colonne de la base. Des clients achètent à chaque minute. **Tu ne peux pas arrêter le système pour le reconstruire.**',
 		'Le plan tentant, c’est une grande réécriture, puis un jour de bascule. Martin Fowler sur ce plan : « on a vu ce plan simple en apparence partir en fumée la plupart du temps. »',
-		'L’alternative, c’est le **strangler fig** (le figuier étrangleur). Fais pousser le nouveau à côté de l’ancien et déplace le comportement **un petit morceau à la fois**. Supprime l’ancienne partie quand plus rien ne l’atteint. Aujourd’hui, un morceau, c’est une route de ta boutique, et une colonne de la base de GitLab.'
+		'Fowler appelle l’alternative le **strangler fig** (le figuier étrangleur) : tu écris le nouveau code à côté de l’ancien et tu déplaces le comportement un petit morceau à la fois. Tu supprimes une ancienne partie quand plus aucune requête ne l’atteint. Ici, un morceau est une route de ta boutique, et une colonne de la base de GitLab.'
 	],
 	terms: [
-		{ term: 'Strangler fig', def: 'Remplacer un système progressivement : le nouveau code pousse autour de l’ancien, prend le relais morceau par morceau, et l’ancienne partie meurt quand plus personne ne l’utilise (Fowler).' },
+		{ term: 'Strangler fig', def: 'Remplacer un système progressivement : le nouveau code pousse autour de l’ancien, prend le relais morceau par morceau, et tu supprimes chaque ancienne partie quand plus rien ne l’utilise (Fowler).' },
 		{ term: 'Seam (point de jonction)', def: 'L’endroit unique qui décide « ancien ou nouveau » pour une requête ou une donnée. Il te le faut avant de pouvoir déplacer quoi que ce soit.' },
 		{ term: 'Architecture transitoire', def: 'Du code qui fait tourner l’ancien et le nouveau côte à côte, et que tu prévois de supprimer. Fowler : « du code qui disparaîtra une fois la modernisation terminée ».' },
-		{ term: 'Migration post-déploiement', def: 'Chez GitLab, une migration de base de données rangée dans `db/post_migrate` pour qu’elle tourne après le déploiement du nouveau code, pas avant.' },
-		{ term: 'Point de non-retour', def: 'L’étape après laquelle tu avances, tu ne reviens plus en arrière. Une bonne migration en fait une seule petite étape, le plus tard possible.' }
+		{ term: 'Point de non-retour', def: 'L’étape après laquelle tu ne peux plus que corriger en avançant, car revenir en arrière demande une nouvelle migration. Une bonne migration en fait une seule petite étape, le plus tard possible.' }
 	],
 	diagram: {
 		direction: 'LR',
@@ -27,7 +26,7 @@ export default {
 			{
 				add: ['req(["Requête de la boutique"]) --> proxy["Seam de routage : reverse proxy"]', 'proxy -->|/checkout| newc["Nouveau service de paiement"]', 'proxy -->|tout le reste| legacy["Ancien monolithe"]'],
 				highlight: ['req', 'proxy', 'newc', 'legacy'],
-				note: 'Le seam du comportement : une règle de proxy envoie `/checkout` au nouveau service, tout le reste au monolithe. Les clients voient une seule boutique. Déplacer la route suivante, c’est **une règle de plus**.'
+				note: 'Le seam du comportement : une règle de proxy envoie `/checkout` au nouveau service, tout le reste au monolithe. Les clients voient une seule boutique. Pour déplacer la route suivante, tu ajoutes **une règle de plus** au proxy.'
 			},
 			{
 				add: ['oldcol["Colonne updated_at"] -->|un trigger copie à chaque écriture| newcol["Colonne updated_at_timestamp"]'],
@@ -42,12 +41,12 @@ export default {
 			{
 				add: ['cleanup["Post-déploiement : supprimer le trigger et l’ancienne colonne"] -.->|supprime| oldcol'],
 				highlight: ['cleanup'],
-				note: 'C’est seulement une fois le nouveau code en ligne qu’une **migration post-déploiement** retire le trigger et l’ancienne colonne. Le code transitoire est supprimé avec eux.'
+				note: 'GitLab range certaines migrations dans `db/post_migrate`, et elles tournent après le déploiement du nouveau code. Une fois le nouveau code en ligne, une de ces **migrations post-déploiement** retire le trigger et l’ancienne colonne.'
 			},
 			{
 				add: [],
 				highlight: ['cleanup'],
-				note: 'La suppression est le **point de non-retour**. Le guide de GitLab décrit la suppression d’une colonne comme « une opération destructive qu’on ne peut pas annuler facilement ». C’est donc une seule étape, et elle vient en dernier.'
+				note: 'Quand GitLab supprime l’ancienne colonne, la migration passe son **point de non-retour**. Le guide de GitLab décrit la suppression d’une colonne comme « une opération destructive qu’on ne peut pas annuler facilement ». GitLab en fait donc une seule étape, qui tourne en dernier.'
 			}
 		]
 	},
@@ -83,33 +82,33 @@ export default {
         remove_column(table, old)
       end`,
 		notes: [
-			`\`create_column_from\` [ajoute la nouvelle colonne](${HELPERS}#L757-L792), copie les valeurs existantes par lots, puis copie les index, les clés étrangères et les contraintes de vérification. La nouvelle colonne est une copie complète avant que le moindre code l’utilise.`,
-			`Le trigger est [à sens unique](${TRIGGER}#L43-L49) : en \`BEFORE INSERT OR UPDATE\`, il [remplit la nouvelle colonne à partir de l’ancienne](${TRIGGER}#L94-L98). C’est de l’**architecture transitoire** : elle n’existe que le temps de la migration.`,
-			'Les deux méthodes sont séparées exprès. La première tourne avant le déploiement, le nettoyage tourne après. Tant que le nettoyage n’a pas eu lieu, `undo_rename_column_concurrently` retire simplement le trigger et la nouvelle colonne.',
-			`Le nettoyage retire le trigger, puis **supprime l’ancienne colonne**. Cette dernière ligne est le point de non-retour. Le [guide](${DOWNTIME}#L216-L345) te demande de bien réfléchir au délai entre les deux migrations sur les grosses tables.`
+			`Ligne 13 : \`create_column_from\` [ajoute la nouvelle colonne](${HELPERS}#L757-L792), copie les valeurs existantes par lots, puis copie les index, les clés étrangères et les contraintes de vérification. La nouvelle colonne est une copie complète avant que le moindre code l’utilise.`,
+			`La ligne 15 installe un trigger [à sens unique](${TRIGGER}#L43-L49), en \`BEFORE INSERT OR UPDATE\`, qui remplit la nouvelle colonne à partir de l’ancienne. Ce trigger relève de l’**architecture transitoire** : il n’existe que le temps de la migration.`,
+			'Les lignes 9 et 18 ouvrent deux méthodes séparées : `rename_column_concurrently` tourne avant le déploiement, et `cleanup_concurrent_column_rename` tourne après. Tant que le nettoyage n’a pas eu lieu, `undo_rename_column_concurrently` retire simplement le trigger et la nouvelle colonne.',
+			`La ligne 23 retire le trigger, puis la ligne 25 **supprime l’ancienne colonne**. La ligne 25 est le point de non-retour. Le [guide](${DOWNTIME}#L216-L345) te demande de bien réfléchir au délai entre les deux migrations sur les grosses tables.`
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Le système reste livrable chaque jour. Chaque déplacement est petit, et son risque aussi.',
+			'La boutique continue de prendre des commandes à chaque étape. Une étape ratée ne touche qu’une route ou qu’une colonne.',
 			'Le rollback se fait par route ou par colonne, pas en « restaurant le système du mois dernier ».',
 			'Les nouvelles fonctionnalités arrivent dans le nouveau code dès le premier jour, donc l’ancien code arrête de grossir.'
 		],
 		cost: [
-			'Deux générations tournent côte à côte pendant longtemps. Il faut corriger les deux, et comprendre les deux.',
-			'Le seam est un couplage caché : une règle de proxy ou un trigger change discrètement qui répond.',
-			'Le code transitoire est du travail en plus, et l’état à moitié fini peut discrètement devenir permanent.'
+			'Le monolithe et le nouveau service tournent côte à côte pendant longtemps, et l’équipe corrige des bugs dans les deux.',
+			'Une règle de proxy ou un trigger change le code qui répond, et rien dans le code applicatif ne le montre.',
+			'Tu écris le trigger et les règles de proxy pour les supprimer plus tard. Si personne ne lance le nettoyage, ils restent en production pour de bon.'
 		]
 	},
 	task: {
 		prompt: 'Tu renommes `users.updated_at` en `updated_at_timestamp` avec les helpers de GitLab. Le nettoyage post-déploiement a tourné. Puis la nouvelle release révèle un vilain bug, et quelqu’un veut redéployer la release précédente, qui lit encore `updated_at`. Qu’est-ce qui casse ? Comment reviendrais-tu en arrière ?',
 		hint: `Lis \`cleanup_concurrent_column_rename\` et la méthode juste après, \`undo_cleanup_concurrent_column_rename\` ([lignes 382-420](${HELPERS}#L382-L420)).`,
 		answer: [
-			'**L’ancienne release casse.** Son code demande `updated_at`, et le nettoyage a supprimé cette colonne.',
-			'Revenir en arrière **n’est pas une simple annulation**. `undo_cleanup_concurrent_column_rename` recrée `updated_at`, copie les valeurs depuis `updated_at_timestamp` et réinstalle le trigger. C’est une nouvelle copie, et sur une grosse table ça prend du temps.',
-			'L’ordre est donc : lance d’abord cette migration d’annulation, puis redéploie l’ancien code. Jamais l’inverse.',
+			'L’ancienne release casse : son code demande `updated_at`, et le nettoyage a supprimé cette colonne.',
+			'Pour revenir en arrière, il faut une nouvelle migration. `undo_cleanup_concurrent_column_rename` recrée `updated_at`, copie les valeurs depuis `updated_at_timestamp` et réinstalle le trigger. C’est une nouvelle copie, et sur une grosse table ça prend du temps.',
+			'L’ordre est donc : lance d’abord cette migration d’annulation, puis redéploie l’ancien code. Jamais dans l’autre sens.',
 			'Souvent, le meilleur choix est de **corriger en avançant** : corrige le bug dans la nouvelle release, et ne touche pas au schéma.',
-			'La leçon de conception : garde le point de non-retour en **une seule petite étape, le plus tard possible**. GitLab place la suppression après le déploiement exactement pour cette raison.'
+			'Pour la conception : garde le point de non-retour en **une seule petite étape, le plus tard possible**. GitLab place la suppression après le déploiement pour cette raison.'
 		]
 	},
 	quiz: [
@@ -132,12 +131,16 @@ export default {
 			why: 'Il ne vit qu’entre les deux migrations. `cleanup_concurrent_column_rename` le retire en même temps que l’ancienne colonne.'
 		}
 	],
-	takeaway: 'Ne bascule jamais tout d’un coup. Trouve le seam, déplace un morceau à la fois, et garde le point de non-retour petit et tardif.',
+	recall: {
+		q: 'GitLab renomme une colonne sans interruption. Quelle étape ne s’annule pas facilement, et quand tourne-t-elle ?',
+		a: 'La suppression de l’ancienne colonne dans `cleanup_concurrent_column_rename`. Elle tourne en dernier, dans une migration post-déploiement, une fois le nouveau code en ligne.'
+	},
 	sources: [
 		{ title: 'Martin Fowler, Strangler Fig (2024)', url: 'https://martinfowler.com/bliki/StranglerFigApplication.html' },
 		{ title: 'Cartwright, Horn, Lewis, Patterns of Legacy Displacement', url: 'https://martinfowler.com/articles/patterns-legacy-displacement/' },
 		{ title: 'GitLab docs, Avoiding downtime in migrations: renaming columns', url: `${DOWNTIME}#L216-L345` },
 		{ title: 'GitLab, rename_column_concurrently and cleanup_concurrent_column_rename', url: `${HELPERS}#L226-L420` },
-		{ title: 'GitLab, UnidirectionalCopyTrigger', url: `${TRIGGER}#L16-L50` }
+		{ title: 'GitLab, UnidirectionalCopyTrigger', url: `${TRIGGER}#L16-L50` },
+		{ title: 'GitLab, UnidirectionalCopyTrigger, the copy function', url: `${TRIGGER}#L94-L98` }
 	]
 };

@@ -10,15 +10,13 @@ export default {
 	minutes: 10,
 	hook: [
 		'Your shop adds a small feature: a seller pastes an image URL, and **your server downloads the picture** for the product page. It ships in a day. Discourse has the same shape: when someone pastes a link into a post, its server can fetch the page to build a preview (a onebox).',
-		'So what stops a seller from pasting `http://169.254.169.254/` (the cloud metadata address) or `http://10.0.0.5/admin`, and making **your server fetch it from inside your network**? Or a 5 GB file, a thousand times? Reading the code line by line will not tell you, because you do not know yet which questions to ask. You need **a map of where data crosses into your hands**, and **a short list of questions** to ask at each crossing.',
-		'That is a **threat model**. The Threat Modeling Manifesto boils it down to four questions: "What are we working on? What can go wrong? What are we going to do about it? Did we do a good enough job?" Day 3 said "secure" is not a requirement. A threat model is how you find the scenarios that are.'
+		'So what stops a seller from pasting `http://169.254.169.254/` (the cloud metadata address) or `http://10.0.0.5/admin`, and making **your server fetch it from inside your network**? Or a 5 GB file, a thousand times? Reading the code line by line will not tell you, because you do not know yet which questions to ask. You need a drawing of where outside data enters your system, and a short list of questions to ask at each entry point.',
+		'A **threat model** gives you both. The Threat Modeling Manifesto reduces it to four questions: "What are we working on? What can go wrong? What are we going to do about it? Did we do a good enough job?" On day 3 you wrote "secure" as testable scenarios, and a threat model tells you which scenarios to write.'
 	],
 	terms: [
-		{ term: 'Threat model', def: 'A written answer to: what are we building, what can go wrong, what do we do about each thing, and did we check. Kept next to the design, updated when the design changes.' },
 		{ term: 'Data flow diagram', def: 'Boxes for processes and stores, arrows for data, outside parties drawn apart. The map a threat model is done on.' },
 		{ term: 'Trust boundary', def: 'A line on that map where data passes from someone you trust less to someone you trust more, or the other way. Every arrow that crosses one is a place to look.' },
 		{ term: 'STRIDE', def: 'Six kinds of threat to ask about at each crossing: Spoofing, Tampering, Repudiation, Information disclosure, Denial of service, Elevation of privilege.' },
-		{ term: 'Mitigation', def: 'What you do about one threat: a check, a limit, a design change. Or a written decision to accept the risk.' },
 		{ term: 'SSRF', def: 'Server-side request forgery. The attacker makes your server fetch a URL for them, and so reaches what only your server can reach.' }
 	],
 	diagram: {
@@ -27,27 +25,27 @@ export default {
 			{
 				add: ['subgraph ours["Trust boundary: what we run"]', 'lb["Load balancer"]', 'app["Shop app"]', 'end', 'seller(["Seller browser"]) -->|"POST image_url"| lb', 'lb --> app'],
 				highlight: ['seller', 'lb', 'app'],
-				note: '**What are we working on?** Draw the data flow, then the line around what you run. The browser is outside: anything it sends, header, cookie or URL, may be forged. Each arrow that **crosses the line** gets the six STRIDE questions.'
+				note: 'For the first question, what are we working on, draw the data flow, then the line around what you run. The browser is outside: anything it sends, header, cookie or URL, may be forged. Each arrow that **crosses the line** gets the six STRIDE questions.'
 			},
 			{
 				add: ['lb -->|"X-Forwarded-For: client address"| app'],
 				highlight: ['lb'],
-				note: '**Spoofing.** The rate limit counts requests per client address, and the address comes from a header. A seller can send their own `X-Forwarded-For`. The app must trust that header **only from the load balancer**, or anyone can pick the address they are counted under.'
+				note: 'A seller can spoof their address. The rate limit counts requests per client address, and the address comes from the `X-Forwarded-For` header, which a seller can send too. The app must trust that header **only from the load balancer**, or anyone can pick the address they are counted under.'
 			},
 			{
 				add: ['app -->|"GET image_url"| img["Image host on the internet"]', 'app -.->|"blocked: private address"| internal["10.0.0.5 or 169.254.169.254"]', 'class img ext'],
 				highlight: ['img', 'internal'],
-				note: '**Elevation of privilege**, the SSRF case. The URL comes from outside, but the request leaves from inside. Resolve the host, drop every private or reserved address, and **connect only to the addresses that passed**. Discourse does exactly this for its link previews.'
+				note: 'SSRF is an elevation of privilege: the URL comes from outside, but the request leaves from inside. Resolve the host, drop every private or reserved address, and **connect only to the addresses that passed**. Discourse does exactly this for its link previews.'
 			},
 			{
 				add: ['img -->|"bytes, redirects"| app'],
 				highlight: ['img'],
-				note: '**Denial of service and tampering** on the way back. Cap the size, the time, and the number of redirects, and check each redirect target again. Check that the bytes are an image, whatever the `Content-Type` says.'
+				note: 'On the way back, the image host can cause denial of service or tampering. Cap the size, the time, and the number of redirects, and check each redirect target again. Check that the bytes are an image, whatever the `Content-Type` says.'
 			},
 			{
 				add: ['app --> logs[("Audit log: seller, product, URL host")]'],
 				highlight: ['logs'],
-				note: '**Repudiation and information disclosure.** Log which seller asked for which host, so you can answer "who made us fetch that?". Do not return the fetch error body to the seller: it may hold an internal page. **Write each choice down**, including what you decided not to do.'
+				note: 'For repudiation, log which seller asked for which host, so you can answer "who made us fetch that?". For information disclosure, do not return the fetch error body to the seller: it may hold an internal page. **Write each choice down**, including what you decided not to do.'
 			}
 		]
 	},
@@ -81,25 +79,25 @@ export default {
       ips
     end`,
 		notes: [
-			'**Elevation of privilege.** `PRIVATE_IP_RANGES` is built from the [IANA special-purpose registries](' + SSRF + '#L11-L51), IPv4 and IPv6: loopback, private, link-local (which holds the cloud metadata address), documentation ranges. An admin can add more with the `blocked_ip_blocks` setting. A host that resolves only to such addresses raises `DisallowedIpError`, and nothing is fetched.',
-			'**Check what you connect to.** [`FinalDestination::HTTP#connect`](' + REPO + '/lib/final_destination/http.rb#L8-L34) filters the addresses, then hands **those addresses** to the socket layer, through the [Connector](' + REPO + '/lib/final_destination/connector.rb#L3-L14). The check and the connection use the same answer.',
-			'**Denial of service.** The same class keeps at most five IPv4 and five IPv6 addresses, [`MAX_ADDRESSES_PER_FAMILY = 5`](' + REPO + '/lib/final_destination/http.rb#L4-L6): "Limit the total to avoid DoS via a high-ip-count DNS response." [`FinalDestination`](' + REPO + '/lib/final_destination.rb#L52-L57) follows at most 5 redirects by default, and [link previews](' + REPO + '/lib/oneboxer.rb#L538-L552) can be set to follow none.',
-			'**An accepted risk, written as a setting.** [`allowed_internal_hosts`](' + SSRF + '#L64-L83) skips the checks for the site\'s own CDN, its base URL and any host an admin lists. That is a decision, visible in the config, not a hole someone finds later.',
-			'**Spoofing, one layer down.** Rails\' [`RemoteIp`](' + RAILS + '/actionpack/lib/action_dispatch/middleware/remote_ip.rb#L8-L32) picks "the last-set address that is not on the list of trusted IPs", and warns in capitals: "IF YOU DON\'T USE A PROXY, THIS MAKES YOU VULNERABLE TO IP SPOOFING." The boundary decides which headers you may believe.'
+			'Line 5 refuses any address in `blocked_ip_blocks` or `PRIVATE_IP_RANGES`. `PRIVATE_IP_RANGES` is built from the [IANA special-purpose registries](' + SSRF + '#L11-L51), IPv4 and IPv6: loopback, private, link-local (which holds the cloud metadata address), documentation ranges. An admin can add more ranges with the `blocked_ip_blocks` setting. If no resolved address passes, line 21 raises `DisallowedIpError`, and nothing is fetched.',
+			'[`FinalDestination::HTTP#connect`](' + REPO + '/lib/final_destination/http.rb#L8-L34) filters the addresses, then hands **those addresses** to the socket layer, through the Connector. The check and the connection use the same DNS answer.',
+			'Against denial of service, the same class keeps at most five IPv4 and five IPv6 addresses, [`MAX_ADDRESSES_PER_FAMILY = 5`](' + REPO + '/lib/final_destination/http.rb#L4-L6): "Limit the total to avoid DoS via a high-ip-count DNS response." `FinalDestination` follows at most 5 redirects by default, and link previews can be set to follow none.',
+			'[`allowed_internal_hosts`](' + SSRF + '#L64-L83) skips the checks for the site\'s own CDN, its base URL and any host an admin lists. Discourse records that accepted risk as a setting, so a reviewer can read it in the config.',
+			'Rails\' [`RemoteIp`](' + RAILS + '/actionpack/lib/action_dispatch/middleware/remote_ip.rb#L8-L32) has the spoofing problem one layer down. It picks "the last-set address that is not on the list of trusted IPs", and warns in capitals: "IF YOU DON\'T USE A PROXY, THIS MAKES YOU VULNERABLE TO IP SPOOFING." Only a header set by your own proxy can be believed.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Security work aimed at the few arrows that cross a boundary, instead of spread over every line of code.',
-			'Threats found while they are still a box on a whiteboard, when a fix is a design change and not a hotfix.',
-			'Accepted risks written down, with a why, so the next reviewer does not rediscover them as bugs.',
-			'Each mitigation becomes a test you can name: "a URL that resolves to 10.0.0.5 is never fetched".'
+			'You ask STRIDE at the few arrows that cross a boundary, instead of reviewing every line of code.',
+			'You find threats while they are a box on a whiteboard, when the fix is a design change instead of a hotfix.',
+			'Accepted risks, like `allowed_internal_hosts`, are written down with a reason, so the next reviewer does not report them as bugs.',
+			'Each mitigation gives a test you can name: "a URL that resolves to 10.0.0.5 is never fetched".'
 		],
 		cost: [
-			'Time, and the model goes stale: a new route or a new queue is a new crossing nobody has asked STRIDE about.',
-			'A list of threats is not a list of fixes. Someone still has to rank them by impact and likelihood.',
-			'Easy to stop at the obvious letters (spoofing, tampering) and skip repudiation and denial of service.',
-			'Every mitigation has a price: a blocked private range can also block a legitimate internal host, which is why Discourse needs an allow list too.'
+			'The model takes time, and it goes out of date: a new route or a new queue is a new crossing nobody has asked STRIDE about.',
+			'Someone still has to rank the threats by impact and likelihood before anyone fixes them.',
+			'A reviewer can stop at the obvious letters (spoofing, tampering) and skip repudiation and denial of service.',
+			'A blocked private range can also block a legitimate internal host, so Discourse needs an allow list too.'
 		]
 	},
 	task: {
@@ -134,7 +132,7 @@ export default {
 				'It fetches the page, since the user who pasted it is logged in'
 			],
 			answer: 1,
-			why: '10.0.0.0/8 is in `PRIVATE_IP_RANGES`. With every resolved address filtered out, the list is empty and the method raises "all resolved IPs were disallowed". Being logged in says who asked, not whether the server may go there.'
+			why: '10.0.0.0/8 is in `PRIVATE_IP_RANGES`. With every resolved address filtered out, the list is empty and the method raises "all resolved IPs were disallowed". The check looks only at the resolved addresses, so being logged in changes nothing.'
 		},
 		{
 			q: 'Rails\' `RemoteIp` middleware runs on a server with no proxy in front of it. A client sends `X-Forwarded-For: 203.0.113.9`. What is the risk?',
@@ -145,11 +143,17 @@ export default {
 				'The client can claim any address, so per-address limits can be dodged'
 			],
 			answer: 3,
-			why: 'Its own comment says so: without a proxy, "any client can claim to have any IP address by setting the `X-Forwarded-For` header". Outside the boundary, a header is only text the caller typed.'
+			why: 'Its own comment says so: without a proxy, "any client can claim to have any IP address by setting the `X-Forwarded-For` header". With no proxy in front, the client writes that header itself.'
 		}
 	],
-	takeaway: 'Draw the data flow, mark where trust changes, and ask the six STRIDE questions at every arrow that crosses the line. Write down the answer, including the risks you accept.',
+	recall: {
+		q: 'Where on the data flow diagram do you ask the six STRIDE questions, and what does Discourse do against SSRF?',
+		a: 'At every arrow that crosses a trust boundary. For a pasted URL, Discourse resolves the host, drops private and reserved addresses such as 10.0.0.5, and connects only to the addresses that passed.'
+	},
 	sources: [
+		{ title: 'Discourse, lib/final_destination/connector.rb', url: `${REPO}/lib/final_destination/connector.rb#L3-L14` },
+		{ title: 'Discourse, lib/final_destination.rb (redirect limit)', url: `${REPO}/lib/final_destination.rb#L52-L57` },
+		{ title: 'Discourse, lib/oneboxer.rb (link preview redirects)', url: `${REPO}/lib/oneboxer.rb#L538-L552` },
 		{ title: 'Threat Modeling Manifesto', url: 'https://www.threatmodelingmanifesto.org/' },
 		{ title: 'OWASP, Threat Modeling Cheat Sheet', url: 'https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html' },
 		{ title: 'OWASP, Threat Modeling Process (STRIDE)', url: 'https://owasp.org/www-community/Threat_Modeling_Process' },

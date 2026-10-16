@@ -156,7 +156,10 @@
 	});
 
 	$effect(() => {
-		if (c.quiz.every((_, i) => picked[`${c.slug}#${i}`] !== undefined)) markDone(dojo, c.slug);
+		if (!c.quiz.every((_, i) => picked[`${c.slug}#${i}`] !== undefined)) return;
+		// Only the first time: re-answering a finished chapter is not a new win.
+		if (!untrack(() => progress.done[c.slug])) cue('done');
+		markDone(dojo, c.slug);
 	});
 
 	/** @param {number} i */

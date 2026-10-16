@@ -77,10 +77,10 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 +\tpp_cleanup(&pp, opts);
 +`,
 		notes: [
-			'**Le dernier posé gagne.** `sigchain_push(SIGPIPE, SIG_IGN)` s’exécute d’abord. Ensuite `pp_init` appelle `sigchain_push_common`, qui pose `handle_children_on_signal` par-dessus. Quand SIGPIPE arrive, c’est le handler du sommet qui s’exécute, pas `SIG_IGN`.',
-			'**Ce qui se passe sur SIGPIPE.** Le hook se termine sans lire. git écrit sur son stdin et reçoit SIGPIPE. `handle_children_on_signal` appelle `kill()` sur les enfants, se retire de la pile et appelle `raise()`. Le signal relancé tombe alors sur `SIG_IGN` et il est ignoré : git survit, mais il vient d’essayer de tuer le hook. Le commit : "a hook that exits without reading all of its input will cause us to get SIGPIPE, which will put us in a signal handler that then tries to kill() that same child."',
-			'**Pourquoi seul NonStop échouait.** Sous Linux, l’enfant est déjà terminé, et le `kill()` "does not affect the exit status of the process" (ne change pas son code de sortie). Le commit dit que ça "seems not to be true on all platforms", et t5401.13 échouait sur NonStop. Avec plusieurs enfants, une seule sortie précoce ferait que git va "kill() all of the children (which might still actually be running)". L’API des hooks ne lance pas encore de hooks en parallèle, donc aucun test ne couvre ce cas.',
-			'**Le correctif.** Appeler `pp_init()` d’abord, puis poser `SIG_IGN`, pour que `SIG_IGN` soit au sommet pendant que git alimente les enfants. À la fin, `sigchain_pop(SIGPIPE)` passe maintenant avant `pp_cleanup()`, donc chaque retrait enlève le handler posé en dernier. Le commit attribue le signalement à Randall S. Becker.'
+			'La ligne 28 pose d’abord `SIG_IGN` pour SIGPIPE. Puis la ligne 30 appelle `pp_init`, dont la ligne 17 pose `handle_children_on_signal` par-dessus. Quand SIGPIPE arrive, le handler du sommet s’exécute, et `SIG_IGN` attend en dessous.',
+			'Le hook se termine sans lire, donc git reçoit SIGPIPE en écrivant sur son stdin. Les lignes 3 à 5 appellent `kill()` sur les enfants, retirent le handler et appellent `raise()`. Le signal relancé tombe alors sur `SIG_IGN` : git survit, après avoir essayé de tuer le hook. Le commit : "a hook that exits without reading all of its input will cause us to get SIGPIPE, which will put us in a signal handler that then tries to kill() that same child."',
+			'Sous Linux, l’enfant est déjà terminé, et le `kill()` "does not affect the exit status of the process" (ne change pas son code de sortie). Le commit dit que ça "seems not to be true on all platforms", et t5401.13 échouait sur NonStop. Avec plusieurs enfants, une seule sortie précoce ferait que git va "kill() all of the children (which might still actually be running)". L’API des hooks ne lance pas encore de hooks en parallèle, donc aucun test ne couvre ce cas.',
+			'Le correctif remonte `pp_init()` au-dessus de la ligne 28 : `SIG_IGN` reste au sommet pendant que git alimente les enfants. À la fin, `sigchain_pop(SIGPIPE)` passe maintenant avant `pp_cleanup()`, donc chaque retrait enlève le handler posé en dernier. Le commit attribue à Randall S. Becker le signalement du bug.'
 		]
 	},
 	quiz: [
@@ -93,7 +93,7 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 				'Les deux à la fois, dans l’ordre où ils ont été posés'
 			],
 			answer: 1,
-			why: 'La sigchain est une pile. `pp_init` pose son handler après `SIG_IGN`, donc il est au sommet et passe en premier.'
+			why: '`sigchain_push` pose chaque handler au-dessus du précédent. `pp_init` pose son handler après `SIG_IGN`, donc il est au sommet et passe en premier.'
 		},
 		{
 			q: 'Pourquoi le test passait-il sous Linux malgré le bug ?',
@@ -118,7 +118,10 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 			why: 'Avec une pile de handlers, seul l’ordre des poses compte. Ici, il fallait appeler `pp_init()` avant de poser `SIG_IGN`.'
 		}
 	],
-	takeaway: 'Quand une fonction que tu appelles installe son propre handler pour un signal, ta surcharge doit venir après cet appel, et tes retraits doivent défaire les poses dans l’ordre inverse. Regarde ce que pose chaque appel d’initialisation avant de placer le tien.',
+	recall: {
+		q: 'Pourquoi `SIG_IGN` ne s’exécutait-il pas quand un hook sortait tôt, et quelle ligne le correctif a-t-il déplacée ?',
+		a: '`pp_init()` posait `handle_children_on_signal` après `SIG_IGN` : ce handler était au sommet de la sigchain et essayait de tuer le hook. Le correctif appelle `pp_init()` avant `sigchain_push(SIGPIPE, SIG_IGN)`.'
+	},
 	sources: [
 		{ title: 'git, commit 2226ffaac', url: `${GIT}/commit/2226ffaacd93d3fe5554687a70d9190d72596f96` }
 	]

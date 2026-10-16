@@ -4,7 +4,7 @@ const RAILS = 'https://github.com/rails/rails';
 export default {
 	slug: 'cache-key',
 	part: 'State and time',
-	title: 'Two controllers, one counter',
+	title: 'A rate limit key without the controller',
 	minutes: 10,
 	hook: [
 		'Rails controllers can limit how often a client calls them: `rate_limit to: 10, within: 5.minutes`. The counts live in the Rails cache. A controller with several limits gives each one a `name:`, a feature added a few days before this fix.',
@@ -51,10 +51,10 @@ private
 +        count = store.increment(cache_key, 1, expires_in: within)
          if count && count > to`,
 		notes: [
-			'**The key only holds the name.** The counter is stored under `"rate-limit:#{name}:#{ip}"`. With the default name, `controller_path`, the key differs per controller. With `name: "long-term"`, the key is `rate-limit:long-term:203.0.113.5` in every controller that picks that name.',
-			'**The numbers.** Both controllers use `to: 10` and the same name. From 203.0.113.5, 6 requests to the first and 5 to the second all call `store.increment` on one key, which returns 1 up to 11. On the 11th, `count > to` is `11 > 10`, and the client gets 429 from a controller that counted 5 of its own.',
-			'**The fix.** The key is built from its parts: `["rate-limit", controller_path, name, ...].compact.join(":")`. `controller_path` is now read in the controller that handles the request, so two controllers never share a key. The default name becomes `nil`, and `compact` drops it: `rate-limit:sessions:203.0.113.5`.',
-			'**How it was found.** The author of the `name:` option noticed it after the merge. The [pull request](' + RAILS + '/pull/52961) says: "So if someone uses `name: "long-term"` rate limiter in `FooController` and `name: "long-term"` in `BarController`, they both will share the same key."'
+			'Line 12 stores the counter under `"rate-limit:#{name}:#{ip}"`, and the key holds only the name and the IP. With the default name from line 5, `controller_path`, the key differs per controller. With `name: "long-term"`, the key is `rate-limit:long-term:203.0.113.5` in every controller that picks that name.',
+			'Both controllers use `to: 10` and the same name. From 203.0.113.5, 6 requests to the first and 5 to the second all call `store.increment` on one key, which returns 1 up to 11. On the 11th, line 13 compares `11 > 10`, and the client gets 429 from a controller that counted 5 of its own.',
+			'The fix builds the key from its parts: `["rate-limit", controller_path, name, ...].compact.join(":")`. `controller_path` is now read in the controller that handles the request, so two controllers never share a key. The default name is now `nil`, and `compact` drops it: `rate-limit:sessions:203.0.113.5`.',
+			'The author of the `name:` option noticed the bug after the merge. The [pull request](' + RAILS + '/pull/52961) says: "So if someone uses `name: "long-term"` rate limiter in `FooController` and `name: "long-term"` in `BarController`, they both will share the same key."'
 		]
 	},
 	quiz: [
@@ -87,7 +87,10 @@ private
 			why: 'If two callers that should have separate values build the same key, they read and change each other’s value. Here the controller was missing from the key.'
 		}
 	],
-	takeaway: 'List what makes a cached value different, here the controller, the limit name and the client, and put each of them in the key. A name the caller picks is not unique unless the code makes it so.',
+	recall: {
+		q: 'Which part was missing from the rate limit key, and what did two controllers with the same `name:` share because of it?',
+		a: 'The key had no controller path. Both built `rate-limit:long-term:<ip>`, so they counted into one counter and a client got 429 after 11 requests split across them.'
+	},
 	sources: [
 		{ title: 'rails pull request #52961', url: `${RAILS}/pull/52961` },
 		{ title: 'rails pull request #52960, which added name:', url: `${RAILS}/pull/52960` }

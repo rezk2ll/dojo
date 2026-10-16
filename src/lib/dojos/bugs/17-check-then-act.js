@@ -4,7 +4,7 @@ const KAFKA = 'https://github.com/apache/kafka';
 export default {
 	slug: 'check-then-act',
 	part: 'State and time',
-	title: 'A map handed out half built',
+	title: 'Double-checked locking: assign the field last',
 	minutes: 10,
 	hook: [
 		'In the Kafka Java client, a `FetchResponse` holds the records a broker sent back for each partition. `responseData` turns them into a map from partition to data. It builds that map once, on the first call, and keeps it for the next calls.',
@@ -13,7 +13,7 @@ export default {
 	terms: [
 		{ term: 'Lazy initialization', def: 'Building a value the first time someone asks for it, then reusing it.' },
 		{ term: 'Double-checked locking', def: 'Testing a field without the lock, then taking the lock and testing it again before building the value.' },
-		{ term: 'volatile', def: 'A Java field modifier. A write to the field is seen right away by every thread that reads it.' }
+		{ term: 'volatile', def: 'A Java field modifier: a write to the field is seen right away by every thread that reads it.' }
 	],
 	bug: {
 		title: 'KAFKA-13777: Fix potential FetchResponse#responseData race condition issue (#11963)',
@@ -65,10 +65,10 @@ public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseDa
 +                    responseData = responseDataTmp;
                  }`,
 		notes: [
-			'**The field is published before it is filled.** The first `if (responseData == null)` runs without the lock. It asks "is the map ready?" but it can only answer "is the field set?". Line 9 sets the field to an empty map, and the loop fills it afterwards.',
-			'**One concrete interleaving.** A response holds 3 partitions. Thread A takes the lock, runs line 9 and has put 1 partition. Thread B calls `responseData`, sees a non-null field on the first check, skips the lock and returns a map with **1 entry instead of 3**. `LinkedHashMap` is also not safe to read while another thread writes to it.',
-			'**The fix.** The map is built in a local variable, `responseDataTmp`, and assigned to the field as the last step. A thread that sees the field set now sees a full map. The field is `volatile`, so the entries written before that assignment are visible to the thread that reads it.',
-			'**How it was found.** The JIRA ticket quotes the method and proposes a rewrite, with no crash attached. Its title says it: "Assignment of lazy-initialized members should be the last step with double-checked locking". The commit message adds that the old order "would let other threads get the partial object".'
+			'Line 6 tests `responseData == null` without the lock. A non-null field tells the caller that line 9 has run, and nothing about whether the map is full. Line 9 sets the field to an empty map, and the loop on lines 10 to 21 fills it afterwards.',
+			'A response holds 3 partitions. Thread A takes the lock, runs line 9 and has put 1 partition at line 19. Thread B calls `responseData`, sees a non-null field at line 6, skips the lock and returns a map with **1 entry instead of 3**. `LinkedHashMap` is also not safe to read while another thread writes to it.',
+			'The fix builds the map in a local variable, `responseDataTmp`, and assigns it to the field as the last step. A thread that sees the field set now sees a full map. Line 3 declares the field `volatile`, so the entries written before that assignment are visible to the thread that reads it.',
+			'The JIRA ticket quotes the method and proposes a rewrite, with no crash attached. The ticket title is "Assignment of lazy-initialized members should be the last step with double-checked locking". The commit message adds that the old order "would let other threads get the partial object".'
 		]
 	},
 	quiz: [
@@ -106,7 +106,10 @@ public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseDa
 			why: 'Readers outside the lock trust the field as soon as it is not null. The value must be complete before that, and the field must be `volatile` in Java.'
 		}
 	],
-	takeaway: 'In a lazy getter, a reader that skips the lock acts on the field as soon as it is set. Build the value in a local variable and assign the field last, so set means finished.',
+	recall: {
+		q: 'In `responseData`, a thread that skips the lock returns the field as soon as it is not null. Where must the assignment to the field go?',
+		a: 'After the loop that puts every partition. The fix fills a local `responseDataTmp` and runs `responseData = responseDataTmp` as the last step.'
+	},
 	sources: [
 		{ title: 'kafka pull request #11963', url: `${KAFKA}/pull/11963` },
 		{ title: 'KAFKA-13777 on the Kafka JIRA', url: 'https://issues.apache.org/jira/browse/KAFKA-13777' }

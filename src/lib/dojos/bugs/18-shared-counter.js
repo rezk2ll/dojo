@@ -5,7 +5,7 @@ const ISSUE = `${CPY}/issues/56075`;
 export default {
 	slug: 'shared-counter',
 	part: 'State and time',
-	title: 'Two threads named Thread-35',
+	title: 'Thread names from an unlocked counter',
 	minutes: 10,
 	hook: [
 		'A Python user wrote a script where each thread starts three more threads, five levels deep, and prints its name. He ran it about 100 times and counted duplicate names. The output shows `Thread-35` and `Thread-12`, each given to two threads.',
@@ -48,10 +48,10 @@ def _newname(template="Thread-%d"):
 -    return template % _counter
 +    return template % _counter()`,
 		notes: [
-			'**One line, several bytecode steps.** `_counter += 1` reads the global, adds 1, then stores it. The report shows the bytecode: `LOAD_GLOBAL`, `BINARY_ADD`, `STORE_GLOBAL`. The interpreter can switch threads between any two of them, even with the GIL.',
-			'**How two threads get 35.** The counter is 34. Thread A loads 34 and adds 1, then the interpreter switches. Thread B loads 34, adds 1, stores 35. A resumes and stores its own 35. Both then format `Thread-35`. One increment is lost and one name is used twice.',
-			'**The fix.** `_count().__next__` is a C function. One call reads and advances the counter as one step, so no thread can run in the middle. The extra `_counter()` call consumes 0 so the first thread is still `Thread-1`. Antoine Pitrou noted on the issue: "this fix only works on implementations where itertools.count().next is atomic."',
-			'**How it was found.** Peter Saveliev opened [issue #11866](' + ISSUE + '): "The _newname() function has no locking." He attached a script and ran it about 100 times to show duplicates. The fix has no test, because the committer said a test "would never be a consistent failure."'
+			'Line 5, `_counter += 1`, reads the global, adds 1, then stores it. The report shows the bytecode: `LOAD_GLOBAL`, `BINARY_ADD`, `STORE_GLOBAL`. The interpreter can switch threads between any two of them, even with the GIL.',
+			'The counter is 34. Thread A loads 34 and adds 1, then the interpreter switches. Thread B loads 34, adds 1, stores 35. A resumes and stores its own 35, so line 6 formats `Thread-35` for both threads and one increment is lost.',
+			'The fix replaces the int on line 2 with `_count().__next__`, a C function. One call reads and advances the counter as one step, so no thread can run in the middle. The extra `_counter()` call consumes 0 so the first thread is still `Thread-1`. Antoine Pitrou noted on the issue: "this fix only works on implementations where itertools.count().next is atomic."',
+			'Peter Saveliev opened [issue #11866](' + ISSUE + '): "The _newname() function has no locking." He attached a script and ran it about 100 times to show duplicates. The fix has no test, because the committer said a test "would never be a consistent failure."'
 		]
 	},
 	quiz: [
@@ -75,7 +75,7 @@ def _newname(template="Thread-%d"):
 				'`+=` on an int creates a new thread'
 			],
 			answer: 2,
-			why: 'The GIL keeps one bytecode instruction whole, not a whole line. The read and the store are separate instructions.'
+			why: 'The GIL keeps one bytecode instruction whole. `_counter += 1` is three instructions, and another thread can run between `LOAD_GLOBAL` and `STORE_GLOBAL`.'
 		},
 		{
 			q: 'You need a counter shared by threads in your own Python code. Which choice holds under any Python implementation?',
@@ -89,7 +89,10 @@ def _newname(template="Thread-%d"):
 			why: 'A lock makes the read and the store one step for every thread that takes it. The `itertools.count` trick depends on a C call being atomic, which the issue notes is an implementation detail.'
 		}
 	],
-	takeaway: 'Look for `+=` on any variable that more than one thread can reach. Put the update under a lock, or use a single call that reads and writes in one step.',
+	recall: {
+		q: 'How could two threads both get the name `Thread-35` from `_newname()`?',
+		a: '`_counter += 1` is three bytecodes: load, add, store. Both threads loaded 34 before either stored, so both stored 35. The fix calls `itertools.count().__next__`, one C call.'
+	},
 	sources: [
 		{ title: 'cpython issue #56075 (bpo-11866)', url: ISSUE },
 		{ title: 'The fix commit', url: `${CPY}/commit/b186f1df41da42d774ac9278588acc2bd11a59a8` }

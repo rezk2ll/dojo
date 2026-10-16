@@ -4,7 +4,7 @@ const KAFKA = 'https://github.com/apache/kafka';
 export default {
 	slug: 'check-then-act',
 	part: 'L’état et le temps',
-	title: 'Une map livrée à moitié remplie',
+	title: 'Double-checked locking : affecter le champ en dernier',
 	minutes: 10,
 	hook: [
 		'Dans le client Java de Kafka, une `FetchResponse` contient les enregistrements qu’un broker a renvoyés pour chaque partition. `responseData` les transforme en une map de la partition vers ses données. Elle construit cette map une fois, au premier appel, et la garde pour les suivants.',
@@ -13,7 +13,7 @@ export default {
 	terms: [
 		{ term: 'Initialisation paresseuse', def: 'Construire une valeur la première fois qu’on la demande, puis la réutiliser.' },
 		{ term: 'Double-checked locking', def: 'Tester un champ sans le verrou, puis prendre le verrou et le tester à nouveau avant de construire la valeur.' },
-		{ term: 'volatile', def: 'Un modificateur de champ Java. Une écriture dans le champ est vue tout de suite par chaque thread qui le lit.' }
+		{ term: 'volatile', def: 'Un modificateur de champ Java : une écriture dans le champ est vue tout de suite par chaque thread qui le lit.' }
 	],
 	bug: {
 		title: 'KAFKA-13777: Fix potential FetchResponse#responseData race condition issue (#11963)',
@@ -65,10 +65,10 @@ public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseDa
 +                    responseData = responseDataTmp;
                  }`,
 		notes: [
-			'**Le champ est publié avant d’être rempli.** Le premier `if (responseData == null)` tourne sans le verrou. Il demande « la map est-elle prête ? » mais ne sait répondre qu’à « le champ est-il affecté ? ». La ligne 9 affecte une map vide au champ, et la boucle la remplit ensuite.',
-			'**Un entrelacement concret.** Une réponse contient 3 partitions. Le thread A prend le verrou, exécute la ligne 9 et a ajouté 1 partition. Le thread B appelle `responseData`, voit un champ non nul au premier test, saute le verrou et renvoie une map avec **1 entrée au lieu de 3**. En plus, `LinkedHashMap` n’est pas faite pour être lue pendant qu’un autre thread y écrit.',
-			'**Le correctif.** La map est construite dans une variable locale, `responseDataTmp`, puis affectée au champ en dernier. Un thread qui voit le champ affecté voit maintenant une map pleine. Le champ est `volatile`, donc les entrées écrites avant cette affectation sont visibles pour le thread qui le lit.',
-			'**Comment ça a été trouvé.** Le ticket JIRA cite la méthode et propose une réécriture, sans plantage joint. Son titre le dit : "Assignment of lazy-initialized members should be the last step with double-checked locking" (l’affectation doit être la dernière étape). Le message du commit ajoute que l’ancien ordre "would let other threads get the partial object".'
+			'La ligne 6 teste `responseData == null` sans le verrou. Un champ non nul dit seulement que la ligne 9 a tourné, et la map peut encore être vide. La ligne 9 affecte une map vide au champ, et la boucle des lignes 10 à 21 la remplit ensuite.',
+			'Une réponse contient 3 partitions. Le thread A prend le verrou, exécute la ligne 9 et a ajouté 1 partition à la ligne 19. Le thread B appelle `responseData`, voit un champ non nul à la ligne 6, saute le verrou et renvoie une map avec **1 entrée au lieu de 3**. En plus, `LinkedHashMap` ne supporte pas une lecture pendant qu’un autre thread y écrit.',
+			'Le correctif construit la map dans une variable locale, `responseDataTmp`, et l’affecte au champ en dernier. Un thread qui voit le champ affecté voit maintenant une map pleine. La ligne 3 déclare le champ `volatile`, donc le thread qui le lit voit aussi les entrées écrites avant l’affectation.',
+			'Le ticket JIRA cite la méthode et propose une réécriture, sans plantage joint. Son titre : "Assignment of lazy-initialized members should be the last step with double-checked locking" (l’affectation doit être la dernière étape). Le message du commit ajoute que l’ancien ordre "would let other threads get the partial object".'
 		]
 	},
 	quiz: [
@@ -106,7 +106,10 @@ public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseDa
 			why: 'Les lecteurs hors du verrou font confiance au champ dès qu’il n’est plus nul. La valeur doit être complète avant, et en Java le champ doit être `volatile`.'
 		}
 	],
-	takeaway: 'Dans un getter paresseux, un lecteur qui saute le verrou agit sur le champ dès qu’il est affecté. Construis la valeur dans une variable locale et affecte le champ en dernier, pour qu’affecté veuille dire fini.',
+	recall: {
+		q: 'Dans `responseData`, un thread qui saute le verrou renvoie le champ dès qu’il n’est plus nul. Où doit aller l’affectation du champ ?',
+		a: 'Après la boucle qui ajoute chaque partition. Le correctif remplit une variable locale `responseDataTmp` et exécute `responseData = responseDataTmp` en dernier.'
+	},
 	sources: [
 		{ title: 'kafka, pull request #11963', url: `${KAFKA}/pull/11963` },
 		{ title: 'KAFKA-13777 sur le JIRA de Kafka', url: 'https://issues.apache.org/jira/browse/KAFKA-13777' }

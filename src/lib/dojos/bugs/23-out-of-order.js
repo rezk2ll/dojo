@@ -77,10 +77,10 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 +\tpp_cleanup(&pp, opts);
 +`,
 		notes: [
-			'**The last push wins.** `sigchain_push(SIGPIPE, SIG_IGN)` runs first. Then `pp_init` calls `sigchain_push_common`, which puts `handle_children_on_signal` on top of it. When SIGPIPE arrives, the handler on top runs, not `SIG_IGN`.',
-			'**What happens on SIGPIPE.** The hook exits without reading. Git writes to its stdin and gets SIGPIPE. `handle_children_on_signal` calls `kill()` on the children, pops itself, and calls `raise()`. The raised signal now meets `SIG_IGN` and is ignored, so git survives, but it has just tried to kill the hook. The commit: "a hook that exits without reading all of its input will cause us to get SIGPIPE, which will put us in a signal handler that then tries to kill() that same child."',
-			'**Why only NonStop failed.** On Linux the child has already exited, and the `kill()` "does not affect the exit status of the process". The commit says this "seems not to be true on all platforms", and t5401.13 failed on NonStop. With several children, one early exit would make git "kill() all of the children (which might still actually be running)". The hook API does not run hooks in parallel yet, so no test covers that case.',
-			'**The fix.** Call `pp_init()` first, then push `SIG_IGN`, so `SIG_IGN` is on top while git feeds the children. At the end, `sigchain_pop(SIGPIPE)` now comes before `pp_cleanup()`, so each pop removes the handler pushed last. The commit credits the report to Randall S. Becker.'
+			'Line 28 pushes `SIG_IGN` for SIGPIPE first. Then line 30 calls `pp_init`, and line 17 inside it pushes `handle_children_on_signal` on top. When SIGPIPE arrives, the handler on top runs, and `SIG_IGN` waits below it.',
+			'The hook exits without reading, so git gets SIGPIPE when it writes to the hook’s stdin. Lines 3 to 5 call `kill()` on the children, pop the handler and call `raise()`. The raised signal now meets `SIG_IGN`, so git survives, after it has tried to kill the hook. The commit: "a hook that exits without reading all of its input will cause us to get SIGPIPE, which will put us in a signal handler that then tries to kill() that same child."',
+			'On Linux the child has already exited, and the `kill()` "does not affect the exit status of the process". The commit says this "seems not to be true on all platforms", and t5401.13 failed on NonStop. With several children, one early exit would make git "kill() all of the children (which might still actually be running)". The hook API does not run hooks in parallel yet, so no test covers that case.',
+			'The fix moves `pp_init()` above line 28, so `SIG_IGN` is on top while git feeds the children. At the end, `sigchain_pop(SIGPIPE)` now comes before `pp_cleanup()`, so each pop removes the handler pushed last. The commit credits Randall S. Becker with the report.'
 		]
 	},
 	quiz: [
@@ -93,7 +93,7 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 				'Both at once, in the order they were pushed'
 			],
 			answer: 1,
-			why: 'The sigchain is a stack. `pp_init` pushes its handler after `SIG_IGN`, so it sits on top and runs first.'
+			why: '`sigchain_push` puts each handler on top of the previous one. `pp_init` pushes its handler after `SIG_IGN`, so it sits on top and runs first.'
 		},
 		{
 			q: 'Why did the test pass on Linux even with the bug?',
@@ -118,7 +118,10 @@ void run_processes_parallel(const struct run_process_parallel_opts *opts)
 			why: 'With a stack of handlers, the push order is the only thing that matters. Here that meant calling `pp_init()` before pushing `SIG_IGN`.'
 		}
 	],
-	takeaway: 'When a function you call installs its own handler for a signal, your override has to come after that call, and your pops should undo the pushes in reverse order. Check what each setup call pushes before you place yours.',
+	recall: {
+		q: 'Why did `SIG_IGN` not run when a hook exited early, and which line moved in the fix?',
+		a: '`pp_init()` pushed `handle_children_on_signal` after `SIG_IGN`, so that handler was on top of the sigchain and tried to kill the hook. The fix calls `pp_init()` before `sigchain_push(SIGPIPE, SIG_IGN)`.'
+	},
 	sources: [
 		{ title: 'git commit 2226ffaac', url: `${GIT}/commit/2226ffaacd93d3fe5554687a70d9190d72596f96` }
 	]

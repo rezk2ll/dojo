@@ -14,6 +14,9 @@
  * A kata is a design exercise on paper: the reader works on `brief` for `minutes`, checks
  * their design against `checklist`, then reads one possible answer.
  * @typedef {{ brief: string[], minutes: number, checklist: string[], sample: string[] }} Kata
+ * A rep is one typed answer: a command, a query or an expression. `accept` lists every
+ * answer that counts, the first one shown as the answer.
+ * @typedef {{ prompt: string, accept: string[], why: string }} Rep
  * @typedef {{
  *   slug: string, part: string, title: string, minutes: number,
  *   hook: string[],
@@ -23,6 +26,7 @@
  *   bug?: Bug,
  *   incident?: Incident,
  *   kata?: Kata,
+ *   reps?: Rep[],
  *   tradeoff?: { gain: string[], cost: string[] },
  *   task?: { prompt: string, hint?: string, answer: string[] },
  *   quiz: Question[],

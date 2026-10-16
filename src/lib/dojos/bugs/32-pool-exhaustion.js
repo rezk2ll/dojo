@@ -13,7 +13,7 @@ export default {
 	],
 	terms: [
 		{ term: 'Connection pool', def: 'A set of open database connections that callers borrow and give back, so each query does not open a new one.' },
-		{ term: 'Idle list', def: 'Connections that are open and free to borrow. Here `freeConn`, capped at 2 by default.' },
+		{ term: 'Idle list', def: 'The open connections that no caller holds right now, kept in `freeConn` (at most 2 by default).' },
 		{ term: 'numOpen', def: 'The pool\'s count of open connections. With `SetMaxOpenConns(n)`, callers wait once it reaches n.' }
 	],
 	bug: {
@@ -73,10 +73,10 @@ func (db *DB) putConnDBLocked(dc *driverConn, err error) bool {
 +	}
  }`,
 		notes: [
-			'**The return value is dropped.** `putConnDBLocked` returns `false` when nobody is waiting and the idle list is full. `openNewConnection` ignores it. The connection is then in no list, nobody closes it, and `numOpen` has already counted it.',
-			'**The timing that triggers it**, from the report: a caller asks for a connection, none is idle, so the opener starts dialing. While it waits on the network, 3 busy connections are released. The first one goes to the waiting caller, the next 2 fill the idle list (2 is the default). The new connection arrives with no caller waiting and no idle slot: `false`, and it is lost.',
-			'**Why it ends in a deadlock.** Each lost connection stays in `numOpen` forever. With `SetMaxOpenConns(10)`, after 10 such losses `numOpen` is 10 while no real connection is left. `conn()` waits when `db.numOpen >= db.maxOpen`, and no new connection is opened, so every query waits. Without a limit, the leaked connections pile up on the database server instead.',
-			'**The fix** counts the connection only when `putConnDBLocked` accepted it, and closes it otherwise. The reporter, on [issue #6593](' + GO + '/issues/6593): "it calls putConnDBLocked() without checking the return value, assuming the connection will either fulfill a pending request or be added to the idle queue, but that\'s not always the case."'
+			'Line 36 returns `false` when nobody is waiting and the idle list is full. Line 23 ignores that value, after line 22 has already added the connection to `numOpen`. The connection is then in no list, and nobody closes it.',
+			'In the report, a caller asks for a connection, none is idle, so the opener starts dialing. While it waits on the network, 3 busy connections are released: the first goes to the waiting caller, the next 2 fill the idle list (2 is the default). The new connection arrives with no caller waiting and no idle slot, line 36 returns `false`, and the connection is lost.',
+			'Each lost connection stays in `numOpen` forever. With `SetMaxOpenConns(10)`, after 10 such losses `numOpen` is 10 while no real connection is left. `conn()` waits when `db.numOpen >= db.maxOpen` and opens nothing new, so **every query waits**. Without a limit, the leaked connections pile up on the database server instead.',
+			'The fix counts the connection only when `putConnDBLocked` returns `true`, and closes it otherwise. The reporter, on [issue #6593](' + GO + '/issues/6593): "it calls putConnDBLocked() without checking the return value, assuming the connection will either fulfill a pending request or be added to the idle queue, but that\'s not always the case."'
 		]
 	},
 	quiz: [
@@ -114,7 +114,10 @@ func (db *DB) putConnDBLocked(dc *driverConn, err error) bool {
 			why: 'Here the pool does not close what it refuses. The caller owns the resource until the pool says yes, so it must count it only on `true` and close it on `false`.'
 		}
 	],
-	takeaway: 'When you hand a connection or a worker to a pool, check whether the pool kept it. Count it only when it did, and close it yourself when it did not.',
+	recall: {
+		q: 'In Go 1.2 `database/sql`, what happened to a new connection when `putConnDBLocked` returned `false`, and why did that end in a deadlock?',
+		a: 'Nothing closed it and no list held it, but `numOpen` had already counted it. With `SetMaxOpenConns(10)`, 10 such losses left `numOpen` at 10 with no real connection, so every caller waited. The fix counts the connection only on `true` and closes it on `false`.'
+	},
 	sources: [
 		{ title: 'go issue #6593', url: `${GO}/issues/6593` },
 		{ title: 'Code review 14611045', url: 'https://golang.org/cl/14611045' }

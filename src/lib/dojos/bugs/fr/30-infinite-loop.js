@@ -4,7 +4,7 @@ const SIDEKIQ = 'https://github.com/sidekiq/sidekiq';
 export default {
 	slug: 'infinite-loop',
 	part: 'Les ressources',
-	title: 'Un job supprimé de la mauvaise file',
+	title: 'drain_all de Sidekiq boucle sur un job hors de sa file par défaut',
 	minutes: 10,
 	hook: [
 		'Dans le mode de test factice de Sidekiq, les jobs ne partent pas dans Redis. Ils attendent en mémoire qu’un test les lance avec `drain` ou `drain_all`. Le test d’un utilisateur appelle `Sidekiq::Worker.drain_all` et **ne rend jamais la main**. Chaque job a tourné une fois. La boucle continue sans plus rien à lancer.',
@@ -68,10 +68,10 @@ class << self
 +          Queues.delete_for(next_job["jid"], next_job["queue"], self.to_s)
            process_job(next_job)`,
 		notes: [
-			'**Ajouté sous un nom, retiré sous un autre.** Le client pousse avec `Queues.push(job[\'queue\'], ...)`, la file écrite dans le job. `drain` supprime avec `queue`, la valeur par défaut des `sidekiq_options` du worker. Quand les deux diffèrent, `delete_if` tourne sur le mauvais tableau et n’y retire rien.',
-			'**Où ça boucle.** Un worker a pour file par défaut `"default"` et un job attend dans `"critical"`. `drain` le supprime de `jobs_by_worker` (le nom de classe est juste) et le lance, donc son propre `while` s’arrête. `jobs_by_queue["critical"]` contient toujours le job. `drain_all` lit ce hash, voit un job, rappelle `drain`, qui ne trouve aucun job pour le worker et rend la main. Et ça recommence sans fin.',
-			'**Le correctif.** `next_job["queue"]` est la file où le job a été poussé, donc la suppression touche le même tableau que l’ajout. Les deux hashs perdent le job, et la condition de sortie de `drain_all` devient fausse.',
-			'**Comment ça s’est vu.** L’issue [#3144](' + SIDEKIQ + '/issues/3144) l’explique en une phrase : "the job is only removed from the `jobs_by_worker` hash in the Queue, and not the `jobs_by_queue` Hash, leading to `drain_all` repeatedly trying to get a worker to work on the job". L’auteur a fait passer son test en utilisant la file du job, et ce changement a été fusionné dans la pull request #3152.'
+			'Le client pousse avec `Queues.push(job[\'queue\'], ...)`, la file écrite dans le job. La ligne 22 supprime avec `queue`, la valeur par défaut des `sidekiq_options` du worker (ligne 12). Quand les deux diffèrent, la ligne 7 lance `delete_if` sur le mauvais tableau et n’y retire rien.',
+			'Un worker a pour file par défaut `"default"` et un job attend dans `"critical"`. `drain` le supprime de `jobs_by_worker` (le nom de classe est juste) et le lance, donc son `while` de la ligne 20 s’arrête. `jobs_by_queue["critical"]` contient toujours le job. À chaque tour, la ligne 33 de `drain_all` lit ce hash et rappelle `drain`, qui ne trouve aucun job pour le worker et rend la main.',
+			'Le correctif passe `next_job["queue"]` à la ligne 22, la file où le job a été poussé : la suppression touche le même tableau que l’ajout. Les deux hashs perdent le job, et `jobs.any?` dans `drain_all` renvoie faux.',
+			'L’issue [#3144](' + SIDEKIQ + '/issues/3144) donne la cause : "the job is only removed from the `jobs_by_worker` hash in the Queue, and not the `jobs_by_queue` Hash, leading to `drain_all` repeatedly trying to get a worker to work on the job". L’auteur a fait passer son test en utilisant la file du job, et ce changement a été fusionné dans la pull request #3152.'
 		]
 	},
 	quiz: [
@@ -109,7 +109,10 @@ class << self
 			why: 'Avec la file par défaut, `queue` et `job["queue"]` sont égaux et le bug ne se voit pas. Seul un job dans une autre file les fait diverger.'
 		}
 	],
-	takeaway: 'Quand une boucle tourne jusqu’à ce qu’une collection soit vide, vérifie que son corps retire les éléments de cette même collection, avec la clé sous laquelle ils ont été ajoutés.',
+	recall: {
+		q: 'Pourquoi `drain_all` rappelait-il `drain` alors que chaque job avait déjà tourné une fois ?',
+		a: '`drain` supprimait avec la file par défaut du worker au lieu de `next_job["queue"]`, donc le job restait dans `jobs_by_queue`. `drain_all` boucle tant que ce hash contient des jobs.'
+	},
 	sources: [
 		{ title: 'sidekiq, issue #3144', url: `${SIDEKIQ}/issues/3144` },
 		{ title: 'sidekiq, pull request #3152', url: `${SIDEKIQ}/pull/3152` }

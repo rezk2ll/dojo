@@ -4,7 +4,7 @@ const SVELTE = 'https://github.com/sveltejs/svelte';
 export default {
 	slug: 'listener-leak',
 	part: 'Resources',
-	title: 'An audio player that kept writing after it was gone',
+	title: 'A timeupdate listener left on a removed audio element',
 	minutes: 10,
 	hook: [
 		'A Svelte 5 app shows an `<audio>` element inside `{#if player.playingAudio}`, with `bind:currentTime={player.playingAudio.currentTime}`. The user presses play, then hides the player. Chrome throws **"Cannot set properties of null"**.',
@@ -66,11 +66,11 @@ export default {
 +	});
  }`,
 		notes: [
-			'**Two things start, one is stopped.** The function starts a `requestAnimationFrame` loop and adds a `timeupdate` listener. The teardown cancels the frame loop only. The listener stays on the element after Svelte has removed it from the page.',
-			'**How the error comes out.** The user hides the player, so `player.playingAudio` becomes `null` and the `{#if}` removes the `<audio>`. In Chrome the element still fires `timeupdate`. `callback` runs, reads a new `currentTime`, and calls `set`, which writes to `player.playingAudio.currentTime`. `playingAudio` is now `null`: "Cannot set properties of null".',
-			'**The listener restarts the loop.** `cancelAnimationFrame(raf_id)` stops the loop at teardown. The listener calls `callback`, and `callback` restarts the loop if `media.paused` is false. So one leftover listener is enough to bring both back.',
-			'**The fix.** The teardown now also calls `media.removeEventListener(\'timeupdate\', callback)`. This works because `callback` is the same function object that was passed to `addEventListener`.',
-			'**How it was found.** A user opened [issue #15008](' + SVELTE + '/issues/15008) with a playground link: "Press play and then hide the player."'
+			'Line 23 starts a `requestAnimationFrame` loop and line 24 adds a `timeupdate` listener. The teardown on line 34 cancels the frame loop only. The listener stays on the element after Svelte has removed it from the page.',
+			'The user hides the player, which sets `player.playingAudio` to `null`, and the `{#if}` removes the `<audio>`. In Chrome the element still fires `timeupdate`. `callback` runs, reads a new `currentTime`, and line 19 calls `set`, which writes to `player.playingAudio.currentTime` on a `null` object: "Cannot set properties of null".',
+			'`cancelAnimationFrame(raf_id)` stops the loop at teardown. The listener then calls `callback`, and line 14 schedules a new frame if `media.paused` is false. One leftover listener is enough to start the frame loop again.',
+			'The fix makes the teardown also call `media.removeEventListener(\'timeupdate\', callback)`. This works because `callback` is the same function object that line 24 passed to `addEventListener`.',
+			'A user opened [issue #15008](' + SVELTE + '/issues/15008) with a playground link: "Press play and then hide the player."'
 		]
 	},
 	quiz: [
@@ -108,7 +108,10 @@ export default {
 			why: 'Each thing a setup starts (a listener, a timer, a frame loop, a subscription) needs a matching stop in the cleanup. Here the frame loop had one and the listener did not.'
 		}
 	],
-	takeaway: 'In every setup function, list what it starts and check that the cleanup stops each one. A listener that stays on a removed element can still run your code and write to state that no longer exists.',
+	recall: {
+		q: '`bind_current_time` starts two things. Which one did the old teardown leave running, and what did it do after the `<audio>` was removed?',
+		a: 'The `timeupdate` listener. Chrome still fired the event, `callback` called `set` on `player.playingAudio`, which was `null`, and could also schedule a new animation frame.'
+	},
 	sources: [
 		{ title: 'svelte pull request #15013', url: `${SVELTE}/pull/15013` },
 		{ title: 'Issue #15008: setting properties of null', url: `${SVELTE}/issues/15008` }

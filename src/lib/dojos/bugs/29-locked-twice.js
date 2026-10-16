@@ -4,7 +4,7 @@ const TOKIO = 'https://github.com/tokio-rs/tokio';
 export default {
 	slug: 'locked-twice',
 	part: 'Resources',
-	title: 'A destructor that runs under the lock',
+	title: 'A waker dropped while the JoinSet mutex is held',
 	minutes: 10,
 	hook: [
 		'A Tokio `JoinSet` holds a group of spawned tasks, and `join_next()` waits for the next one to finish. In September 2026 a report showed a program that **hung forever** inside a `JoinSet` poll. Its last log line was "child completing, about to wake the JoinSet entry".',
@@ -67,11 +67,11 @@ export default {
 +            _old_waker = lock.waker.replace(waker.clone());
          }`,
 		notes: [
-			'**The assignment runs a destructor.** `lock.waker = Some(waker.clone())` drops the waker that was stored before. That drop runs while `lock` still holds `self.lists`. A custom waker can run any code there. The issue says the trigger needs "an unusual executor/waker cleanup adapter, not an ordinary Tokio task waker."',
-			'**How it hangs.** The report’s waker drives the runtime in its `Drop`. A child task finishes, and its `wake_by_ref` calls `me.parent.lock()`, the same mutex. The thread already holds it, inside `pop_notified`, so the second `lock()` never returns. The report: "The trigger hangs after the child finishes."',
-			'**The fix.** `lock.waker.replace(...)` returns the old waker instead of dropping it, and `_old_waker` keeps it. Rust drops locals in reverse order of declaration, so `_old_waker`, declared before `lock`, is dropped after the mutex is released. The new comment says this covers the early `return` from `?` too.',
-			'**The same file already did this once.** In `wake_by_ref`, the code takes the waker out with `lock.waker.take()`, calls `drop(lock)`, and only then calls `waker.wake()`. The reporters linked [issue #5429](' + TOKIO + '/issues/5429), which covers waker replacement in other Tokio primitives.',
-			'**How it was found.** [Issue #8553](' + TOKIO + '/issues/8553), titled "JoinSet destroys a replaced parent waker under its list mutex", came with a small program that hangs, and a control run that keeps the old waker alive until after the poll and finishes.'
+			'Line 16, `lock.waker = Some(waker.clone())`, drops the waker that was stored before. That drop runs while `lock` from line 9 still holds `self.lists`, until line 29 releases it. A custom waker can run any code in its `Drop`. The issue says the trigger needs "an unusual executor/waker cleanup adapter, not an ordinary Tokio task waker."',
+			'The report’s waker drives the runtime in its `Drop`. A child task finishes, and its `wake_by_ref` calls `me.parent.lock()`, the same mutex. The thread already holds it inside `pop_notified`, so the second `lock()` never returns. The report: "The trigger hangs after the child finishes."',
+			'The fix replaces line 16 with `lock.waker.replace(...)`, which returns the old waker instead of dropping it, and `_old_waker` keeps it. Rust drops locals in reverse order of declaration, so `_old_waker`, declared before `lock`, is dropped after the mutex is released. The new comment says this also covers the early `return` from `?` on line 20.',
+			'`wake_by_ref`, in the same file, already takes the waker out with `lock.waker.take()`, calls `drop(lock)`, and only then calls `waker.wake()`. The reporters linked [issue #5429](' + TOKIO + '/issues/5429), which covers waker replacement in other Tokio primitives.',
+			'[Issue #8553](' + TOKIO + '/issues/8553), titled "JoinSet destroys a replaced parent waker under its list mutex", came with a small program that hangs. A control run keeps the old waker alive until after the poll, and that run finishes.'
 		]
 	},
 	quiz: [
@@ -109,7 +109,10 @@ export default {
 			why: 'Moving the old value out (`replace`, `take`, `mem::replace`) keeps its destructor from running under the lock. A reentrant lock would let the child change the lists in the middle of `pop_notified`.'
 		}
 	],
-	takeaway: 'Under a lock, look for every value that gets dropped, including the old value of a field you assign. If its destructor can call back into your code, move it out and drop it after the lock is released.',
+	recall: {
+		q: 'In `pop_notified`, which line ran a custom destructor while `self.lists` was locked, and how did the fix move that drop?',
+		a: '`lock.waker = Some(waker.clone())` dropped the old waker under the lock. The fix stores it with `_old_waker = lock.waker.replace(...)`, and `_old_waker` is declared before `lock`, so Rust drops it after the mutex is released.'
+	},
 	sources: [
 		{ title: 'tokio issue #8553', url: `${TOKIO}/issues/8553` },
 		{ title: 'tokio pull request #8554', url: `${TOKIO}/pull/8554` },

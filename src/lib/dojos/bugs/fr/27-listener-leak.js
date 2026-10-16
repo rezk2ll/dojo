@@ -4,7 +4,7 @@ const SVELTE = 'https://github.com/sveltejs/svelte';
 export default {
 	slug: 'listener-leak',
 	part: 'Les ressources',
-	title: 'Un lecteur audio qui écrivait encore après sa disparition',
+	title: 'Un écouteur timeupdate resté sur un élément audio retiré',
 	minutes: 10,
 	hook: [
 		'Une app Svelte 5 affiche un élément `<audio>` dans `{#if player.playingAudio}`, avec `bind:currentTime={player.playingAudio.currentTime}`. L’utilisateur lance la lecture, puis masque le lecteur. Chrome lève **"Cannot set properties of null"**.',
@@ -66,11 +66,11 @@ export default {
 +	});
  }`,
 		notes: [
-			'**Deux choses démarrent, une seule s’arrête.** La fonction lance une boucle `requestAnimationFrame` et ajoute un écouteur `timeupdate`. Le teardown n’annule que la boucle. L’écouteur reste sur l’élément après que Svelte l’a retiré de la page.',
-			'**Comment l’erreur arrive.** L’utilisateur masque le lecteur, donc `player.playingAudio` devient `null` et le `{#if}` retire l’`<audio>`. Dans Chrome, l’élément déclenche encore `timeupdate`. `callback` tourne, lit un nouveau `currentTime` et appelle `set`, qui écrit dans `player.playingAudio.currentTime`. `playingAudio` vaut maintenant `null` : "Cannot set properties of null".',
-			'**L’écouteur relance la boucle.** `cancelAnimationFrame(raf_id)` arrête la boucle au teardown. L’écouteur appelle `callback`, et `callback` relance la boucle si `media.paused` est faux. Un seul écouteur oublié suffit donc à faire revenir les deux.',
-			'**Le correctif.** Le teardown appelle aussi `media.removeEventListener(\'timeupdate\', callback)`. Ça marche parce que `callback` est le même objet fonction que celui passé à `addEventListener`.',
-			'**Comment ça s’est vu.** Un utilisateur a ouvert le [ticket #15008](' + SVELTE + '/issues/15008) avec un lien vers le playground : "Press play and then hide the player." (lance la lecture puis masque le lecteur).'
+			'La ligne 23 lance une boucle `requestAnimationFrame` et la ligne 24 ajoute un écouteur `timeupdate`. Le teardown de la ligne 34 n’annule que la boucle. L’écouteur reste sur l’élément après que Svelte l’a retiré de la page.',
+			'Quand l’utilisateur masque le lecteur, `player.playingAudio` passe à `null` et le `{#if}` retire l’`<audio>`. Dans Chrome, l’élément déclenche encore `timeupdate`. `callback` lit un nouveau `currentTime`, et la ligne 19 appelle `set`, qui écrit `player.playingAudio.currentTime` sur un objet `null` : "Cannot set properties of null".',
+			'`cancelAnimationFrame(raf_id)` arrête la boucle au teardown. Ensuite l’écouteur appelle `callback`, et la ligne 14 planifie une nouvelle frame si `media.paused` est faux. Un seul écouteur oublié suffit à relancer la boucle de frames.',
+			'Avec le correctif, le teardown appelle aussi `media.removeEventListener(\'timeupdate\', callback)`. Ça marche parce que `callback` est le même objet fonction que celui passé à `addEventListener` ligne 24.',
+			'Un utilisateur a ouvert le [ticket #15008](' + SVELTE + '/issues/15008) avec un lien vers le playground : "Press play and then hide the player." (lance la lecture puis masque le lecteur).'
 		]
 	},
 	quiz: [
@@ -108,7 +108,10 @@ export default {
 			why: 'Chaque chose qu’une initialisation lance (un écouteur, un minuteur, une boucle de frames, un abonnement) a besoin d’un arrêt dans le nettoyage. Ici la boucle en avait un, l’écouteur non.'
 		}
 	],
-	takeaway: 'Dans chaque fonction d’initialisation, liste ce qu’elle lance et vérifie que le nettoyage arrête chaque élément de la liste. Un écouteur resté sur un élément retiré peut encore exécuter ton code et écrire dans un état qui n’existe plus.',
+	recall: {
+		q: '`bind_current_time` lance deux choses. Laquelle l’ancien teardown laissait-il tourner, et que faisait-elle une fois l’`<audio>` retiré ?',
+		a: 'L’écouteur `timeupdate`. Chrome déclenchait encore l’événement, `callback` appelait `set` sur `player.playingAudio`, qui valait `null`, et pouvait aussi planifier une nouvelle frame.'
+	},
 	sources: [
 		{ title: 'svelte, pull request #15013', url: `${SVELTE}/pull/15013` },
 		{ title: 'Ticket #15008 : écriture sur null', url: `${SVELTE}/issues/15008` }

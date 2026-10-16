@@ -4,7 +4,7 @@ const ETCD = 'https://github.com/etcd-io/etcd';
 export default {
 	slug: 'unbounded-growth',
 	part: 'Resources',
-	title: 'A queue only the leader empties',
+	title: 'A lease heap that only the etcd leader empties',
 	minutes: 10,
 	hook: [
 		'An etcd 3.4.3 cluster of three members serves clients that use leases. The report: "Leader memory is normal , but two follower node memory are very big". There is no goroutine leak, the load is low, and a restart only helps for a while.',
@@ -66,10 +66,10 @@ return l, nil`,
  		le.scheduleCheckpointIfNeeded(l)
  	}`,
 		notes: [
-			'**Every member adds, one member removes.** Lines 19 and 20 run on every member, leader or not. The heap only shrinks in `expireExists`, which only the leader calls. On a follower, each new lease ID adds one item to the heap and one entry to its map, and nothing takes them out.',
-			'**Revoking does not help.** `Revoke` deletes the lease from `leaseMap` and from the backend, but leaves its item in the notifier. On the leader, `expireExists` later finds the dead ID and unregisters it. On a follower that never happens. Say clients grant and revoke 10 leases a second: after one day each follower holds 864,000 items for leases that no longer exist.',
-			'**The item on a follower is useless anyway.** Line 15 sets a follower lease to `forever()`, so the item it registers has an expiry far in the future. When a follower becomes leader, `Promote` refreshes every lease and registers it again, so the leader does not need what the follower stored.',
-			'**The fix.** Register the item only `if le.isPrimary()`. The same commit makes `Demote` replace the notifier with an empty one, so a leader that steps down drops its items too. Reported in issue [#11730](' + ETCD + '/issues/11730), fixed in pull request [#11731](' + ETCD + '/pull/11731).'
+			'Lines 19 and 20 run on the leader and on each follower. The heap only shrinks in `expireExists`, which only the leader calls. On a follower, each new lease ID adds one item to the heap and one entry to its map, and no code takes them out.',
+			'`Revoke` deletes the lease from `leaseMap` and from the backend, but leaves its item in the notifier. On the leader, `expireExists` later finds the dead ID and unregisters it. On a follower that never happens. If clients grant and revoke 10 leases a second, each follower holds 864,000 items for deleted leases after one day.',
+			'Line 15 sets a follower lease to `forever()`, so the item it registers has an expiry far in the future. When a follower is promoted to leader, `Promote` refreshes every lease and registers it again. The new leader never reads the items the follower stored.',
+			'The fix moves lines 19 and 20 inside the `if le.isPrimary()` block on line 26. The same commit makes `Demote` replace the notifier with an empty one, so a leader that steps down drops its items too. The fix is [pull request #11731](' + ETCD + '/pull/11731).'
 		]
 	},
 	quiz: [
@@ -102,7 +102,10 @@ return l, nil`,
 			why: 'Here the add ran on every member and the remove only on the leader. Size, item type and locking do not stop a structure from growing if nothing removes from it.'
 		}
 	],
-	takeaway: 'For each map, heap or queue that grows, find the code that removes from it and check it runs wherever the adding code runs. A role check (leader only, primary only) on one side and not the other is a leak.',
+	recall: {
+		q: 'Why did the `leaseExpiredNotifier` of an etcd follower grow without limit?',
+		a: 'The grant code registered an item on every member, but only the leader runs `expireExists`, which removes items. The fix registers the item only `if le.isPrimary()`.'
+	},
 	sources: [
 		{ title: 'etcd pull request #11731', url: `${ETCD}/pull/11731` },
 		{ title: 'etcd issue #11730, the report', url: `${ETCD}/issues/11730` }

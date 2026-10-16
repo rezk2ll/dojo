@@ -5,11 +5,11 @@ const PR = `${HA}/pull/141969`;
 export default {
 	slug: 'leaked-task',
 	part: 'Les ressources',
-	title: 'Une page de connexion abandonnée',
+	title: 'Une tâche OAuth encore en attente à l’arrêt',
 	minutes: 10,
 	hook: [
 		'Dans Home Assistant, un utilisateur commence à ajouter une intégration qui se connecte en OAuth, comme SmartThings. Home Assistant l’envoie sur le site de connexion externe. Il ferme la page sans se connecter, puis redémarre Home Assistant.',
-		'Le redémarrage écrit un avertissement : **"Task <Task pending name=\'Task-304\' coro=<CloudOAuth2Implementation.async_generate_authorize_url.<locals>.await_tokens() ...> was still running after final writes shutdown stage"**. L’extrait est le code qui a lancé cette tâche.'
+		'Le redémarrage écrit un avertissement : **"Task <Task pending name=\'Task-304\' coro=<CloudOAuth2Implementation.async_generate_authorize_url.<locals>.await_tokens() ...> was still running after final writes shutdown stage"**. L’extrait ci-dessous montre `async_generate_authorize_url`, la méthode qui lance cette tâche à la ligne 24.'
 	],
 	terms: [
 		{ term: 'OAuth', def: 'Un parcours de connexion où l’utilisateur s’identifie sur un autre site, qui renvoie ensuite des jetons à l’application.' },
@@ -60,10 +60,10 @@ export default {
 
          return authorize_url`,
 		notes: [
-			'**La tâche attend une personne.** `await_tokens()` reste bloquée sur `helper.async_get_tokens()`. Elle se termine quand les jetons arrivent, quand l’attente expire ou quand la liaison échoue. Les jetons n’arrivent qu’après la connexion sur l’autre site, et fermer la page ne déclenche aucun de ces trois cas.',
-			'**Personne ne l’annule.** `hass.async_create_task` crée une tâche suivie. À l’arrêt, Home Assistant annule d’abord toutes les tâches de fond. Les tâches suivies lancées avant continuent pendant les étapes d’arrêt des intégrations et d’écriture finale. À l’étape de fermeture, `async_stop` trouve `await_tokens()` encore en attente, écrit l’avertissement du début et seulement là l’annule.',
-			'**Le correctif.** `async_create_background_task` range la même coroutine parmi les tâches que Home Assistant annule à l’arrêt. Le nouveau commentaire donne la raison : "it should be cancelled on shutdown and there\'s nothing else we can do in such case."',
-			'**Comment ça s’est vu.** L’auteur de la [pull request #141969](' + PR + ') a écrit les étapes pour le reproduire : "Start authentication with integration using OAuth (e.g. SmartThings)", "When redirected to external login site, just close the page", puis "Restart Home Assistant".'
+			'La ligne 11 attend `helper.async_get_tokens()`. La tâche s’arrête quand les jetons arrivent, quand l’attente expire (ligne 13) ou quand la liaison échoue (ligne 15). Les jetons n’arrivent qu’après la connexion sur l’autre site, et fermer la page ne déclenche aucun de ces trois cas.',
+			'La ligne 24 lance la tâche avec `hass.async_create_task` : c’est donc une tâche suivie. À l’arrêt, Home Assistant annule d’abord toutes les tâches de fond. Les tâches suivies tournent encore pendant les étapes d’arrêt et d’écriture finale. À l’étape de fermeture, `async_stop` trouve `await_tokens()` en attente, écrit l’avertissement du début, puis l’annule.',
+			'Le correctif remplace la ligne 24 par `async_create_background_task`. Cet appel range la même coroutine parmi les tâches que Home Assistant annule dès le début de l’arrêt. Le nouveau commentaire donne la raison : "it should be cancelled on shutdown and there\'s nothing else we can do in such case."',
+			'L’auteur de la [pull request #141969](' + PR + ') a écrit les étapes pour reproduire le bug : "Start authentication with integration using OAuth (e.g. SmartThings)", "When redirected to external login site, just close the page", puis "Restart Home Assistant".'
 		]
 	},
 	quiz: [
@@ -101,7 +101,10 @@ export default {
 			why: 'Une tâche qui attend un utilisateur ou un service distant peut attendre plus longtemps que l’application ne tourne. Quelqu’un doit l’annuler, à l’arrêt ou après un délai.'
 		}
 	],
-	takeaway: 'Pour chaque tâche qui attend un utilisateur ou un service distant, décide qui l’annule. À l’arrêt, vérifie qu’elle est annulée tôt au lieu d’être laissée jusqu’à la dernière étape.',
+	recall: {
+		q: 'Quel appel le correctif utilise-t-il pour que Home Assistant annule l’attente OAuth dès le début de l’arrêt ?',
+		a: '`hass.async_create_background_task` à la place de `hass.async_create_task`. Home Assistant annule les tâches de fond dès qu’il s’arrête. Une tâche suivie tourne jusqu’à l’étape de fermeture, qui écrit l’avertissement "still running".'
+	},
 	sources: [
 		{ title: 'home-assistant/core, pull request #141969', url: PR },
 		{ title: 'Le commit du correctif', url: `${HA}/commit/2305cb0131bb8a997199cfaa09f418d817ad39b0` }

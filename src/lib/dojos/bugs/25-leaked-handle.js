@@ -4,7 +4,7 @@ const SPRING = 'https://github.com/spring-projects/spring-framework';
 export default {
 	slug: 'leaked-handle',
 	part: 'Resources',
-	title: 'The close that a throw skips',
+	title: 'A connection close skipped by a throw in finally',
 	minutes: 10,
 	hook: [
 		'Spring JDBC ships `MySQLMaxValueIncrementer`, which hands out ids from a counter table in MySQL. By default it takes a **separate connection** from the `DataSource` for each update of the counter, commits, and closes that connection.',
@@ -70,10 +70,10 @@ finally {
 +                        }
                      }`,
 		notes: [
-			'**A throw inside the cleanup.** The outer `finally` runs on every path, but it contains its own `catch` that throws. When `con.commit()` or `con.setAutoCommit(true)` fails, that `throw` leaves the `finally` block at once. `JdbcUtils.closeConnection(con)` is the line after it, so it never runs.',
-			'**What it costs.** The connection came from `getDataSource().getConnection()` and nobody holds it any more. If the `DataSource` is a pool of 10 connections, 10 failed commits leave all 10 checked out, and the next caller waits for a connection that never comes back.',
-			'**The fix.** A `finally` on the inner `try` puts the close on every path out of it, including the `throw` in the `catch`. The exception still reaches the caller, after the connection is closed.',
-			'**How it was found.** [Pull request #37321](' + SPRING + '/pull/37321) explains it: "the exception handler throws a `DataAccessResourceFailureException` before reaching `Connection.close()`." The commit message: "Move connection cleanup into a finally block so the connection is closed even if commit or auto-commit restoration fails."'
+			'The outer `finally` on line 18 runs on every path, but its inner `catch` throws on line 29. When `con.commit()` on line 23 or `con.setAutoCommit(true)` on line 25 fails, that `throw` leaves the `finally` block at once. `JdbcUtils.closeConnection(con)` on line 32 never runs.',
+			'The connection came from `getDataSource().getConnection()` on line 6, and no variable holds it any more. If the `DataSource` is a pool of 10 connections, 10 failed commits leave all 10 checked out. The next caller then waits for a connection that never comes back.',
+			'The fix wraps line 32 in a `finally` on the inner `try`, so the close runs on every path out of it, including the `throw` in the `catch`. The exception still reaches the caller, after the connection is closed.',
+			'[Pull request #37321](' + SPRING + '/pull/37321) describes the leak: "the exception handler throws a `DataAccessResourceFailureException` before reaching `Connection.close()`." The commit message: "Move connection cleanup into a finally block so the connection is closed even if commit or auto-commit restoration fails."'
 		]
 	},
 	quiz: [
@@ -111,7 +111,10 @@ finally {
 			why: 'The leak only happens on the failure path. A mock connection whose `commit` throws, and a check that `close` was still called, covers it.'
 		}
 	],
-	takeaway: 'Look inside every `finally` block for code that can throw before the last cleanup call. Put each cleanup in its own `finally`, or use try-with-resources, so a throw earlier in the block cannot skip it.',
+	recall: {
+		q: 'Why did `JdbcUtils.closeConnection(con)` not run when the commit failed, and what did the fix change?',
+		a: 'The `catch` around `con.commit()` threw `DataAccessResourceFailureException`, which left the outer `finally` before the close line. The fix puts `closeConnection(con)` in a `finally` of the inner `try`.'
+	},
 	sources: [
 		{ title: 'spring-framework pull request #37321', url: `${SPRING}/pull/37321` },
 		{ title: 'The fix commit', url: `${SPRING}/commit/5e45b9be1b742c7493e2bafbb0f1d1d0828194e3` }

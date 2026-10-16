@@ -5,11 +5,11 @@ const PR = `${HA}/pull/141969`;
 export default {
 	slug: 'leaked-task',
 	part: 'Resources',
-	title: 'A login page nobody came back from',
+	title: 'An OAuth task still waiting at shutdown',
 	minutes: 10,
 	hook: [
 		'In Home Assistant, a user starts to add an integration that logs in with OAuth, such as SmartThings. Home Assistant sends them to the external login site. They close that page without logging in, then restart Home Assistant.',
-		'The restart logs a warning: **"Task <Task pending name=\'Task-304\' coro=<CloudOAuth2Implementation.async_generate_authorize_url.<locals>.await_tokens() ...> was still running after final writes shutdown stage"**. The snippet is the code that started that task.'
+		'The restart logs a warning: **"Task <Task pending name=\'Task-304\' coro=<CloudOAuth2Implementation.async_generate_authorize_url.<locals>.await_tokens() ...> was still running after final writes shutdown stage"**. The snippet below is `async_generate_authorize_url`, the method that started that task on line 24.'
 	],
 	terms: [
 		{ term: 'OAuth', def: 'A login flow where the user signs in on another site, and that site then hands tokens back to the app.' },
@@ -60,10 +60,10 @@ export default {
 
          return authorize_url`,
 		notes: [
-			'**The task waits on a person.** `await_tokens()` sits on `helper.async_get_tokens()`. It ends when tokens arrive, when the wait times out, or when the link fails. Tokens only come after the user logs in on the other site, and closing the page is none of those three events.',
-			'**Nobody cancels it.** `hass.async_create_task` makes a tracked task. When Home Assistant stops, it first cancels every background task. Tracked tasks started earlier are left running through the stop and final write stages. At the close stage, `async_stop` finds `await_tokens()` still pending, logs the warning from the hook and only then cancels it.',
-			'**The fix.** `async_create_background_task` puts the same coroutine in the set of tasks that Home Assistant cancels on shutdown. The new comment gives the reason: "it should be cancelled on shutdown and there\'s nothing else we can do in such case."',
-			'**How it was found.** The author of [pull request #141969](' + PR + ') wrote the steps to reproduce it: "Start authentication with integration using OAuth (e.g. SmartThings)", "When redirected to external login site, just close the page", then "Restart Home Assistant".'
+			'Line 11 waits on `helper.async_get_tokens()`. The task ends when tokens arrive, when the wait times out (line 13), or when the link fails (line 15). Tokens only come after the user logs in on the other site, and closing the page triggers none of these three cases.',
+			'Line 24 starts the task with `hass.async_create_task`, so it is a tracked task. When Home Assistant stops, it first cancels every background task. Tracked tasks keep running through the stop and final write stages. At the close stage, `async_stop` finds `await_tokens()` still pending, logs the warning from the hook and only then cancels it.',
+			'The fix replaces line 24 with `async_create_background_task`. That call puts the same coroutine in the set of tasks that Home Assistant cancels at the start of shutdown. The new comment gives the reason: "it should be cancelled on shutdown and there\'s nothing else we can do in such case."',
+			'The author of [pull request #141969](' + PR + ') wrote the steps to reproduce it: "Start authentication with integration using OAuth (e.g. SmartThings)", "When redirected to external login site, just close the page", then "Restart Home Assistant".'
 		]
 	},
 	quiz: [
@@ -101,7 +101,10 @@ export default {
 			why: 'A task waiting on a user or a remote service can wait longer than the app runs. Someone has to cancel it, on shutdown or after a deadline.'
 		}
 	],
-	takeaway: 'For every task that waits on a user or a remote service, decide who cancels it. On shutdown, check that such a task is cancelled early instead of being left to the last stage.',
+	recall: {
+		q: 'Which call did the fix use so that Home Assistant cancels the OAuth wait at the start of shutdown?',
+		a: '`hass.async_create_background_task` instead of `hass.async_create_task`. Background tasks are cancelled as soon as Home Assistant stops. A tracked task runs until the close stage, which logs the "still running" warning.'
+	},
 	sources: [
 		{ title: 'home-assistant/core pull request #141969', url: PR },
 		{ title: 'The fix commit', url: `${HA}/commit/2305cb0131bb8a997199cfaa09f418d817ad39b0` }

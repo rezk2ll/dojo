@@ -8,7 +8,7 @@ export default {
 	minutes: 10,
 	hook: [
 		'curl keeps lists of strings, such as custom headers or cookies, in a `curl_slist`: a singly linked list where each node points to the next. `Curl_slist_duplicate()` makes a full copy of one.',
-		'The pull request that changed it measured the copy in a debug build on macOS. 8,000 entries took **28.646 ms**. 32,000 entries took **499.035 ms**. Four times the entries cost about seventeen times the time.'
+		'The pull request that changed it measured the copy in a debug build on macOS. 8,000 entries took 28.646 ms. 32,000 entries took 499.035 ms. Four times the entries cost **about seventeen times the time**.'
 	],
 	terms: [
 		{ term: 'Singly linked list', def: 'A chain of nodes where each one knows only the next. Finding the last node means walking from the first.' },
@@ -75,10 +75,10 @@ struct curl_slist *Curl_slist_duplicate(struct curl_slist *inlist)
 +    tail = &tmp->next;
      inlist = inlist->next;`,
 		notes: [
-			'**Each append walks the copy.** `curl_slist_append(outlist, ...)` goes through `Curl_slist_append_nodup`, which calls `slist_get_last`, and that loop follows `next` from the first node to the last. The loop in `Curl_slist_duplicate` does this once per input node, on a copy that keeps growing.',
-			'**The numbers.** Copying n entries looks at 0, then 1, then 2, up to n - 1 nodes, which is n × (n - 1) / 2 steps. For 8,000 entries that is about 32 million steps. For 32,000 it is about 512 million, 16 times more. The pull request measured 28.646 ms and 499.035 ms, a ratio close to that.',
-			'**The fix.** `tail` points at the place where the next node must go: first `outlist` itself, then the `next` field of the last node added. Each new node is made with `curl_slist_append(NULL, ...)`, which returns at once because the list is empty, and is linked with `*tail = tmp`. Each entry now costs the same, and 32,000 entries took 0.945 ms.',
-			'**Same pattern, second place.** The same commit fixes `cookie_list()` in `lib/cookie.c`, which built its result with `Curl_slist_append_nodup(list, line)` in a loop. The pull request: "Building n entries therefore does quadratic list traversal."'
+			'Line 32 calls `curl_slist_append(outlist, ...)`, which goes through `Curl_slist_append_nodup` and `slist_get_last` (line 18). Lines 5 to 7 follow `next` from the first node of the copy to the last. The loop on line 31 does this once per input node, on a copy that keeps growing.',
+			'Copying n entries looks at 0, then 1, then 2, up to n - 1 nodes, which is n × (n - 1) / 2 steps. For 8,000 entries that is about 32 million steps. For 32,000 it is about 512 million, 16 times more. The pull request measured 28.646 ms and 499.035 ms, a ratio close to that.',
+			'In the fix, `tail` points at the place where the next node must go: first `outlist` itself, then the `next` field of the last node added. Each new node comes from `curl_slist_append(NULL, ...)`, which returns at once because the list is empty, and `*tail = tmp` links it. With one write per entry, 32,000 entries took 0.945 ms.',
+			'The same commit fixes `cookie_list()` in `lib/cookie.c`, which built its result with `Curl_slist_append_nodup(list, line)` in a loop. The pull request: "Building n entries therefore does quadratic list traversal."'
 		]
 	},
 	quiz: [
@@ -106,7 +106,10 @@ struct curl_slist *Curl_slist_duplicate(struct curl_slist *inlist)
 			why: 'With a pointer to where the next node goes, an append is one write. Any version that starts from the head on each append stays quadratic.'
 		}
 	],
-	takeaway: 'When a loop calls an append function, check what that function does to find the end. On a linked list, keep a tail pointer in the loop instead of calling a helper that walks from the head.',
+	recall: {
+		q: 'Why did copying 32,000 entries with `Curl_slist_duplicate()` take about 500 ms, and what made it 0.945 ms?',
+		a: 'Each `curl_slist_append(outlist, ...)` walked the copy from the head to find the last node, so n entries cost n × (n - 1) / 2 steps. The fix keeps a `tail` pointer to the last `next` field and writes the new node there.'
+	},
 	sources: [
 		{ title: 'curl pull request #23361', url: `${CURL}/pull/23361` },
 		{ title: 'curl commit 2cb089c', url: `${CURL}/commit/2cb089c698f7eca1184964c3344378fa87014241` }

@@ -8,7 +8,7 @@ export default {
 	minutes: 10,
 	hook: [
 		'curl range ses listes de chaînes, comme les en-têtes personnalisés ou les cookies, dans une `curl_slist` : une liste simplement chaînée où chaque nœud pointe vers le suivant. `Curl_slist_duplicate()` en fait une copie complète.',
-		'La pull request qui l’a modifiée a mesuré la copie dans un build debug sous macOS. 8 000 entrées prenaient **28,646 ms**. 32 000 entrées prenaient **499,035 ms**. Quatre fois plus d’entrées coûtaient environ dix-sept fois plus de temps.'
+		'La pull request qui l’a modifiée a mesuré la copie dans un build debug sous macOS. 8 000 entrées prenaient 28,646 ms. 32 000 entrées prenaient 499,035 ms. Avec quatre fois plus d’entrées, la copie prenait **environ dix-sept fois plus de temps**.'
 	],
 	terms: [
 		{ term: 'Liste simplement chaînée', def: 'Une chaîne de nœuds où chacun ne connaît que le suivant. Trouver le dernier nœud oblige à partir du premier.' },
@@ -75,10 +75,10 @@ struct curl_slist *Curl_slist_duplicate(struct curl_slist *inlist)
 +    tail = &tmp->next;
      inlist = inlist->next;`,
 		notes: [
-			'**Chaque ajout parcourt la copie.** `curl_slist_append(outlist, ...)` passe par `Curl_slist_append_nodup`, qui appelle `slist_get_last`, et cette boucle suit `next` du premier nœud au dernier. La boucle de `Curl_slist_duplicate` le fait une fois par nœud d’entrée, sur une copie qui ne cesse de grandir.',
-			'**Les chiffres.** Copier n entrées regarde 0, puis 1, puis 2, jusqu’à n - 1 nœuds, soit n × (n - 1) / 2 étapes. Pour 8 000 entrées, ça fait environ 32 millions d’étapes. Pour 32 000, environ 512 millions, 16 fois plus. La pull request a mesuré 28,646 ms et 499,035 ms, un rapport proche.',
-			'**Le correctif.** `tail` pointe là où le prochain nœud doit aller : d’abord `outlist` lui-même, puis le champ `next` du dernier nœud ajouté. Chaque nouveau nœud est créé avec `curl_slist_append(NULL, ...)`, qui rend la main tout de suite puisque la liste est vide, puis il est accroché avec `*tail = tmp`. Chaque entrée coûte maintenant pareil, et 32 000 entrées ont pris 0,945 ms.',
-			'**Le même motif, à un autre endroit.** Le même commit corrige `cookie_list()` dans `lib/cookie.c`, qui construisait son résultat avec `Curl_slist_append_nodup(list, line)` dans une boucle. La pull request : "Building n entries therefore does quadratic list traversal." Construire n entrées parcourt la liste de façon quadratique.'
+			'La ligne 32 appelle `curl_slist_append(outlist, ...)`, qui passe par `Curl_slist_append_nodup` puis par `slist_get_last` (ligne 18). Les lignes 5 à 7 suivent `next` du premier nœud de la copie jusqu’au dernier. La boucle de la ligne 31 refait ce parcours pour chaque nœud d’entrée, sur une copie de plus en plus longue.',
+			'Pour copier n entrées, le code regarde 0, puis 1, puis 2, jusqu’à n - 1 nœuds, soit n × (n - 1) / 2 étapes. Pour 8 000 entrées, ça fait environ 32 millions d’étapes. Pour 32 000, environ 512 millions, 16 fois plus. La pull request a mesuré 28,646 ms et 499,035 ms, un rapport proche.',
+			'Dans le correctif, `tail` pointe là où le prochain nœud doit aller : d’abord `outlist` lui-même, puis le champ `next` du dernier nœud ajouté. `curl_slist_append(NULL, ...)` crée chaque nouveau nœud et rend la main tout de suite, puisque la liste passée est vide. `*tail = tmp` l’accroche ensuite. Avec une seule écriture par entrée, 32 000 entrées ont pris 0,945 ms.',
+			'Le même commit corrige `cookie_list()` dans `lib/cookie.c`, qui construisait son résultat avec `Curl_slist_append_nodup(list, line)` dans une boucle. La pull request : "Building n entries therefore does quadratic list traversal." Autrement dit, construire n entrées parcourt la liste de façon quadratique.'
 		]
 	},
 	quiz: [
@@ -106,7 +106,10 @@ struct curl_slist *Curl_slist_duplicate(struct curl_slist *inlist)
 			why: 'Avec un pointeur sur l’endroit où va le prochain nœud, un ajout tient en une écriture. Toute version qui repart de la tête à chaque ajout reste quadratique.'
 		}
 	],
-	takeaway: 'Quand une boucle appelle une fonction d’ajout, regarde comment cette fonction trouve la fin. Sur une liste chaînée, garde un pointeur de queue dans la boucle plutôt que d’appeler un helper qui part de la tête.',
+	recall: {
+		q: 'Pourquoi copier 32 000 entrées avec `Curl_slist_duplicate()` prenait environ 500 ms, et qu’est-ce qui a ramené ce temps à 0,945 ms ?',
+		a: 'Chaque `curl_slist_append(outlist, ...)` parcourait la copie depuis la tête pour trouver le dernier nœud, donc n entrées coûtaient n × (n - 1) / 2 étapes. Le correctif garde un pointeur `tail` sur le dernier champ `next` et y écrit le nouveau nœud.'
+	},
 	sources: [
 		{ title: 'curl, pull request #23361', url: `${CURL}/pull/23361` },
 		{ title: 'curl, commit 2cb089c', url: `${CURL}/commit/2cb089c698f7eca1184964c3344378fa87014241` }

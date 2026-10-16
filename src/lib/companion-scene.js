@@ -205,6 +205,7 @@ export function createScene(canvas, { color, still, touch }) {
 		wake();
 		cued = { name, at: performance.now() };
 		if (name === 'done') turns += 1;
+		if (name === 'caught') turns += 2;
 	}
 
 	/** Moves out of the pointer's way, and back home once the pointer leaves. Returns the pointer relative to the cube. */
@@ -288,6 +289,12 @@ export function createScene(canvas, { color, still, touch }) {
 			s.happy.to = 1;
 			s.glow.to = 1.8;
 		}
+		if (cued?.name === 'caught' && c < 1.8) {
+			// Caught: a double spin and a jump, then it shows its new star eyes.
+			s.happy.to = 1;
+			s.glow.to = 2;
+			s.y.to = c < 0.6 ? 0.3 : 0.05;
+		}
 		if (cued?.name === 'done' && c >= 1.4 && !cued.dropped) {
 			cued.dropped = true;
 			dropCube(now);
@@ -340,6 +347,14 @@ export function createScene(canvas, { color, still, touch }) {
 			ctx.moveTo(0, 18);
 			ctx.bezierCurveTo(-30, -2, -18, -26, 0, -10);
 			ctx.bezierCurveTo(18, -26, 30, -2, 0, 18);
+		} else if (eyes === 'star') {
+			ctx.scale(1, Math.max(h, 0.01));
+			for (let i = 0; i < 10; i++) {
+				const r = i % 2 ? 11 : 26;
+				const a = (i * Math.PI) / 5 - Math.PI / 2;
+				ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+			}
+			ctx.closePath();
 		} else {
 			const eh = 54 * h;
 			ctx.roundRect(-15, -eh / 2, 30, eh, Math.min(30, eh) / 2);
@@ -406,8 +421,8 @@ export function createScene(canvas, { color, still, touch }) {
 			const cy = FACE / 2 - 4 + s.lookY.x * 16;
 			ctx.save();
 			ctx.translate(cx, cy);
-			// Hearts stay hearts when happy, they just grow a little.
-			const keepsShape = eyes === 'heart';
+			// Hearts and stars stay themselves when happy, they just grow a little.
+			const keepsShape = eyes === 'heart' || eyes === 'star';
 			if (happy > 0.5 && !keepsShape) {
 				ctx.lineWidth = 13;
 				ctx.lineCap = 'round';

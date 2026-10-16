@@ -127,6 +127,25 @@ export const dojos = [
 			en: 'Each chapter is a real incident: you decide what to do at each step, then read what the team found.',
 			fr: 'Chaque chapitre est un vrai incident : tu décides quoi faire à chaque étape, puis tu lis ce que l’équipe a trouvé.'
 		}
+	},
+	{
+		id: 'ai',
+		name: 'AI Dojo',
+		hue: 320,
+		chroma: 0.1,
+		hex: { top: '#cfa7d8', left: '#8e6298', right: '#b383be' },
+		description: {
+			en: 'How language models work and how to use them well, from prompts to agents and Claude Code, one 10-minute chapter a day.',
+			fr: 'Comment marchent les modèles de langage et comment bien s’en servir, des prompts aux agents et à Claude Code, un chapitre de 10 minutes par jour.'
+		},
+		heroTitle: {
+			en: 'Work well with AI models, ten minutes a day.',
+			fr: 'Travaille bien avec les modèles d’IA, dix minutes par jour.'
+		},
+		heroText: {
+			en: 'One chapter a day, checked against the docs and real code. Questions come back later so they stick.',
+			fr: 'Un chapitre par jour, vérifié dans la doc et du vrai code. Les questions reviennent plus tard pour que ça reste.'
+		}
 	}
 ];
 

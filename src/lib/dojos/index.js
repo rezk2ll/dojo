@@ -51,6 +51,25 @@ export const dojos = [
 			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
 			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
 		}
+	},
+	{
+		id: 'databases',
+		name: 'Databases Dojo',
+		hue: 290,
+		chroma: 0.1,
+		hex: { top: '#b6afe8', left: '#746ba9', right: '#978dd1' },
+		description: {
+			en: 'How databases store, find and protect your data, one 10-minute chapter a day, taught on real open-source code.',
+			fr: 'Comment une base de données range, retrouve et protège tes données, un chapitre de 10 minutes par jour, sur du vrai code open source.'
+		},
+		heroTitle: {
+			en: 'Know what your database does, ten minutes a day.',
+			fr: 'Comprends ce que fait ta base de données, dix minutes par jour.'
+		},
+		heroText: {
+			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
+			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
+		}
 	}
 ];
 

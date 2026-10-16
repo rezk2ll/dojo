@@ -1,11 +1,15 @@
 <script>
 	import { onMount, untrack } from 'svelte';
 	import { companion, react, SIZES } from '#lib/companion.svelte.js';
+	import { activeToday, streak } from '#lib/progress.svelte.js';
 
-	/** @type {{ color: string }} */
-	let { color } = $props();
+	/** @type {{ color: string, days: string[] }} */
+	let { color, days } = $props();
 
 	let size = $derived(SIZES[companion.size]);
+	// Refreshed every minute, so the evening reminder lights up without a reload.
+	let hour = $state(new Date().getHours());
+	let needsYou = $derived(hour >= 18 && !activeToday(days));
 
 	/** @type {HTMLCanvasElement | undefined} */
 	let canvas = $state();
@@ -39,8 +43,10 @@
 		addEventListener('keydown', wake);
 		addEventListener('scroll', scroll, { passive: true });
 		document.documentElement.addEventListener('pointerleave', leave);
+		const clock = setInterval(() => (hour = new Date().getHours()), 60_000);
 		return () => {
 			gone = true;
+			clearInterval(clock);
 			removeEventListener('pointermove', follow);
 			removeEventListener('pointerdown', tap);
 			removeEventListener('keydown', wake);
@@ -53,6 +59,7 @@
 	$effect(() => view?.setColor(color));
 	$effect(() => view?.resize(size));
 	$effect(() => view?.setCombo(companion.combo));
+	$effect(() => view?.setStreak({ days: streak(days), needsYou }));
 
 	$effect(() => {
 		if (companion.beat && view) untrack(() => view?.react(companion.mood));

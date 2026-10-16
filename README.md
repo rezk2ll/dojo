@@ -12,6 +12,7 @@ Short daily lessons on software, in French and English. Each dojo is a path of 4
 - Drills Dojo: typed reps for git, the shell, SQL, text tools and ops commands.
 - Security Dojo: how attacks work and how real projects defend against them.
 - Networking Dojo: IP, TCP, DNS, HTTP, TLS and load balancers.
+- Linux Dojo: processes, memory, disks, systemd and containers, from the kernel's side.
 
 Each dojo installs as its own app on a phone, and works offline. Questions you answer come back 1, 3, 7, 21 and 45 days later. The home page mixes reviews from every dojo, ten a day at most. Progress stays in your browser.
 

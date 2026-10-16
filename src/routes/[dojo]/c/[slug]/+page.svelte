@@ -39,6 +39,7 @@
 		...(c.diagram ? [{ id: 'diagram', label: t().diagram }] : []),
 		...(c.example ? [{ id: 'code', label: t().code }] : []),
 		...(c.bug ? [{ id: 'hunt', label: t().hunt }, { id: 'fix', label: t().fix }] : []),
+		...(c.incident ? [...c.incident.steps.map((_, i) => ({ id: `s${i}`, label: t().decision(i + 1) })), { id: 'outcome', label: t().outcome }] : []),
 		...(c.tradeoff ? [{ id: 'tradeoff', label: t().tradeoff }] : []),
 		...(c.task ? [{ id: 'task', label: t().task }] : []),
 		...c.quiz.map((_, i) => ({ id: `q${i}`, label: t().question(i + 1), quiz: `${c.slug}#${i}` })),
@@ -54,11 +55,13 @@
 	let guess = $state();
 	/** Option picked per question id, e.g. picked['adrs#0'] = 2 */
 	let picked = $state(/** @type {Record<string, number>} */ ({}));
+	/** Option picked per incident step. These are not review cards, so they stay on this page. */
+	let decided = $state(/** @type {Record<number, number>} */ ({}));
 	/** @type {HTMLElement | undefined} */
 	let top = $state();
 
 	// The task (or, without one, the first question) starts the second half, so a reader who stops before it stops at a natural break.
-	let breakAt = $derived(sections.findIndex((s) => s.id === 'task' || s.id === 'q0'));
+	let breakAt = $derived(sections.findIndex((s) => ['task', 's0', 'q0'].includes(s.id)));
 	let steps = $derived(c.diagram?.steps ?? []);
 
 	const words = (/** @type {string[]} */ ...texts) => texts.join(' ').split(/\s+/).length;
@@ -73,7 +76,10 @@
 		if (s.id === 'fix') return words(...(c.bug?.notes ?? [])) / READ + 30;
 		if (s.id === 'tradeoff' && c.tradeoff) return words(...c.tradeoff.gain, ...c.tradeoff.cost) / READ;
 		if (s.id === 'task' && c.task) return words(c.task.prompt, ...c.task.answer) / READ + 90;
+		if (s.id === 'outcome') return words(...(c.incident?.outcome ?? [])) / READ;
 		if (s.id === 'wrap') return 20;
+		const d = decisionAt(s.id);
+		if (d) return words(...d.step.situation, d.step.why) / READ + 20;
 		return 30; // a question
 	}
 	let minutesLeft = $derived(Math.max(1, Math.round(sections.slice(at).reduce((sum, s) => sum + seconds(s), 0) / 60)));
@@ -82,6 +88,13 @@
 	let asked = $derived(
 		current.id === 'warmup' ? prev && { from: prev, q: prev.quiz[0] } : current.quiz !== undefined ? { from: c, q: c.quiz[Number(current.id.slice(1))] } : undefined
 	);
+	/** @param {string} id */
+	function decisionAt(id) {
+		const n = /^s\d+$/.test(id) ? Number(id.slice(1)) : -1;
+		const step = c.incident?.steps[n];
+		return step && { n, step };
+	}
+	let decision = $derived(decisionAt(current.id));
 	let lastStep = $derived(Math.max(0, steps.length - 1));
 	let unanswered = $derived(sections.filter((s) => s.id.startsWith('q') && picked[s.quiz ?? ''] === undefined));
 
@@ -151,6 +164,7 @@
 			scene = undefined;
 			showHint = showAnswer = showRecall = false;
 			picked = {};
+			decided = {};
 			guess = undefined;
 		});
 	});
@@ -217,6 +231,9 @@
 			const q = asked?.q;
 			const i = Number(e.key) - 1;
 			if (q && i < q.options.length) pick(current.quiz, q, i);
+		} else if (/^[1-9]$/.test(e.key) && decision) {
+			const i = Number(e.key) - 1;
+			if (i < decision.step.options.length) decide(decision.n, i);
 		}
 	}
 
@@ -240,6 +257,13 @@
 		}
 	}
 
+	/** @param {number} n @param {number} i */
+	function decide(n, i) {
+		if (decided[n] !== undefined || !c.incident) return;
+		decided[n] = i;
+		answered(i === c.incident.steps[n].answer);
+	}
+
 	/** @param {string} id @param {import('#lib/content.js').Question} q @param {number} i */
 	function pick(id, q, i) {
 		if (picked[id] !== undefined) return;
@@ -252,28 +276,36 @@
 <svelte:head><title>{c.title} · {data.dojo.name}</title></svelte:head>
 <svelte:window onkeydown={onkey} />
 
-{#snippet question(/** @type {string} */ id, /** @type {import('#lib/content.js').Question} */ q)}
+{#snippet choice(
+	/** @type {number | undefined} */ chosen,
+	/** @type {import('#lib/content.js').Question} */ q,
+	/** @type {(i: number) => void} */ onchoose
+)}
 	<div class="max-w-3xl space-y-3">
 		<p class="text-xl leading-snug font-semibold">{@html fmt(q.q)}</p>
 		<div class="grid gap-2">
 			{#each q.options as option, i (i)}
-				{@const done = picked[id] !== undefined}
+				{@const done = chosen !== undefined}
 				<Button
-					variant={done && i === q.answer ? 'default' : done && i === picked[id] ? 'destructive' : 'outline'}
+					variant={done && i === q.answer ? 'default' : done && i === chosen ? 'destructive' : 'outline'}
 					class="h-auto w-full justify-start py-3 text-left text-base whitespace-normal"
-					disabled={done && i !== q.answer && i !== picked[id]}
-					onclick={() => pick(id, q, i)}
+					disabled={done && i !== q.answer && i !== chosen}
+					onclick={() => onchoose(i)}
 					><kbd class="mr-1 font-mono text-xs opacity-60">{i + 1}</kbd><span>{@html fmt(option)}</span></Button
 				>
 			{/each}
 		</div>
-		{#if picked[id] !== undefined}
-			<Alert.Root variant={picked[id] === q.answer ? 'default' : 'destructive'}>
-				<Alert.Title>{picked[id] === q.answer ? t().yes : t().notQuite}</Alert.Title>
+		{#if chosen !== undefined}
+			<Alert.Root variant={chosen === q.answer ? 'default' : 'destructive'}>
+				<Alert.Title>{chosen === q.answer ? t().yes : t().notQuite}</Alert.Title>
 				<Alert.Description class="text-base">{@html fmt(q.why)}</Alert.Description>
 			</Alert.Root>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet question(/** @type {string} */ id, /** @type {import('#lib/content.js').Question} */ q)}
+	{@render choice(picked[id], q, (i) => pick(id, q, i))}
 {/snippet}
 
 {#snippet picture(/** @type {'inline' | 'fit' | 'free'} */ size)}
@@ -475,6 +507,25 @@
 							<li class="border-brand/60 border-l-2 pl-3 leading-relaxed">{@html fmt(n)}</li>
 						{/each}
 					</ul>
+				</div>
+			{:else if decision && c.incident}
+				<div class="max-w-3xl space-y-4">
+					{#if decision.n === 0}
+						<a class="text-muted-foreground inline-block font-mono text-sm" href={c.incident.url} target="_blank" rel="noreferrer"
+							>{c.incident.org} · {c.incident.date}</a
+						>
+					{/if}
+					<div class="border-brand/60 space-y-3 border-l-2 pl-4 text-lg leading-relaxed">
+						{#each decision.step.situation as p, i (i)}<p>{@html fmt(p)}</p>{/each}
+					</div>
+					{@render choice(decided[decision.n], decision.step, (i) => decide(decision.n, i))}
+				</div>
+			{:else if current.id === 'outcome' && c.incident}
+				<div class="max-w-3xl space-y-4 text-lg leading-relaxed">
+					{#each c.incident.outcome as p, i (i)}<p>{@html fmt(p)}</p>{/each}
+					<a class="inline-block font-mono text-sm underline" href={c.incident.url} target="_blank" rel="noreferrer"
+						>{c.incident.org} · {c.incident.title} ↗</a
+					>
 				</div>
 			{:else if current.id === 'tradeoff' && c.tradeoff}
 				<div class="grid gap-4 md:grid-cols-2">

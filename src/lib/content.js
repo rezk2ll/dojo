@@ -7,6 +7,10 @@
  * A bug is code as it was before a real fix commit. `lines` are the 1-based lines of `code`
  * the fix touched; `diff` is the fix's own hunk, and `fix` links to the commit.
  * @typedef {{ title: string, repo: string, url: string, fix: string, lang: string, code: string, lines: number[], diff: string, notes: string[] }} Bug
+ * An incident is a real public postmortem told as decisions. Each step shows what the
+ * responders knew at that point and asks what to do next; `outcome` is what really happened.
+ * @typedef {Question & { situation: string[] }} Decision
+ * @typedef {{ org: string, title: string, url: string, date: string, steps: Decision[], outcome: string[] }} Incident
  * @typedef {{
  *   slug: string, part: string, title: string, minutes: number,
  *   hook: string[],
@@ -14,6 +18,7 @@
  *   diagram?: Diagram,
  *   example?: { title: string, repo: string, url: string, lang: string, code: string, notes: string[] },
  *   bug?: Bug,
+ *   incident?: Incident,
  *   tradeoff?: { gain: string[], cost: string[] },
  *   task?: { prompt: string, hint?: string, answer: string[] },
  *   quiz: Question[],

@@ -32,8 +32,10 @@ const strings = {
 		glossary: 'Glossary',
 		toLight: 'Switch to light mode',
 		toDark: 'Switch to dark mode',
-		hideCube: 'Hide the cube',
+		cubeMenu: 'The cube',
 		showCube: 'Show the cube',
+		cubeSize: 'Size',
+		sizes: { s: 'Small', m: 'Medium', l: 'Large' },
 		otherLang: 'FR',
 		toOtherLang: 'Passer en français',
 
@@ -151,8 +153,10 @@ const strings = {
 		glossary: 'Glossaire',
 		toLight: 'Passer en mode clair',
 		toDark: 'Passer en mode sombre',
-		hideCube: 'Cacher le cube',
+		cubeMenu: 'Le cube',
 		showCube: 'Afficher le cube',
+		cubeSize: 'Taille',
+		sizes: { s: 'Petit', m: 'Moyen', l: 'Grand' },
 		otherLang: 'EN',
 		toOtherLang: 'Switch to English',
 

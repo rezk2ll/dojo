@@ -19,7 +19,7 @@ function spring(stiffness = 170, damping = 22, x = 0) {
 }
 
 const REST = { yaw: -0.42, pitch: 0.22 };
-// Places it can hide, in pixels from its home corner. Spaced so one is always clear of the pointer.
+// Places it can hide, in pixels from its home corner at the medium size. Spaced so one is always clear of the pointer.
 const SPOTS = [
 	[0, 0],
 	[-230, 0],
@@ -123,6 +123,7 @@ export function createScene(canvas, { color, still }) {
 	};
 	const springs = Object.values(s);
 
+	let scale = 1;
 	let pointer = { x: -1e4, y: -1e4, at: performance.now() };
 	let spot = SPOTS[0];
 	/** @type {{ mood: Mood, at: number } | undefined} */
@@ -141,11 +142,15 @@ export function createScene(canvas, { color, still }) {
 		// offsetLeft ignores the translate, so this stays the home corner while it moves.
 		const hx = canvas.offsetLeft + canvas.offsetWidth / 2;
 		const hy = canvas.offsetTop + canvas.offsetHeight / 2;
-		const from = (/** @type {number[]} */ [x, y]) => Math.hypot(pointer.x - hx - x, pointer.y - hy - y);
-		if (from(spot) < DODGE) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
-		else if (spot !== SPOTS[0] && from(SPOTS[0]) > DODGE + 40) spot = SPOTS[0];
-		s.ox.to = spot[0];
-		s.oy.to = spot[1];
+		// Far spots would leave a phone screen at the large size, so they stop at its edge.
+		const place = (/** @type {number[]} */ [x, y]) => [Math.max(x * scale, -canvas.offsetLeft), Math.max(y * scale, -canvas.offsetTop)];
+		const from = (/** @type {number[]} */ p) => {
+			const [x, y] = place(p);
+			return Math.hypot(pointer.x - hx - x, pointer.y - hy - y);
+		};
+		if (from(spot) < DODGE * scale) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
+		else if (spot !== SPOTS[0] && from(SPOTS[0]) > (DODGE + 40) * scale) spot = SPOTS[0];
+		[s.ox.to, s.oy.to] = place(spot);
 		return { x: pointer.x - hx - s.ox.x, y: pointer.y - hy - s.oy.x };
 	}
 
@@ -278,8 +283,8 @@ export function createScene(canvas, { color, still }) {
 		const hover = still ? 0 : Math.sin(now / 1100) * 0.04;
 		root.position.y = s.y.x + hover;
 		// It leans into the direction it flies, and straightens up as it stops.
-		root.rotation.z = s.roll.x + Math.max(-0.5, Math.min(0.5, -s.ox.v * 0.0004));
-		root.rotation.x = Math.max(-0.4, Math.min(0.4, s.oy.v * 0.0004));
+		root.rotation.z = s.roll.x + Math.max(-0.5, Math.min(0.5, (-s.ox.v * 0.0004) / scale));
+		root.rotation.x = Math.max(-0.4, Math.min(0.4, (s.oy.v * 0.0004) / scale));
 		body.rotation.set(s.pitch.x, s.yaw.x, 0, 'YXZ');
 		canvas.style.translate = `${s.ox.x.toFixed(1)}px ${s.oy.x.toFixed(1)}px`;
 
@@ -292,11 +297,10 @@ export function createScene(canvas, { color, still }) {
 		renderer.render(scene, camera);
 	}
 
-	/** @param {number} w @param {number} h CSS pixels. */
-	function resize(w, h) {
-		renderer.setSize(w, h, false);
-		camera.aspect = w / h;
-		camera.updateProjectionMatrix();
+	/** @param {number} px Side of the square canvas in CSS pixels. */
+	function resize(px) {
+		scale = px / 150;
+		renderer.setSize(px, px, false);
 	}
 
 	const pause = () => {

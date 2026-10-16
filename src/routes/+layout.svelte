@@ -11,10 +11,10 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Cube from '#lib/components/cube.svelte';
 	import Companion from '#lib/components/companion.svelte';
-	import { companion, initCompanion, toggleCompanion } from '#lib/companion.svelte.js';
+	import CompanionMenu from '#lib/components/companion-menu.svelte';
+	import { companion, initCompanion } from '#lib/companion.svelte.js';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Sun from '@lucide/svelte/icons/sun';
-	import Box from '@lucide/svelte/icons/box';
 
 	/** @type {{children: import('svelte').Snippet}} */
 	let { children } = $props();
@@ -65,17 +65,7 @@
 			<Button variant="ghost" size="icon-sm" class="font-mono text-xs" aria-label={t().toOtherLang} title={t().toOtherLang} onclick={toggleLang}>
 				{t().otherLang}
 			</Button>
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class={companion.on ? '' : 'opacity-50'}
-				aria-label={companion.on ? t().hideCube : t().showCube}
-				title={companion.on ? t().hideCube : t().showCube}
-				aria-pressed={companion.on}
-				onclick={toggleCompanion}
-			>
-				<Box />
-			</Button>
+			<CompanionMenu />
 			<Button variant="ghost" size="icon-sm" aria-label={theme.dark ? t().toLight : t().toDark} onclick={toggleTheme}>
 				{#if theme.dark}<Sun />{:else}<Moon />{/if}
 			</Button>

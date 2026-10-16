@@ -270,7 +270,6 @@ export function createScene(canvas, { color, still, touch }) {
 		s.roll.to = 0;
 		s.happy.to = 0;
 		s.sad.to = 0;
-		// Each day of the streak makes it glow a little brighter, up to ten days.
 		s.glow.to = 0.85 + Math.min(streak.days, 10) * 0.035;
 		s.focus.to = combo >= 3 ? 1 : 0;
 		s.spin.to = combo >= 3 ? 3.2 : 0.25;
@@ -626,12 +625,12 @@ function radial() {
 function gearGeometry() {
 	const shape = new THREE.Shape();
 	const teeth = 8;
+	shape.moveTo(0.135, 0);
 	for (let i = 0; i < teeth * 2; i++) {
 		const r = i % 2 ? 0.1 : 0.135;
 		const a0 = (i / (teeth * 2)) * Math.PI * 2;
 		const a1 = ((i + 1) / (teeth * 2)) * Math.PI * 2;
-		if (i === 0) shape.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
-		else shape.lineTo(Math.cos(a0) * r, Math.sin(a0) * r);
+		shape.lineTo(Math.cos(a0) * r, Math.sin(a0) * r);
 		shape.lineTo(Math.cos(a1) * r, Math.sin(a1) * r);
 	}
 	const hole = new THREE.Path();

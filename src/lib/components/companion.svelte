@@ -56,7 +56,8 @@
 		/** @param {PointerEvent} e */
 		const follow = (e) => view?.look(e.clientX, e.clientY);
 		const leave = () => view?.look(-1e4, -1e4);
-		/** @param {PointerEvent} e A tap on the cube stays put only while it offers something; otherwise it runs, so catching it takes a chase. */
+		// A tap on the cube stays put only while it offers something; otherwise it runs, so catching it takes a chase.
+		/** @param {PointerEvent} e */
 		const tap = (e) => e.pointerType === 'touch' && (e.target !== canvas || !shown) && view?.poke(e.clientX, e.clientY);
 		// three.js is large, so it loads only once the page is up, in its own chunk.
 		import('#lib/companion-scene.js').then(({ createScene }) => {

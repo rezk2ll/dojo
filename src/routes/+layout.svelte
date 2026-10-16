@@ -31,10 +31,9 @@
 	let due = $derived.by(() => {
 		minute;
 		if (page.route.id?.endsWith('/review')) return 0;
-		const count = (/** @type {string} */ id) => dueQuestionIds(id).length;
-		if (dojo) return count(dojo.id);
+		if (dojo) return dueQuestionIds(dojo.id).length;
 		return Math.min(
-			dojos.reduce((n, d) => n + count(d.id), 0),
+			dojos.reduce((n, d) => n + dueQuestionIds(d.id).length, 0),
 			Math.max(0, DAILY_MIX - mixedToday())
 		);
 	});

@@ -122,6 +122,16 @@ export function createScene(canvas, { color, still, touch }) {
 	led.position.set(0.3, 0.502, 0.3);
 	body.add(led);
 
+	// Each dojo dresses it a little: a turning gear for DevOps, blueprint paper on the screen for Architecture.
+	const gearMat = new THREE.MeshPhysicalMaterial({ color: tint, metalness: 0.7, roughness: 0.3 });
+	const gear = new THREE.Mesh(gearGeometry(), gearMat);
+	// Upright and half sunk into the lid: the camera sits almost level, so a flat gear would read as a bar.
+	gear.position.set(-0.22, 0.5, 0);
+	gear.castShadow = true;
+	gear.visible = false;
+	body.add(gear);
+	let outfit = '';
+
 	const s = {
 		yaw: spring(110, 20, REST.yaw),
 		pitch: spring(110, 20, REST.pitch),
@@ -223,6 +233,7 @@ export function createScene(canvas, { color, still, touch }) {
 	/** @param {string} next */
 	function setColor(next) {
 		tint.set(next);
+		gearMat.color.copy(tint);
 	}
 
 	function aim(/** @type {number} */ now) {
@@ -321,6 +332,20 @@ export function createScene(canvas, { color, still, touch }) {
 		ctx.fillStyle = bg;
 		ctx.fill();
 		ctx.clip();
+
+		if (outfit === 'architecture') {
+			ctx.strokeStyle = hex;
+			ctx.globalAlpha = 0.13;
+			ctx.lineWidth = 1.5;
+			ctx.beginPath();
+			for (let x = 16; x < FACE; x += 24) {
+				ctx.moveTo(x, 0);
+				ctx.lineTo(x, FACE);
+				ctx.moveTo(0, x);
+				ctx.lineTo(FACE, x);
+			}
+			ctx.stroke();
+		}
 
 		const happy = Math.min(1, Math.max(0, s.happy.x));
 		const sad = Math.min(1, Math.max(0, s.sad.x));
@@ -464,6 +489,7 @@ export function createScene(canvas, { color, still, touch }) {
 		const near = 1 - (root.position.y + 0.1) / 0.5;
 		ringMat.opacity = Math.min(1, (0.35 + 0.35 * near) * s.glow.x);
 		if (!still) ring.rotation.z += s.spin.x * dt;
+		if (!still) gear.rotation.z += dt * 0.8;
 		halo.material.opacity = Math.min(1, (0.25 + 0.2 * near) * s.glow.x);
 		if (streak.needsYou) {
 			const pulse = Math.sin(now / 500) ** 2;
@@ -513,6 +539,11 @@ export function createScene(canvas, { color, still, touch }) {
 		setOffer(label) {
 			offer = label;
 		},
+		/** @param {string} dojo The dojo id, or '' on the hub. */
+		setOutfit(dojo) {
+			outfit = dojo;
+			gear.visible = dojo === 'devops';
+		},
 		react,
 		setColor,
 		resize,
@@ -544,4 +575,21 @@ function radial() {
 	g.fillStyle = grad;
 	g.fillRect(0, 0, 128, 128);
 	return new THREE.CanvasTexture(c);
+}
+
+function gearGeometry() {
+	const shape = new THREE.Shape();
+	const teeth = 8;
+	for (let i = 0; i < teeth * 2; i++) {
+		const r = i % 2 ? 0.1 : 0.135;
+		const a0 = (i / (teeth * 2)) * Math.PI * 2;
+		const a1 = ((i + 1) / (teeth * 2)) * Math.PI * 2;
+		if (i === 0) shape.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
+		else shape.lineTo(Math.cos(a0) * r, Math.sin(a0) * r);
+		shape.lineTo(Math.cos(a1) * r, Math.sin(a1) * r);
+	}
+	const hole = new THREE.Path();
+	hole.absarc(0, 0, 0.04, 0, Math.PI * 2, true);
+	shape.holes.push(hole);
+	return new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 2 });
 }

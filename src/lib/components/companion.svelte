@@ -9,8 +9,8 @@
 	// Long enough that a reader who knows the answer never sees it.
 	const HINT_AFTER = 12_000;
 
-	/** @type {{ color: string, days: string[], offer?: { label: string, title: string, href: string } }} */
-	let { color, days, offer } = $props();
+	/** @type {{ color: string, outfit: string, days: string[], offer?: { label: string, title: string, href: string } }} */
+	let { color, outfit, days, offer } = $props();
 
 	let size = $derived(SIZES[companion.size]);
 	// Refreshed every minute, so the evening reminder lights up without a reload.
@@ -79,6 +79,7 @@
 	});
 
 	$effect(() => view?.setColor(color));
+	$effect(() => view?.setOutfit(outfit));
 	$effect(() => view?.resize(size));
 	$effect(() => view?.setCombo(companion.combo));
 	$effect(() => view?.setStreak({ days: streak(days), needsYou }));

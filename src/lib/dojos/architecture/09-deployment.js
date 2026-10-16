@@ -8,16 +8,15 @@ export default {
 	title: 'Deployment: boxes on machines',
 	minutes: 10,
 	hook: [
-		'It is 3 a.m. One machine stops answering. The question that matters is not "which container is on it" but **"does everybody go down, or only some?"**',
-		'The container diagram cannot answer, because it says nothing about machines. The C4 **deployment diagram** does: it puts container instances on deployment nodes (servers, VMs, clusters) for one environment, like "production".',
-		'Today we draw a Mastodon server grown past one machine, following its official scaling guide, and hunt its **single points of failure**. Some boxes are easy to copy. One box must **never** be copied.'
+		'It is 3 a.m., and one machine stops answering. You need to know **whether every user is down, or only some of them**.',
+		'The container diagram cannot tell you, because it shows no machines. The C4 deployment diagram puts container instances on deployment nodes (servers, VMs, clusters) for one environment, like "production".',
+		'Below, a Mastodon server grows past one machine, following its official scaling guide, and you look for its **single points of failure**. Web and streaming processes can run as several copies. The Sidekiq process for the `scheduler` queue must run as exactly one.'
 	],
 	terms: [
 		{ term: 'Deployment diagram', def: 'Where container instances run, on which machines or clusters, for one environment.' },
-		{ term: 'Deployment node', def: 'A place things run: a physical server, a VM, a Kubernetes cluster, a pod, a browser. Nodes can be nested.' },
 		{ term: 'Single point of failure (SPOF)', def: 'One box that, if it dies, takes the whole service down with it.' },
-		{ term: 'Redundancy', def: 'Two or more copies so one can die. Only real if the copies do not share something that can also die.' },
-		{ term: 'Singleton', def: 'A box that must run as exactly one copy. You cannot fix it by adding a second one.' }
+		{ term: 'Redundancy', def: 'Two or more copies, so that one can die and the others keep working. The copies must not depend on one shared box that can also die.' },
+		{ term: 'Singleton', def: 'A box that must run as exactly one copy, so you cannot make it redundant by adding a second one.' }
 	],
 	diagram: {
 		direction: 'TD',
@@ -29,7 +28,7 @@ export default {
 					'lb --> st["streaming: 3 processes, ports 4000 to 4002"]'
 				],
 				highlight: ['lb', 'web', 'st'],
-				note: 'The guide puts several Puma servers behind a load balancer that watches `/health`, and runs several streaming processes behind nginx. Both are stateless: any copy can answer. **Lose one, the others keep serving.**'
+				note: 'The guide puts several Puma servers behind a load balancer that watches `/health`, and runs several streaming processes behind nginx. Both are stateless, so any copy can answer any request. When one copy dies, **the others keep serving**.'
 			},
 			{
 				add: [
@@ -37,7 +36,7 @@ export default {
 					'sch["sidekiq: scheduler queue, exactly 1"]'
 				],
 				highlight: ['sk', 'sch'],
-				note: 'Sidekiq processes can be split by queue and multiplied. One rule from the guide: the `scheduler` queue "should never be run in more than one Sidekiq process at a time". A **singleton**, drawn once on purpose.'
+				note: 'You can split Sidekiq processes by queue and run several of each. The guide has one exception: the `scheduler` queue "should never be run in more than one Sidekiq process at a time". It is a **singleton**, so the diagram draws it once.'
 			},
 			{
 				add: [
@@ -47,7 +46,7 @@ export default {
 					'sk --> pgb'
 				],
 				highlight: ['pgb', 'pg', 'rep'],
-				note: 'The guide counts about one database connection per Puma, Sidekiq and streaming thread. **More copies means more connections**, so the guide adds PgBouncer. A read replica takes some reads. Writes still go to **one** primary.'
+				note: 'The guide counts about one database connection per Puma, Sidekiq and streaming thread. Each new copy opens **more connections**, so the guide adds PgBouncer in front of PostgreSQL. A read replica takes some of the reads, and all writes still go to the one primary.'
 			},
 			{
 				add: [
@@ -58,12 +57,12 @@ export default {
 					'sch --> redis'
 				],
 				highlight: ['redis'],
-				note: 'Every process talks to Redis: feeds, job queues, the pub/sub that feeds streaming. The guide is blunt: if that one instance "goes down it can bring the entire Mastodon instance down as well". Its fix: Redis Sentinel.'
+				note: 'Every process uses Redis: feeds, job queues, and the pub/sub that the streaming server reads. The guide warns that if that one instance "goes down it can bring the entire Mastodon instance down as well". It recommends Redis Sentinel for failover.'
 			},
 			{
 				add: [],
 				highlight: ['redis', 'pg', 'sch'],
-				note: 'Copied: web, streaming, most of Sidekiq. Drawn once: **Redis** and the **PostgreSQL primary**, which take everything down, and the **scheduler**, which takes nothing down at once but quietly stops the clock. The stateless boxes were the easy part.'
+				note: 'Web, streaming and most of Sidekiq run as several copies. Redis and the PostgreSQL primary run once, and each one takes everything down when it dies. The **scheduler** also runs once: when it dies, the site keeps working, but no scheduled job starts.'
 			}
 		]
 	},
@@ -91,32 +90,32 @@ export default {
       class: Scheduler::ScheduledStatusesScheduler
       queue: scheduler`,
 		notes: [
-			'By default **one** Sidekiq process listens to all seven queues. The [scaling guide](' + SCALING + '#sidekiq-queues) shows how to start separate processes with `-q`, so a flood of incoming activity (`ingress`) does not delay your own users\' jobs (`default`).',
-			'`:listened_queues_only: true` is a [sidekiq-scheduler option](https://github.com/sidekiq-scheduler/sidekiq-scheduler/blob/abd0dbe43e25a0b23b8b507c69de1b709e0cc9bf/README.md?plain=1#L96): a process only pushes the cron jobs whose queue it listens to. So the process that listens to `scheduler` **is** the clock.',
-			'What stops if the clock dies? Among others, [`ScheduledStatusesScheduler`](' + REPO + '/app/workers/scheduler/scheduled_statuses_scheduler.rb#L8-L20), every five minutes, which publishes posts users scheduled for later. Nobody gets an error. Scheduled posts just stop going out.',
-			'`concurrency` defaults to 5 threads, and the guide says each thread "requires a database connection", so `DB_POOL` must be at least the thread count. On a deployment diagram, every new box also adds load on the one database.'
+			'Lines 3 to 10: by default **one** Sidekiq process listens to all seven queues. The [scaling guide](' + SCALING + '#sidekiq-queues) shows how to start separate processes with `-q`, so a flood of incoming activity (`ingress`) does not delay your own users\' jobs (`default`).',
+			'Line 13, `:listened_queues_only: true`, is a [sidekiq-scheduler option](https://github.com/sidekiq-scheduler/sidekiq-scheduler/blob/abd0dbe43e25a0b23b8b507c69de1b709e0cc9bf/README.md?plain=1#L96): a process only pushes the cron jobs whose queue it listens to. So only the process that listens to `scheduler` starts the scheduled jobs.',
+			'Lines 15 to 18 schedule [`ScheduledStatusesScheduler`](' + REPO + '/app/workers/scheduler/scheduled_statuses_scheduler.rb#L8-L20) every five minutes, which publishes posts users scheduled for later. If the scheduler process dies, nobody gets an error, and scheduled posts stop going out.',
+			'Line 2: `concurrency` defaults to 5 threads, and the guide says each thread "requires a database connection", so `DB_POOL` must be at least the thread count. Every new Sidekiq box on the deployment diagram adds connections to the one database.'
 		]
 	},
 	tradeoff: {
 		gain: [
-			'Stateless web and streaming processes: one can die, or roll to a new version, while the load balancer sends traffic to the others.',
-			'Sidekiq split by queue: incoming traffic from other servers cannot starve the jobs your own users wait for.',
+			'Web and streaming processes are stateless: one can die, or roll to a new version, while the load balancer sends traffic to the others.',
+			'With Sidekiq split by queue, incoming traffic from other servers cannot hold up the jobs your own users wait for.',
 			'PgBouncer and a read replica let you add processes without running PostgreSQL out of connections.'
 		],
 		cost: [
-			'Redis stays a single point of failure until you add Sentinel, and Sentinel itself is more boxes to run.',
-			'The scheduler is a singleton. You cannot make it redundant by copying it, so you must notice when it dies.',
-			'More boxes, more moving parts: PgBouncer needs transaction pooling and `PREPARED_STATEMENTS=false`, and the guide says you cannot run `db:migrate` through it.'
+			'Redis stays a single point of failure until you add Sentinel, and Sentinel adds more processes to run.',
+			'You cannot make the scheduler redundant by copying it, so you must notice when its one process dies.',
+			'PgBouncer needs transaction pooling and `PREPARED_STATEMENTS=false`, and the guide says you cannot run `db:migrate` through it.'
 		]
 	},
 	task: {
 		prompt: 'A server runs: two web VMs behind a load balancer, one streaming process, one Sidekiq process with every queue (the default config), one PostgreSQL, one Redis. List the single points of failure, ranked by who they hurt, and say what you would change first.',
 		hint: 'For each box drawn once, ask: if it dies, does the site go down, do live updates stop, or does some background work wait?',
 		answer: [
-			'**Redis** and **PostgreSQL**: either one down takes the whole server down. The worst ones.',
-			'The **single Sidekiq process**: posts are still saved, but feeds, emails and deliveries to other servers wait. It also holds the scheduler, so scheduled posts stop.',
-			'The **single streaming process**: apps stop getting live updates, but posting and reading still work.',
-			'First change: Redis Sentinel (or a managed Redis with failover), because it is cheap next to the blast radius. Then a second Sidekiq process **without** the `scheduler` queue, so jobs survive one crash. Never a second one **with** it.'
+			'Redis and PostgreSQL: if either one goes down, the whole server goes down for every user.',
+			'The single Sidekiq process: posts are still saved, but feeds, emails and deliveries to other servers wait. It also holds the scheduler, so scheduled posts stop.',
+			'The single streaming process: apps stop getting live updates, but posting and reading still work.',
+			'First change: Redis Sentinel (or a managed Redis with failover), because it is cheap and Redis takes everything down. Then a second Sidekiq process **without** the `scheduler` queue, so jobs survive one crash. The `scheduler` queue stays on exactly one process.'
 		]
 	},
 	quiz: [
@@ -140,7 +139,7 @@ export default {
 				'It is optional and can be removed'
 			],
 			answer: 1,
-			why: 'The guide lets you run as many Sidekiq processes as you need, with one exception: the `scheduler` queue runs in one process only. It is a singleton, not something you make redundant by copying.'
+			why: 'The guide lets you run as many Sidekiq processes as you need, with one exception: the `scheduler` queue runs in one process only. You cannot make it redundant by starting a second copy.'
 		},
 		{
 			q: 'A Mastodon server runs a single Redis instance. Per the scaling guide, what can happen if it goes down, and what does the guide offer?',
@@ -154,7 +153,10 @@ export default {
 			why: 'Feeds, job queues and streaming all depend on Redis, so the guide calls it critical. Sentinel watches the instances and points clients to a new primary when one goes down.'
 		}
 	],
-	takeaway: 'For each box on the deployment diagram, ask "if this dies, who goes down?" Stateless boxes are easy to double. Shared stores and singletons are the ones to design for.',
+	recall: {
+		q: 'On a scaled Mastodon deployment, which boxes run only once, and what happens when each one dies?',
+		a: 'Redis and the PostgreSQL primary: either one takes the whole server down. The Sidekiq process for the `scheduler` queue: the site keeps working, but scheduled jobs like `ScheduledStatusesScheduler` stop running.'
+	},
 	sources: [
 		{ title: 'C4 model, Deployment diagram', url: 'https://c4model.com/diagrams/deployment' },
 		{ title: 'Mastodon docs, Scaling up your server', url: SCALING },

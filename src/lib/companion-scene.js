@@ -154,6 +154,8 @@ export function createScene(canvas, { color, still, touch }) {
 	let turns = 0;
 	let combo = 0;
 	let streak = { days: 0, needsYou: false };
+	/** @type {string | undefined} */
+	let offer;
 	let nextBlink = performance.now() + 2500;
 	let nextScan = performance.now() + 5000;
 	let activeAt = performance.now();
@@ -203,7 +205,8 @@ export function createScene(canvas, { color, still, touch }) {
 			const [x, y] = place(p);
 			return Math.hypot(pointer.x - hx - x, pointer.y - hy - y);
 		};
-		if (touch && now - pointer.at > TOUCH_STAYS) spot = SPOTS[0];
+		// With something to offer it waits at home, so it can be clicked.
+		if (offer || (touch && now - pointer.at > TOUCH_STAYS)) spot = SPOTS[0];
 		else if (from(spot) < DODGE * scale) spot = SPOTS.reduce((a, b) => (from(b) > from(a) ? b : a));
 		else if (spot !== SPOTS[0] && from(SPOTS[0]) > (DODGE + 40) * scale) spot = SPOTS[0];
 		[s.ox.to, s.oy.to] = place(spot);
@@ -373,6 +376,21 @@ export function createScene(canvas, { color, still, touch }) {
 			}
 			ctx.restore();
 		}
+		if (offer) {
+			// A badge in the corner, like an app with something waiting.
+			ctx.globalAlpha = 1;
+			ctx.shadowBlur = 14 + 10 * Math.sin(now / 400) ** 2;
+			ctx.beginPath();
+			ctx.arc(200, 58, 40, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.shadowBlur = 0;
+			ctx.fillStyle = '#090b0d';
+			ctx.font = `bold ${offer.length > 2 ? 34 : 48}px system-ui, sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(offer, 200, 61);
+			ctx.fillStyle = hex;
+		}
 
 		// Now and then a soft line sweeps the screen, like it is thinking.
 		const scan = (now - nextScan) / 700;
@@ -490,6 +508,10 @@ export function createScene(canvas, { color, still, touch }) {
 		/** @param {{ days: number, needsYou: boolean }} next */
 		setStreak(next) {
 			streak = next;
+		},
+		/** @param {string | undefined} label Shown on the screen, for example the number of cards due. */
+		setOffer(label) {
+			offer = label;
 		},
 		react,
 		setColor,

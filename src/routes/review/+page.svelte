@@ -2,8 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { dojos } from '#lib/dojos/index.js';
-	import { questionById } from '#lib/content.js';
-	import { countMixed, dueCardIds, mixedToday, restore, DAILY_MIX } from '#lib/progress.svelte.js';
+	import { countMixed, dueQuestionIds, mixedToday, restore, DAILY_MIX } from '#lib/progress.svelte.js';
 	import { shuffle } from '#lib/text.js';
 	import { t } from '#lib/i18n.svelte.js';
 	import ReviewSession from '#lib/components/review-session.svelte';
@@ -17,7 +16,7 @@
 	// Snapshot once, like a dojo's own review, and mixed across dojos up to the daily cap.
 	onMount(() => {
 		for (const d of dojos) restore(d.id); // this page's onMount runs before the layout's
-		const due = dojos.flatMap((d) => dueCardIds(d.id).filter((id) => questionById(d.id, id, 'en')).map((id) => ({ dojo: d.id, id })));
+		const due = dojos.flatMap((d) => dueQuestionIds(d.id).map((id) => ({ dojo: d.id, id })));
 		const left = Math.max(0, DAILY_MIX - mixedToday());
 		queue = shuffle(due).slice(0, left);
 		capped = due.length > 0 && left === 0;

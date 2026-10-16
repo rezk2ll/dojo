@@ -1,4 +1,5 @@
 import { dojos } from './dojos/index.js';
+import { questionById } from './content.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 // Leitner boxes: a card answered right moves up a box and comes back later.
@@ -99,6 +100,9 @@ export function dueCardIds(dojo) {
 		.filter(([, c]) => c.due <= now)
 		.map(([id]) => id);
 }
+
+/** Due cards whose question still exists, which is what a review session shows. @param {string} dojo */
+export const dueQuestionIds = (dojo) => dueCardIds(dojo).filter((id) => questionById(dojo, id, 'en'));
 
 const MIX = 'dojo:mix';
 

@@ -50,7 +50,7 @@
 		a.click();
 	}
 
-	const chaptersIn = (/** @type {{ done: object }} */ s) => t().chaptersCount(Object.keys(s.done).length);
+	const finished = (/** @type {{ done: object }} */ s) => t().chaptersCount(Object.keys(s.done).length);
 
 	async function upload(/** @type {Event & { currentTarget: HTMLInputElement }} */ e) {
 		const file = e.currentTarget.files?.[0];
@@ -63,7 +63,7 @@
 			backup = { ok: false, text: 'notAFile' };
 			return;
 		}
-		if (!confirm(t().replace(chaptersIn(progress), chaptersIn(saved)))) return;
+		if (!confirm(t().replace(finished(progress), finished(saved)))) return;
 		replaceProgress(id, saved);
 		load();
 		backup = { ok: true, text: 'loaded' };

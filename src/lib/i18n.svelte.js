@@ -1,23 +1,41 @@
-// Same key as the inline script in app.html, which sets <html lang> before first paint.
+import { resolve } from '$app/paths';
+
 const KEY = 'dojo:lang';
 
 /** @typedef {import('./content.js').Lang} Lang */
 
-/** Pages are prerendered in French; English replaces the text once the page has loaded. */
+/** Set from the URL by the root layout: French pages have no prefix, English ones live under /en/. */
 export const lang = $state({ current: /** @type {Lang} */ ('fr') });
 
-/** Call from onMount. */
-export function initLang() {
-	lang.current = document.documentElement.lang === 'en' ? 'en' : 'fr';
+/** Prerender entries: every page is built twice, French at the root and English under /en/. @type {{ lang?: 'en' }[]} */
+export const langs = [{}, { lang: 'en' }];
+
+/** The `[[lang]]` param for a language. @param {Lang} l */
+export const langParam = (l) => (l === 'en' ? 'en' : undefined);
+
+/**
+ * A link to a page in the current language. `route` is the route id without the `[[lang=lang]]` prefix.
+ * @param {string} route @param {Record<string, string>} [params]
+ */
+export const link = (route, params = {}) =>
+	resolve(/** @type {any} */ (`/[[lang=lang]]${route === '/' ? '' : route}`), /** @type {any} */ ({ ...params, lang: langParam(lang.current) }));
+
+/** @returns {Lang | undefined} */
+export function savedLang() {
+	try {
+		const saved = localStorage.getItem(KEY);
+		return saved === 'en' || saved === 'fr' ? saved : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
-export function toggleLang() {
-	lang.current = lang.current === 'fr' ? 'en' : 'fr';
-	document.documentElement.lang = lang.current;
+/** @param {Lang} l */
+export function saveLang(l) {
 	try {
-		localStorage.setItem(KEY, lang.current);
+		localStorage.setItem(KEY, l);
 	} catch {
-		// Blocked storage: the choice lasts for this tab only.
+		// Blocked storage: the choice lasts for this visit only.
 	}
 }
 

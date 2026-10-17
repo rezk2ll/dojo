@@ -1,9 +1,8 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { dayKey, dueQuestionIds, exportProgress, parseProgress, progressOf, replaceProgress, restore, INTERVAL_DAYS } from '#lib/progress.svelte.js';
 	import { shuffle } from '#lib/text.js';
-	import { t } from '#lib/i18n.svelte.js';
+	import { link, t } from '#lib/i18n.svelte.js';
 	import Cubes from '#lib/components/cubes.svelte';
 	import ReviewSession from '#lib/components/review-session.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -77,10 +76,10 @@
 
 	{#if loaded && queue.length === 0}
 		<p>{t().nothingToReview}</p>
-		<Button variant="outline" href={resolve('/[dojo]', { dojo: id })}>{t().backToToday}</Button>
+		<Button variant="outline" href={link('/[dojo]', { dojo: id })}>{t().backToToday}</Button>
 	{:else}
 		{#key queue}
-			<ReviewSession {queue} doneHref={resolve('/[dojo]', { dojo: id })} doneLabel={t().reviewDone} />
+			<ReviewSession {queue} doneHref={link('/[dojo]', { dojo: id })} doneLabel={t().reviewDone} />
 		{/key}
 	{/if}
 

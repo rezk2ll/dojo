@@ -1,8 +1,7 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { fmt, matcher } from '#lib/text.js';
 	import { chaptersIn } from '#lib/content.js';
-	import { lang, t } from '#lib/i18n.svelte.js';
+	import { lang, link, t } from '#lib/i18n.svelte.js';
 
 	let { data } = $props();
 	let entries = $derived(
@@ -38,7 +37,7 @@
 				<dt class="text-brand-ink mb-1 font-mono text-sm font-semibold">{e.term}</dt>
 				<dd class="leading-relaxed">{@html fmt(e.def)}</dd>
 				<dd class="text-muted-foreground mt-2 text-sm">
-					<a class="hover:underline" href={resolve('/[dojo]/c/[slug]', { dojo: data.dojo.id, slug: e.chapter.slug })}>{e.chapter.title}</a>
+					<a class="hover:underline" href={link('/[dojo]/c/[slug]', { dojo: data.dojo.id, slug: e.chapter.slug })}>{e.chapter.title}</a>
 				</dd>
 			</div>
 		{/each}

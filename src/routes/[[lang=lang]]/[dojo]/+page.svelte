@@ -1,9 +1,8 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { chaptersIn } from '#lib/content.js';
 	import { matcher } from '#lib/text.js';
 	import { progressOf, dueQuestionIds, streak, activeToday, dayKey } from '#lib/progress.svelte.js';
-	import { lang, t } from '#lib/i18n.svelte.js';
+	import { lang, link, t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -64,7 +63,7 @@
 					<Card.Description>{t().warmUpFirst}</Card.Description>
 					<Card.Title>{t().toReview(due)}</Card.Title>
 				</Card.Header>
-				<Card.Footer><Button variant="secondary" href={resolve('/[dojo]/review', { dojo: id })}>{t().startReview}</Button></Card.Footer>
+				<Card.Footer><Button variant="secondary" href={link('/[dojo]/review', { dojo: id })}>{t().startReview}</Button></Card.Footer>
 			</Card.Root>
 		{/if}
 
@@ -75,7 +74,7 @@
 					<Card.Title class="text-2xl leading-snug">{today.title}</Card.Title>
 				</Card.Header>
 				<Card.Footer>
-					<Button size="lg" href={resolve('/[dojo]/c/[slug]', { dojo: id, slug: today.slug })}>
+					<Button size="lg" href={link('/[dojo]/c/[slug]', { dojo: id, slug: today.slug })}>
 						{progress.at[today.slug] ? t().continueReading : t().startReading}
 					</Button>
 				</Card.Footer>
@@ -133,7 +132,7 @@
 							{@const n = chapters.indexOf(c) + 1}
 							<li>
 								<a
-									href={resolve('/[dojo]/c/[slug]', { dojo: id, slug: c.slug })}
+									href={link('/[dojo]/c/[slug]', { dojo: id, slug: c.slug })}
 									class="hover:bg-muted flex items-start gap-3 rounded-lg px-2 py-2 text-[0.95rem] leading-snug
 										{c === today ? 'bg-brand/10 font-semibold' : ''}"
 								>

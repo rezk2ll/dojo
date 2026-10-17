@@ -1,3 +1,5 @@
 import { dojos } from '#lib/dojos/index.js';
 
-export const entries = () => dojos.map((d) => ({ dojo: d.id }));
+import { langs } from '#lib/i18n.svelte.js';
+
+export const entries = () => langs.flatMap((l) => dojos.map((d) => ({ ...l, dojo: d.id })));

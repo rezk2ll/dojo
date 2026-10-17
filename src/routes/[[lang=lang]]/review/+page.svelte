@@ -1,10 +1,9 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { dojos } from '#lib/dojos/index.js';
 	import { countMixed, dueQuestionIds, mixedToday, restore, DAILY_MIX } from '#lib/progress.svelte.js';
 	import { shuffle } from '#lib/text.js';
-	import { t } from '#lib/i18n.svelte.js';
+	import { link, t } from '#lib/i18n.svelte.js';
 	import ReviewSession from '#lib/components/review-session.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 
@@ -31,8 +30,8 @@
 
 	{#if loaded && queue.length === 0}
 		<p>{capped ? t().mixedDone : t().nothingToReview}</p>
-		<Button variant="outline" href={resolve('/')}>{t().backHome}</Button>
+		<Button variant="outline" href={link('/')}>{t().backHome}</Button>
 	{:else}
-		<ReviewSession {queue} showDojo doneHref={resolve('/')} doneLabel={t().backHome} onanswer={countMixed} />
+		<ReviewSession {queue} showDojo doneHref={link('/')} doneLabel={t().backHome} onanswer={countMixed} />
 	{/if}
 </div>

@@ -1,10 +1,9 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { dojos } from '#lib/dojos/index.js';
 	import { progressOf, dueQuestionIds, dayKey, mixedToday, DAILY_MIX } from '#lib/progress.svelte.js';
-	import { lang, t } from '#lib/i18n.svelte.js';
+	import { lang, link, t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import Cubes from '#lib/components/cubes.svelte';
@@ -55,7 +54,7 @@
 					</Card.Header>
 					{#if !pick.finishedToday}
 						<Card.Footer>
-							<Button size="lg" href={resolve('/[dojo]/c/[slug]', { dojo: pick.dojo.id, slug: pick.next.slug })}>
+							<Button size="lg" href={link('/[dojo]/c/[slug]', { dojo: pick.dojo.id, slug: pick.next.slug })}>
 								{progressOf(pick.dojo.id).at[pick.next.slug] ? t().continueReading : t().startReading}
 							</Button>
 						</Card.Footer>
@@ -70,7 +69,7 @@
 					<Card.Description>{t().warmUpFirst}</Card.Description>
 					<Card.Title>{t().mixedReview(due)}</Card.Title>
 				</Card.Header>
-				<Card.Footer><Button variant="secondary" href={resolve('/review')}>{t().startReview}</Button></Card.Footer>
+				<Card.Footer><Button variant="secondary" href={link('/review')}>{t().startReview}</Button></Card.Footer>
 			</Card.Root>
 		{:else if capped}
 			<Card.Root>
@@ -88,7 +87,7 @@
 			{#each rows as r (r.dojo.id)}
 				<li class="contents" data-dojo={r.dojo.id} style="--hue: {r.dojo.hue}; --chroma: {r.dojo.chroma}">
 					<a
-						href={resolve('/[dojo]', { dojo: r.dojo.id })}
+						href={link('/[dojo]', { dojo: r.dojo.id })}
 						class="bg-card hover:bg-muted flex flex-col items-center gap-3 rounded-2xl p-4 text-center shadow-[0_1px_2px_oklch(0_0_0/0.04)] transition-colors"
 					>
 						<Cubes

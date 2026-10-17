@@ -1,5 +1,4 @@
 <script>
-	import { resolve } from '$app/paths';
 	import { onMount, tick, untrack } from 'svelte';
 	import { fmt } from '#lib/text.js';
 	import { source, render, layout } from '#lib/mermaid.js';
@@ -16,7 +15,7 @@
 	import Timer from '#lib/components/timer.svelte';
 	import DrillRep from '#lib/components/drill-rep.svelte';
 	import { chaptersIn } from '#lib/content.js';
-	import { lang, t } from '#lib/i18n.svelte.js';
+	import { lang, link, t } from '#lib/i18n.svelte.js';
 	import Maximize from '@lucide/svelte/icons/maximize-2';
 	import Minimize from '@lucide/svelte/icons/minimize-2';
 	import Expand from '@lucide/svelte/icons/expand';
@@ -667,9 +666,9 @@
 			{/if}
 			{#if current.id === 'wrap'}
 				{#if nextChapter && progress.done[c.slug]}
-					<Button href={resolve('/[dojo]/c/[slug]', { dojo, slug: nextChapter.slug })}>{t().tomorrow(nextChapter.title)}</Button>
+					<Button href={link('/[dojo]/c/[slug]', { dojo, slug: nextChapter.slug })}>{t().tomorrow(nextChapter.title)}</Button>
 				{:else}
-					<Button variant="secondary" href={resolve('/[dojo]', { dojo })}>{t().backHome}</Button>
+					<Button variant="secondary" href={link('/[dojo]', { dojo })}>{t().backHome}</Button>
 				{/if}
 			{:else}
 				<Button onclick={next}>

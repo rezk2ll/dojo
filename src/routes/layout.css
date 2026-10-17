@@ -107,6 +107,26 @@
 .dark .code span {
 	color: var(--shiki-dark);
 }
+/* Chapters point at code by line number. */
+.code code {
+	counter-reset: line;
+}
+.code .line::before {
+	counter-increment: line;
+	content: counter(line);
+	display: inline-block;
+	width: 2ch;
+	margin-right: 1.5ch;
+	text-align: right;
+	color: var(--muted-foreground);
+	opacity: 0.6;
+	user-select: none;
+}
+.code .line[data-n]::before {
+	content: attr(data-n);
+	width: auto;
+	white-space: pre;
+}
 .code .line.add,
 .code .line.del {
 	display: inline-block;

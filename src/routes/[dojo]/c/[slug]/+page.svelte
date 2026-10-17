@@ -578,7 +578,7 @@
 				</div>
 			{:else if /^r\d+$/.test(current.id) && c.reps}
 				{@const n = Number(current.id.slice(1))}
-				{#key current.id}
+				{#key `${c.slug}/${current.id}`}
 					<DrillRep rep={c.reps[n]} result={typed[n]} onresult={(right) => ((typed[n] = right), answered(right))} />
 				{/key}
 			{:else if current.id === 'brief' && c.kata}
@@ -587,7 +587,7 @@
 						{#each c.kata.brief as p, i (i)}<p>{@html fmt(p)}</p>{/each}
 					</div>
 					<p class="text-muted-foreground">{t().kataIntro(c.kata.minutes)}</p>
-					<Timer minutes={c.kata.minutes} />
+					{#key c.slug}<Timer minutes={c.kata.minutes} />{/key}
 				</div>
 			{:else if current.id === 'check' && c.kata}
 				<div class="max-w-3xl space-y-3">

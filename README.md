@@ -1,9 +1,17 @@
 # Dojo
 
-Short daily lessons on software, in French and English. Each dojo is a path of 40 chapters, and every example points at real open-source code at a fixed commit.
+Short daily lessons on software, in French and English. Each dojo is a path of 40 chapters. Code examples link to real open-source code at a fixed commit.
 
 - DevOps Dojo: from sysadmin to DevOps engineer.
 - Architecture Dojo: software architecture.
+- Databases Dojo: how databases store, find and protect data.
+- Spot the Bug Dojo: real bugs from fix commits; find the line, then read the fix.
+- Kata Dojo: one system design exercise a day, on paper.
+- Incident Dojo: real outages from public postmortems, one decision at a time.
+- AI Dojo: language models, prompts, agents and Claude Code.
+- Drills Dojo: typed reps for git, the shell, SQL, text tools and ops commands.
+- Security Dojo: how attacks work and how real projects defend against them.
+- Networking Dojo: IP, TCP, DNS, HTTP, TLS and load balancers.
 
 Each dojo installs as its own app on a phone, and works offline. Questions you answer come back 1, 3, 7, 21 and 45 days later. The home page mixes reviews from every dojo, ten a day at most. Progress stays in your browser.
 

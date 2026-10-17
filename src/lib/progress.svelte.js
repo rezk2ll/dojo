@@ -74,7 +74,9 @@ function save(dojo) {
 
 /** @param {string} dojo @param {string} slug */
 export function markDone(dojo, slug) {
-	progressOf(dojo).done[slug] ??= Date.now();
+	const done = progressOf(dojo).done;
+	if (!done[slug]) window.umami?.track('chapter-done', { dojo, chapter: slug });
+	done[slug] ??= Date.now();
 	save(dojo);
 }
 

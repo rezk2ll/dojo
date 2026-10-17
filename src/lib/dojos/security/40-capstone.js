@@ -1,0 +1,187 @@
+const SALEOR = 'https://github.com/saleor/saleor/blob/0c0e2697cc72aa999f7786ae8aeda7665bd4285f';
+const ADV = 'https://github.com/saleor/saleor/security/advisories';
+
+/** @type {import('../../content.js').Chapter} */
+export default {
+	slug: 'capstone',
+	part: 'Running safely',
+	title: 'Capstone: securing a small shop',
+	minutes: 10,
+	hook: [
+		'Saleor is an open-source commerce API with more than 23,000 stars on GitHub. On 21 January 2026 it published GHSA-666h-2p49-pg95: staff could upload HTML and SVG files with JavaScript, served from the dashboard’s domain, and steal other staff members’ tokens. Two days later came GHSA-r6fj-f4r9-36gr: an IDOR that let anyone without an account extract emails, addresses and phone numbers from old orders.',
+		'In April 2024, GHSA-ff69-fwjf-3c9w reported a CSRF bypass in the `refreshToken` mutation, scored 4.2. Each of these advisories matches a day of this dojo: file uploads (day 24), XSS (day 18), authorization (day 16), CSRF (day 11).',
+		'No new attack today. You secure a small shop from the threat model to the deployment, and every choice points back to the day it comes from.'
+	],
+	terms: [
+		{ term: 'Threat model', def: 'A written list of what can go wrong with a feature, who would do it, and which control stops it (day 1).' },
+		{ term: 'Trust boundary', def: 'A line where data passes from a party you do not control to one you do, like the browser to the API. Every check sits on that line (day 2).' },
+		{ term: 'Secure default', def: 'A setting whose value without any configuration is the safe one. Saleor’s `HTTP_IP_FILTER_ENABLED` is `True` unless you turn it off (day 7).' }
+	],
+	diagram: {
+		direction: 'TD',
+		steps: [
+			{
+				add: ['browser["Browser: storefront and staff dashboard"] -->|"HTTPS, HttpOnly + Secure + SameSite cookie"| api["Shop API"]'],
+				highlight: ['browser', 'api'],
+				note: 'The first trust boundary is between the browser and the API. TLS protects the traffic (day 27). The session cookie is `HttpOnly`, `Secure` and `SameSite` (day 10), CSRF tokens protect state changes (day 11), and CORS allows only the shop’s own origins.'
+			},
+			{
+				add: ['api --> login["Login: Argon2 hash, rate limit per account and IP, TOTP for staff"]'],
+				highlight: ['login'],
+				note: 'Passwords are stored with a slow salted hash (day 9). Login attempts are limited per account and per IP (day 15), and staff accounts need a second factor (day 14). Saleor locks the password reset request per user for 15 minutes by default.'
+			},
+			{
+				add: ['api -->|"parameterized queries, owner check on every order id"| db[("Database")]'],
+				highlight: ['db'],
+				note: 'Queries take parameters, never string concatenation (day 17). Every query for an order checks that the order belongs to the caller or that the caller is staff (day 16). Saleor’s 2026 IDOR advisory is the case where that check failed.'
+			},
+			{
+				add: ['api --> media[("Uploads on media.shop.example, Content-Disposition: attachment")]', 'api -->|"webhook URL, private IPs refused"| hook["Partner webhooks"]'],
+				highlight: ['media', 'hook'],
+				note: 'Uploads are checked by content and served from another domain with `Content-Disposition: attachment` (day 24), the two conditions in GHSA-666h. Outgoing webhook calls refuse private and loopback addresses, so a webhook URL cannot reach `169.254.169.254` (day 20).'
+			},
+			{
+				add: ['deploy["Deployment: secrets from a secret manager, non-root read-only container, NetworkPolicy"] -.-> api', 'api -.-> logs[("Audit log and Falco alerts")]'],
+				highlight: ['deploy', 'logs'],
+				note: 'The `SECRET_KEY` and database password come from a secret manager, never from git (days 25, 26). The container runs as non-root with a read-only root filesystem (day 33), and a NetworkPolicy lets only the API reach the database (day 35). Logins and admin actions go to an audit log (day 36), and Falco watches the nodes (day 37).'
+			}
+		]
+	},
+	example: {
+		title: 'saleor/settings.py: the security settings of an open-source shop',
+		repo: 'saleor/saleor',
+		url: `${SALEOR}/saleor/settings.py#L86-L1130`,
+		lang: 'python',
+		code: `DEBUG = get_bool_from_env("DEBUG", True)
+…
+ALLOWED_CLIENT_HOSTS = os.environ.get("ALLOWED_CLIENT_HOSTS")
+if not ALLOWED_CLIENT_HOSTS:
+    if DEBUG:
+        ALLOWED_CLIENT_HOSTS = _DEFAULT_CLIENT_HOSTS
+    else:
+        raise ImproperlyConfigured(
+            "ALLOWED_CLIENT_HOSTS environment variable must be set when DEBUG=False."
+        )
+…
+if ENABLE_SSL:
+    SECURE_SSL_REDIRECT = not DEBUG
+…
+# Make this unique, and don't share it with anybody.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+…
+if not SECRET_KEY and DEBUG:
+    warnings.warn(
+        "SECRET_KEY not configured, using a random temporary key.", stacklevel=1
+    )
+    SECRET_KEY = get_random_secret_key()
+…
+ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1"))
+ALLOWED_GRAPHQL_ORIGINS: list[str] = get_list(
+    os.environ.get("ALLOWED_GRAPHQL_ORIGINS", "*")
+)
+…
+# When \`True\`, HTTP requests made from arbitrary URLs will be rejected (e.g., webhooks).
+# if they try to access private IP address ranges, and loopback ranges (unless
+# \`HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=False\`).
+HTTP_IP_FILTER_ENABLED: bool = get_bool_from_env("HTTP_IP_FILTER_ENABLED", True)
+
+# When \`False\` it rejects loopback IPs during external calls.
+# Refer to \`HTTP_IP_FILTER_ENABLED\` for more details.
+HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS: bool = get_bool_from_env(
+    "HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS", False
+)
+…
+JWT_TTL_ACCESS = datetime.timedelta(
+    seconds=parse(os.environ.get("JWT_TTL_ACCESS", "5 minutes"))
+)
+JWT_TTL_APP_ACCESS = datetime.timedelta(
+    seconds=parse(os.environ.get("JWT_TTL_APP_ACCESS", "5 minutes"))
+)
+JWT_TTL_REFRESH = datetime.timedelta(
+    seconds=parse(os.environ.get("JWT_TTL_REFRESH", "30 days"))
+)
+…
+# Lock time for request password reset mutation per user (seconds)
+RESET_PASSWORD_LOCK_TIME = parse(
+    os.environ.get("RESET_PASSWORD_LOCK_TIME", "15 minutes")
+)`,
+		notes: [
+			'`DEBUG` defaults to `True`, so every deployment must set `DEBUG=False`. With `DEBUG` off, Saleor refuses to start until `ALLOWED_CLIENT_HOSTS` is set, and it only invents a random `SECRET_KEY` when `DEBUG` is on (day 7).',
+			'`ALLOWED_GRAPHQL_ORIGINS` defaults to `*`. In [`cors_handler.py`](' + SALEOR + '/saleor/asgi/cors_handler.py#L31-L53), `fnmatchcase` matches every origin against `*` and echoes it back with `access-control-allow-credentials: true`. The 2024 CSRF advisory says browsers block the attack through CORS "unless configured to allow all hosts".',
+			'`HTTP_IP_FILTER_ENABLED` is on by default: webhook calls to private and loopback ranges are rejected. You get the SSRF defence from day 20 without writing any configuration.',
+			'Access tokens live 5 minutes and refresh tokens 30 days. A stolen access token expires 5 minutes after it was issued, which matters because a JWT cannot be revoked by itself (day 13). The refresh token is the one to protect, and the one the 2024 CSRF advisory targeted.'
+		]
+	},
+	tradeoff: {
+		gain: [
+			'Each control maps to one advisory or one day, so a reviewer can check the list item by item against the code.',
+			'Secure defaults like `HTTP_IP_FILTER_ENABLED=True` and the 5 minute access token protect a shop whose owner never read the settings.',
+			'Serving uploads from a separate domain stops the GHSA-666h XSS even if a malicious file gets past the upload checks.'
+		],
+		cost: [
+			'`DEBUG=True` and `ALLOWED_GRAPHQL_ORIGINS="*"` make the first local run easy and are unsafe in production. Every deployment has to change them.',
+			'A second domain for media means another DNS name, another TLS certificate and another CDN or proxy config to keep right.',
+			'Rate limits, a TOTP step for staff and a 15 minute reset lock all slow down honest users who mistype or forget.'
+		]
+	},
+	task: {
+		prompt: 'The kata. A friend sells mugs online. The shop has customer accounts, a staff dashboard, product photos uploaded by staff, card payments through a provider that calls your webhook, and a "notify me" feature that fetches a URL the customer gives. It runs as one container on Kubernetes with PostgreSQL. Write the threat model and the controls, one line per control, each with the day it comes from.',
+		hint: 'Follow the request: browser to API, login, database, uploads and outgoing calls, then deployment and what happens after a breach.',
+		answer: [
+			'Threat model (day 1): STRIDE on login, password reset, checkout, uploads and the "notify me" fetch. Trust boundaries at the browser, the payment webhook and the outgoing fetch (day 2).',
+			'Browser to API: HTTPS only (day 27). Session cookie `HttpOnly; Secure; SameSite=Lax`, rotated at login (day 10). CSRF token on every form (day 11). CSP with a nonce on the dashboard (day 19). CORS limited to the storefront and dashboard origins, never `*`.',
+			'Accounts: Argon2id password hashes (day 9). Login limited per IP and per account, with a lockout that does not let an attacker lock out real users (day 15). TOTP required for staff (day 14). Reset tokens single use, short lived, from `secrets` (day 39).',
+			'Data: parameterized queries only (day 17). Every order, address and invoice lookup checks the owner or a staff role (day 16). Output escaped per context, and rich text sanitized (day 18).',
+			'Inputs from outside: uploads checked by content, size capped, re-encoded, stored outside the web root and served from `media.` with `Content-Disposition: attachment` (day 24). The webhook checks the provider’s signature with a constant-time compare. The "notify me" fetch refuses private, loopback and link-local addresses after DNS resolution (day 20).',
+			'Supply chain and secrets: lockfile and `npm ci` or `pip --require-hashes` (day 30), dependency scanning (day 29), signed images (day 31). Secrets in a secret manager, never in git or the image (days 25, 26).',
+			'Deployment: non-root, read-only root filesystem, all capabilities dropped (day 33), namespace labelled `restricted` (day 34), default-deny NetworkPolicy with the API allowed to PostgreSQL only (day 35).',
+			'After a breach: audit log of logins, failed logins and staff actions, without tokens or passwords (day 36). Falco on the nodes (day 37). A written runbook: who cuts access, which secrets to rotate in which order, who tells customers (day 38).'
+		]
+	},
+	quiz: [
+		{
+			q: 'Customer A requests `order(id: 1042)`, and order 1042 belongs to customer B. Which check stops this IDOR?',
+			options: [
+				'Making order ids random UUIDs, so that nobody can guess another id',
+				'In the resolver, checking that the caller owns the order or is staff',
+				'Requiring a valid session cookie before any GraphQL query runs',
+				'Rate limiting the `order` query to 10 requests per minute per IP'
+			],
+			answer: 1,
+			why: 'An IDOR is a missing object-level check: the server finds the order by id and never asks whose it is. A session proves who the caller is, not that the order is theirs. Random ids and rate limits only make the guessing slower.'
+		},
+		{
+			q: 'Staff can upload product images. According to GHSA-666h, which setup is not affected by the stored XSS?',
+			options: [
+				'Media under `example.com/media/` next to the dashboard at `example.com/dashboard/`',
+				'Media on `media.example.com`, or served with `Content-Disposition: attachment`',
+				'Media under `example.com/media/` behind a CDN with a long cache lifetime',
+				'Media under `example.com/media/` with file names replaced by random UUIDs'
+			],
+			answer: 1,
+			why: 'An HTML or SVG file served from the dashboard’s origin runs its script with that origin’s access, including the staff tokens. A different domain is a different origin, and `Content-Disposition: attachment` makes the browser download the file instead of rendering it.'
+		},
+		{
+			q: 'Your Saleor deployment keeps the default `ALLOWED_GRAPHQL_ORIGINS`. What does the CORS handler do with a request from `https://evil.example`?',
+			options: [
+				'It rejects the request, because the default list only holds `localhost`',
+				'It accepts it but strips the cookies, because the origin is unknown',
+				'It matches `*` and echoes the origin back with credentials allowed',
+				'It asks the browser to send a preflight and then always returns 400'
+			],
+			answer: 2,
+			why: 'The default is `*`, and `fnmatchcase("https://evil.example", "*")` is true. The handler then returns `access-control-allow-origin: https://evil.example` with `access-control-allow-credentials: true`. Set the variable to your own storefront and dashboard origins in production.'
+		}
+	],
+	recall: {
+		q: 'Name the three Saleor advisories from this chapter and the day each one maps to.',
+		a: 'GHSA-666h, stored XSS through uploaded HTML and SVG files (days 18 and 24). GHSA-r6fj, IDOR on old orders (day 16). GHSA-ff69, CSRF bypass in `refreshToken` (day 11).'
+	},
+	sources: [
+		{ title: 'GHSA-666h-2p49-pg95, Saleor: Stored XSS via Unrestricted File Uploads', url: `${ADV}/GHSA-666h-2p49-pg95` },
+		{ title: 'GHSA-r6fj-f4r9-36gr, Saleor: Insecure Direct Object Reference (IDOR) in GraphQL API', url: `${ADV}/GHSA-r6fj-f4r9-36gr` },
+		{ title: 'GHSA-ff69-fwjf-3c9w, Saleor: CSRF bypass in refreshToken mutation', url: `${ADV}/GHSA-ff69-fwjf-3c9w` },
+		{ title: 'Saleor source, saleor/settings.py', url: `${SALEOR}/saleor/settings.py` },
+		{ title: 'Saleor source, saleor/asgi/cors_handler.py', url: `${SALEOR}/saleor/asgi/cors_handler.py` }
+	]
+};

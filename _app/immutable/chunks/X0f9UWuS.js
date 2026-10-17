@@ -1,0 +1,1 @@
+import{i as e,n as t}from"./CubQjL0p.js";import{r as n}from"./DQ9hB6-T.js";var r=e({entries:()=>i}),i=()=>n.flatMap(e=>t.map(t=>({...e,dojo:t.id})));export{i as n,r as t};

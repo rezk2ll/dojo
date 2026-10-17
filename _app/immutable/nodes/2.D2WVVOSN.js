@@ -1,0 +1,1 @@
+import{i as e,t}from"../chunks/CubQjL0p.js";import{A as n,F as r,I as i,tt as a}from"../chunks/BNgjM12m.js";import{t as o}from"../chunks/BHX0Jj5o.js";var s=e({load:()=>c});function c({params:e}){let n=t(e.dojo);return n||o(404,`No such dojo`),{dojo:n}}function l(e,t){var o=i(),s=a(o);n(s,()=>t.children),r(e,o)}export{l as component,s as universal};

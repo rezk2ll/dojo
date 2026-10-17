@@ -14,7 +14,8 @@ export default defineConfig({
 			},
 			adapter: adapter(),
 			// GitHub Pages serves the site under /<repo>/, set BASE_PATH there.
-			paths: { base: process.env.BASE_PATH ?? '' }
+			paths: { base: process.env.BASE_PATH ?? '' },
+			prerender: { entries: ['*', '/sitemap.xml'] }
 		})
 	]
 });

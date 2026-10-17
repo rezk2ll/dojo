@@ -8,6 +8,11 @@
 	import { theme, initTheme, toggleTheme } from '#lib/theme.svelte.js';
 	import { focus, initFocus } from '#lib/focus.svelte.js';
 	import { initLang, lang, toggleLang, t } from '#lib/i18n.svelte.js';
+	import { chaptersIn } from '#lib/content.js';
+	import { plain } from '#lib/text.js';
+
+	const SITE = 'https://ferjani.dev';
+	const ROOT = `${SITE}/dojo`;
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Cube from '#lib/components/cube.svelte';
 	import Companion from '#lib/components/companion.svelte';
@@ -20,6 +25,40 @@
 	let { children } = $props();
 
 	let dojo = $derived(page.params.dojo ? dojoById(page.params.dojo) : undefined);
+	let chapter = $derived(dojo && page.params.slug ? chaptersIn(dojo.id, lang.current)[page.data.index] : undefined);
+	// Search engines cut descriptions around 160 characters, so end on a whole word.
+	const clip = (/** @type {string} */ s) => (s.length <= 160 ? s : `${s.slice(0, 157).replace(/\s+\S*$/, '')}…`);
+	let description = $derived(chapter ? clip(plain(chapter.hook[0])) : dojo ? dojo.description[lang.current] : t().description);
+	// The site is also built for GitHub Pages; search engines should index ferjani.dev only.
+	let url = $derived(`${SITE}${page.url.pathname}`);
+	let ogTitle = $derived(chapter ? `${chapter.title} · ${dojo?.name}` : (dojo?.name ?? 'Dojo'));
+	let jsonLd = $derived.by(() => {
+		const course = dojo && {
+			'@type': 'Course',
+			name: dojo.name,
+			description: dojo.description[lang.current],
+			url: `${ROOT}/${dojo.id}/`,
+			inLanguage: lang.current,
+			isAccessibleForFree: true,
+			provider: { '@type': 'Person', name: 'Khaled Ferjani', url: 'https://ferjani.dev' }
+		};
+		const data = chapter
+			? {
+					'@type': 'LearningResource',
+					name: chapter.title,
+					description,
+					url,
+					inLanguage: lang.current,
+					timeRequired: `PT${chapter.minutes}M`,
+					learningResourceType: 'Lesson',
+					isAccessibleForFree: true,
+					isPartOf: course
+				}
+			: course;
+		if (!data) return '';
+		const json = JSON.stringify({ '@context': 'https://schema.org', ...data }).replace(/</g, '\\u003c');
+		return `<script type="application/ld+json">${json}<` + '/script>';
+	});
 	// Each dojo installs as its own app, so its icons and manifest live under its own path.
 	let dir = $derived(dojo ? `/${dojo.id}` : '');
 	let reading = $derived(focus.on && page.route.id === '/[dojo]/c/[slug]');
@@ -55,7 +94,18 @@
 
 <svelte:head>
 	<title>{dojo?.name ?? 'Dojo'}</title>
-	<meta name="description" content={dojo ? dojo.description[lang.current] : t().description} />
+	<meta name="description" content={description} />
+	<link rel="canonical" href={url} />
+	<meta property="og:type" content={chapter ? 'article' : 'website'} />
+	<meta property="og:site_name" content="Dojo" />
+	<meta property="og:title" content={ogTitle} />
+	<meta property="og:description" content={description} />
+	<meta property="og:url" content={url} />
+	<meta property="og:locale" content={lang.current === 'fr' ? 'fr_FR' : 'en_US'} />
+	<meta property="og:image" content={`${ROOT}${dir}/icon-512.png`} />
+	<meta name="twitter:card" content="summary" />
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+	{@html jsonLd}
 	<link rel="icon" href={asset(/** @type {any} */ (`${dir}/favicon.svg`))} />
 	<link rel="apple-touch-icon" href={asset(/** @type {any} */ (`${dir}/apple-touch-icon.png`))} />
 	<link rel="manifest" href={asset(/** @type {any} */ (`${dir}/manifest.webmanifest`))} />

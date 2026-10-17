@@ -13,11 +13,13 @@ export function fmt(/** @type {string} */ s) {
 		.replace(/\0(\d+)\0/g, (_, i) => `<code>${code[i]}</code>`);
 }
 
+/** Chapter text as the reader sees it, without link targets or markup. */
+export const plain = (/** @type {string} */ s) => s.replace(/\]\([^)]*\)/g, '').replace(/[*`[]/g, '');
+
 /** Case-insensitive search over chapter text as the reader sees it, so link targets and markup never match. */
 export function matcher(/** @type {string} */ query) {
 	const q = query.trim().toLowerCase();
-	const seen = (/** @type {string} */ s) => s.replace(/\]\([^)]*\)/g, '').replace(/[*`[]/g, '').toLowerCase();
-	return (/** @type {string[]} */ texts) => !q || texts.some((s) => seen(s).includes(q));
+	return (/** @type {string[]} */ texts) => !q || texts.some((s) => plain(s).toLowerCase().includes(q));
 }
 
 /** Fisher-Yates: a random sort comparator does not give every order the same chance. @template T @param {T[]} items */

@@ -70,7 +70,7 @@
 	}
 </script>
 
-<svelte:head><title>{t().review} · {data.dojo.name}</title></svelte:head>
+<svelte:head><title>{t().review} · {data.dojo.name}</title><meta name="robots" content="noindex" /></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-6 pt-6">
 	<h1 class="text-3xl font-bold tracking-tight">{t().review}</h1>

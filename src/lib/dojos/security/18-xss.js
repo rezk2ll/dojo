@@ -1,0 +1,176 @@
+const GO = 'https://github.com/golang/go/blob/c3a068eec992b5ae783abce1a9d03f617b671ea2/src/html/template';
+const ADVISORY = 'https://github.com/grafana/grafana/security/advisories/GHSA-vw7q-p2qg-4m5f';
+
+/** @type {import('../../content.js').Chapter} */
+export default {
+	slug: 'xss',
+	part: 'Input and output',
+	title: 'Cross-site scripting',
+	minutes: 10,
+	hook: [
+		'On 19 June 2022 at 10:32 UTC, a researcher reported a stored XSS in the Unified Alerting feature of Grafana. Grafana triaged it the next day and published the fix on 14 July in 9.0.3, 8.5.9, 8.4.10 and 8.3.10 (CVE-2022-31097, CVSS 7.3).',
+		'The impact, in the advisory: an attacker could "escalate privilege from editor to admin by tricking an authenticated admin to click on a link". In a stored XSS, Grafana saved the Editor\'s input and later served it inside a page. When an Admin opened that page, the script ran in the Admin\'s logged-in browser.'
+	],
+	terms: [
+		{ term: 'Stored XSS', def: 'The script is saved on the server, in a comment or a profile field, and sent to every visitor who opens the page that shows it.' },
+		{ term: 'Reflected XSS', def: 'The script travels in the request, such as `/search?q=<script>…`, and the server copies it into the response. The victim gets it by clicking a crafted link.' },
+		{ term: 'Contextual escaping', def: 'Encoding a value for the exact place it is inserted: HTML text, an attribute, a URL or a JavaScript string. Each place needs a different encoding.' },
+		{ term: 'Escape hatch', def: 'A framework feature that inserts a string with no escaping: `template.HTML` in Go, `{@html}` in Svelte, `dangerouslySetInnerHTML` in React.' }
+	],
+	diagram: {
+		direction: 'TD',
+		steps: [
+			{
+				add: ['post["Attacker saves a comment: an img tag with src=x and an onerror handler"] --> db[("comments table")]'],
+				highlight: ['post', 'db'],
+				note: 'The textbook payload: an image with a broken source and an `onerror` handler. The server stores the comment as text. Nothing has run yet.'
+			},
+			{
+				add: ['db --> concat["Server builds the page by concatenation: open div + comment + close div"]', 'concat --> run["Victim\'s browser parses an img tag and runs onerror"]'],
+				highlight: ['concat', 'run'],
+				note: 'The page puts the comment between two tags with no encoding. The browser cannot tell the comment from the page\'s own markup, so it builds an `<img>` element and runs the handler. The script runs inside the site\'s page, as the victim. OWASP lists "account impersonation" among the results.'
+			},
+			{
+				add: ['link["Reflected: a script tag in /search?q=, sent as a link"] --> concat'],
+				highlight: ['link'],
+				note: 'The reflected variant skips the database. The server copies the `q` parameter into "No results for ...", and the attacker sends the link by e-mail or from another site. OWASP: "the injected script is reflected off the web server".'
+			},
+			{
+				add: ['db --> esc["html/template: {{.}} in text runs the HTML escaper"]', 'esc --> text["The browser shows the img tag as characters"]'],
+				highlight: ['esc', 'text'],
+				note: 'With Go\'s `html/template`, `<div>{{.}}</div>` passes the value through the HTML escaper. It writes `<` as `&lt;` and `>` as `&gt;`, so the browser shows the characters and builds no element.'
+			},
+			{
+				add: ['esc --> ctx["Same value in href, in a JS string, in an onclick: a different escaper for each"]'],
+				highlight: ['ctx'],
+				note: 'The HTML escaper alone is wrong inside `<script>` or `href`. The OWASP cheat sheet: "There are many different output encoding methods because browsers parse HTML, JS, URLs, and CSS differently." `html/template` tracks where each `{{.}}` sits and picks the escaper for that spot.'
+			}
+		]
+	},
+	example: {
+		title: 'src/html/template/escape.go: escapeAction picks the escapers from the context',
+		repo: 'golang/go',
+		url: `${GO}/escape.go#L202-L279`,
+		lang: 'go',
+		code: `	s := make([]string, 0, 3)
+	switch c.state {
+	case stateError:
+		return c
+	case stateURL, stateCSSDqStr, stateCSSSqStr, stateCSSDqURL, stateCSSSqURL, stateCSSURL:
+		switch c.urlPart {
+		case urlPartNone:
+			s = append(s, "_html_template_urlfilter")
+			fallthrough
+		case urlPartPreQuery:
+			switch c.state {
+			case stateCSSDqStr, stateCSSSqStr:
+				s = append(s, "_html_template_cssescaper")
+			default:
+				s = append(s, "_html_template_urlnormalizer")
+			}
+		case urlPartQueryOrFrag:
+			s = append(s, "_html_template_urlescaper")
+…
+	case stateJS:
+		s = append(s, "_html_template_jsvalescaper")
+		// A slash after a value starts a div operator.
+		c.jsCtx = jsCtxDivOp
+	case stateJSDqStr, stateJSSqStr:
+		s = append(s, "_html_template_jsstrescaper")
+	case stateJSTmplLit:
+		s = append(s, "_html_template_jstmpllitescaper")
+	case stateJSRegexp:
+		s = append(s, "_html_template_jsregexpescaper")
+	case stateCSS:
+		s = append(s, "_html_template_cssvaluefilter")
+	case stateText:
+		s = append(s, "_html_template_htmlescaper")
+	case stateRCDATA:
+		s = append(s, "_html_template_rcdataescaper")
+…
+	switch c.delim {
+	case delimNone:
+		// No extra-escaping needed for raw text content.
+	case delimSpaceOrTagEnd:
+		s = append(s, "_html_template_nospaceescaper")
+	default:
+		s = append(s, "_html_template_attrescaper")
+	}
+	e.editActionNode(n, s)
+	return c`,
+		notes: [
+			'`c.state` is where the parser stands when it reaches `{{.}}`: HTML text, a URL, a JavaScript string. Lines 32 and 33, `stateText`, are the plain case between two tags: only the HTML escaper.',
+			'Line 8 adds `urlfilter` when the value starts a URL, as in `href="{{.}}"`. [`isSafeURL`](' + GO + '/url.go#L45-L54) accepts relative URLs and the `http`, `https` and `mailto` schemes. Anything else, such as `javascript:alert(1)`, is replaced by `#ZgotmplZ`.',
+			'Line 24, `stateJSDqStr`, is a value inside a double-quoted JavaScript string. The JS string escaper turns `"` into `\\u0022` and `<` into `\\u003c`, so the value cannot close the string or the `<script>` tag.',
+			'Lines 37 to 44 add a second layer for attributes. Inside a quoted attribute, `attrescaper` encodes the quotes so the value cannot end the attribute. The [package docs](' + GO + '/doc.go#L60-L73) show the result: at parse time, `href="/search?q={{.}}"` is rewritten to `{{. | urlescaper | attrescaper}}`.'
+		]
+	},
+	tradeoff: {
+		gain: [
+			'Every `{{.}}` is escaped for its spot with no call to write. A developer who forgets is still covered.',
+			'`href="{{.}}"` blocks `javascript:` URLs by default, a hole the HTML escaper alone leaves open.'
+		],
+		cost: [
+			'`template.HTML` skips all escaping. Go\'s docs: "the encapsulated content should come from a trusted source, as it will be included verbatim in the template output." Svelte\'s `{@html}` is the same: "Never render unsanitized content."',
+			'Escaping happens only for `html/template`. The same template parsed with `text/template` prints `<script>` as is, and the import line is the only difference.',
+			'Code that builds HTML outside the template, with `innerHTML` in the browser or string concatenation on the server, gets no escaping at all.'
+		]
+	},
+	task: {
+		prompt: 'Predict the output. A Go handler uses `html/template` with `<p>Hello {{.Name}}</p>`, `<a href="{{.Site}}">site</a>`, `<script>var user = "{{.Name}}";</script>` and `<div>{{.Bio}}</div>`. The data: `Name` is `<b>"Bob"</b>`, `Site` is `javascript:alert(1)`, and `Bio` is a `template.HTML` built from a user\'s text, `<img src=x onerror=alert(1)>`. Which line is the hole?',
+		hint: 'Three values are plain strings and one has a special type. Which escaper does each spot get?',
+		answer: [
+			'Line 1, HTML text: `Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`. The browser shows the tags as characters.',
+			'Line 2, URL start: `href="#ZgotmplZ"`. `javascript:` is not `http`, `https` or `mailto`, so `urlfilter` replaces the whole value.',
+			'Line 3, JavaScript string: `"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`. The quotes cannot close the string, and `</` cannot close the script. Output checked with Go 1.24.',
+			'Line 4 is the hole: `<div><img src=x onerror=alert(1)></div>`, printed as is because `template.HTML` marks it as trusted. Fix: pass `Bio` as a plain `string`, or run it through an HTML sanitizer before you convert it.'
+		]
+	},
+	quiz: [
+		{
+			q: 'A site escapes `<`, `>`, `&` and quotes in every value. A user sets their homepage to `javascript:alert(1)` and the page renders `<a href="...">`. What happens on click?',
+			options: [
+				'Nothing, because the HTML escaper already encoded the colon',
+				'The script runs: none of those characters are in the value',
+				'The browser blocks it, since `javascript:` is not allowed in `href`',
+				'The link opens a blank page, because the quotes were escaped'
+			],
+			answer: 1,
+			why: 'HTML escaping encodes `<`, `>`, `&` and quotes, and `javascript:alert(1)` contains none of them. A URL needs its own check on the scheme, which is what `urlfilter` does in `html/template` before it outputs `#ZgotmplZ`.'
+		},
+		{
+			q: 'What makes an XSS "stored" and not "reflected"?',
+			options: [
+				'The script is saved on the server and served to everyone who opens the page',
+				'The script is inside a `<script>` tag and not in an event handler',
+				'The script reads cookies that were stored in the browser',
+				'The script is cached by a CDN in front of the server'
+			],
+			answer: 0,
+			why: 'OWASP: stored attacks are those where "the injected script is permanently stored on the target servers", like a comment field. In reflected XSS the script comes in the request itself and the victim must open a crafted link. The tag or handler used does not change the type.'
+		},
+		{
+			q: 'In Svelte, which line can run a script from `comment`, a string a visitor typed?',
+			options: [
+				'`<p>{comment}</p>`',
+				'`<p>{comment.trim()}</p>`',
+				'`<p>{@html comment}</p>`',
+				'`<p>{String(comment)}</p>`'
+			],
+			answer: 2,
+			why: 'For a text expression, the Svelte docs say: "The expression will be stringified and escaped to prevent code injections." `{@html}` skips that step and inserts the string as raw HTML, so the browser builds a real element from an `<img onerror>` in `comment`.'
+		}
+	],
+	recall: {
+		q: 'What does Go\'s `html/template` output for `<a href="{{.}}">` when the value is `javascript:alert(1)`, and why?',
+		a: '`href="#ZgotmplZ"`. A value at the start of a URL goes through `urlfilter`, which accepts only relative URLs and the `http`, `https` and `mailto` schemes.'
+	},
+	sources: [
+		{ title: 'Grafana advisory GHSA-vw7q-p2qg-4m5f (CVE-2022-31097), stored XSS in Unified Alerting', url: ADVISORY },
+		{ title: 'Go source, html/template package documentation (doc.go)', url: `${GO}/doc.go` },
+		{ title: 'Go source, html/template content.go: the HTML type', url: `${GO}/content.go#L27-L35` },
+		{ title: 'OWASP Cross Site Scripting Prevention Cheat Sheet', url: 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html' },
+		{ title: 'OWASP, Cross Site Scripting (XSS): stored and reflected attacks', url: 'https://owasp.org/www-community/attacks/xss/' },
+		{ title: 'Svelte docs, {@html ...}', url: 'https://svelte.dev/docs/svelte/@html' }
+	]
+};

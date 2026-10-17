@@ -36,7 +36,7 @@ export default {
 					'Tu envoies tout le trafic de Roster vers le datacenter qui a la nouvelle version'
 				],
 				answer: 1,
-				why: 'Un retour arrière coûte peu et n’a besoin d’aucune preuve. Square en fait "a non-negotiable response to any customer-impacting event" : les ingénieurs annulent tout changement antérieur à l’incident "regardless of how plausible it is that the change caused the issue."'
+				why: 'Square fait du retour arrière "a non-negotiable response to any customer-impacting event" : les ingénieurs annulent tout changement antérieur à l’incident "regardless of how plausible it is that the change caused the issue."'
 			},
 			{
 				situation: [

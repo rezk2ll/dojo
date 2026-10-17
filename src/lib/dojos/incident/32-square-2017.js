@@ -36,7 +36,7 @@ export default {
 					'Move all Roster traffic to the datacenter that got the new version'
 				],
 				answer: 1,
-				why: 'A rollback is cheap and needs no proof. Square calls it "a non-negotiable response to any customer-impacting event": engineers undo any change that came before an incident "regardless of how plausible it is that the change caused the issue."'
+				why: 'Square calls a rollback "a non-negotiable response to any customer-impacting event": engineers undo any change that came before an incident "regardless of how plausible it is that the change caused the issue."'
 			},
 			{
 				situation: [

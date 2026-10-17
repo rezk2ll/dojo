@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { chaptersIn } from '#lib/content.js';
 	import { matcher } from '#lib/text.js';
-	import { progressOf, dueCardIds, streak, activeToday, dayKey } from '#lib/progress.svelte.js';
+	import { progressOf, dueQuestionIds, streak, activeToday, dayKey } from '#lib/progress.svelte.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
@@ -16,7 +16,7 @@
 	let chapters = $derived(chaptersIn(id, lang.current));
 	let today = $derived(chapters.find((c) => !progress.done[c.slug]));
 	let doneCount = $derived(chapters.filter((c) => progress.done[c.slug]).length);
-	let due = $derived(dueCardIds(id).length);
+	let due = $derived(dueQuestionIds(id).length);
 	let days = $derived(streak(progress.days));
 	let doneToday = $derived(activeToday(progress.days));
 	let parts = $derived([...new Set(chapters.map((c) => c.part))]);

@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { dojos } from '#lib/dojos/index.js';
-	import { progressOf, dueCardIds, dayKey, mixedToday, DAILY_MIX } from '#lib/progress.svelte.js';
+	import { progressOf, dueQuestionIds, dayKey, mixedToday, DAILY_MIX } from '#lib/progress.svelte.js';
 	import { lang, t } from '#lib/i18n.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -25,7 +25,7 @@
 				next: chapters.find((c) => !progress.done[c.slug]),
 				finishedToday: Object.values(progress.done).some((at) => dayKey(new Date(at)) === today),
 				lastSeen: progress.days.at(-1) ?? '',
-				due: dueCardIds(dojo.id).length
+				due: dueQuestionIds(dojo.id).length
 			};
 		})
 	);

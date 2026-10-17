@@ -93,16 +93,13 @@ export function answer(dojo, id, correct) {
 	save(dojo);
 }
 
-/** @param {string} dojo */
-export function dueCardIds(dojo) {
+/** Due cards whose question still exists, which is what a review session shows. @param {string} dojo */
+export function dueQuestionIds(dojo) {
 	const now = Date.now();
 	return Object.entries(progressOf(dojo).cards)
-		.filter(([, c]) => c.due <= now)
+		.filter(([id, c]) => c.due <= now && questionById(dojo, id, 'en'))
 		.map(([id]) => id);
 }
-
-/** Due cards whose question still exists, which is what a review session shows. @param {string} dojo */
-export const dueQuestionIds = (dojo) => dueCardIds(dojo).filter((id) => questionById(dojo, id, 'en'));
 
 const MIX = 'dojo:mix';
 

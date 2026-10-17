@@ -29,8 +29,8 @@ export const dojos = [
 			fr: 'De sysadmin à ingénieur DevOps, dix minutes par jour.'
 		},
 		heroText: {
-			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
-			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
+			en: 'One chapter a day, on real open-source code. Questions you get right come back 1, 3, 7, 21 and 45 days later.',
+			fr: 'Un chapitre par jour, sur du vrai code open source. Une question réussie revient 1, 3, 7, 21 puis 45 jours plus tard.'
 		}
 	},
 	{
@@ -48,8 +48,8 @@ export const dojos = [
 			fr: 'Deviens architecte, dix minutes par jour.'
 		},
 		heroText: {
-			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
-			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
+			en: 'One chapter a day, on real open-source code. Questions you get right come back 1, 3, 7, 21 and 45 days later.',
+			fr: 'Un chapitre par jour, sur du vrai code open source. Une question réussie revient 1, 3, 7, 21 puis 45 jours plus tard.'
 		}
 	},
 	{
@@ -67,8 +67,8 @@ export const dojos = [
 			fr: 'Comprends ce que fait ta base de données, dix minutes par jour.'
 		},
 		heroText: {
-			en: 'One chapter a day, on real open-source code. Questions come back later so they stick.',
-			fr: 'Un chapitre par jour, sur du vrai code open source. Les questions reviennent plus tard pour que ça reste.'
+			en: 'One chapter a day, on real open-source code. Questions you get right come back 1, 3, 7, 21 and 45 days later.',
+			fr: 'Un chapitre par jour, sur du vrai code open source. Une question réussie revient 1, 3, 7, 21 puis 45 jours plus tard.'
 		}
 	},
 	{
@@ -86,8 +86,8 @@ export const dojos = [
 			fr: 'Trouve le bug avant de lire le correctif.'
 		},
 		heroText: {
-			en: 'One real bug a day, from a real fix commit. Questions come back later so they stick.',
-			fr: 'Un vrai bug par jour, tiré d’un vrai commit de correctif. Les questions reviennent plus tard pour que ça reste.'
+			en: 'One real bug a day, from a real fix commit. Questions you get right come back 1, 3, 7, 21 and 45 days later.',
+			fr: 'Un vrai bug par jour, tiré d’un vrai commit de correctif. Une question réussie revient 1, 3, 7, 21 puis 45 jours plus tard.'
 		}
 	},
 	{
@@ -143,8 +143,8 @@ export const dojos = [
 			fr: 'Travaille bien avec les modèles d’IA, dix minutes par jour.'
 		},
 		heroText: {
-			en: 'One chapter a day, checked against the docs and real code. Questions come back later so they stick.',
-			fr: 'Un chapitre par jour, vérifié dans la doc et du vrai code. Les questions reviennent plus tard pour que ça reste.'
+			en: 'One chapter a day, checked against the docs and real code. Questions you get right come back 1, 3, 7, 21 and 45 days later.',
+			fr: 'Un chapitre par jour, vérifié dans la doc et du vrai code. Une question réussie revient 1, 3, 7, 21 puis 45 jours plus tard.'
 		}
 	},
 	{

@@ -133,7 +133,7 @@ export default {
 				'Il choisit sur quel node tourne un nouveau Pod, selon les ressources libres'
 			],
 			answer: 1,
-			why: 'Un contrôleur est une boucle de contrôle : comparer état désiré et état actuel, puis agir. Faire tourner les conteneurs, c’est le kubelet. Stocker les données, c’est etcd. Choisir les nodes, c’est le scheduler.'
+			why: 'Un contrôleur est une boucle de contrôle : comparer état désiré et état actuel, puis agir. Faire tourner les conteneurs est le travail du kubelet, stocker les données celui d’etcd, et choisir les nodes celui du scheduler.'
 		},
 		{
 			q: 'Quel composant choisit le node d’un Pod qui n’en a pas encore ?',

@@ -42,7 +42,7 @@ export default {
 			{
 				situation: [
 					'Le DNS ne marche plus. Le cluster ne résout ni les entrées Consul (le DNS dynamique de Reddit entre environnements), ni les entrées internes au cluster. Les noms publics, eux, se résolvent. Aucune mise à jour ni aucun test n’a montré ça avant.',
-					'Revenir en arrière est le premier réflexe. Mais Kubernetes migre son schéma et ses données pendant une mise à jour, et ne propose aucun downgrade. Revenir veut dire restaurer le plan de contrôle depuis la sauvegarde prise avant la mise à jour.',
+					'Pour un déploiement raté, le premier plan de Reddit est de revenir en arrière. Mais Kubernetes migre son schéma et ses données pendant une mise à jour, et ne propose aucun downgrade. Revenir veut dire restaurer le plan de contrôle depuis la sauvegarde prise avant la mise à jour.',
 					'Cette procédure de restauration a plusieurs années. Elle a été testée sur des clusters pilotes, jamais sur un cluster de production. Les premières estimations parlent de plusieurs heures de coupure garantie.'
 				],
 				q: 'Que fais-tu ?',

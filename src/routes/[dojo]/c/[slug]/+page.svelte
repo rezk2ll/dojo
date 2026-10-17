@@ -619,11 +619,6 @@
 								<Button variant="secondary" onclick={() => (showRecall = true)}>{t().showAnswer}</Button>
 							{/if}
 						</div>
-					{:else if c.takeaway}
-						<div class="border-brand/40 bg-brand/5 rounded-2xl border-2 p-6">
-							<p class="text-muted-foreground mb-2 font-mono text-xs uppercase">{t().keepLine}</p>
-							<p class="text-xl leading-snug font-semibold">{@html fmt(c.takeaway)}</p>
-						</div>
 					{/if}
 
 					{#if progress.done[c.slug]}

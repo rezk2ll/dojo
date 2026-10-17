@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -28,6 +28,15 @@ jobs:
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}
+      # ferjani.dev pulls this branch when GitHub's push webhook fires.
+      - name: Publish to the deploy branch
+        working-directory: build
+        run: |
+          git init -q -b deploy
+          git add -A
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -qm "Deploy ${{ github.sha }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" deploy
+          rm -rf .git
       # Pages needs a public repo on the free plan, so a private repo only builds.
       - if: ${{ !github.event.repository.private }}
         uses: actions/upload-pages-artifact@v5

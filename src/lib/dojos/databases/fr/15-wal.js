@@ -113,6 +113,44 @@ export default {
 			'`id = 2`, même page, sans checkpoint entre les deux : `WAL: records=2 bytes=127`. La page a déjà une image complète dans le WAL depuis le dernier checkpoint, donc seul le petit changement est journalisé.',
 			'`id = 3` après un nouveau `CHECKPOINT` : `fpi=1 bytes=8342`. Le checkpoint remet la règle à zéro, et le premier changement de la page repaie une image complète.',
 			'La doc prévient qu’un intervalle de checkpoint plus court « increases the volume of output to the WAL » (augmente le volume écrit dans le WAL). Ces images permettent à la reprise de reconstruire une page à moitié écrite au moment de la coupure.'
+		],
+		steps: [
+			{
+				title: 'Prépare le test',
+				questions: [
+					{ q: 'Pourquoi lancer `CHECKPOINT` avant le premier update ?', options: ['Pour vider le WAL et partir de zéro', 'Pour que les updates aillent plus vite', 'Pour que le prochain changement de chaque page soit le premier depuis un checkpoint', 'Pour verrouiller la table pendant le test'], answer: 2, why: 'La règle des pages complètes compte à partir du dernier checkpoint. Juste après, chaque page que tu touches paie une image.' },
+					{ q: 'Quelle commande affiche le WAL écrit par chaque update ?', options: ['`EXPLAIN (ANALYZE, WAL) UPDATE ...`', '`EXPLAIN (BUFFERS) UPDATE ...`', '`SELECT * FROM pg_wal`', '`SHOW wal_level`'], answer: 0, why: 'L’option `WAL` ajoute à chaque nœud une ligne `WAL:` avec les enregistrements, les images de pages complètes et les octets.' },
+					{ q: 'Que fait un checkpoint ?', options: ['Il vide sur disque le WAL de chaque transaction ouverte et les committe', 'Il écrit toutes les pages modifiées dans les fichiers de données et marque d’où la reprise peut partir', 'Il copie les fichiers de données dans une sauvegarde d’où part la reprise', 'Il retire les lignes mortes de chaque table et libère leur place'], answer: 1, why: 'La reprise part du dernier checkpoint, et le WAL d’avant ce point peut être recyclé.' },
+					{ q: 'Dans la ligne `WAL:`, que compte `fpi` ?', options: ['Les insertions de pages ratées que le serveur a relancées', 'Les appels à fsync faits au commit pour vider le WAL', 'Les pages libres restées dans la table après l’update', 'Les full-page images : des pages entières de 8 kB copiées dans le WAL'], answer: 3, why: '`fpi` est le nombre d’images de pages complètes que l’instruction a journalisées.' }
+				]
+			},
+			{
+				title: 'Lis le premier update',
+				questions: [
+					{ q: 'Que montre `id = 1`, juste après le checkpoint, sur PostgreSQL 18 ?', options: ['`WAL: records=2 bytes=127`', '`WAL: records=4 fpi=3 bytes=19737`', '`WAL: records=1 fpi=1 bytes=8342`', 'Pas de ligne WAL, puisque rien n’est écrit avant le commit'], answer: 1, why: 'Quatre enregistrements, trois images de pages complètes, environ 19,7 kB pour un changement de quelques octets.' },
+					{ q: 'Pourquoi autant d’octets pour un petit changement ?', options: ['Trois pages sont touchées pour la première fois depuis le checkpoint, et chacune journalise une image complète', 'L’update réécrit toutes les lignes de la table, et chaque ligne est journalisée', 'Le WAL garde le texte SQL complet et le résultat de l’instruction', 'Le checkpoint tourne encore et ajoute ses propres enregistrements à la ligne'], answer: 0, why: 'Chaque page touchée pour la première fois depuis le checkpoint voit son image entière journalisée : trois images ici.' },
+					{ q: 'Quelle taille environ pour une image de page complète ?', options: ['127 octets', '1 GB', '8 kB, une page entière', '19,7 kB'], answer: 2, why: 'Une image est une copie de la page entière de 8 kB. Trois images font l’essentiel des 19 737 octets.' },
+					{ q: 'Pourquoi journaliser une page entière plutôt que le seul changement ?', options: ['Pour rendre les commits plus rapides', 'Pour que les réplicas sautent les fichiers de données', 'Parce que le WAL ne sait pas garder de petits enregistrements', 'Pour pouvoir reconstruire une page déchirée par un crash en pleine écriture'], answer: 3, why: 'Si le courant coupe pendant qu’une page est à moitié écrite, l’image dans le WAL permet à la reprise de la reconstruire.' }
+				]
+			},
+			{
+				title: 'Compare les deux suivants',
+				questions: [
+					{ q: 'Que montre `id = 2`, sur la même page, sans checkpoint entre les deux ?', options: ['`WAL: records=4 fpi=3 bytes=19737`', '`WAL: records=1 fpi=1 bytes=8342`', '`WAL: records=2 bytes=127`', '`WAL: records=0 bytes=0`'], answer: 2, why: 'Pas d’image de page complète : seul le petit changement est journalisé.' },
+					{ q: 'Pourquoi pas d’image complète cette fois ?', options: ['Les updates de l’id 2 ne sont jamais journalisés', 'La page a déjà une image complète dans le WAL depuis le dernier checkpoint', 'Le premier update tient encore la page', 'Les buffers du WAL étaient pleins'], answer: 1, why: 'L’image n’est due qu’une fois par page et par checkpoint. L’update de `id = 1` l’a déjà payée.' },
+					{ q: 'Que montre `id = 3`, après un nouveau `CHECKPOINT` ?', options: ['`fpi=1 bytes=8342`', '`fpi=0 bytes=127`', '`fpi=3 bytes=19737`', '`fpi=2 bytes=16000`'], answer: 0, why: 'Une image de page complète, environ 8 kB, plus le changement lui-même.' },
+					{ q: 'Qu’est-ce qui a fait repayer une image à `id = 3` ?', options: ['Une autre ligne sur une nouvelle page', 'Un changement plus gros que les deux premiers', 'L’autovacuum passé entre les deux', 'Le nouveau checkpoint a remis la règle à zéro'], answer: 3, why: 'Le checkpoint remet la règle à zéro, et le premier changement de la page après lui journalise de nouveau une image complète.' }
+				]
+			},
+			{
+				title: 'Explique la différence',
+				questions: [
+					{ q: 'Tu baisses `checkpoint_timeout`. Qu’arrive-t-il au WAL ?', options: ['Il grossit : plus de premiers changements après un checkpoint journalisent une image complète', 'Il rétrécit : chaque checkpoint efface du WAL', 'Rien : les images complètes ne dépendent pas des checkpoints', 'Les commits n’y écrivent plus'], answer: 0, why: 'La doc prévient qu’un intervalle de checkpoint plus court « increases the volume of output to the WAL ».' },
+					{ q: 'Que coûte plutôt un intervalle de checkpoint plus long ?', options: ['Des commits plus lents', 'Des commits moins durables', 'Un rejeu plus long après un crash', 'Plus d’images de pages complètes'], answer: 2, why: 'Des checkpoints rares font moins d’I/O, mais la reprise a plus de WAL à rejouer.' },
+					{ q: 'Quand l’`UPDATE` de `id = 1` est commité, qu’est-ce qui est sûrement sur disque ?', options: ['La page modifiée dans le fichier de données', 'Le WAL jusqu’à l’enregistrement de commit', 'Rien avant le prochain checkpoint', 'Seulement les images de pages complètes'], answer: 1, why: 'Avec `synchronous_commit = on`, le commit attend le flush du WAL. La page de données peut rester modifiée en mémoire.' },
+					{ q: 'Après un crash, comment PostgreSQL récupère-t-il ce changement ?', options: ['Depuis une copie du changement que le client garde jusqu’à l’écriture', 'Depuis le réplica, qui renvoie les pages qu’il a déjà', 'En relançant les instructions SQL trouvées dans le journal du serveur', 'En rejouant le WAL depuis le dernier checkpoint sur chaque page'], answer: 3, why: 'Le redo lit le WAL depuis le dernier checkpoint et réapplique chaque enregistrement, en sautant les pages dont le LSN montre que le changement y est déjà.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ export default {
 			why: 'Avec full_page_writes activé, le premier changement de chaque page après un checkpoint journalise la page entière. Plus de checkpoints, c’est plus de ces images et plus d’écritures de pages. Les commits n’attendent toujours que le vidage du WAL, et la règle du WAL avant les données ne change pas.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Tuer PostgreSQL en plein travail et voir le WAL ramener les changements commités, et seulement eux.',
+		steps: [
+			'Lance PostgreSQL 18 sans `--rm`, pour que ses données survivent à un kill : `docker run -d --name pg-wal -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-wal psql -U postgres`.',
+			'Crée la table et note la position du WAL : `CREATE TABLE accounts (id int primary key, balance int not null); INSERT INTO accounts SELECT i, 100 FROM generate_series(1, 100000) i; CHECKPOINT; SELECT pg_current_wal_lsn();`',
+			'Commite un virement et regarde de nouveau : `BEGIN; UPDATE accounts SET balance = balance - 10 WHERE id = 1; UPDATE accounts SET balance = balance + 10 WHERE id = 2; COMMIT; SELECT pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn());`. Dans un autre terminal, liste les fichiers du WAL : `docker exec pg-wal ls /var/lib/postgresql/18/docker/pg_wal`.',
+			'Dans un deuxième `psql` (`docker exec -it pg-wal psql -U postgres`), commence un changement sans le commiter : `BEGIN; UPDATE accounts SET balance = 0 WHERE id <= 50;`',
+			'Coupe le courant : `docker kill pg-wal` (pas d’arrêt propre), puis `docker start pg-wal`, attends quelques secondes et lis le journal : `docker logs pg-wal 2>&1 | grep -E "not properly shut down|redo"`. Reconnecte-toi et lance `SELECT id, balance FROM accounts WHERE id <= 2;` puis `SELECT count(*) FROM accounts WHERE balance = 0;`. Nettoie avec `docker rm -f pg-wal`.'
+		],
+		done: [
+			'Le LSN après le virement est plus haut que celui d’après le checkpoint.',
+			'Le journal affiche `database system was not properly shut down; automatic recovery in progress`, puis `redo starts at` et `redo done at`.',
+			'Après le redémarrage, les comptes 1 et 2 ont 90 et 110, et le comptage de `balance = 0` vaut 0.'
+		],
+		solution: [
+			'`COMMIT` a attendu que le WAL arrive sur le disque, pas les pages de données. Les pages modifiées pouvaient encore n’être qu’en mémoire au moment du kill.',
+			'Au redémarrage, le redo a rejoué le WAL depuis le dernier checkpoint et réappliqué le virement à ses pages.',
+			'L’update non commité n’a pas d’enregistrement de commit dans le WAL, donc ses versions de lignes restent invisibles : aucun compte n’est à 0.'
+		]
+	},
 	recall: {
 		q: 'Avec les réglages par défaut, qu’est-ce qui est sur le disque quand le client reçoit `COMMIT`, et comment PostgreSQL récupère-t-il les pages modifiées après un crash ?',
 		a: 'Le WAL jusqu’à l’enregistrement de commit, vidé par `XLogFlush`. Les pages modifiées peuvent être encore en mémoire. Après un crash, le redo rejoue le WAL depuis le dernier checkpoint et réapplique chaque enregistrement à sa page.'

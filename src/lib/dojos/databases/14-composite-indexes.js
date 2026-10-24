@@ -114,6 +114,44 @@ export default {
 			'(b) `WHERE message_id = 123456` skips the leading column. On PostgreSQL 18 it ran as a skip scan: `Index Searches: 5001` and about 15,000 buffers for one row. With fewer users it would be cheap; here it needs its own index on `message_id`.',
 			'(c) Before: a Bitmap Index Scan on the unique index for all 400 rows of user 42, `Rows Removed by Filter: 382`, then a `Sort`. After `CREATE INDEX ON usermessage (user_profile_id, message_id) WHERE flags & 1 = 0`: `Index Only Scan` on the partial index, 18 rows, no filter, no sort, 5 buffers. It is 1.8 MB against 60 MB for the full one.',
 			'Prepared with `flags & $2 = 0` and a generic plan, the planner falls back to the unique index plus a filter: at planning time `$2` could be any value, so it cannot prove the query only wants unread rows. Keep the constant in the SQL text, as Zulip\'s `where_unread()` does.'
+		],
+		steps: [
+			{
+				title: 'Predict (a), the latest 50',
+				questions: [
+					{ q: 'How is the unique index on `(user_profile_id, message_id)` sorted?', options: ['By message id, then by user within one message', 'By user, then by message id within one user', 'By the order the rows were inserted', 'By the hash of both columns'], answer: 1, why: 'A composite index is sorted by its first column, then by the second within equal firsts.' },
+					{ q: 'Which query asks for (a)?', options: ['`WHERE message_id > 0 ORDER BY user_profile_id LIMIT 50`', '`WHERE user_profile_id = 42 LIMIT 50`', '`ORDER BY message_id DESC LIMIT 50`', '`WHERE user_profile_id = 42 ORDER BY message_id DESC LIMIT 50`'], answer: 3, why: 'Equality on the user, then the latest messages first, then stop at 50.' },
+					{ q: 'Which plan do you get for (a)?', options: ['`Limit` over `Index Only Scan Backward` on the unique index', '`Sort` over a `Seq Scan` of the table', '`Limit` over a `Bitmap Heap Scan`', '`Index Scan` on the primary key, then a `Sort`'], answer: 0, why: 'The scan reads the slice of user 42 from its end, in `message_id` order, and the `Limit` stops after 50 entries.' },
+					{ q: 'Why is there no Sort node?', options: ['PostgreSQL skips the sort when the LIMIT is 50 rows or less', 'The planner sorts the 50 rows inside the Limit node itself', 'Equality on the first column leaves one slice already ordered by the second', 'The table is stored in `message_id` order'], answer: 2, why: 'Inside one user, the entries are in `message_id` order. Reading them backwards gives `DESC` for free.' }
+				]
+			},
+			{
+				title: 'Predict (b), one message id',
+				questions: [
+					{ q: 'What is the problem with `WHERE message_id = 123456` on this index?', options: ['`message_id` is not part of the index', 'It skips the leading column, so matches are spread over every user', 'A unique index cannot serve an equality', 'The value is too large for the index'], answer: 1, why: 'Without `user_profile_id`, the matching entries can sit inside any user\'s slice.' },
+					{ q: 'How did PostgreSQL 18 run it?', options: ['As a skip scan: `Index Searches: 5001`', 'As a Seq Scan with a filter', 'As one index search on `message_id`', 'As a Bitmap Index Scan on the primary key'], answer: 0, why: 'Skip scan runs one B-tree search per value of the leading column: one per user here.' },
+					{ q: 'Why is that skip scan costly here?', options: ['Skip scan reads the table as well as the index', 'It has to sort the 5,000 users first', 'It locks every page it reads', 'With 5,000 users it takes about 15,000 buffers for one row'], answer: 3, why: 'Skip scan pays off with a handful of leading values. With thousands, it is one search per value.' },
+					{ q: 'What does (b) need?', options: ['A higher statistics target on `message_id`', 'A partial index on unread rows', 'Its own index on `message_id`', 'A `LIMIT 1` at the end'], answer: 2, why: 'A query that does not constrain the leading column needs an index that starts with the column it does constrain.' }
+				]
+			},
+			{
+				title: 'Fix (c) with a partial index',
+				questions: [
+					{ q: 'Before the partial index, how does (c) run?', options: ['An Index Only Scan on the unique index, with no sort', 'A Seq Scan of the whole table', 'A Bitmap Index Scan for the 400 rows of user 42, `Rows Removed by Filter: 382`, then a `Sort`', 'An Index Scan on the primary key, then a filter'], answer: 2, why: 'The unique index finds all of user 42\'s messages, the filter drops the read ones, and the bitmap scan loses the order, so a Sort follows.' },
+					{ q: 'Which partial index serves (c)?', options: ['`CREATE INDEX ON usermessage (user_profile_id, message_id) WHERE flags & 1 = 0`', '`CREATE INDEX ON usermessage (flags) WHERE user_profile_id = 42`', '`CREATE INDEX ON usermessage (user_profile_id, message_id, flags)`', '`CREATE INDEX ON usermessage (message_id) WHERE flags = 1`'], answer: 0, why: 'Same key and order as the query, and it holds only the unread rows, the ones (c) asks for.' },
+					{ q: 'What does (c) do with the partial index?', options: ['The same Bitmap Index Scan, a little faster', 'A skip scan over all users', 'A Seq Scan, since the index is too small', '`Index Only Scan` on it, 18 rows, no filter, no sort, 5 buffers'], answer: 3, why: 'The index has only unread rows, already in `message_id` order within each user.' },
+					{ q: 'The partial index is 1.8 MB, the full one 60 MB. Why?', options: ['Partial indexes are compressed', 'It holds only the 3% of rows that are unread', 'It skips the `message_id` column', 'It is built without the upper levels of the tree'], answer: 1, why: 'A partial index holds only the rows that match its `WHERE`, and 97% of rows are read.' }
+				]
+			},
+			{
+				title: 'Try the prepared statement',
+				questions: [
+					{ q: 'Prepared with `flags & $2 = 0` and a generic plan, which index does (c) use?', options: ['The partial index, as with the constant', 'The unique index plus a filter', 'No index: a Seq Scan', 'Both indexes in a BitmapAnd'], answer: 1, why: 'The planner falls back to the unique index and filters the read rows out.' },
+					{ q: 'Why can the planner not use the partial index there?', options: ['Prepared statements never use an index, whatever its definition', 'Partial indexes only work for queries run inside a transaction', 'At planning time `$2` could be any value, so it cannot prove the query wants only unread rows', 'The parameter makes the query too long'], answer: 2, why: 'Matching a partial index "takes place at query planning time", so "parameterized query clauses do not work with a partial index".' },
+					{ q: 'How do you keep the partial index in use?', options: ['Keep the constant in the SQL text, as Zulip\'s `where_unread()` does', 'Add `flags` to the index columns', 'Run `ANALYZE` before each call', 'Raise the statistics target of `flags`'], answer: 0, why: 'Zulip writes `flags & 1 = 0` as literal SQL so the predicate is visible when the query is planned.' },
+					{ q: 'Which WHERE clause can use the partial index?', options: ['`user_profile_id = 42 AND flags & $1 = 0`', '`user_profile_id = 42`', '`user_profile_id = 42 AND flags <> 1`', '`user_profile_id = 42 AND flags & 1 = 0`'], answer: 3, why: 'Only a query whose condition implies the index predicate at planning time can use it. The literal `flags & 1 = 0` matches it exactly.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,27 @@ export default {
 			why: 'INCLUDE columns are stored only in the leaf entries and are not part of the key. A unique index then checks uniqueness on the key columns only, and the upper levels of the tree stay small. Key columns can be returned by an index-only scan too, and the table still holds every column.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Compare the two column orders of a composite index, then turn the good one into a covering index.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql`: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres`.',
+			'Create a million events for 500 tenants, one per second: `CREATE TABLE events (id bigint generated always as identity primary key, tenant_id int not null, created_at timestamptz not null, kind text not null);` then `INSERT INTO events (tenant_id, created_at, kind) SELECT (random()*500)::int, timestamptz \'2026-01-01\' + i * interval \'1 second\', \'k\' || i % 10 FROM generate_series(1, 1000000) i;`',
+			'Index the time first: `CREATE INDEX events_created_tenant ON events (created_at, tenant_id); VACUUM ANALYZE events;` then `EXPLAIN (ANALYZE, BUFFERS) SELECT id, created_at FROM events WHERE tenant_id = 7 AND created_at >= \'2026-01-05\' AND created_at < \'2026-01-06\' ORDER BY created_at;`',
+			'Index the tenant first: `CREATE INDEX events_tenant_created ON events (tenant_id, created_at);` and run the same `EXPLAIN` again. Compare the buffers of the index scan node.',
+			'Make it covering: `CREATE INDEX events_tenant_created_cov ON events (tenant_id, created_at) INCLUDE (id); VACUUM events;` then `EXPLAIN (ANALYZE, BUFFERS) SELECT id, created_at FROM events WHERE tenant_id = 7 ORDER BY created_at DESC LIMIT 20;`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'With `(created_at, tenant_id)`, the index scan touches a few hundred buffers (about 480 in a test) for about 170 rows.',
+			'With `(tenant_id, created_at)`, the `Bitmap Index Scan on events_tenant_created` reads about 4 buffers.',
+			'The last query shows `Index Only Scan Backward using events_tenant_created_cov`, `Heap Fetches: 0`, and no Sort node.'
+		],
+		solution: [
+			'Time first: the scan walks every entry of the day, all 500 tenants, and checks `tenant_id` on each. Tenant first: equality on the leading column, then a range on the next, so it reads one short slice.',
+			'`INCLUDE (id)` stores `id` in the leaf entries, so the query finds every column in the index and skips the table once `VACUUM` has marked the pages all-visible.',
+			'The price: each index is written on every insert. Drop the ones no query needs, here `events_created_tenant`.'
+		]
+	},
 	recall: {
 		q: 'In which order do you put the columns of an index for `WHERE realm_id = 2 AND recipient_id = 9 ORDER BY id`, and why?',
 		a: '`(realm_id, recipient_id, id)`: the equality columns first, then the sort column. The scan reads one contiguous slice already in `id` order, so there is no sort node and a `LIMIT` stops early.'

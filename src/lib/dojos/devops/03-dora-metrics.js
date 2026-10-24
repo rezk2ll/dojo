@@ -98,6 +98,44 @@ HAVING max(bug) is True
 			'Failed deployment recovery time: median of 30 min, 40 min, 2 h = 40 min.',
 			'Change lead time: at least 3 days: Monday merge to Thursday deploy, plus any time the commit spent in review before the merge.',
 			'Work on **lead time** first: code that is done sits for three days. Ask what it waits for (a release day? a manual approval? a shared test environment?). Shorter waits also mean smaller batches, which tends to lower the fail rate too. Do not announce a target number: improve the process and watch the metric.'
+		],
+		steps: [
+			{
+				title: 'Count the deployments',
+				questions: [
+					{ q: '20 deployments in 4 weeks. What is the deployment frequency?', options: ['About 20 per week', 'About 1 per week', 'About 5 per week', 'About 4 per week'], answer: 2, why: '20 divided by 4 weeks is 5 per week. It is counted per service.' },
+					{ q: '3 of the 20 needed a rollback or hotfix right away. What is the change fail rate?', options: ['15%', '3%', '30%', '10%'], answer: 0, why: 'Failed deployments divided by all deployments: 3 / 20 = 15%.' },
+					{ q: '2 of the 20 were unplanned hotfix deploys made because of production incidents. What is the deployment rework rate?', options: ['2%', '15%', '20%', '10%'], answer: 3, why: 'Unplanned deployments divided by all deployments: 2 / 20 = 10%.' },
+					{ q: 'Change fail rate and deployment rework rate together measure what?', options: ['Throughput', 'Instability', 'Lead time', 'Uptime'], answer: 1, why: 'Those two measure instability. The other three measure throughput.' }
+				]
+			},
+			{
+				title: 'Compute the recovery time',
+				questions: [
+					{ q: 'Which failures count toward failed deployment recovery time?', options: ['Every outage, whatever caused it', 'Only failures caused by a deployment', 'Only data center outages', 'Only failures found by users'], answer: 1, why: 'Since 2023 the metric only counts failures caused by a change, unlike the old "time to restore service".' },
+					{ q: 'Recoveries took 30 min, 2 h and 40 min. What is the median?', options: ['30 min', '2 h', '40 min', '1 h 3 min'], answer: 2, why: 'Sorted: 30 min, 40 min, 2 h. The middle value is 40 min.' },
+					{ q: 'Why use the median here rather than the average?', options: ['One bad incident moves a median less than an average', 'DORA forbids averages', 'The average is always lower', 'The median counts only planned deploys'], answer: 0, why: 'The 2 h incident would pull the average up. The median shows the typical recovery.' },
+					{ q: 'In Four Keys, when does recovery time start?', options: ['When the issue is labelled', 'When someone opens a chat channel', 'When the hotfix is merged', 'At the deployment that caused the failure'], answer: 3, why: 'Four Keys takes the earlier of the deploy time and the issue time, so recovery runs from the bad deploy until the issue is closed.' }
+				]
+			},
+			{
+				title: 'Measure the lead time',
+				questions: [
+					{ q: 'Where does change lead time start?', options: ['When the ticket is created', 'At the commit in version control', 'When code review starts', 'When the pipeline starts'], answer: 1, why: 'It runs from the commit to the change running in production. Backlog time does not count.' },
+					{ q: 'A typical commit is merged Monday and deployed Thursday. What is the lead time?', options: ['At least 3 days, plus any review time before the merge', 'Exactly 1 day', 'Zero, since the code was already merged', 'Exactly 4 weeks'], answer: 0, why: 'Monday to Thursday is three days, and the commit may also have waited in review before the merge.' },
+					{ q: 'What does a long lead time usually show?', options: ['That the pipeline is slow to run', 'That developers write too little code', 'That finished code is waiting: in review, in a queue, for a release window', 'That too many deploys fail'], answer: 2, why: 'Lead time shows how long finished code waits before users get it.' },
+					{ q: 'Is 5 deploys a week with a 3-day lead time a contradiction?', options: ['Yes, frequent deploys always mean short lead time', 'Yes, one of the numbers must be wrong', 'No, because lead time only counts hotfixes', 'No: the service deploys often, but each commit still waits days to ship'], answer: 3, why: 'Frequency counts deploys. Lead time follows one commit, and each one still sits from Monday to Thursday.' }
+				]
+			},
+			{
+				title: 'Pick what to improve',
+				questions: [
+					{ q: 'Which metric do you work on first?', options: ['Lead time', 'Deployment frequency', 'Deployment rework rate', 'Recovery time'], answer: 0, why: 'Code that is done sits for three days. That is the biggest wait in the numbers.' },
+					{ q: 'What question do you ask about the Monday to Thursday wait?', options: ['Who merged the code late', 'What the code waits for: a release day, a manual approval, a shared test environment', 'How to deploy less often', 'Which developer to blame'], answer: 1, why: 'Find what finished code waits for, then remove that wait.' },
+					{ q: 'Why can a shorter lead time also lower the fail rate?', options: ['Because fewer deploys means fewer failures', 'Because hotfixes stop counting', 'Because shorter waits mean smaller batches', 'Because tests can be skipped'], answer: 2, why: 'Smaller batches mean each deploy holds less change, and in DORA\'s data speed and stability move together.' },
+					{ q: 'Your manager wants to announce "lead time under 1 day by June". What do you say?', options: ['Good idea, targets make teams faster', 'Use deployment frequency as the target instead', 'Set the target for every team at once', 'Do not set a target: improve the process and watch the metric'], answer: 3, why: 'A metric set as a target invites gaming (Goodhart\'s law).' }
+				]
+			}
 		]
 	},
 	quiz: [

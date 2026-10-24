@@ -116,6 +116,44 @@ export default {
 			'Automation : le pipeline peut progresser, mais il appartient à une seule équipe, donc personne d’autre ne l’apprend ni ne le modifie.',
 			'Proposition : rendre la nouvelle équipe **temporaire**, avec pour mission de se rendre inutile. Elle construit le pipeline avec l’équipe dev, travaille en binôme avec les ops, puis rend la main. Les devs rejoignent l’astreinte de leur propre service.',
 			'Measurement : se mettre d’accord sur quelques chiffres partagés pour le service (prochains chapitres : les métriques DORA), vus par les devs comme par les ops.'
+		],
+		steps: [
+			{
+				title: 'Compte les murs',
+				questions: [
+					{ q: 'Avant l’annonce, combien de murs séparent l’écriture d’un changement de son exploitation ?', options: ['Aucun', 'Un : dev vers ops', 'Deux : dev vers CI, CI vers ops', 'Trois : un par équipe'], answer: 1, why: 'Le découpage classique a un seul mur, fait de tickets et de passations, entre l’équipe dev et l’équipe ops.' },
+					{ q: 'Une fois que la nouvelle équipe DevOps prend la CI et tous les déploiements, combien de murs y a-t-il ?', options: ['Un, parce que la nouvelle équipe remplace l’ancien mur', 'Aucun, parce que la boîte fait maintenant du DevOps', 'Deux : dev vers équipe DevOps, équipe DevOps vers ops', 'Trois : dev, équipe DevOps et ops murent chacun la CI'], answer: 2, why: 'Devs et ops restent comme avant, et une nouvelle équipe se place entre eux. Ça ajoute un deuxième mur.' },
+					{ q: 'Comment DevOps Topologies appelle-t-il ce montage ?', options: ['L’anti-pattern du silo d’équipe DevOps', 'Une équipe plateforme', 'La responsabilité partagée', 'Le modèle SRE'], answer: 0, why: 'Une nouvelle équipe appelée « DevOps » placée entre dev et ops, c’est l’anti-pattern du **silo d’équipe DevOps**.' },
+					{ q: 'Un déploiement casse à 2 h du matin. Avec le nouveau plan, qui risque le plus de manquer ?', options: ['L’équipe DevOps, responsable des déploiements', 'L’équipe ops, qui gère les serveurs', 'Le manager d’astreinte', 'Le développeur qui a écrit le changement'], answer: 3, why: 'Les devs passent toujours le code par-dessus un mur et ne sont pas d’astreinte, donc celui qui connaît le changement n’est pas là.' }
+				]
+			},
+			{
+				title: 'Vérifie Culture et Sharing',
+				questions: [
+					{ q: 'Que veut dire CALMS ?', options: ['Code, Automation, Linux, Monitoring, Security', 'Culture, Automation, Lean, Measurement, Sharing', 'Culture, Agile, Logging, Metrics, Support', 'CI, Automation, Lean, Monitoring, Sharing'], answer: 1, why: 'Culture, Automation, Lean, Measurement, Sharing : une grille pour voir jusqu’où une équipe est vraiment allée vers DevOps.' },
+					{ q: 'Côté Culture et Sharing, qu’est-ce qui change pour les devs avec le nouveau plan ?', options: ['Ils sont maintenant responsables de leurs déploiements', 'Ils rejoignent l’astreinte', 'Rien : ils jettent toujours le code par-dessus un mur, juste un autre', 'Ils relisent la config des ops'], answer: 2, why: 'Les habitudes des devs restent les mêmes. Seule l’équipe de l’autre côté du mur a changé de nom.' },
+					{ q: 'Que devient chaque release quand une seule équipe possède tous les déploiements ?', options: ['Elle attend la nouvelle équipe', 'Elle sort plus vite, parce que des experts s’en chargent', 'Elle saute la revue', 'Elle va directement de dev à ops'], answer: 0, why: 'Tous les déploiements passent par trois personnes, donc chaque release fait la queue derrière leurs tickets.' },
+					{ q: 'Pourquoi recruter une équipe ne change-t-il pas à lui seul la façon de travailler ?', options: ['Parce que les ingénieurs DevOps coûtent trop cher à garder', 'Parce qu’une réorganisation ou l’achat d’un outil laisse les habitudes en place', 'Parce que seuls les ops peuvent changer la culture', 'Parce que CALMS interdit les nouvelles équipes'], answer: 1, why: 'Le compromis du chapitre : une réorganisation ou l’achat d’un outil ne suffit pas à changer la façon de travailler, et les habitudes changent lentement.' }
+				]
+			},
+			{
+				title: 'Vérifie Automation et Measurement',
+				questions: [
+					{ q: 'La nouvelle équipe construit un bien meilleur pipeline. Où est le piège ?', options: ['Les pipelines ne s’automatisent pas', 'Il ralentit les devs par conception', 'Il appartient à une seule équipe, donc personne d’autre ne l’apprend ni ne le modifie', 'Il remplace le besoin de tests'], answer: 2, why: 'Une automatisation possédée par une seule équipe est un autre silo : les autres ne peuvent ni la lire, ni la modifier, ni la réparer.' },
+					{ q: 'Dans le schéma de responsabilité partagée, où vivent les étapes de déploiement ?', options: ['Dans un seul dépôt avec l’appli et sa config', 'Dans le wiki privé de l’équipe DevOps', 'Dans la tête des ops', 'Dans un modèle de ticket'], answer: 0, why: 'Appli, config et étapes de déploiement sont dans un seul dépôt, et passent par la même revue, comme le `compose.yaml` de l’exemple.' },
+					{ q: 'Quelle étape Measurement le chapitre propose-t-il ?', options: ['Compter combien de tickets chaque équipe ferme', 'Mesurer chaque équipe sur son propre objectif', 'Suivre l’effectif de l’équipe DevOps', 'Quelques chiffres partagés pour le service, vus par les devs comme par les ops'], answer: 3, why: 'Des chiffres partagés (les métriques DORA, dans les prochains chapitres) donnent aux deux camps le même objectif au lieu d’objectifs opposés.' },
+					{ q: 'Dans le schéma, vers qui reviennent les métriques et les incidents des utilisateurs ?', options: ['Vers la barrière de changement', 'Vers les développeurs, qui peuvent corriger le code', 'Vers l’équipe ops seulement', 'Vers l’équipe DevOps'], answer: 1, why: 'Les chiffres de la prod reviennent vers ceux qui peuvent corriger le code.' }
+				]
+			},
+			{
+				title: 'Propose mieux',
+				questions: [
+					{ q: 'Que faut-il faire de la nouvelle équipe DevOps ?', options: ['La rendre permanente et lui donner plus de monde', 'La fusionner avec l’équipe ops', 'La rendre temporaire, avec pour mission de se rendre inutile', 'La dissoudre avant qu’elle commence'], answer: 2, why: 'Une équipe temporaire peut construire le pipeline avec les autres, puis rendre la main.' },
+					{ q: 'Comment cette équipe doit-elle travailler tant qu’elle existe ?', options: ['Construire le pipeline avec l’équipe dev et travailler en binôme avec les ops', 'Construire le pipeline seule, puis former tout le monde à la fin', 'Prendre l’astreinte pour que les devs se concentrent', 'Valider chaque déploiement à la main'], answer: 0, why: 'Construire ensemble, c’est garder le savoir chez dev et ops quand l’équipe rend la main.' },
+					{ q: 'Qui rejoint l’astreinte d’un service ?', options: ['L’équipe DevOps seulement', 'Les ops seulement, comme avant', 'Une équipe d’incident à part', 'Les devs qui construisent ce service, avec les ops'], answer: 3, why: 'Avec une seule astreinte, la personne qui a écrit le changement voit l’incident et sait où regarder.' },
+					{ q: 'Quel est le coût de cette proposition pour les devs ?', options: ['Ils perdent l’accès à la prod', 'Ils doivent apprendre l’exploitation et participer à l’astreinte', 'Ils arrêtent d’écrire des fonctionnalités', 'Ils doivent passer dans l’équipe ops'], answer: 1, why: 'La responsabilité partagée a un prix : les devs apprennent l’exploitation et portent l’astreinte, les ops apprennent Git et la revue de code.' }
+				]
+			}
 		]
 	},
 	quiz: [

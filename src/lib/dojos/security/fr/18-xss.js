@@ -124,6 +124,44 @@ export default {
 			'Ligne 2, début d’URL : `href="#ZgotmplZ"`. `javascript:` n’est ni `http`, ni `https`, ni `mailto`, donc `urlfilter` remplace toute la valeur.',
 			'Ligne 3, chaîne JavaScript : `"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`. Les guillemets ne ferment pas la chaîne, et `</` ne ferme pas le script. Sortie vérifiée avec Go 1.24.',
 			'La ligne 4 est le trou : `<div><img src=x onerror=alert(1)></div>`, recopié tel quel parce que `template.HTML` le marque comme sûr. Correction : passe `Bio` en `string` simple, ou fais-le passer par un nettoyeur HTML avant la conversion.'
+		],
+		steps: [
+			{
+				title: 'Nomme chaque contexte',
+				questions: [
+					{ q: 'Où se trouve `{{.Name}}` dans `<p>Hello {{.Name}}</p>` ?', options: ['Dans une URL', 'Dans du texte HTML entre deux balises', 'Dans une chaîne JavaScript', 'Dans un nom d’attribut'], answer: 1, why: 'C’est `stateText`, le cas simple : seulement l’échappeur HTML.' },
+					{ q: 'Où se trouve `{{.Site}}` dans `href="{{.Site}}"` ?', options: ['Dans du texte HTML', 'Dans une chaîne JavaScript', 'Au début d’une URL, dans un attribut entre guillemets', 'Dans une valeur CSS'], answer: 2, why: 'Le parseur voit un début d’URL, il ajoute donc `urlfilter`, plus `attrescaper` pour l’attribut entre guillemets.' },
+					{ q: 'Où se trouve `{{.Name}}` dans `var user = "{{.Name}}";` ?', options: ['Dans une chaîne JavaScript entre guillemets doubles', 'Dans du texte HTML', 'Dans une URL', 'Dans un commentaire'], answer: 0, why: 'C’est `stateJSDqStr`, qui reçoit l’échappeur de chaîne JS.' },
+					{ q: 'Quelle valeur a un type spécial ?', options: ['`Name`', '`Site`', 'Aucune', '`Bio`, un `template.HTML`'], answer: 3, why: '`template.HTML` est une porte de sortie : il dit au template que la chaîne est déjà du HTML sûr.' }
+				]
+			},
+			{
+				title: 'Prédis les lignes 1 et 2',
+				questions: [
+					{ q: 'Qu’affiche la ligne 1 pour `<b>"Bob"</b>` ?', options: ['`Hello <b>"Bob"</b>`', '`Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`', '`Hello Bob`', '`Hello #ZgotmplZ`'], answer: 1, why: 'L’échappeur HTML encode `<`, `>` et `"` : le navigateur affiche les balises comme des caractères.' },
+					{ q: 'Quels schémas `isSafeURL` accepte-t-il ?', options: ['N’importe quel schéma', 'Seulement `https`', 'Les URL relatives et `http`, `https` et `mailto`', '`http`, `https` et `javascript`'], answer: 2, why: 'Tout ce qui sort de cette liste est traité comme dangereux.' },
+					{ q: 'Qu’affiche la ligne 2 pour `javascript:alert(1)` ?', options: ['`href="javascript:alert(1)"`', '`href="javascript%3aalert%281%29"`', '`href=""`', '`href="#ZgotmplZ"`'], answer: 3, why: '`urlfilter` remplace toute la valeur par `#ZgotmplZ` au lieu d’essayer de la nettoyer.' },
+					{ q: 'Pourquoi l’échappement seul ne protège-t-il pas le `href` ?', options: ['`javascript:alert(1)` ne contient aucun caractère qu’un échappeur HTML changerait', 'Les attributs ne sont jamais échappés', 'Go n’échappe rien à l’intérieur des balises', 'Le navigateur décode tout deux fois'], answer: 0, why: 'Le danger est le schéma, pas un caractère spécial. C’est pour ça que le contexte URL a son propre filtre.' }
+				]
+			},
+			{
+				title: 'Prédis la ligne 3',
+				questions: [
+					{ q: 'En quoi l’échappeur de chaîne JS transforme-t-il `"` ?', options: ['`&#34;`', '`\\"`', '`\\u0022`', '`%22`'], answer: 2, why: 'Il utilise les échappements unicode de JavaScript, que la valeur ne peut pas utiliser pour fermer la chaîne.' },
+					{ q: 'Et `<` ?', options: ['`\\u003c`', '`&lt;`', '`%3C`', 'Il le laisse tel quel'], answer: 0, why: 'Encoder `<` empêche la valeur d’écrire `</script>` et de fermer la balise.' },
+					{ q: 'Pourquoi l’échappeur HTML serait-il faux ici ?', options: ['Il est trop lent pour les scripts', 'Go l’interdit dans `<script>`', 'Il encode trop peu de caractères', 'Le navigateur ne décode pas les entités HTML dans un script : le bon échappement dépend de l’endroit'], answer: 3, why: 'Chaque endroit demande son propre encodage. C’est le sens de l’échappement contextuel.' },
+					{ q: 'Qu’affiche la ligne 3 ?', options: ['`"<b>\\"Bob\\"</b>"`', '`"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`', '`"&lt;b&gt;&#34;Bob&#34;&lt;/b&gt;"`', '`"#ZgotmplZ"`'], answer: 1, why: 'Les guillemets ne ferment pas la chaîne, et `</` ne ferme pas le script. Sortie vérifiée avec Go 1.24.' }
+				]
+			},
+			{
+				title: 'Trouve et bouche le trou',
+				questions: [
+					{ q: 'Quelle ligne est le trou ?', options: ['La ligne 1', 'La ligne 2', 'La ligne 4, `<div>{{.Bio}}</div>`', 'La ligne 3'], answer: 2, why: '`template.HTML` marque `Bio` comme sûr : il est recopié tel quel, `<div><img src=x onerror=alert(1)></div>`.' },
+					{ q: 'Qui contrôle le texte de `Bio` ?', options: ['Un utilisateur, ce qui en fait une XSS stockée', 'Le développeur', 'Le package de templates de Go', 'Le navigateur'], answer: 0, why: 'Il est construit à partir du texte d’un utilisateur et montré aux autres : la même forme que le bug de Grafana.' },
+					{ q: 'Quelle est la correction la plus simple ?', options: ['Envelopper `Bio` dans un second `template.HTML`', 'Déplacer `{{.Bio}}` dans un `<script>`', 'Retirer le mot `alert`', 'Passer `Bio` en `string` simple'], answer: 3, why: 'Une chaîne simple reçoit l’échappeur HTML comme la ligne 1, et les balises s’affichent comme des caractères.' },
+					{ q: 'Le produit a besoin d’un peu de HTML dans les bios. Et alors ?', options: ['Garder `template.HTML` et faire confiance aux utilisateurs', 'Faire passer le texte par un nettoyeur HTML avant la conversion', 'Bloquer les bios qui contiennent `<`', 'L’échapper deux fois'], answer: 1, why: 'Un nettoyeur garde les balises autorisées et jette le reste. Seule sa sortie doit devenir un `template.HTML`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ export default {
 			why: 'Pour une expression texte, la doc de Svelte dit : « The expression will be stringified and escaped to prevent code injections. » `{@html}` saute cette étape et insère la chaîne comme du HTML brut : le navigateur crée un vrai élément à partir d’un `<img onerror>` dans `comment`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Fais tourner le template de l’exercice avec `html/template` de Go, vérifie chaque ligne prédite, puis retire la porte de sortie et regarde la ligne 4 changer.',
+		steps: [
+			'Crée un dossier et le template : `mkdir -p ~/xss-lab && cd ~/xss-lab && printf \'%s\\n\' \'<p>Hello {{.Name}}</p>\' \'<a href="{{.Site}}">site</a>\' \'<script>var user = "{{.Name}}";</script>\' \'<div>{{.Bio}}</div>\' > page.html`.',
+			'Écris `main.go`, qui passe trois arguments comme `Name`, `Site` et `Bio`, avec `Bio` en `template.HTML` : `printf \'%s\\n\' \'package main\' \'import ("html/template"; "os")\' \'func main() {\' \'t := template.Must(template.ParseFiles("page.html"))\' \'t.Execute(os.Stdout, map[string]any{"Name": os.Args[1], "Site": os.Args[2], "Bio": template.HTML(os.Args[3])})\' \'}\' > main.go`.',
+			'Lance-le avec les données de l’exercice : `go run main.go \'<b>"Bob"</b>\' \'javascript:alert(1)\' \'<img src=x onerror=alert(1)>\'`.',
+			'Lance-le avec un lien normal : `go run main.go Bob \'https://example.com/?a=1&b=2\' hi`.',
+			'Bouche le trou : dans `main.go`, remplace `template.HTML(os.Args[3])` par `os.Args[3]`. Relance l’étape 3.'
+		],
+		done: [
+			'L’étape 3 affiche `Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`, `href="#ZgotmplZ"` et `"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`.',
+			'L’étape 3 affiche `<div><img src=x onerror=alert(1)></div>` sans changement.',
+			'L’étape 4 garde le lien `https`, avec `&` écrit `&amp;`.',
+			'Après la correction, la ligne 4 affiche `<div>&lt;img src=x onerror=alert(1)&gt;</div>`.'
+		],
+		solution: [
+			'La même valeur `<b>"Bob"</b>` sort de trois façons parce que le parseur choisit un échappeur pour chaque endroit : texte HTML, URL, chaîne JavaScript.',
+			'`javascript:` échoue à `isSafeURL`, donc `urlfilter` remplace la valeur par `#ZgotmplZ`. Une URL `https` passe et voit seulement son `&` encodé pour l’attribut.',
+			'`template.HTML` saute tous les échappeurs. En chaîne simple, `Bio` reçoit le même échappement HTML que la ligne 1. Nettoie avec `rm -rf ~/xss-lab`.'
+		]
+	},
 	recall: {
 		q: 'Que sort `html/template` en Go pour `<a href="{{.}}">` quand la valeur est `javascript:alert(1)`, et pourquoi ?',
 		a: '`href="#ZgotmplZ"`. Une valeur en début d’URL passe par `urlfilter`, qui n’accepte que les URL relatives et les schémas `http`, `https` et `mailto`.'

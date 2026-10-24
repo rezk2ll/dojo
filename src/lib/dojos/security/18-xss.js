@@ -124,6 +124,44 @@ export default {
 			'Line 2, URL start: `href="#ZgotmplZ"`. `javascript:` is not `http`, `https` or `mailto`, so `urlfilter` replaces the whole value.',
 			'Line 3, JavaScript string: `"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`. The quotes cannot close the string, and `</` cannot close the script. Output checked with Go 1.24.',
 			'Line 4 is the hole: `<div><img src=x onerror=alert(1)></div>`, printed as is because `template.HTML` marks it as trusted. Fix: pass `Bio` as a plain `string`, or run it through an HTML sanitizer before you convert it.'
+		],
+		steps: [
+			{
+				title: 'Name each context',
+				questions: [
+					{ q: 'Where does `{{.Name}}` sit in `<p>Hello {{.Name}}</p>`?', options: ['A URL', 'HTML text between two tags', 'A JavaScript string', 'An attribute name'], answer: 1, why: 'That is `stateText`, the plain case: only the HTML escaper.' },
+					{ q: 'Where does `{{.Site}}` sit in `href="{{.Site}}"`?', options: ['HTML text', 'A JavaScript string', 'The start of a URL inside a quoted attribute', 'A CSS value'], answer: 2, why: 'The parser sees a URL start, so it adds `urlfilter`, plus `attrescaper` for the quoted attribute.' },
+					{ q: 'Where does `{{.Name}}` sit in `var user = "{{.Name}}";`?', options: ['Inside a double-quoted JavaScript string', 'HTML text', 'A URL', 'A comment'], answer: 0, why: 'That is `stateJSDqStr`, which gets the JS string escaper.' },
+					{ q: 'Which value has a special type?', options: ['`Name`', '`Site`', 'None of them', '`Bio`, a `template.HTML`'], answer: 3, why: '`template.HTML` is an escape hatch: it tells the template the string is already safe HTML.' }
+				]
+			},
+			{
+				title: 'Predict lines 1 and 2',
+				questions: [
+					{ q: 'What does line 1 print for `<b>"Bob"</b>`?', options: ['`Hello <b>"Bob"</b>`', '`Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`', '`Hello Bob`', '`Hello #ZgotmplZ`'], answer: 1, why: 'The HTML escaper encodes `<`, `>` and `"`, so the browser shows the tags as characters.' },
+					{ q: 'Which schemes does `isSafeURL` accept?', options: ['Any scheme', 'Only `https`', 'Relative URLs and `http`, `https` and `mailto`', '`http`, `https` and `javascript`'], answer: 2, why: 'Anything outside that list is treated as unsafe.' },
+					{ q: 'What does line 2 print for `javascript:alert(1)`?', options: ['`href="javascript:alert(1)"`', '`href="javascript%3aalert%281%29"`', '`href=""`', '`href="#ZgotmplZ"`'], answer: 3, why: '`urlfilter` replaces the whole value with `#ZgotmplZ` instead of trying to clean it.' },
+					{ q: 'Why does escaping alone not protect the `href`?', options: ['`javascript:alert(1)` has no characters an HTML escaper would change', 'Attributes are never escaped', 'Go skips escaping inside tags', 'The browser decodes everything twice'], answer: 0, why: 'The danger is the scheme, not a special character. That is why the URL context gets its own filter.' }
+				]
+			},
+			{
+				title: 'Predict line 3',
+				questions: [
+					{ q: 'What does the JS string escaper turn `"` into?', options: ['`&#34;`', '`\\"`', '`\\u0022`', '`%22`'], answer: 2, why: 'It uses JavaScript unicode escapes, which the value cannot use to close the string.' },
+					{ q: 'And `<`?', options: ['`\\u003c`', '`&lt;`', '`%3C`', 'It leaves it as is'], answer: 0, why: 'Encoding `<` stops the value from writing `</script>` and closing the tag.' },
+					{ q: 'Why would the HTML escaper be wrong here?', options: ['It is too slow for scripts', 'Go forbids it inside `<script>`', 'It encodes too few characters', 'The browser does not decode HTML entities inside a script, so the right escaping depends on the place'], answer: 3, why: 'Each place needs its own encoding. That is what contextual escaping means.' },
+					{ q: 'What does line 3 print?', options: ['`"<b>\\"Bob\\"</b>"`', '`"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`', '`"&lt;b&gt;&#34;Bob&#34;&lt;/b&gt;"`', '`"#ZgotmplZ"`'], answer: 1, why: 'The quotes cannot close the string, and `</` cannot close the script. Output checked with Go 1.24.' }
+				]
+			},
+			{
+				title: 'Find and fix the hole',
+				questions: [
+					{ q: 'Which line is the hole?', options: ['Line 1', 'Line 2', 'Line 4, `<div>{{.Bio}}</div>`', 'Line 3'], answer: 2, why: '`template.HTML` marks `Bio` as trusted, so it is printed as is: `<div><img src=x onerror=alert(1)></div>`.' },
+					{ q: 'Who controls the text in `Bio`?', options: ['A user, which makes this a stored XSS', 'The developer', 'Go’s template package', 'The browser'], answer: 0, why: 'It is built from a user’s text and shown to others, the same shape as the Grafana bug.' },
+					{ q: 'What is the simplest fix?', options: ['Wrap `Bio` in a second `template.HTML`', 'Move `{{.Bio}}` into a `<script>`', 'Strip the word `alert`', 'Pass `Bio` as a plain `string`'], answer: 3, why: 'A plain string gets the HTML escaper like line 1, and the tags show as characters.' },
+					{ q: 'The product needs some HTML in bios. What then?', options: ['Keep `template.HTML` and trust users', 'Run the text through an HTML sanitizer before converting it', 'Block bios that contain `<`', 'Escape it twice'], answer: 1, why: 'A sanitizer keeps allowed tags and drops the rest. Only its output should become `template.HTML`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ export default {
 			why: 'For a text expression, the Svelte docs say: "The expression will be stringified and escaped to prevent code injections." `{@html}` skips that step and inserts the string as raw HTML, so the browser builds a real element from an `<img onerror>` in `comment`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run the task’s template with Go’s `html/template`, check each predicted line, then remove the escape hatch and see line 4 change.',
+		steps: [
+			'Make a folder and the template: `mkdir -p ~/xss-lab && cd ~/xss-lab && printf \'%s\\n\' \'<p>Hello {{.Name}}</p>\' \'<a href="{{.Site}}">site</a>\' \'<script>var user = "{{.Name}}";</script>\' \'<div>{{.Bio}}</div>\' > page.html`.',
+			'Write `main.go`, which passes three arguments as `Name`, `Site` and `Bio`, with `Bio` as `template.HTML`: `printf \'%s\\n\' \'package main\' \'import ("html/template"; "os")\' \'func main() {\' \'t := template.Must(template.ParseFiles("page.html"))\' \'t.Execute(os.Stdout, map[string]any{"Name": os.Args[1], "Site": os.Args[2], "Bio": template.HTML(os.Args[3])})\' \'}\' > main.go`.',
+			'Run it with the task’s data: `go run main.go \'<b>"Bob"</b>\' \'javascript:alert(1)\' \'<img src=x onerror=alert(1)>\'`.',
+			'Run it with a normal link: `go run main.go Bob \'https://example.com/?a=1&b=2\' hi`.',
+			'Fix the hole: in `main.go`, replace `template.HTML(os.Args[3])` with `os.Args[3]`. Run step 3 again.'
+		],
+		done: [
+			'Step 3 prints `Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`, `href="#ZgotmplZ"` and `"\\u003cb\\u003e\\u0022Bob\\u0022\\u003c\\/b\\u003e"`.',
+			'Step 3 prints `<div><img src=x onerror=alert(1)></div>` unchanged.',
+			'Step 4 keeps the `https` link, with `&` written as `&amp;`.',
+			'After the fix, line 4 prints `<div>&lt;img src=x onerror=alert(1)&gt;</div>`.'
+		],
+		solution: [
+			'The same value `<b>"Bob"</b>` comes out three ways because the parser picks an escaper for each place: HTML text, URL, JavaScript string.',
+			'`javascript:` fails `isSafeURL`, so `urlfilter` swaps the value for `#ZgotmplZ`. An `https` URL passes and only gets `&` encoded for the attribute.',
+			'`template.HTML` skips every escaper. As a plain string, `Bio` gets the same HTML escaping as line 1. Clean up with `rm -rf ~/xss-lab`.'
+		]
+	},
 	recall: {
 		q: 'What does Go\'s `html/template` output for `<a href="{{.}}">` when the value is `javascript:alert(1)`, and why?',
 		a: '`href="#ZgotmplZ"`. A value at the start of a URL goes through `urlfilter`, which accepts only relative URLs and the `http`, `https` and `mailto` schemes.'

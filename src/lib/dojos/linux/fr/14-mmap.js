@@ -116,6 +116,44 @@ export default {
 			'Chaque ligne projette une partie du même fichier à un décalage différent, avec ses propres permissions. Le `p` veut dire copie à l’écriture : aucune écriture du shell ne peut atteindre le fichier libc sur le disque.',
 			'La ligne `rw-p` contient les variables globales modifiables de libc. La première écriture sur une de ces pages donne au shell sa propre copie, et le fichier comme les autres processus gardent l’original.',
 			'Le même shell a aussi une projection partagée, `r--s` sur `/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache` : un fichier en lecture seule que tous les processus peuvent partager tel quel.'
+		],
+		steps: [
+			{
+				title: 'Lis les lignes',
+				questions: [
+					{ q: 'La commande affiche cinq lignes pour `libc.so.6`. Qu’est-ce que chaque ligne ?', options: ['Une copie de libc chargée depuis le disque', 'Une projection d’une partie du même fichier, à son propre décalage', 'Un thread du shell', 'Une version de libc installée sur la machine'], answer: 1, why: 'Chaque ligne est une projection du même fichier à un décalage différent, avec ses propres permissions.' },
+					{ q: 'Quelle ligne contient le code de libc ?', options: ['La ligne `rw-p`', 'La première ligne `r--p`', 'La ligne `r-xp`', 'Aucune : le code n’est pas projeté'], answer: 2, why: 'Le `x` veut dire exécutable. La ligne `r-xp` au décalage `00028000` contient le code.' },
+					{ q: 'Que dit le quatrième caractère de la colonne des permissions ?', options: ['Si la projection est partagée ou privée', 'Si la page est en RAM', 'Si le fichier est ouvert', 'Si la page est sale'], answer: 0, why: 'proc_pid_maps(5) : "s = shared", "p = private (copy on write)".' },
+					{ q: 'Le shell a lu libc à travers ces projections. Où sont ces octets ?', options: ['Dans un buffer que le shell a alloué avec `malloc`', 'Dans la pile du shell', 'Dans le swap', 'Dans le cache de pages, projeté dans le shell sans copie'], answer: 3, why: 'Une projection de fichier pointe vers les pages du fichier dans le cache. Lire une adresse lit l’octet du fichier à cet endroit.' }
+				]
+			},
+			{
+				title: 'Explique le p',
+				questions: [
+					{ q: 'Pourquoi toutes les lignes de libc sont-elles privées ?', options: ['Pour qu’aucune écriture du shell ne puisse atteindre le fichier libc sur le disque', 'Parce que les projections partagées sont plus lentes à lire', 'Parce que seul root peut créer des projections partagées', 'Pour charger libc une fois par CPU'], answer: 0, why: 'Avec `MAP_PRIVATE`, les modifications n’atteignent pas le fichier. Un programme ne peut pas changer la libc que tous les autres processus exécutent.' },
+					{ q: 'Les lignes `r--p` en lecture seule coûtent-elles à chaque processus sa propre copie de libc ?', options: ['Oui : privé veut dire copié tout de suite', 'Oui : chaque processus relit libc depuis le disque', 'Non : une page privée n’est copiée qu’à la première écriture', 'Non : les pages privées restent sur le disque'], answer: 2, why: 'La copie à l’écriture ne copie une page que quand le processus y écrit. Les pages jamais écrites restent partagées dans le cache de pages.' },
+					{ q: 'Avec `MAP_SHARED`, où irait une écriture ?', options: ['Dans une copie privée', 'Dans la page du fichier en cache, puis dans le fichier', 'Nulle part : les projections partagées sont en lecture seule', 'Dans le swap'], answer: 1, why: 'Une écriture `MAP_SHARED` modifie la page du cache elle-même. Les autres processus la voient, et la réécriture l’emporte vers le fichier.' },
+					{ q: 'Quels drapeaux laisseraient une écriture égarée du shell changer libc pour tout le monde ?', options: ['`MAP_PRIVATE` avec `PROT_READ`', '`MAP_PRIVATE` avec `PROT_WRITE`', '`MAP_ANONYMOUS`', '`MAP_SHARED` avec `PROT_WRITE`'], answer: 3, why: 'Seule une projection partagée et modifiable écrit dans le fichier. Toutes les lignes de libc sont privées.' }
+				]
+			},
+			{
+				title: 'Suis une écriture',
+				questions: [
+					{ q: 'Que contient la ligne `rw-p` ?', options: ['Les variables globales modifiables de libc', 'Le code de libc', 'Le tas du shell', 'La pile du shell'], answer: 0, why: 'C’est la seule projection modifiable de libc. Les variables globales qui changent pendant l’exécution y vivent.' },
+					{ q: 'Le shell écrit une globale de libc pour la première fois. Que fait le noyau ?', options: ['Il écrit le changement dans le fichier libc', 'Il envoie SIGSEGV au shell', 'Il met à jour la page pour tous les processus', 'Il donne au shell sa propre copie de la page'], answer: 3, why: 'La première écriture sur une page `MAP_PRIVATE` provoque un défaut et le noyau copie la page. Le shell écrit ensuite dans sa copie.' },
+					{ q: 'Un autre shell tourne en même temps. Voit-il le changement du premier ?', options: ['Oui, tout de suite', 'Oui, après la prochaine réécriture', 'Non : il garde la page d’origine', 'Seulement après `msync`'], answer: 2, why: 'La copie appartient à un seul processus. Le fichier et les autres processus gardent l’original.' },
+					{ q: '`msync` pousserait-il le changement dans le fichier libc ?', options: ['Oui : `msync` écrit toutes les pages sales', 'Non : `msync` ne compte que pour les projections `MAP_SHARED`', 'Oui, si le shell tourne en root', 'Seulement si la page a été évincée'], answer: 1, why: 'Une copie privée n’a plus de lien avec le fichier. `msync` fixe le moment où les pages partagées atteignent le fichier.' }
+				]
+			},
+			{
+				title: 'Compare avec une ligne partagée',
+				questions: [
+					{ q: 'Le shell projette aussi `gconv-modules.cache` en `r--s`. Que veut dire le `s` ?', options: ['Sorti dans le swap', 'Partagé : la projection utilise directement les pages du fichier en cache', 'Sécurisé : seul root peut le lire', 'La pile (stack)'], answer: 1, why: '`s` veut dire partagé. Tous les processus qui projettent le fichier utilisent les mêmes pages du cache.' },
+					{ q: 'Pourquoi ce fichier peut-il être partagé tel quel ?', options: ['Il est en lecture seule : aucun processus ne peut le changer par la projection', 'Il tient dans une seule page', 'Il est sur un `tmpfs`', 'Le noyau le compresse'], answer: 0, why: 'Sans `w`, il n’y a aucune écriture à copier ni à reporter. Tous les processus lisent les mêmes octets.' },
+					{ q: 'LMDB projette sa base avec `MAP_SHARED` et `PROT_READ`. Pourquoi en lecture seule ?', options: ['Écrire par une projection est plus lent que `pwrite`', 'Linux interdit les projections partagées modifiables', 'Les écritures égarées de l’application ne peuvent pas corrompre la base', 'Ça économise du cache de pages'], answer: 2, why: 'L’en-tête de LMDB : une projection en lecture seule veut dire que "database integrity cannot be corrupted by stray pointer writes from application code".' },
+					{ q: 'Une erreur disque touche une page projetée que le shell lit. Que reçoit le shell ?', options: ['EIO renvoyé par `read`', 'Une page remplie de zéros', 'Des octets périmés depuis le TLB', 'SIGBUS au lieu d’un code d’erreur'], answer: 3, why: 'Avec `mmap`, aucune valeur de retour à vérifier. L’erreur arrive sous forme de signal dans le code qui a touché la page.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -153,6 +191,25 @@ export default {
 			why: 'Une page évincée n’est plus projetée : l’accès provoque un défaut de page et le noyau recharge la page du fichier. Le thread attend dans le défaut jusqu’à la fin de la lecture disque. Aucun code d’erreur ni EAGAIN ne remonte à l’appelant.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Projeter un fichier des deux façons avec Python, et voir quelles écritures atteignent le fichier et lesquelles restent privées.',
+		steps: [
+			'Crée un dossier de test et un petit fichier : `mkdir -p ~/mmap-lab && cd ~/mmap-lab && printf \'hello world\\n\' > data.txt`.',
+			'Sous Linux, regarde les deux sortes de projection : `python3 -c "import mmap, os; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0); os.system(\'grep data.txt /proc/%d/maps\' % os.getpid())"`, puis la même chose avec `mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY)`.',
+			'Écris à travers une projection partagée pendant que le processus tourne encore, et lis le fichier depuis un autre processus : `python3 -c "import mmap, time; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0); m[0:5] = b\'HELLO\'; time.sleep(3)" & sleep 1; cat data.txt; wait`.',
+			'Écris à travers une projection privée : `python3 -c "import mmap; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY); m[0:5] = b\'howdy\'; print(m[:11])"`, puis `cat data.txt`.'
+		],
+		done: [
+			'L’étape 2 affiche une ligne `rw-s`, puis une ligne `rw-p`, pour `data.txt`.',
+			'L’étape 3 affiche `HELLO world` pendant que le processus qui écrit dort encore.',
+			'L’étape 4 affiche `b\'howdy world\'`, et `cat data.txt` affiche toujours `HELLO world`.'
+		],
+		solution: [
+			'La projection par défaut de Python est `MAP_SHARED`. `cat` lit la même page du cache que celle que le processus a modifiée : il voit les octets avant tout `msync` et avant la sortie.',
+			'`ACCESS_COPY` correspond à `MAP_PRIVATE`. La première écriture a copié la page pour ce seul processus : le fichier n’a jamais vu `howdy`.'
+		]
+	},
 	recall: {
 		q: 'Avec `mmap`, où se trouvent vraiment les octets que lit un processus, et quelle différence entre `MAP_SHARED` et `MAP_PRIVATE` à l’écriture ?',
 		a: 'Dans le cache de pages du noyau, projeté dans le processus sans copie. Une écriture `MAP_SHARED` modifie cette page : les autres processus la voient et le fichier la reçoit. Une écriture `MAP_PRIVATE` crée une copie privée et le fichier ne change jamais.'

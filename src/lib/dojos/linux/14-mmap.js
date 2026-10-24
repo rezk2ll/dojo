@@ -116,6 +116,44 @@ export default {
 			'Each line maps one part of the same file at a different offset, with its own permissions. The `p` means copy-on-write: no write by the shell can reach the libc file on disk.',
 			'The `rw-p` line holds libc\'s writable globals. The first write to one of those pages gives this shell its own copy, and the file and other processes keep the original.',
 			'The same shell also has a shared mapping, `r--s` on `/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache`: a read-only file that every process can share as is.'
+		],
+		steps: [
+			{
+				title: 'Read the lines',
+				questions: [
+					{ q: 'The command prints five lines for `libc.so.6`. What is each line?', options: ['One copy of libc loaded from disk', 'One mapping of part of the same file, at its own offset', 'One thread of the shell', 'One version of libc on the machine'], answer: 1, why: 'Each line is one mapping of the same file at a different offset, with its own permissions.' },
+					{ q: 'Which line holds libc\'s code?', options: ['The `rw-p` line', 'The first `r--p` line', 'The `r-xp` line', 'None: code is not mapped'], answer: 2, why: 'The `x` means executable. The `r-xp` line at offset `00028000` is the code.' },
+					{ q: 'What does the fourth character of the permissions column say?', options: ['Whether the mapping is shared or private', 'Whether the page is in RAM', 'Whether the file is open', 'Whether the page is dirty'], answer: 0, why: 'proc_pid_maps(5): "s = shared", "p = private (copy on write)".' },
+					{ q: 'The shell read libc through these mappings. Where do those bytes live?', options: ['In a buffer the shell allocated with `malloc`', 'In the shell\'s stack', 'In swap', 'In the page cache, mapped into the shell with no copy'], answer: 3, why: 'A file mapping points at the page cache pages of the file. Reading an address reads the file\'s bytes there.' }
+				]
+			},
+			{
+				title: 'Explain the p',
+				questions: [
+					{ q: 'Why are all libc lines private?', options: ['So no write by the shell can reach the libc file on disk', 'Because shared mappings are slower to read', 'Because only root can make shared mappings', 'So libc is loaded once per CPU'], answer: 0, why: 'With `MAP_PRIVATE`, updates are not carried through to the file. A program cannot change the libc that every other process runs.' },
+					{ q: 'Do the read-only `r--p` lines cost each process its own copy of libc?', options: ['Yes: private means copied at once', 'Yes: each process reads libc from disk again', 'No: a private page is copied only on the first write', 'No: private pages are kept on disk'], answer: 2, why: 'Copy-on-write copies a page only when the process writes to it. Pages that are never written stay shared in the page cache.' },
+					{ q: 'Under `MAP_SHARED`, where would a write go?', options: ['To a private copy', 'To the file\'s page in the page cache, then to the file', 'Nowhere: shared mappings are read-only', 'To swap'], answer: 1, why: 'A `MAP_SHARED` write changes the page cache page itself. Other mappers see it, and writeback carries it to the file.' },
+					{ q: 'Which flag would let a stray write from the shell change libc for everyone?', options: ['`MAP_PRIVATE` with `PROT_READ`', '`MAP_PRIVATE` with `PROT_WRITE`', '`MAP_ANONYMOUS`', '`MAP_SHARED` with `PROT_WRITE`'], answer: 3, why: 'Only a shared, writable mapping writes back to the file. Every libc line is private.' }
+				]
+			},
+			{
+				title: 'Follow a write',
+				questions: [
+					{ q: 'What does the `rw-p` line hold?', options: ['libc\'s writable globals', 'libc\'s code', 'The shell\'s heap', 'The shell\'s stack'], answer: 0, why: 'It is the only writable libc mapping. Global variables that change at run time live there.' },
+					{ q: 'The shell writes a libc global for the first time. What does the kernel do?', options: ['Writes the change to the libc file', 'Sends SIGSEGV to the shell', 'Updates the page for every process', 'Gives this shell its own copy of the page'], answer: 3, why: 'The first write to a `MAP_PRIVATE` page faults and the kernel copies the page. The shell then writes its copy.' },
+					{ q: 'Another shell runs at the same time. Does it see the first shell\'s change?', options: ['Yes, at once', 'Yes, after the next writeback', 'No: it keeps the original page', 'Only after `msync`'], answer: 2, why: 'The copy belongs to one process. The file and other processes keep the original.' },
+					{ q: 'Would `msync` push the change to the libc file?', options: ['Yes: `msync` writes every dirty page', 'No: `msync` matters only for `MAP_SHARED` mappings', 'Yes, if the shell runs as root', 'Only if the page was evicted'], answer: 1, why: 'A private copy has no link back to the file. `msync` sets when shared pages reach the file.' }
+				]
+			},
+			{
+				title: 'Compare with a shared line',
+				questions: [
+					{ q: 'The shell also maps `gconv-modules.cache` as `r--s`. What does the `s` mean?', options: ['Swapped out', 'Shared: the mapping uses the file\'s page cache pages directly', 'Secure: only root can read it', 'Stack'], answer: 1, why: '`s` is shared. Every process that maps the file uses the same page cache pages.' },
+					{ q: 'Why can that file be shared as is?', options: ['It is read-only, so no process can change it through the map', 'It is small enough to fit in one page', 'It is on `tmpfs`', 'The kernel compresses it'], answer: 0, why: 'With no `w`, there is no write to copy or to carry back. All processes read the same bytes.' },
+					{ q: 'LMDB maps its database with `MAP_SHARED` and `PROT_READ`. Why read-only?', options: ['Writes through a map are slower than `pwrite`', 'Linux forbids writable shared maps', 'Stray pointer writes from the app cannot corrupt the database', 'It saves page cache'], answer: 2, why: 'The LMDB header: a read-only map means "database integrity cannot be corrupted by stray pointer writes from application code".' },
+					{ q: 'A disk error hits a mapped page the shell reads. What does the shell get?', options: ['EIO from `read`', 'A zero-filled page', 'Stale bytes from the TLB', 'SIGBUS instead of an error code'], answer: 3, why: 'There is no return value to check with `mmap`. The error arrives as a signal in whatever code touched the page.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -153,6 +191,25 @@ export default {
 			why: 'An evicted page is no longer mapped, so the access faults and the kernel loads the file page again. The thread waits in the fault until the disk read completes. No error code or EAGAIN comes back to the caller.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Map a file both ways with Python and see which writes reach the file and which stay private.',
+		steps: [
+			'Make a scratch folder and a small file: `mkdir -p ~/mmap-lab && cd ~/mmap-lab && printf \'hello world\\n\' > data.txt`.',
+			'On Linux, see the two kinds of mapping: `python3 -c "import mmap, os; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0); os.system(\'grep data.txt /proc/%d/maps\' % os.getpid())"`, then the same with `mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY)`.',
+			'Write through a shared mapping while the writer is still running, and read the file from another process: `python3 -c "import mmap, time; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0); m[0:5] = b\'HELLO\'; time.sleep(3)" & sleep 1; cat data.txt; wait`.',
+			'Write through a private mapping: `python3 -c "import mmap; f = open(\'data.txt\', \'r+b\'); m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY); m[0:5] = b\'howdy\'; print(m[:11])"`, then `cat data.txt`.'
+		],
+		done: [
+			'Step 2 prints one `rw-s` line, then one `rw-p` line, for `data.txt`.',
+			'Step 3 prints `HELLO world` while the writer still sleeps.',
+			'Step 4 prints `b\'howdy world\'`, and `cat data.txt` still prints `HELLO world`.'
+		],
+		solution: [
+			'The default Python mapping is `MAP_SHARED`. `cat` reads the same page cache page that the writer changed, so it sees the bytes before any `msync` or exit.',
+			'`ACCESS_COPY` is `MAP_PRIVATE`. The first write copied the page for that process only, so the file never saw `howdy`.'
+		]
+	},
 	recall: {
 		q: 'With `mmap`, where do the bytes a process reads actually live, and what is the difference between `MAP_SHARED` and `MAP_PRIVATE` on a write?',
 		a: 'In the kernel\'s page cache, mapped into the process with no copy. A `MAP_SHARED` write changes that page, other mappers see it and the file gets it. A `MAP_PRIVATE` write makes a private copy and the file never changes.'

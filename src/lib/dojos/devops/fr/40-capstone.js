@@ -131,6 +131,44 @@ env:
 			'GitOps : une Application Argo CD par environnement, sync automatique, prune et self-heal activés. La promotion en production est une pull request qui recopie le tag.',
 			'Alerte : appelle quand le taux de 5xx brûle l’error budget sur une fenêtre longue et une courte, avec un `runbook_url` dont la première étape est « revert du dernier commit de config ».',
 			'Casse-la exprès : déploie une version qui répond 500, regarde l’alerte sonner, fais le rollback avec `git revert`, et écris un court postmortem sans reproche de ton propre exercice.'
+		],
+		steps: [
+			{
+				title: 'Construis l’image',
+				questions: [
+					{ q: 'Quelle forme de Dockerfile convient au kata ?', options: ['Un seul stage avec toute la chaîne de build, lancé en root', 'Multi-stage, petite base, utilisateur non root, avec un `.dockerignore`', 'Une image de base que tu mets à jour à la main dans le conteneur', 'N’importe laquelle, Kubernetes la reconstruit'], answer: 1, why: 'Les outils de build restent dans le stage builder, l’image finale est petite, et elle ne tourne pas en root.' },
+					{ q: 'Quel tag reçoit la registry pour un push sur `main` ?', options: ['`latest` seulement', '`main` seulement', '`prod`', '`sha-<commit>`, un tag immuable'], answer: 3, why: 'Un tag SHA ne bouge jamais, donc la config désigne exactement une image à lancer ou vers laquelle revenir.' },
+					{ q: 'Pourquoi un tag `main` seul pose-t-il problème en GitOps ?', options: ['Il bouge à chaque push, donc le même fichier de values peut vouloir dire deux déploiements', 'Les registries refusent les noms de branche', 'Kubernetes garde un tag de branche en cache et ne tire jamais une image plus récente', 'Il grossit l’image'], answer: 0, why: 'Le tag par défaut de metadata-action pour `main` bouge. Ajoute `tags: type=sha` pour un tag immuable.' },
+					{ q: 'Comment vérifies-tu ce maillon avant le suivant ?', options: ['Attendre qu’Argo CD synchronise', 'Relire le Dockerfile', 'Lancer l’image en local et appeler `/healthz`', 'La pousser et espérer'], answer: 2, why: 'Vérifie chaque maillon avant le suivant : l’image tourne-t-elle en local ?' }
+				]
+			},
+			{
+				title: 'Branche la CI',
+				questions: [
+					{ q: 'Que fait la CI sur une pull request ?', options: ['Elle teste et construit, sans pousser l’image', 'Elle construit, pousse et déploie en production', 'Rien avant le merge', 'Elle pousse l’image taguée `pr`'], answer: 0, why: 'Une PR vérifie que l’image se construit, et ne la publie jamais.' },
+					{ q: 'Sur `main`, après le build et le push, quelle est la dernière étape de la CI ?', options: ['`helm upgrade` sur staging avec le nouveau tag, via un kubeconfig de staging','`kubectl apply` du chart', 'Commiter le nouveau tag dans `values-staging.yaml` du repo de config', 'Appeler l’astreinte pour dire qu’un déploiement a eu lieu'], answer: 2, why: 'La CI ne déploie pas. Son commit demande le déploiement, et un collègue peut le relire ou le revert.' },
+					{ q: 'Un test échoue. Qu’est-ce qui arrive dans la registry ?', options: ['L’image, taguée `broken`', 'Rien : la CI s’arrête avant le build', 'La moitié des couches', 'L’image, mais pas le tag'], answer: 1, why: 'Les tests passent d’abord. Un échec arrête la CI avant tout build ou push.' },
+					{ q: 'Pourquoi épingler chaque action tierce sur un SHA de commit complet ?', options: ['Les SHA tournent plus vite', 'GitHub l’exige', 'Ça cache l’action aux autres', 'Un tag sur le repo de quelqu’un d’autre peut être déplacé'], answer: 3, why: 'Même raison que pour épingler les digests d’image : un SHA désigne toujours le même code.' }
+				]
+			},
+			{
+				title: 'Package et déploie',
+				questions: [
+					{ q: 'Que met-on dans le template de Deployment du chart ?', options: ['2 replicas, requests et limits, une readiness probe sur `/healthz`', '1 replica, aucune probe, et tous les réglages écrits en dur dans le template', 'Un tag `latest` en dur', 'Le kubeconfig cluster-admin'], answer: 0, why: 'Deux copies, des ressources que le scheduler peut compter, et du trafic seulement quand l’appli répond.' },
+					{ q: 'Quel objet garde un pod debout pendant le drain d’un nœud ?', options: ['Un ResourceQuota', 'Un HorizontalPodAutoscaler', 'Un PodDisruptionBudget', 'Un Ingress'], answer: 2, why: 'Un PDB limite combien de pods un drain peut évincer à la fois.' },
+					{ q: 'Comment est réglé le côté Argo CD ?', options: ['Une Application pour tous les environnements, sync manuelle', 'Une Application par environnement, sync automatique, prune et self-heal activés', 'Pas d’Application : la CI lance `kubectl`', 'Une Application par Pod'], answer: 1, why: 'Chaque environnement suit son propre fichier de values, et Git gagne sur les modifications à la main.' },
+					{ q: 'Comment une release arrive-t-elle en production ?', options: ['Reconstruire l’image avec les réglages de production', 'Repousser l’image taguée `prod`', 'Copier les pods de staging', 'Une pull request qui recopie le tag testé dans les values de production'], answer: 3, why: 'La promotion déplace la même image. Un rebuild pourrait tirer des dépendances différentes.' }
+				]
+			},
+			{
+				title: 'Alerte et exercice',
+				questions: [
+					{ q: 'Sur quoi l’unique alerte doit-elle appeler ?', options: ['CPU au-dessus de 80 %', 'Le taux de 5xx qui brûle l’error budget, sur une fenêtre longue et une courte', 'Chaque redémarrage de pod, puisque chaque redémarrage veut dire une erreur pour un utilisateur', 'Disque au-dessus de 85 %'], answer: 1, why: 'Appelle sur un symptôme que ressentent les utilisateurs, et sur la vitesse à laquelle le budget brûle.' },
+					{ q: 'Quelle est la première étape de son runbook ?', options: ['Revert du dernier commit de config', 'Se connecter en SSH à un nœud', 'Supprimer les pods', 'Reconstruire depuis les sources'], answer: 0, why: 'Le dernier commit de config est la cause probable, et le revert est une seule commande sûre.' },
+					{ q: 'Avec le self-heal activé, pourquoi ne pas revenir en arrière avec `kubectl rollout undo` ?', options: ['Il ne ramène que le ReplicaSet, et le Service garde les nouveaux endpoints', 'Il faut être root', 'Argo CD l’annule, parce que Git désigne toujours le mauvais tag', 'Ça supprime le Service'], answer: 2, why: 'Change l’état voulu avec `git revert`, et Argo CD resynchronise l’ancien tag.' },
+					{ q: 'Qu’est-ce qui clôt l’exercice ?', options: ['Supprimer l’alerte pour qu’elle se taise', 'Désactiver le self-heal', 'Un long rapport qui nomme le coupable', 'Un court postmortem sans reproche de ton propre exercice'], answer: 3, why: 'Note ce qui s’est passé et ce qu’il faut changer, sans reproche. C’est un entraînement pour le vrai.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -122,6 +122,44 @@ export default {
 			'Move CPU and pod restarts to **dashboard panels** or low-priority tickets, with no page. They help find the cause once you are paged.',
 			'Disk at 85% is a real future problem: alert on "disk full in 4 hours" as a ticket, not on a fixed percentage at night.',
 			'Each remaining alert gets a summary, a severity and a `runbook_url`. After the next incident, the postmortem checks whether the alert fired early enough.'
+		],
+		steps: [
+			{
+				title: 'Sort symptoms from causes',
+				questions: [
+					{ q: 'Which of the four alerts is a symptom users feel?', options: ['CPU over 80%', 'Pod restarted', 'Error ratio over 5% for 10 minutes', 'Disk over 85% on any node of the cluster'], answer: 2, why: 'Errors are what is broken for users. The other three are possible causes.' },
+					{ q: 'CPU is at 85% and every checkout succeeds fast. Should someone wake up?', options: ['No: nothing is broken for users', 'Yes: CPU is a golden signal', 'Yes: 80% is the limit', 'Only on weekdays'], answer: 0, why: 'Page on symptoms. High CPU that hurts nobody belongs on a dashboard.' },
+					{ q: 'Why does on-call ignore most of the 30 pages?', options: ['They are lazy', 'The pager is too quiet', 'There are too few alerts', 'Most pages are causes that hurt nobody'], answer: 3, why: 'A system has a thousand possible causes of trouble, and most of them hurt nobody. Paging on them trains people to ignore pages.' },
+					{ q: 'Which list is the four golden signals?', options: ['CPU, memory, disk, network', 'Latency, traffic, errors, saturation', 'Metrics, logs, traces, events', 'Uptime, MTTR, MTBF, SLA'], answer: 1, why: 'From the SRE book: measure these four on a user-facing system.' }
+				]
+			},
+			{
+				title: 'Page on the symptoms',
+				questions: [
+					{ q: 'What is a better basis for the error page than a fixed 5%?', options: ['A higher CPU threshold', 'An SLO, with alerts on burn rate', 'One page per failed request', 'A daily email'], answer: 1, why: 'Agree on a target, like 99.5% of checkouts succeed in under 1 s, and page when the budget burns too fast.' },
+					{ q: 'Why use two windows for a burn-rate alert?', options: ['The long one shows it lasted, the short one shows it is still happening', 'Prometheus cannot compute a rate over more than one window in a single rule', 'One window per data center', 'To page twice as often'], answer: 0, why: 'The long window says it matters, the short window says it is not already over.' },
+					{ q: 'Which symptom is missing from the current list?', options: ['Disk', 'Pod restarts', 'Memory', 'Latency'], answer: 3, why: 'Slow checkouts hurt users as much as failed ones.' },
+					{ q: 'The error rule has `for: 10m`. Errors spike for 4 minutes, then stop. Does it page?', options: ['Yes, after 4 minutes', 'Yes, at 10 minutes', 'No: it stays pending and goes away', 'Only if the spike repeats'], answer: 2, why: 'The alert fires only once the condition has held for the whole `for` duration.' }
+				]
+			},
+			{
+				title: 'Move the causes off the pager',
+				questions: [
+					{ q: 'Where do CPU and pod restarts go?', options: ['Dashboard panels or low-priority tickets', 'Deleted entirely, since they never help during an incident', 'The critical pager route', 'The postmortem template'], answer: 0, why: 'They help find the cause once you are paged. They do not need to wake anyone.' },
+					{ q: 'Disk at 85% is a real future problem. What alert replaces it?', options: ['Disk over 95%, paging at night', 'No alert at all', '"Disk full in 4 hours", as a ticket', 'A page every time it grows'], answer: 2, why: 'Predict when it fills and open a ticket. A fixed percentage at night pages too early or too late.' },
+					{ q: 'Which component routes warnings to tickets and critical alerts to the pager?', options: ['Prometheus', 'The kubelet', 'Grafana', 'Alertmanager'], answer: 3, why: 'Alertmanager deduplicates, groups, applies silences and routes each alert to a receiver.' },
+					{ q: 'What is the cost of moving causes to dashboards?', options: ['Prometheus stops collecting them', 'Someone still has to read them', 'They can no longer be graphed', 'They count against the error budget'], answer: 1, why: 'Fewer pages, but the tickets and panels still need an owner.' }
+				]
+			},
+			{
+				title: 'Make each page useful',
+				questions: [
+					{ q: 'What should every remaining alert carry?', options: ['A summary, a severity and a `runbook_url`', 'Only the PromQL query', 'The name of the last person on call', 'A link to the source code'], answer: 0, why: 'The person paged at 3 a.m. needs to know what broke, how bad it is, and what to check first.' },
+					{ q: 'You are paged for checkout errors. What comes first?', options: ['Find the root cause, so the fix is right the first time', 'Write the postmortem', 'Limit the damage: roll back or scale up', 'Silence the alert'], answer: 2, why: 'Stop the harm for users first, then look for the cause.' },
+					{ q: 'After the next incident, what does the postmortem check about alerting?', options: ['Who wrote the alert', 'Whether the alert fired early enough', 'How many alerts exist', 'Whether CPU was high'], answer: 1, why: 'One of the action items often changes an alert rule.' },
+					{ q: 'What makes that postmortem blameless?', options: ['No timeline', 'Anonymous authors', 'It is only shared with the team that caused the incident, never wider', 'It looks for contributing causes, assuming good faith'], answer: 3, why: 'Blame makes people hide what they did, and then the real causes stay hidden.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,27 @@ export default {
 			why: 'Blame makes people hide what they did, and then the real causes stay hidden. The SRE book defines blameless as finding causes without indicting anyone.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Write a symptom alert with a `for` duration and unit-test it with `promtool`: a real outage pages, a short blip does not.',
+		steps: [
+			'Make a folder: `mkdir -p ~/alert-lab && cd ~/alert-lab`.',
+			'Write the alert rule, on the error ratio of checkout: `echo \'groups: [{name: checkout, rules: [{alert: CheckoutErrors, expr: "checkout_error_ratio > 0.05", for: 10m, labels: {severity: page}}]}]\' > rules.yml`.',
+			'Write two tests: a 20-minute outage at 10% errors, and a 4-minute blip. `echo \'rule_files: [rules.yml]\' > test.yml`, then `echo \'tests: [{name: outage, input_series: [{series: checkout_error_ratio, values: "0.1x20"}], alert_rule_test: [{eval_time: 5m, alertname: CheckoutErrors, exp_alerts: []}, {eval_time: 15m, alertname: CheckoutErrors, exp_alerts: [{exp_labels: {severity: page}}]}]}, {name: blip, input_series: [{series: checkout_error_ratio, values: "0.1x3 0x16"}], alert_rule_test: [{eval_time: 3m, alertname: CheckoutErrors, exp_alerts: []}]}]\' >> test.yml`.',
+			'Run the tests with the `promtool` inside the Prometheus image: `docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus:v2.53.0 test rules test.yml`.',
+			'In `rules.yml`, change `for: 10m` to `for: 2m` and run the same command. Then try `for: 20m`. Put `for: 10m` back at the end.'
+		],
+		done: [
+			'With `for: 10m`, `promtool` prints `SUCCESS`: no page at 5 minutes, a page at 15, and no page for the blip.',
+			'With `for: 2m`, the run prints `FAILED` for `blip` at `3m`: a 4-minute blip would have woken someone. It also fails `outage` at `5m`, because the alert now fires after 2 minutes.',
+			'With `for: 20m`, the run prints `FAILED` for `outage` at `15m`: users have seen errors for 15 minutes and nobody was paged.'
+		],
+		solution: [
+			'`"0.1x20"` is 21 samples of `0.1`, one per minute. `"0.1x3 0x16"` is 4 minutes at 10% errors, then normal.',
+			'While the condition is true but shorter than `for`, the alert is pending, and `exp_alerts` only lists firing alerts. That is why the blip never shows up with `for: 10m`.',
+			'`for` trades speed for quiet. A burn-rate rule over two windows does the same job better, and you can test it the same way. Add `annotations: {runbook_url: ...}` before it ever pages for real.'
+		]
+	},
 	recall: {
 		q: 'Which alerts should page the on-call engineer, and how does `KubeAPIErrorBudgetBurn` decide to fire?',
 		a: 'Only alerts on symptoms users feel, like errors and latency. `KubeAPIErrorBudgetBurn` fires when the error budget of a 99% target burns 14.4 times too fast over both 1 hour and 5 minutes, for 2 minutes.'

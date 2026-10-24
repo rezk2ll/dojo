@@ -122,6 +122,44 @@ export default {
 			'Déplace le CPU et les redémarrages de pods vers des **panneaux de tableau de bord** ou des tickets peu prioritaires, sans appel. Ils t’aident à trouver la cause une fois appelé.',
 			'Le disque à 85 % est un vrai problème à venir : alerte sur « disque plein dans 4 heures » sous forme de ticket, pas sur un pourcentage fixe en pleine nuit.',
 			'Chaque alerte restante reçoit un résumé, une sévérité et un `runbook_url`. Après le prochain incident, le postmortem vérifie si l’alerte a sonné assez tôt.'
+		],
+		steps: [
+			{
+				title: 'Sépare symptômes et causes',
+				questions: [
+					{ q: 'Laquelle des quatre alertes est un symptôme que ressentent les utilisateurs ?', options: ['CPU au-dessus de 80 %', 'Pod redémarré', 'Taux d’erreur au-dessus de 5 % pendant 10 minutes', 'Disque au-dessus de 85 % sur n’importe quel nœud du cluster'], answer: 2, why: 'Les erreurs, c’est ce qui est cassé pour les utilisateurs. Les trois autres sont des causes possibles.' },
+					{ q: 'Le CPU est à 85 % et chaque paiement réussit vite. Faut-il réveiller quelqu’un ?', options: ['Non : rien n’est cassé pour les utilisateurs', 'Oui : le CPU est un signal en or', 'Oui : 80 % est la limite', 'Seulement en semaine'], answer: 0, why: 'Appelle sur les symptômes. Un CPU élevé qui ne gêne personne va sur un tableau de bord.' },
+					{ q: 'Pourquoi l’astreinte ignore-t-elle la plupart des 30 appels ?', options: ['Elle est paresseuse', 'Le pager sonne trop doucement', 'Il y a trop peu d’alertes', 'La plupart des appels sont des causes qui ne gênent personne'], answer: 3, why: 'Un système a mille causes possibles de problème, et la plupart ne gênent personne. Appeler dessus apprend aux gens à ignorer les appels.' },
+					{ q: 'Quelle liste donne les quatre signaux en or ?', options: ['CPU, mémoire, disque, réseau', 'Latence, trafic, erreurs, saturation', 'Métriques, logs, traces, events', 'Uptime, MTTR, MTBF, SLA'], answer: 1, why: 'Du livre SRE : mesure ces quatre-là sur un système exposé aux utilisateurs.' }
+				]
+			},
+			{
+				title: 'Appelle sur les symptômes',
+				questions: [
+					{ q: 'Quelle base vaut mieux qu’un seuil fixe de 5 % pour l’appel sur les erreurs ?', options: ['Un seuil CPU plus haut', 'Un SLO, avec des alertes sur le burn rate', 'Un appel par requête ratée', 'Un mail quotidien'], answer: 1, why: 'Mets-toi d’accord sur un objectif, par exemple 99,5 % des paiements réussissent en moins d’1 s, et appelle quand le budget brûle trop vite.' },
+					{ q: 'Pourquoi deux fenêtres pour une alerte de burn rate ?', options: ['La longue montre que ça dure, la courte que ça continue', 'Prometheus ne sait pas calculer un taux sur plus d’une fenêtre dans une même règle', 'Une fenêtre par data center', 'Pour appeler deux fois plus souvent'], answer: 0, why: 'La fenêtre longue dit que ça compte, la courte dit que ce n’est pas déjà fini.' },
+					{ q: 'Quel symptôme manque dans la liste actuelle ?', options: ['Le disque', 'Les redémarrages de pods', 'La mémoire', 'La latence'], answer: 3, why: 'Un paiement lent gêne autant qu’un paiement raté.' },
+					{ q: 'La règle d’erreur a `for: 10m`. Les erreurs grimpent pendant 4 minutes, puis s’arrêtent. Y a-t-il un appel ?', options: ['Oui, après 4 minutes', 'Oui, à 10 minutes', 'Non : elle reste pending puis disparaît', 'Seulement si le pic se répète'], answer: 2, why: 'L’alerte ne se déclenche qu’une fois la condition vraie pendant toute la durée `for`.' }
+				]
+			},
+			{
+				title: 'Retire les causes du pager',
+				questions: [
+					{ q: 'Où vont le CPU et les redémarrages de pods ?', options: ['Sur des panneaux de tableau de bord ou des tickets peu prioritaires', 'À la poubelle, puisqu’ils n’aident jamais pendant un incident', 'Sur la route critique du pager', 'Dans le modèle de postmortem'], answer: 0, why: 'Ils aident à trouver la cause une fois appelé. Ils n’ont pas besoin de réveiller qui que ce soit.' },
+					{ q: 'Le disque à 85 % est un vrai problème à venir. Quelle alerte le remplace ?', options: ['Disque au-dessus de 95 %, appel la nuit', 'Aucune alerte', '« Disque plein dans 4 heures », sous forme de ticket', 'Un appel à chaque hausse'], answer: 2, why: 'Prévois quand il sera plein et ouvre un ticket. Un pourcentage fixe la nuit appelle trop tôt ou trop tard.' },
+					{ q: 'Quel composant envoie les warnings en tickets et les alertes critiques au pager ?', options: ['Prometheus', 'Le kubelet', 'Grafana', 'Alertmanager'], answer: 3, why: 'Alertmanager déduplique, regroupe, applique les silences et route chaque alerte vers un destinataire.' },
+					{ q: 'Quel est le coût de déplacer les causes vers les tableaux de bord ?', options: ['Prometheus arrête de les collecter', 'Quelqu’un doit encore les lire', 'On ne peut plus les tracer', 'Elles comptent dans l’error budget'], answer: 1, why: 'Moins d’appels, mais les tickets et les panneaux ont toujours besoin d’un responsable.' }
+				]
+			},
+			{
+				title: 'Rends chaque appel utile',
+				questions: [
+					{ q: 'Que doit porter chaque alerte restante ?', options: ['Un résumé, une sévérité et un `runbook_url`', 'Seulement la requête PromQL', 'Le nom de la dernière personne d’astreinte', 'Un lien vers le code source'], answer: 0, why: 'La personne appelée à 3 h du matin doit savoir ce qui est cassé, à quel point, et quoi vérifier d’abord.' },
+					{ q: 'Tu es appelé pour des erreurs de paiement. Qu’est-ce qui passe en premier ?', options: ['Trouver la cause racine, pour que le correctif soit bon du premier coup', 'Écrire le postmortem', 'Limiter les dégâts : rollback ou scale up', 'Mettre l’alerte en silence'], answer: 2, why: 'Arrête d’abord le mal pour les utilisateurs, puis cherche la cause.' },
+					{ q: 'Après le prochain incident, que vérifie le postmortem côté alerting ?', options: ['Qui a écrit l’alerte', 'Si l’alerte a sonné assez tôt', 'Combien d’alertes existent', 'Si le CPU était haut'], answer: 1, why: 'Une des actions change souvent une règle d’alerte.' },
+					{ q: 'Qu’est-ce qui rend ce postmortem sans reproche ?', options: ['Pas de chronologie', 'Des auteurs anonymes', 'Il n’est partagé qu’avec l’équipe qui a causé l’incident, jamais au-delà', 'Il cherche les causes contributives, en supposant la bonne foi'], answer: 3, why: 'Le reproche pousse les gens à cacher ce qu’ils ont fait, et les vraies causes restent cachées.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,27 @@ export default {
 			why: 'Le reproche pousse les gens à cacher ce qu’ils ont fait, et les vraies causes restent cachées. Le livre SRE définit le sans-reproche comme trouver les causes sans mettre personne en accusation.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Écrire une alerte sur un symptôme avec une durée `for`, et la tester avec `promtool` : une vraie panne déclenche un appel, un pic court non.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/alert-lab && cd ~/alert-lab`.',
+			'Écris la règle d’alerte, sur le taux d’erreur du paiement : `echo \'groups: [{name: checkout, rules: [{alert: CheckoutErrors, expr: "checkout_error_ratio > 0.05", for: 10m, labels: {severity: page}}]}]\' > rules.yml`.',
+			'Écris deux tests : une panne de 20 minutes à 10 % d’erreurs, et un pic de 4 minutes. `echo \'rule_files: [rules.yml]\' > test.yml`, puis `echo \'tests: [{name: outage, input_series: [{series: checkout_error_ratio, values: "0.1x20"}], alert_rule_test: [{eval_time: 5m, alertname: CheckoutErrors, exp_alerts: []}, {eval_time: 15m, alertname: CheckoutErrors, exp_alerts: [{exp_labels: {severity: page}}]}]}, {name: blip, input_series: [{series: checkout_error_ratio, values: "0.1x3 0x16"}], alert_rule_test: [{eval_time: 3m, alertname: CheckoutErrors, exp_alerts: []}]}]\' >> test.yml`.',
+			'Lance les tests avec le `promtool` de l’image Prometheus : `docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus:v2.53.0 test rules test.yml`.',
+			'Dans `rules.yml`, remplace `for: 10m` par `for: 2m` et relance la même commande. Puis essaie `for: 20m`. Remets `for: 10m` à la fin.'
+		],
+		done: [
+			'Avec `for: 10m`, `promtool` affiche `SUCCESS` : pas d’appel à 5 minutes, un appel à 15, et pas d’appel pour le pic.',
+			'Avec `for: 2m`, le test affiche `FAILED` pour `blip` à `3m` : un pic de 4 minutes aurait réveillé quelqu’un. Il échoue aussi pour `outage` à `5m`, parce que l’alerte se déclenche maintenant après 2 minutes.',
+			'Avec `for: 20m`, le test affiche `FAILED` pour `outage` à `15m` : les utilisateurs voient des erreurs depuis 15 minutes et personne n’a été appelé.'
+		],
+		solution: [
+			'`"0.1x20"` donne 21 échantillons à `0.1`, un par minute. `"0.1x3 0x16"` donne 4 minutes à 10 % d’erreurs, puis la normale.',
+			'Tant que la condition est vraie depuis moins longtemps que `for`, l’alerte est pending, et `exp_alerts` ne liste que les alertes qui sonnent. C’est pour ça que le pic n’apparaît jamais avec `for: 10m`.',
+			'`for` échange de la rapidité contre du calme. Une règle de burn rate sur deux fenêtres fait mieux le même travail, et se teste de la même façon. Ajoute `annotations: {runbook_url: ...}` avant qu’elle appelle pour de vrai.'
+		]
+	},
 	recall: {
 		q: 'Quelles alertes doivent appeler la personne d’astreinte, et quand `KubeAPIErrorBudgetBurn` se déclenche-t-elle ?',
 		a: 'Seulement les alertes sur des symptômes que vivent les utilisateurs, comme les erreurs et la latence. `KubeAPIErrorBudgetBurn` se déclenche quand l’error budget d’un objectif à 99 % brûle 14,4 fois trop vite sur 1 heure et sur 5 minutes, pendant 2 minutes.'

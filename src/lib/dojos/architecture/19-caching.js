@@ -106,6 +106,44 @@ export default {
 			'(b) Key: the JWKS URL. Stale: the provider rotates its keys. Invalidates: the TTL. Worst case: tokens signed with the new key are rejected for up to 5 minutes. A common fix is to refetch once when a token names a key id (`kid`) that is not in the cached set.',
 			'(c) Key: class, id and `updated_at`. Stale: never for that record, since a change makes a new key. Invalidates: the owner, by saving. Worst case: an outer fragment that embeds it stays stale, unless the child uses `touch: true`.',
 			'If you could not answer "who invalidates" for one of your own caches, look at that cache first.'
+		],
+		steps: [
+			{
+				title: 'Name the keys',
+				questions: [
+					{ q: '(a) What is the key of kube-apiserver\'s token cache?', options: ['The raw token', 'An HMAC of the token and its audiences', 'The user name in the answer', 'The webhook\'s URL'], answer: 1, why: '`keyFunc` hashes the token with its audiences and a random secret made at startup.' },
+					{ q: 'Why does (a) not key on the raw token?', options: ['A hash is faster to compare', 'Raw tokens are too short to be unique', 'Go maps cannot hold long strings', 'It keeps tokens out of memory'], answer: 3, why: 'The code comment says so. A dump of the cache does not leak usable tokens.' },
+					{ q: '(b) What is the key of the gateway\'s JWKS cache?', options: ['Each token\'s signature', 'The user id in the token', 'The JWKS URL', 'The time of the last fetch'], answer: 2, why: 'The gateway caches one key set per provider, fetched from that URL.' },
+					{ q: '(c) What goes into a `cache_key_with_version` key?', options: ['The class, the id and `updated_at` of the record', 'The URL of the page', 'A random id per request', 'The name of the view file'], answer: 0, why: 'The version comes from `updated_at`, so the key changes with each save.' }
+				]
+			},
+			{
+				title: 'Say what makes it stale',
+				questions: [
+					{ q: '(a) When is a cached token answer stale?', options: ['When the webhook restarts', 'When the token is revoked', 'When the user logs in again', 'When a second request arrives'], answer: 1, why: 'The cache still says yes, but the owner, the webhook, would now say no.' },
+					{ q: '(b) When is the cached key set stale?', options: ['When a user logs out', 'When a token expires', 'When the gateway restarts', 'When the provider rotates its keys'], answer: 3, why: 'New tokens are then signed with a key the cached set does not have.' },
+					{ q: '(c) When is a fragment for one record stale?', options: ['After every save of the record', 'Never for that record, since a change makes a new key', 'On every request', 'After every deploy'], answer: 1, why: 'A save moves the key. No read asks for the old one again.' },
+					{ q: 'In general, what does "stale" mean?', options: ['The cached answer no longer matches the owner\'s data', 'The entry is older than a day', 'The lookup was a miss', 'Nobody has read the entry yet'], answer: 0, why: 'Age alone is not the test. What counts is whether the source changed.' }
+				]
+			},
+			{
+				title: 'Say who invalidates',
+				questions: [
+					{ q: '(a) Who removes the entry when a token is revoked?', options: ['The webhook, by calling the API server', 'The admin who revoked it', 'Nobody: the TTL does, 2 minutes by default', 'The `singleflight` group'], answer: 2, why: 'No code invalidates the entry. Only `--authentication-token-webhook-cache-ttl` does.' },
+					{ q: '(b) Who refreshes the key set when the provider rotates?', options: ['The provider, by pushing the new keys', 'Nobody: the 5 minute TTL does', 'Each service behind the gateway', 'The SSO admin, by hand'], answer: 1, why: 'The gateway only fetches again when the entry expires.' },
+					{ q: '(c) Who invalidates the fragment?', options: ['The owner, by saving the record', 'A cron job that deletes old fragments', 'A TTL set on the view', 'The cache store, by checking the database'], answer: 0, why: 'The owner\'s own write changes `updated_at`, and so the key.' },
+					{ q: 'In (a), the webhook is down and returns an error. Is that answer cached?', options: ['Yes, for two minutes', 'Yes, until the webhook comes back', 'Only as a rejected token', 'No: `cacheErrs` is false, so the next request tries again'], answer: 3, why: 'Errors are skipped, so a short outage does not fail requests for a whole TTL.' }
+				]
+			},
+			{
+				title: 'Name the worst case',
+				questions: [
+					{ q: '(a) What is the worst case while an entry is stale?', options: ['Valid tokens are rejected', 'Ten webhook calls for one token', 'A revoked token keeps working for up to 2 minutes, per API server', 'The API server stops answering'], answer: 2, why: 'Each API server has its own cache, and each one trusts its entry until the TTL ends.' },
+					{ q: '(b) What is the worst case while the key set is stale?', options: ['Tokens signed with the new key are rejected for up to 5 minutes', 'Old tokens work forever', 'Every request fetches the keys', 'Revoked tokens still pass'], answer: 0, why: 'The gateway cannot check a signature from a key it does not have.' },
+					{ q: 'How do you shorten the worst case in (b)?', options: ['Retry the signature check with the cached keys', 'Refetch once when a token names a `kid` not in the cached set', 'Cache the keys for a day', 'Reject every token that has a `kid`'], answer: 1, why: 'An unknown key id is the sign of a rotation, so one refetch fixes it right away.' },
+					{ q: '(c) What is the worst case?', options: ['The product shows an old price forever', 'Every page renders twice', 'Saving the product fails', 'An outer fragment that embeds it stays stale, unless the child uses `touch: true`'], answer: 3, why: 'The outer key holds the parent\'s `updated_at`, which does not move when only the child changes.' }
+				]
+			}
 		]
 	},
 	quiz: [

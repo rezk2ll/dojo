@@ -95,6 +95,44 @@ export default {
 			'Propriétaire des données : 4. Seul le service de facturation sait qui a créé la facture, si elle est déjà envoyée, et quel est le rôle d’Alice dans cette entreprise.',
 			'503. La gateway ne sait pas si le token est mauvais, donc elle ne doit pas dire « unauthorized ». 401 veut dire « tes identifiants ne sont pas valides », et un client peut réagir en déconnectant l’utilisateur. 503 dit « réessaie plus tard ».',
 			'Bonus : le propriétaire peut refaire 3 et 5 pour pas cher. Ça le protège si quelqu’un l’atteint sans passer par la gateway.'
+		],
+		steps: [
+			{
+				title: 'Choisis le critère',
+				questions: [
+					{ q: 'Quelle question range chaque vérification dans « gateway » ou « propriétaire des données » ?', options: ['La vérification est-elle rapide ?', 'Tourne-t-elle avant la connexion de l’utilisateur ?', 'Faut-il lire les données pour décider ?', 'Est-elle écrite dans le même langage que le service ?'], answer: 2, why: 'Si la vérification a besoin des données, seul le service qui les détient peut y répondre.' },
+					{ q: 'Qu’est-ce que l’authentification ?', options: ['Décider ce qu’Alice peut faire sur cette facture', 'Vérifier qui est l’appelant', 'Limiter les requêtes par IP', 'Cacher un post privé aux inconnus'], answer: 1, why: 'Un mot de passe une fois, puis un token à chaque requête. Elle dit qui, pas ce qu’on a le droit de faire.' },
+					{ q: 'Qu’est-ce que l’autorisation ?', options: ['Vérifier la signature d’un token', 'Se connecter une fois pour plusieurs applis', 'Répondre à un preflight CORS', 'Décider ce que cet appelant peut faire sur ces données'], answer: 3, why: 'Elle a besoin des règles des données, donc c’est le propriétaire des données qui la fait.' },
+					{ q: 'Pourquoi une gateway ne peut-elle pas décider « Alice peut-elle voir ce post » ?', options: ['Elle n’a aucune des données dont la règle a besoin', 'Elle ne sait pas lire les tokens', 'Elle passe après le service', 'Elle n’a pas le droit de renvoyer 404'], answer: 0, why: 'La visibilité, les abonnements et les blocages vivent dans le service des posts. Une gateway placée devant n’a rien de tout ça.' }
+				]
+			},
+			{
+				title: 'Range les vérifications de la gateway',
+				questions: [
+					{ q: '(1) Un rate limit par IP. Où va-t-il ?', options: ['Gateway : il n’a besoin d’aucune donnée de facture', 'Propriétaire des données : il connaît les factures', 'Le SSO, au moment de la connexion', 'L’appli du navigateur, avant l’envoi'], answer: 0, why: 'Une vérification transverse, écrite et testée une seule fois, dans la gateway.' },
+					{ q: '(2) Un preflight CORS. Où va-t-il ?', options: ['Le propriétaire des données, puisqu’il sert la facture', 'La gateway, une fois pour tous les services', 'Le SSO, avec le token', 'Chaque service, à sa façon'], answer: 1, why: 'Ça concerne la requête, pas la facture. Un seul endroit s’en charge pour tous les services.' },
+					{ q: '(3) Ce token est-il signé par notre SSO et non expiré ?', options: ['Seul le propriétaire des données peut le vérifier', 'Le SSO le vérifie à chaque requête', 'La gateway, avec les clés publiées par le SSO', 'L’appli du navigateur, avant l’envoi'], answer: 2, why: 'Le filtre JWT d’Envoy vérifie la signature avec le JWKS, puis l’émetteur et l’expiration.' },
+					{ q: '(5) Ce token est-il destiné à l’API de facturation ?', options: ['Propriétaire des données : il lui faut la facture pour le dire', 'Personne : Envoy vérifie les audiences par défaut', 'Le SSO, quand l’utilisateur se connecte', 'Gateway : règle `audiences`, car Envoy saute la vérification sans ça'], answer: 3, why: '« If not specified, the audiences in JWT will not be checked. » Un token destiné à un autre service passerait.' }
+				]
+			},
+			{
+				title: 'Confie le reste au propriétaire',
+				questions: [
+					{ q: '(4) Alice peut-elle modifier cette facture ?', options: ['La gateway, avec une copie de la règle', 'Le SSO, puisqu’il connaît Alice', 'Le service de facturation, propriétaire de la facture', 'L’appli du navigateur, avant l’envoi'], answer: 2, why: 'La règle a besoin des données de la facture, donc c’est le service qui les détient qui décide.' },
+					{ q: 'Que sait le service de facturation que la gateway ignore ?', options: ['L’adresse IP d’Alice', 'Qui a créé la facture, si elle est déjà envoyée, et le rôle d’Alice', 'La signature du token', 'Les règles CORS'], answer: 1, why: 'Ce sont des faits sur la facture et l’entreprise. Ils vivent chez le propriétaire.' },
+					{ q: 'Tu recopies aussi la règle de modification dans la gateway. Que se passe-t-il avec le temps ?', options: ['Elle s’éloigne des données qu’elle protège', 'Elle rend le service plus rapide', 'Le SSO la reprend à son compte', 'Rien, tant que les deux tournent'], answer: 0, why: 'Quand le propriétaire change sa règle, la copie dans la gateway n’est plus à jour.' },
+					{ q: 'Dans Mastodon, que dit `doorkeeper_authorize! :write` au contrôleur ?', options: ['Qu’Alice possède le post', 'Que le post est public', 'Qu’Alice suit l’auteur', 'Que cette appli peut écrire des posts, mais pas lesquels'], answer: 3, why: 'Le scope fait partie de l’authentification. `StatusPolicy` décide encore pour chaque post.' }
+				]
+			},
+			{
+				title: 'Réponds à la panne',
+				questions: [
+					{ q: 'La gateway n’arrive pas à joindre le fournisseur d’identité. Que sait-elle du token ?', options: ['Qu’il est mauvais', 'Qu’il est bon', 'Rien : elle ne peut pas dire si le token est valide', 'Qu’il a expiré'], answer: 2, why: 'Pas de réponse du fournisseur, ce n’est pas un « non ». Le token est peut-être bon.' },
+					{ q: 'Quel statut la gateway renvoie-t-elle ?', options: ['401', '403', '404', '503'], answer: 3, why: '503 dit « réessaie plus tard », et c’est la vérité ici.' },
+					{ q: 'Pourquoi pas 401 ?', options: ['401 dit que les identifiants ne sont pas valides, et un client peut déconnecter l’utilisateur', '401 ne sert qu’aux mauvais mots de passe', '401 ne peut pas porter de corps', 'Les navigateurs gardent un 401 en cache pour toujours'], answer: 0, why: 'La gateway ne sait pas que le token est mauvais, donc elle ne doit pas dire « unauthorized ».' },
+					{ q: 'Pourquoi le propriétaire devrait-il refaire aussi les vérifications 3 et 5 ?', options: ['Parce que la gateway ne les fait jamais', 'Pour se protéger si quelqu’un l’atteint sans passer par la gateway', 'Pour ralentir chaque requête exprès', 'Parce que le SSO exige deux vérifications'], answer: 1, why: 'Elles coûtent peu à refaire, et elles couvrent un chemin qui contourne la gateway.' }
+				]
+			}
 		]
 	},
 	quiz: [

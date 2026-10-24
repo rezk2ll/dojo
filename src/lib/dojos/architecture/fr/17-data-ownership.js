@@ -100,6 +100,44 @@ export default {
 			'(c) **Booking** est le propriétaire. Le prix payé est un fait de la vente, un instantané comme le `OrderItem.cost` d’Online Boutique.',
 			'(d) Accounts est le propriétaire. Booking garde une **référence** (l’id du client) et demande au moment d’envoyer un mail, ou une copie alimentée par des événements « e-mail modifié ».',
 			'(e) Events possède la place. Booking garde une **référence** : l’id de la place sur le billet.'
+		],
+		steps: [
+			{
+				title: 'Nomme chaque propriétaire',
+				questions: [
+					{ q: 'Qui est propriétaire de (a), la date d’un concert ?', options: ['Booking', 'Events', 'Accounts', 'Chaque service qui l’imprime'], answer: 1, why: 'Events détient les concerts. C’est le seul endroit qui change une date.' },
+					{ q: 'Qui est propriétaire de (b), le nombre de places libres ?', options: ['Booking, puisqu’il vend les places', 'Accounts, puisque les clients prennent les places', 'Events, puisqu’il détient le plan de salle', 'Events et Booking ensemble'], answer: 2, why: 'Le compteur découle du plan de salle, et le plan de salle, ce sont les données d’Events. Deux écrivains voudraient dire deux jeux de règles.' },
+					{ q: 'Qui est propriétaire de (c), le prix payé pour un billet ?', options: ['Events, puisqu’il possède le concert', 'Accounts, puisque c’est le client qui a payé', 'Le service qui envoie le reçu', 'Booking : c’est un fait de la vente'], answer: 3, why: 'Le prix payé est enregistré par la vente, comme `OrderItem.Cost` dans Online Boutique.' },
+					{ q: 'Qui est propriétaire de (d), l’e-mail d’un client ?', options: ['Booking', 'Events', 'Accounts', 'Le serveur mail'], answer: 2, why: 'Accounts détient les clients, donc c’est le seul service qui écrit leur e-mail.' }
+				]
+			},
+			{
+				title: 'Demande ce dont Booking a besoin',
+				questions: [
+					{ q: 'Pour le prix payé, Booking a-t-il besoin de la valeur du jour ou de la valeur à la vente ?', options: ['La valeur du jour, lue chez Events', 'La valeur au moment de la vente', 'Aucune : il n’affiche jamais de prix', 'Les deux, synchronisées'], answer: 1, why: 'Le billet enregistre ce que le client a accepté de payer. Un changement de prix plus tard ne doit pas y toucher.' },
+					{ q: 'Quelle question t’aide à nommer le propriétaire ?', options: ['Quel service tourne le plus vite ?', 'Quelle table est la plus grosse ?', 'Qui doit faire respecter une règle à son sujet ?', 'Quel service l’a lue en premier ?'], answer: 2, why: 'Le propriétaire est le seul service qui fait respecter les invariants de cette donnée.' },
+					{ q: 'Booking envoie un mail à un client. De quel e-mail a-t-il besoin ?', options: ['L’e-mail au moment de la vente', 'L’e-mail de la première réservation', 'Aucun : Booking n’envoie jamais de mail', 'L’e-mail actuel, pour que le mail arrive au client'], answer: 3, why: 'Un vieil e-mail peut ne plus marcher. C’est pour ça que Booking demande à Accounts au moment d’envoyer.' },
+					{ q: 'Dans Online Boutique, quelle valeur une commande garde-t-elle pour chaque article ?', options: ['Le prix actuel du catalogue, relu à chaque affichage', 'Le `Cost` au moment de la vente', 'Seulement l’id du produit', 'Le prix en USD avant conversion'], answer: 1, why: 'Le checkout copie le prix dans `OrderItem.Cost`, un instantané que les changements du catalogue ne modifient jamais.' }
+				]
+			},
+			{
+				title: 'Possède, copie ou référence',
+				questions: [
+					{ q: '(a) Booking imprime la date du concert sur le billet. Que garde-t-il ?', options: ['Une copie alimentée par des événements « concert reprogrammé »', 'Sa propre date, dont il est propriétaire', 'Une copie qu’il modifie quand la salle appelle', 'Aucune date : les billets ne l’affichent jamais'], answer: 0, why: 'Une copie convient tant que seuls les événements du propriétaire la modifient.' },
+					{ q: '(c) Qu’est-ce que le prix payé, pour Booking ?', options: ['Une copie alimentée par Events', 'Une référence au prix d’Events', 'Une donnée dont Booking est propriétaire, un instantané de la vente', 'Une valeur qu’il demande à Events à chaque fois'], answer: 2, why: 'Le prix payé est un fait nouveau créé par la vente, et c’est Booking qui enregistre la vente.' },
+					{ q: '(e) Que garde un billet à propos de sa place ?', options: ['La propriété de la place', 'Une copie de tout le plan de salle', 'Rien du tout', 'Une référence : l’id de la place'], answer: 3, why: 'Events possède la place. Un id n’a rien à synchroniser.' },
+					{ q: '(d) Booking doit envoyer un mail au client. Laquelle de ces options est sûre ?', options: ['Sa propre colonne e-mail qu’il modifie', 'Une référence, l’id du client, et demander à Accounts au moment d’envoyer', 'Une copie saisie à la réservation et jamais mise à jour', 'L’e-mail de la dernière réservation'], answer: 1, why: 'Une référence ne peut pas dater. Une copie n’est sûre que si les événements « e-mail modifié » d’Accounts l’alimentent.' }
+				]
+			},
+			{
+				title: 'Dis comment Booking l’obtient',
+				questions: [
+					{ q: 'Comment Booking prend-il des places pour une vente ?', options: ['Il demande à Events de bloquer les places, et n’écrit jamais le compteur', 'Il écrit le compteur dans la table d’Events', 'Il tient son propre compteur de places libres', 'Il copie le plan de salle chaque nuit'], answer: 0, why: 'Seul le propriétaire écrit. Booking demande, et Events garde le compteur juste.' },
+					{ q: 'Un concert est reprogrammé. Comment la copie de la date chez Booking change-t-elle ?', options: ['Booking la modifie quand un client se plaint', 'Booking lit la base d’Events chaque nuit', 'Elle ne change plus une fois le billet vendu', 'Events publie « concert reprogrammé », et Booking met sa copie à jour à partir de lui'], answer: 3, why: 'Le propriétaire envoie le changement, et la copie suit. Personne ne lit les tables d’Events.' },
+					{ q: 'Qui peut modifier la copie de l’e-mail d’un client chez Booking ?', options: ['Booking, quand un client appelle', 'Tout service qui a l’id', 'Seulement le propriétaire, par un événement « e-mail modifié » d’Accounts', 'Personne, une fois qu’il est stocké'], answer: 2, why: 'Seul le propriétaire modifie une copie. Mastodon rejette un `Update` sur un compte que l’expéditeur ne possède pas.' },
+					{ q: 'Booking lit directement la table des places d’Events, en lecture seule. Qu’est-ce qui coince ?', options: ['Rien : une requête en lecture seule ne peut rien casser', 'Events ne peut plus changer ses tables sans casser Booking', 'Booking devient propriétaire des places', 'Events doit publier plus d’événements'], answer: 1, why: 'La table devient une base d’intégration. Le propriétaire perd le droit de changer son propre schéma.' }
+				]
+			}
 		]
 	},
 	quiz: [

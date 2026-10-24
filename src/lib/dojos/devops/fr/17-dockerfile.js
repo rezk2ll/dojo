@@ -113,6 +113,44 @@ CMD [ "node", "src/index.js" ]`,
 			'Tu modifies `app.py` : seul `COPY . .` (et ce qui suit) est reconstruit. `pip install` vient du cache.',
 			'Tu modifies `requirements.txt` : l’installation est relancée, et c’est ce que tu veux.',
 			'Bonus : ajoute un `.dockerignore` pour que `.git`, les virtualenvs et le bazar local restent hors du contexte de build (les fichiers que `docker build .` envoie au builder) et hors de l’image.'
+		],
+		steps: [
+			{
+				title: 'Trouve l’étape lente',
+				questions: [
+					{ q: 'Quelle étape prend l’essentiel des quatre minutes ?', options: ['`FROM python:3.12-slim`', '`WORKDIR /app`', '`RUN pip install -r requirements.txt`', '`CMD ["python", "app.py"]`'], answer: 2, why: 'Installer toutes les dépendances, c’est le travail lent. Les autres lignes copient des fichiers ou changent des réglages.' },
+					{ q: 'Tu modifies une ligne de `app.py`. Pourquoi `pip install` est-il relancé ?', options: ['`COPY . .` est au-dessus, donc sa couche et toutes les suivantes sont reconstruites', '`RUN` n’est jamais en cache', 'pip ignore toujours le cache', 'L’image de base a changé'], answer: 0, why: 'Un fichier modifié invalide sa couche et toutes les couches qui suivent. `app.py` fait partie de `COPY . .`.' },
+					{ q: 'Quel fichier décide de ce que fait `pip install` ?', options: ['`app.py`', 'Le Dockerfile', '`.dockerignore`', '`requirements.txt`'], answer: 3, why: 'L’installation ne lit que le fichier de dépendances. C’est le seul fichier dont elle a besoin avant de tourner.' },
+					{ q: 'Le builder te prévient-il de ce mauvais ordre ?', options: ['Oui, il affiche un avertissement de cache', 'Non : aucune erreur, chaque build réinstalle simplement tout', 'Oui, `docker build` échoue', 'Seulement au premier build'], answer: 1, why: 'Un mauvais ordre n’est pas une erreur. Les builds restent lents et personne ne le remarque pendant des mois.' }
+				]
+			},
+			{
+				title: 'Réordonne le Dockerfile',
+				questions: [
+					{ q: 'Que vient-il juste après `WORKDIR /app` ?', options: ['`COPY . .`', '`COPY requirements.txt .`', '`RUN pip install -r requirements.txt`', '`CMD ["python", "app.py"]`'], answer: 1, why: 'Copie d’abord seulement le fichier de dépendances, pour que l’installation ne dépende de rien d’autre.' },
+					{ q: 'Où va `COPY . .` maintenant ?', options: ['Après `RUN pip install`', 'Juste après `FROM`', 'Avant `WORKDIR`', 'Il ne sert plus'], answer: 0, why: 'Le code change à chaque commit, donc il passe en dernier, après l’installation lente.' },
+					{ q: 'Quelle règle suit cet ordre ?', options: ['Les lignes les plus courtes d’abord', 'L’ordre alphabétique des instructions', 'Ce qui change le moins souvent d’abord, le plus souvent en dernier', 'Toutes les lignes `COPY` ensemble'], answer: 2, why: 'Une couche n’est réutilisée que si elle et tout ce qui est au-dessus n’ont pas changé. Le stable va en haut.' },
+					{ q: '`CMD ["python", "app.py"]` ajoute-t-il une couche ?', options: ['Oui, une petite', 'Oui, il copie `app.py`', 'Seulement sous la forme JSON', 'Non : il enregistre seulement la commande par défaut'], answer: 3, why: '`CMD` change les réglages de l’image, pas les fichiers.' }
+				]
+			},
+			{
+				title: 'Prévois le rebuild',
+				questions: [
+					{ q: 'Avec le nouvel ordre, tu modifies `app.py`. Quelles couches sont reconstruites ?', options: ['Toutes', 'Seulement `COPY . .` et ce qui suit', '`pip install` et ce qui suit', 'Aucune : Docker saute les petits changements'], answer: 1, why: 'La modif invalide `COPY . .`. Tout ce qui est au-dessus vient du cache.' },
+					{ q: '`RUN pip install` vient-il du cache maintenant ?', options: ['Oui : `requirements.txt` n’a pas changé', 'Non : `RUN` est toujours relancé', 'Seulement si tu passes `--no-cache`', 'Seulement dans la CI'], answer: 0, why: 'L’instruction et son fichier d’entrée sont les mêmes qu’au build précédent, donc le builder réutilise la couche.' },
+					{ q: 'Tu ajoutes une bibliothèque à `requirements.txt`. Que se passe-t-il ?', options: ['Rien n’est relancé', 'Seul `COPY . .` est relancé', 'Le build échoue tant que tu ne vides pas le cache', 'L’installation est relancée, et c’est ce que tu veux'], answer: 3, why: 'Son entrée a changé, donc sa couche et les suivantes sont reconstruites.' },
+					{ q: 'Combien de temps prend à peu près le rebuild après la modif de `app.py` ?', options: ['Toujours environ quatre minutes', 'Plus, puisqu’il y a un `COPY` de plus', 'Quelques secondes', 'Ça dépend de la taille de `requirements.txt`'], answer: 2, why: 'Avec un bon ordre, les rebuilds réutilisent toutes les couches lentes et prennent quelques secondes.' }
+				]
+			},
+			{
+				title: 'Allège le contexte de build',
+				questions: [
+					{ q: 'Qu’est-ce que le contexte de build ?', options: ['Les fichiers que `docker build .` envoie au builder', 'La liste des couches en cache', 'L’image de base', 'Les fichiers du conteneur qui tourne'], answer: 0, why: 'Le `.` de `docker build .` est le contexte : chaque fichier dedans part au builder.' },
+					{ q: 'Quel fichier garde `.git` et les virtualenvs hors du contexte ?', options: ['`.gitignore`', '`requirements.txt`', '`.dockerignore`', 'La ligne `WORKDIR`'], answer: 2, why: 'Un `.dockerignore` liste les chemins que le builder ne reçoit jamais.' },
+					{ q: 'Sans `.dockerignore`, qu’est-ce qui peut aussi casser le cache de `COPY . .` ?', options: ['Rien d’autre', 'Des changements dans le bazar local comme `.git`, qui finit aussi dans l’image', 'Seulement des changements du Dockerfile', 'Lancer le conteneur'], answer: 1, why: '`COPY . .` copie tout le contexte. Le moindre changement dedans invalide la couche.' },
+					{ q: 'Un collègue sépare `RUN apt-get update` et `RUN apt-get install` sur deux lignes. Quel est le risque ?', options: ['Le build échoue sur un verrou', 'apt tourne deux fois plus lentement', 'Aucun, Docker relie les deux lignes', 'La couche update reste en cache, donc l’installation utilise une vieille liste de paquets'], answer: 3, why: 'Le builder compare seulement le texte de la commande. Docker recommande les deux dans un seul `RUN`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,28 @@ CMD [ "node", "src/index.js" ]`,
 			why: 'Le builder compare seulement le texte de la commande `RUN`. La ligne update n’a pas changé, donc elle vient du cache. Docker recommande `apt-get update && apt-get install` dans un seul `RUN`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire le Dockerfile lent du collègue, voir une modif d’une ligne relancer `pip install`, puis corriger l’ordre et le voir venir du cache.',
+		steps: [
+			'Crée l’appli : `mkdir -p ~/build-lab && cd ~/build-lab && printf \'requests==2.32.3\\n\' > requirements.txt && printf \'print("hello v1")\\n\' > app.py`.',
+			'Écris le Dockerfile lent et construis-le une fois : `printf \'FROM python:3.12-slim\\nWORKDIR /app\\nCOPY . .\\nRUN pip install -r requirements.txt\\nCMD ["python", "app.py"]\\n\' > Dockerfile && docker build -t lab-py . && docker run --rm lab-py`.',
+			'Modifie une ligne et reconstruis : `printf \'print("hello v2")\\n\' > app.py && docker build --progress=plain -t lab-py . 2>&1 | grep -E "^#[0-9]+ (\\[[0-9]|CACHED)"`.',
+			'Réordonne : `printf \'FROM python:3.12-slim\\nWORKDIR /app\\nCOPY requirements.txt .\\nRUN pip install -r requirements.txt\\nCOPY . .\\nCMD ["python", "app.py"]\\n\' > Dockerfile && docker build -t lab-py .`. Puis modifie encore `app.py` (`printf \'print("hello v3")\\n\' > app.py`), relance le même build en `--progress=plain`, et lance `docker run --rm lab-py`.',
+			'Regarde les couches : `docker history lab-py`. Nettoie avec `docker rmi lab-py`.'
+		],
+		done: [
+			'À l’étape 3, l’étape `RUN pip install` est relancée (pas de `CACHED` dessous) et prend autant de temps que le premier build.',
+			'À l’étape 4, après la modif de `app.py`, `RUN pip install` est suivi de `CACHED`, et seul `COPY . .` n’a pas de ligne `CACHED`.',
+			'`docker run --rm lab-py` affiche `hello v3`.',
+			'`docker history lab-py` montre `CMD ["python" "app.py"]` avec une taille de `0B`.'
+		],
+		solution: [
+			'L’ordre lent met `COPY . .` au-dessus de l’installation, donc toute modif invalide la couche d’installation.',
+			'L’ordre corrigé copie d’abord `requirements.txt` seul. L’installation ne dépend que de lui, donc elle reste en cache tant que les dépendances ne changent pas.',
+			'`CMD` affiche `0B` parce qu’il n’ajoute aucune couche de fichiers : il règle seulement la commande par défaut.'
+		]
+	},
 	recall: {
 		q: 'Dans un Dockerfile Node, que copies-tu avant `RUN npm ci`, et pourquoi ?',
 		a: 'Seulement `package.json` et le lock file. Une modif du code ne reconstruit alors que la couche `COPY . /code` et les suivantes, et `npm ci` vient du cache.'

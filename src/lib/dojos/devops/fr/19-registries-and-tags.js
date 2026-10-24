@@ -118,6 +118,44 @@ env:
 			'Arrête de déployer `latest`. La CI tague chaque build avec quelque chose d’unique (le tag Git ou le SHA du commit) et note le **digest** renvoyé par le push.',
 			'Le déploiement utilise `acme/api@sha256:...` (ou au moins un tag de version immuable), écrit dans Git, pour que chaque serveur tire la même image.',
 			'Pour revenir en arrière, remets le digest précédent et redéploie.'
+		],
+		steps: [
+			{
+				title: 'Lis le symptôme',
+				questions: [
+					{ q: 'Les cinq serveurs ont lancé `docker pull acme/api:latest`. Font-ils donc tourner la même image ?', options: ['Oui : même nom, même image', 'Oui, s’ils ont tiré le même jour', 'Non : `latest` a pu pointer vers des images différentes au moment de chaque pull', 'Non : chaque serveur construit sa propre image'], answer: 2, why: 'Un tag est un nom qui bouge. Le même nom peut désigner des images différentes à des moments différents.' },
+					{ q: 'Que tire la tâche cron à chaque passage ?', options: ['Ce vers quoi pointe `latest` à cet instant', 'L’image que le serveur a déjà', 'Le digest le plus récent de la version stable', 'L’image nommée dans Git'], answer: 0, why: 'Tirer un tag, c’est demander à la registry vers quoi pointe le tag maintenant.' },
+					{ q: 'Qui peut déplacer `acme/api:latest` ?', options: ['Seulement l’équipe de Docker Hub', 'Personne une fois poussé', 'Seulement le serveur qui le tire', 'Toute personne qui peut pousser dans le dépôt'], answer: 3, why: 'Toute personne qui peut pousser peut faire pointer `latest` vers une nouvelle image.' },
+					{ q: 'Qu’est-ce qui te montrerait l’image que chaque serveur fait vraiment tourner ?', options: ['Le nom du tag', 'Le digest de l’image sur chaque serveur', 'Le planning du cron', 'La taille du fichier compose'], answer: 1, why: 'Un digest est un hash du contenu. Deux images avec le même digest ont les mêmes octets.' }
+				]
+			},
+			{
+				title: 'Nomme la cause',
+				questions: [
+					{ q: 'Que s’est-il sans doute passé avant lundi ?', options: ['Deux serveurs ont un disque corrompu', 'La registry a servi une image au hasard', 'Quelqu’un a poussé une nouvelle image sur `latest` entre les pulls des serveurs', 'Le fichier compose a changé sur deux serveurs'], answer: 2, why: 'Les serveurs qui ont tiré avant et après le push font tourner des images différentes sous le même nom.' },
+					{ q: 'Que veut dire `latest` sur une registry ?', options: ['Juste un tag, déplacé par qui le pousse', 'La dernière version stable', 'L’image au plus grand numéro de version', 'L’image que font tourner la plupart des serveurs'], answer: 0, why: '`latest` est un tag comme les autres. Il ressemble à une version, mais rien ne le garantit.' },
+					{ q: 'Avec les valeurs par défaut de `docker/metadata-action`, quel tag Git peut déplacer `latest` ?', options: ['Seulement un `v1.2.3` stable', 'Seulement un push manuel', 'Seulement les push sur une branche', 'Aussi un tag comme `v2.0.8-beta.67`'], answer: 3, why: 'Son README montre qu’un tag de bêta reçoit aussi `latest`, donc `latest` peut pointer vers une bêta.' },
+					{ q: 'Pourquoi est-ce difficile à voir depuis les serveurs ?', options: ['Docker cache le digest', 'Les cinq affichent le même nom d’image', 'Les serveurs n’ont pas de logs', 'Les registries suppriment les vieilles images'], answer: 1, why: 'Chaque serveur dit `acme/api:latest`. Le nom est le même, les octets non.' }
+				]
+			},
+			{
+				title: 'Change le déploiement',
+				questions: [
+					{ q: 'Comment la CI doit-elle taguer chaque build ?', options: ['Avec `latest` seulement', 'Avec la date de la semaine', 'Avec quelque chose d’unique, comme le tag Git ou le SHA du commit', 'Avec le nom du serveur'], answer: 2, why: 'Un tag unique par build empêche deux builds de partager un nom.' },
+					{ q: 'Que doit noter la CI après le push ?', options: ['La taille de l’image', 'Le digest de l’image poussée', 'Le planning du cron', 'La liste des serveurs'], answer: 1, why: 'Le digest désigne exactement l’image construite et poussée.' },
+					{ q: 'Quelle référence les serveurs doivent-ils déployer ?', options: ['`acme/api:latest`', '`acme/api`, sans tag', '`acme/api:stable`', '`acme/api@sha256:...`, écrit dans Git'], answer: 3, why: 'Un digest ne peut pas être déplacé vers un autre contenu, donc chaque serveur tire la même image.' },
+					{ q: 'Quel est le coût du déploiement par digest ?', options: ['Les digests sont longs, il faut de l’outillage pour les mettre à jour', 'Les pulls deviennent plus lents', 'La registry arrête de stocker les tags', 'Tu ne peux plus revenir en arrière'], answer: 0, why: 'Les digests sont illisibles, donc la sortie de la CI, Renovate ou Dependabot les tiennent à jour.' }
+				]
+			},
+			{
+				title: 'Prévois le rollback',
+				questions: [
+					{ q: 'Le nouveau digest est cassé. Comment reviens-tu en arrière ?', options: ['Repousser l’ancienne image sur `latest`', 'Remettre le digest précédent dans Git et redéployer', 'Supprimer la nouvelle image de la registry', 'Attendre la tâche cron'], answer: 1, why: 'Le digest précédent désigne toujours les anciens octets, quoi qu’il soit arrivé aux tags.' },
+					{ q: 'Pourquoi l’ancien digest est-il une cible de rollback sûre ?', options: ['Il désigne toujours les mêmes octets', 'Il est plus court qu’un tag', 'Les registries le gardent en haut', 'Il évite le pull'], answer: 0, why: 'Tire par digest et tu obtiens exactement cette image, pour toujours.' },
+					{ q: 'Pourquoi garder le digest dans Git plutôt que seulement sur les serveurs ?', options: ['Git sait tirer des images', 'Les serveurs ne peuvent pas stocker de digest', 'Docker l’exige', 'Chaque serveur lit la même valeur, et le changement est relu'], answer: 3, why: 'Une seule valeur dans Git, c’est une seule image partout, et l’historique montre ce qui a tourné quand.' },
+					{ q: 'Quelle partie du chemin de déploiement peut encore bloquer un déploiement ?', options: ['Le digest', 'Git', 'La registry, si elle tombe ou te limite', 'Le nom du tag'], answer: 2, why: 'La registry fait partie de ton chemin de déploiement. Si elle est injoignable, plus rien de nouveau ne démarre.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,27 @@ env:
 			why: 'Une signature sur un nom qui bouge ne dirait rien de ce vers quoi ce nom pointera demain. Signer le digest la lie à ces octets précis.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire tourner une registry sur localhost, déplacer `latest` sous les pieds d’un « serveur », et récupérer l’ancienne image par digest.',
+		steps: [
+			'Lance une registry locale : `docker run -d --name lab-registry -p 5001:5000 registry:2`.',
+			'Construis et pousse la v1 en `1.0` et `latest` : `printf \'FROM busybox:1.36\\nCMD ["echo", "api v1"]\\n\' | docker build -t localhost:5001/api:1.0 - && docker tag localhost:5001/api:1.0 localhost:5001/api:latest && docker push localhost:5001/api:1.0 && docker push localhost:5001/api:latest`. Note le digest : `docker inspect --format \'{{index .RepoDigests 0}}\' localhost:5001/api:1.0`.',
+			'Pousse la v2 en `2.0` et sous le même `latest` : `printf \'FROM busybox:1.36\\nCMD ["echo", "api v2"]\\n\' | docker build -t localhost:5001/api:2.0 - && docker tag localhost:5001/api:2.0 localhost:5001/api:latest && docker push localhost:5001/api:2.0 && docker push localhost:5001/api:latest`.',
+			'Joue un serveur neuf : `docker rmi localhost:5001/api:1.0 localhost:5001/api:2.0 localhost:5001/api:latest`, puis `docker run --rm localhost:5001/api:latest`, puis `docker run --rm localhost:5001/api@sha256:...` avec le digest de l’étape 2.',
+			'Liste les tags et nettoie : `curl -s http://localhost:5001/v2/api/tags/list`, puis `docker rm -f lab-registry`.'
+		],
+		done: [
+			'`docker run --rm localhost:5001/api:latest` affiche `api v2` : le tag a bougé.',
+			'`docker run --rm localhost:5001/api@sha256:...` affiche `api v1`, et la sortie du pull montre le même `Digest:` que celui que tu as noté.',
+			'`curl` liste `latest`, `1.0` et `2.0` dans le dépôt `api`.'
+		],
+		solution: [
+			'Les deux push de `latest` ont été acceptés : la registry a laissé le tag pointer vers un nouveau contenu sans rien dire.',
+			'Un serveur qui a tiré `latest` après l’étape 2 fait tourner la v1, un serveur qui a tiré après l’étape 3 la v2. Même nom, octets différents.',
+			'Le digest de l’étape 2 tire toujours la v1 : c’est pour ça que le déploiement fixe `acme/api@sha256:...` et qu’un rollback remet l’ancien digest.'
+		]
+	},
 	recall: {
 		q: 'Deux serveurs ont tiré `acme/api:latest` à une semaine d’écart. Pourquoi peuvent-ils faire tourner du code différent, et quelle référence leur fait tirer la même image ?',
 		a: 'Un push a déplacé `latest` vers une nouvelle image entre les deux pulls. `acme/api@sha256:...`, le digest, désigne toujours les mêmes octets.'

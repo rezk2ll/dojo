@@ -110,6 +110,44 @@ CMD ["/usr/local/bin/backend"]`,
 			'Minimal base for the final stage: a slim variant or a distroless Node image instead of the full `node:22`.',
 			'`.dockerignore`: list `.git`, `node_modules`, `.env` and test data, so they never reach the builder or the image.',
 			'`USER`: set a non-root user and group in the final stage (the official Node images [ship a `node` user](https://github.com/nodejs/docker-node/blob/02641286c1f5041d9025d3cf6d38a64b84cd72e5/docs/BestPractices.md#non-root-user) with UID 1000), then check the app can still write where it needs to.'
+		],
+		steps: [
+			{
+				title: 'Split the build',
+				questions: [
+					{ q: 'Which change cuts the most from a 1 GB image that ships its build tools?', options: ['A `.dockerignore`', 'A `USER` line', 'A multi-stage build', 'A shorter `CMD`'], answer: 2, why: 'Build tools, caches and sources stay in the build stage. Only the result reaches the final image.' },
+					{ q: 'What runs in the first stage?', options: ['`npm ci` and `npm run build`, in a `node:22` stage', 'Only the final `CMD`', 'Nothing: the first stage is empty', 'The vulnerability scanner'], answer: 0, why: 'The build stage can be big. Its size does not matter, because it never ships.' },
+					{ q: 'What does the final stage get from the build stage?', options: ['Everything, layer by layer', 'The whole `node_modules` with dev dependencies', 'The build cache', 'Only the build output and production dependencies, via `COPY --from`'], answer: 3, why: 'The final image is the last stage plus only what `COPY --from` takes from earlier stages.' },
+					{ q: 'Which stage does a plain `docker build` produce?', options: ['The first one', 'The last one', 'All stages merged', 'The one named `builder`'], answer: 1, why: 'By default the image is the last stage. `--target` builds up to an earlier one.' }
+				]
+			},
+			{
+				title: 'Pick a minimal base',
+				questions: [
+					{ q: 'What should the final stage start from instead of the full `node:22`?', options: ['A slim variant or a distroless Node image', '`node:22` again, to be safe', 'An Ubuntu image with Node installed', 'The build stage itself'], answer: 0, why: 'A minimal base holds little besides what the app needs.' },
+					{ q: 'Why does a smaller base mean fewer CVEs?', options: ['Scanners skip small images', 'Small images are always newer', 'Fewer packages means fewer things to patch', 'CVEs only affect compilers'], answer: 2, why: 'Every extra package is something to patch and something an attacker can use.' },
+					{ q: 'What do you lose with distroless?', options: ['The ability to run Node', 'Image layers', 'Multi-stage builds', 'A shell, so `docker exec ... sh` fails'], answer: 3, why: 'Distroless has no shell and no package manager. Its `debug` tags exist for that case.' },
+					{ q: 'What must you check after moving to a minimal base?', options: ['That the image is over 100 MB', 'That runtime files like CA certificates and time zone data are still there', 'That `gcc` is still installed', 'That the base runs as root'], answer: 1, why: 'Multi-stage files need care to copy every file the app needs at runtime.' }
+				]
+			},
+			{
+				title: 'Filter the build context',
+				questions: [
+					{ q: 'With no `.dockerignore`, what does `COPY . .` take?', options: ['Only tracked Git files', 'Only `package.json`', 'Everything in the context, `.git` and `.env` included', 'Nothing until you list the files'], answer: 2, why: 'The builder receives the whole context, and `COPY . .` copies all of it.' },
+					{ q: 'Which paths go into `.dockerignore` here?', options: ['`.git`, `node_modules`, `.env` and test data', '`package.json` and the lock file', '`Dockerfile` only', 'The final stage\'s output'], answer: 0, why: 'They never reach the builder, so they cannot end up in the image.' },
+					{ q: 'When does `.dockerignore` remove files?', options: ['After the build, from the final image', 'During `docker push`', 'Only in the last stage', 'Before the context is sent to the builder'], answer: 3, why: 'Matching files are removed from the context before the builder sees it.' },
+					{ q: 'Why ignore `node_modules` when `npm ci` runs in the image anyway?', options: ['npm refuses to run otherwise', 'So builds send less data, and your local copy stays out of the image', 'To make `CMD` faster', 'Because it holds the CVEs'], answer: 1, why: 'Ignored paths never reach the builder, so builds send less and `COPY . .` cannot pick them up.' }
+				]
+			},
+			{
+				title: 'Drop root',
+				questions: [
+					{ q: 'With no `USER` line in your file or the base, who runs the app?', options: ['`nobody`', 'root (UID 0)', 'The user who ran `docker build`', 'A random UID'], answer: 1, why: 'Docker starts the process as root unless a `USER` line says otherwise.' },
+					{ q: 'Which user can you use in the official Node images?', options: ['`admin`, UID 0', '`www-data`', 'Only a UID you create yourself', '`node`, with UID 1000'], answer: 3, why: 'The official Node images ship a `node` user with UID 1000.' },
+					{ q: 'Why give a group as well, as in `USER 10001:10001`?', options: ['Without a primary group, the process runs with the root group', 'Docker rejects a user with no group', 'Groups make the image smaller', 'It sets file permissions on the host'], answer: 0, why: 'A user with no primary group gets the root group.' },
+					{ q: 'The app now fails to write its upload folder. What fixes it?', options: ['Switch back to root', 'Remove the `USER` line in production only', 'Give the folder to the app user, for example with `COPY --chown`', 'Mount the host\'s `/`'], answer: 2, why: 'A non-root user cannot write to root-owned paths, so you fix ownership of what the app writes.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -142,6 +180,28 @@ CMD ["/usr/local/bin/backend"]`,
 			why: 'Files matching `.dockerignore` are removed from the context before the builder sees it, so `COPY` cannot pick them up.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a Go app in two stages, compare the builder with the final image, and watch `.dockerignore` and `USER` do their job.',
+		steps: [
+			'Make the app and a fake secret: `mkdir -p ~/image-lab && cd ~/image-lab && printf \'package main; import ("fmt"; "os"); func main() { fmt.Println("uid", os.Getuid(), "gid", os.Getgid()) }\\n\' > main.go && echo DB_PASSWORD=hunter2 > .env`.',
+			'Write a two-stage Dockerfile: `printf \'FROM golang:1.22-alpine AS builder\\nWORKDIR /code\\nCOPY . .\\nRUN CGO_ENABLED=0 go build -o /app main.go\\n\\nFROM scratch\\nCOPY --from=builder /app /app\\nUSER 10001:10001\\nCMD ["/app"]\\n\' > Dockerfile`.',
+			'Build both stages and compare: `docker build --target builder -t lab-go:builder . && docker build -t lab-go:final . && docker images lab-go`.',
+			'Run and probe: `docker run --rm lab-go:final`, `docker run --rm lab-go:builder id`, `docker run --rm lab-go:final sh`, and `docker run --rm lab-go:builder ls -a /code`.',
+			'Add the ignore file and rebuild the builder: `printf \'.env\\n.git\\n\' > .dockerignore && docker build --target builder -t lab-go:builder . && docker run --rm lab-go:builder ls -a /code`. Clean up with `docker rmi lab-go:builder lab-go:final`.'
+		],
+		done: [
+			'`docker images lab-go` shows the final image at a few MB and the builder at hundreds of MB.',
+			'`docker run --rm lab-go:final` prints `uid 10001 gid 10001`, while the builder\'s `id` prints `uid=0(root)`.',
+			'`docker run --rm lab-go:final sh` fails with `exec: "sh": executable file not found`.',
+			'Before step 5, `ls -a /code` lists `.env`; after it, `.env` is gone.'
+		],
+		solution: [
+			'The final image is `FROM scratch` plus one static binary. Go, Alpine and the source stay in the builder stage.',
+			'`USER 10001:10001` sets both user and group, so the process never runs as root or with the root group.',
+			'Without `.dockerignore`, `COPY . .` took the secret along. With it, the builder never receives `.env`.'
+		]
+	},
 	recall: {
 		q: 'In the Go backend Dockerfile, what does the final image contain, and which user runs it?',
 		a: 'Only the `backend` binary, copied with `COPY --from=builder` onto `FROM scratch`. With no `USER` line it runs as root, and `USER 10001:10001` would fix that.'

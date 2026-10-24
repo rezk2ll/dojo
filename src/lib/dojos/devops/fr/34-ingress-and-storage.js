@@ -112,6 +112,44 @@ spec:
 			'Est-ce que `blog.example.com` résout vers l’adresse du load balancer du controller (la colonne ADDRESS de `kubectl get ingress`) ?',
 			'Le Service `blog` existe-t-il dans le **même namespace** que l’Ingress, avec le port 80 ?',
 			'Le Service a-t-il des endpoints prêts ? Sinon, compare le selector du Service aux labels des Pods, puis vérifie les readiness probes.'
+		],
+		steps: [
+			{
+				title: 'Vérifie le controller',
+				questions: [
+					{ q: '`kubectl get ingress` liste ton Ingress. Qu’est-ce que ça prouve ?', options: ['Le trafic arrive aux Pods `blog`', 'L’API server a stocké les règles, rien de plus', 'Le controller a chargé les règles', 'Le DNS pointe vers le cluster'], answer: 1, why: 'Un Ingress n’est qu’un ensemble de règles. Le lister montre que l’objet existe, pas que quelqu’un le lit.' },
+					{ q: 'Que devient un Ingress dans un cluster sans ingress controller ?', options: ['Rien : il n’a aucun effet', 'kube-proxy le route à sa place', 'L’API server répond pour lui', 'Le Service devient un LoadBalancer'], answer: 0, why: 'Tu dois installer un controller. Créer un Ingress sans lui n’a aucun effet.' },
+					{ q: 'Ton Ingress n’a pas d’`ingressClassName`. Quel controller le prend en charge ?', options: ['Tous les controllers du cluster', 'Aucun, jamais', 'Celui fixé par l’IngressClass par défaut du cluster', 'Celui du namespace `default`'], answer: 2, why: 'Sans nom de classe, c’est l’IngressClass par défaut qui décide. La doc dit que tu devrais en définir un.' },
+					{ q: 'Pourquoi vérifier le controller avant le DNS ?', options: ['Les enregistrements DNS mettent des heures à se propager, c’est le plus lent à corriger', 'kubectl ne sait pas lire le DNS', 'Le controller choisit le port du Service', 'Sans controller, il n’y a aucune adresse vers laquelle pointer le DNS'], answer: 3, why: 'Le controller est le proxy qui reçoit le trafic. S’il manque, toutes les vérifications suivantes ne servent à rien.' }
+				]
+			},
+			{
+				title: 'Vérifie que le nom résout',
+				questions: [
+					{ q: 'Vers quoi doit pointer `blog.example.com` ?', options: ['Vers une des IP des Pods `blog`', 'Vers l’adresse du load balancer du controller', 'Vers l’API server, qui transmet le HTTP aux Services', 'Vers la ClusterIP du Service'], answer: 1, why: 'Le trafic de l’extérieur arrive d’abord à l’ingress controller, en général par un load balancer cloud ou un NodePort.' },
+					{ q: 'Où `kubectl` montre-t-il cette adresse ?', options: ['La colonne ADDRESS de `kubectl get ingress`', 'La colonne STATUS de `kubectl get pods`', '`kubectl get nodes -o wide`', '`kubectl describe svc blog`'], answer: 0, why: 'Une fois qu’un controller prend l’Ingress en charge, il remplit l’adresse que le DNS doit utiliser.' },
+					{ q: 'La colonne ADDRESS est vide. Qu’est-ce que ça suggère ?', options: ['Le DNS est faux', 'Les Pods `blog` ne sont pas prêts', 'Aucun controller n’a pris cet Ingress', 'Le port du Service est faux'], answer: 2, why: 'C’est le controller qui écrit cette adresse. Vide, ça renvoie à la première vérification.' },
+					{ q: 'Pourquoi ne pas pointer le DNS sur l’IP d’un Pod pour sauter l’Ingress ?', options: ['Les IP de Pods sont toujours publiques', 'Les Pods n’acceptent pas le HTTP', 'Les Pods n’ont pas d’IP', 'Les IP de Pods changent quand les Pods sont remplacés'], answer: 3, why: 'Quand un Pod meurt, son IP part avec lui. Les noms stables vivent sur les Services et le controller devant.' }
+				]
+			},
+			{
+				title: 'Vérifie le Service',
+				questions: [
+					{ q: 'Chaque règle d’Ingress pointe vers quoi ?', options: ['Un Service, jamais directement des Pods', 'Un Deployment', 'Un node et un port', 'Une PersistentVolumeClaim'], answer: 0, why: 'La règle nomme un Service et un port. Le Service choisit ensuite ses Pods avec son selector.' },
+					{ q: 'L’Ingress est dans `web` et le Service `blog` dans `default`. La règle marche-t-elle ?', options: ['Oui : un Ingress peut joindre un Service de n’importe quel namespace par son nom', 'Oui, si le port correspond', 'Non : le Service doit être dans le même namespace que l’Ingress', 'Seulement avec une StorageClass'], answer: 2, why: 'Une règle ne nomme le Service que par son nom, et le controller le cherche dans le namespace de l’Ingress.' },
+					{ q: 'L’Ingress dit port 80. Que doit-on avoir côté Service ?', options: ['Il doit avoir `type: LoadBalancer`', 'Il doit exposer le port 80', 'Il doit s’appeler `blog-80`', 'Ses Pods doivent tourner sur le port 80 du node'], answer: 1, why: 'La règle envoie au Service sur un port donné. Ce port doit exister sur le Service.' },
+					{ q: 'Quelle commande vérifie que le Service existe avec le bon port ?', options: ['`kubectl get svc blog -n <namespace>`', '`kubectl get ingressclass`', '`kubectl get pv`', '`kubectl logs blog`'], answer: 0, why: 'Elle montre le Service dans le namespace de l’Ingress, avec ses ports.' }
+				]
+			},
+			{
+				title: 'Vérifie les Pods derrière',
+				questions: [
+					{ q: 'Le Service existe. Que vérifies-tu ensuite ?', options: ['Le disque du node', 'La StorageClass', 'Le TTL du DNS', 'S’il a des endpoints prêts'], answer: 3, why: 'Un Service sans endpoint prêt n’envoie le trafic nulle part, quoi que dise l’Ingress.' },
+					{ q: 'Il n’y a aucun endpoint. Que compares-tu en premier ?', options: ['Le selector du Service avec les labels des Pods', 'Le tag de l’image avec le registry', 'L’hôte de l’Ingress avec le nom du Pod', 'La request avec la limit'], answer: 0, why: 'Un Service ne trouve les Pods que par son selector. Une faute donne zéro endpoint, et aucune erreur.' },
+					{ q: 'Des endpoints existent mais aucun n’est prêt. Où regardes-tu ?', options: ['Les annotations de l’ingress', 'Les readiness probes', '`ingressClassName`', 'La reclaim policy'], answer: 1, why: 'Un Pod qui échoue sa readiness ne reçoit aucun trafic de son Service.' },
+					{ q: 'Pourquoi aller de l’extérieur vers l’intérieur ?', options: ['C’est l’ordre dans lequel `kubectl get all` affiche les objets d’un namespace', 'Les parties internes ne peuvent pas être vérifiées', 'Chaque vérification dépend de la précédente sur le chemin de la requête', 'Le controller se réinitialise si tu vérifies les Pods d’abord'], answer: 2, why: 'Suis la requête : controller et DNS, puis le Service, puis ses Pods. Une coupure au début cache tout ce qui suit.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,27 @@ spec:
 			why: 'Pour la sécurité des données, réduire ou supprimer un StatefulSet laisse ses PVC et ses volumes en place, sauf si tu règles `persistentVolumeClaimRetentionPolicy` sur `Delete`. Remonte à 3 et `db-1` retrouve ses anciennes données.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Router un nom d’hôte vers un Service via un ingress controller, et voir deux erreurs d’Ingress qui ne lèvent aucune erreur.',
+		steps: [
+			'Démarre un cluster local avec un ingress controller : `minikube start`, puis `minikube addons enable ingress`. Attends que `kubectl get pods -n ingress-nginx` montre le controller `Running`.',
+			'Lance l’appli et son Service : `kubectl create deployment blog --image=nginx:1.27 && kubectl expose deployment blog --port=80`.',
+			'Crée un Ingress pour une classe qu’aucun controller ne gère : `kubectl create ingress blog --class=traefik --rule="blog.example.com/*=blog:80"`. Dans un second terminal, ouvre le controller : `kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8080:80`. De retour dans le premier, lance `curl -i -H "Host: blog.example.com" localhost:8080` et `kubectl get ingress blog`.',
+			'Recrée-le sans classe, pour que l’IngressClass par défaut s’applique : `kubectl delete ingress blog && kubectl create ingress blog --rule="blog.example.com/*=blog:80"`. Attends environ une minute, puis relance le même `curl` et `kubectl get ingress blog`.',
+			'Fais pointer un Ingress vers un Service d’un autre namespace : `kubectl create namespace web && kubectl -n web create ingress blog2 --rule="blog2.example.com/*=blog:80"`, puis `curl -i -H "Host: blog2.example.com" localhost:8080` et `kubectl -n web describe ingress blog2`. Nettoie avec `kubectl delete namespace web && kubectl delete ingress,service,deployment blog`.'
+		],
+		done: [
+			'Avec `--class=traefik`, `curl` renvoie `404 Not Found` de nginx et la colonne ADDRESS reste vide.',
+			'Sans classe, `kubectl get ingress blog` montre CLASS `nginx` et une ADDRESS, et `curl` renvoie `200 OK` avec `Welcome to nginx!`.',
+			'L’Ingress `blog2` dans `web` renvoie `503 Service Temporarily Unavailable`, alors que `kubectl create` l’a accepté.'
+		],
+		solution: [
+			'Un Ingress dont personne ne gère la classe est stocké et jamais lu. Le 404 vient du backend par défaut du controller, et l’ADDRESS vide est l’indice.',
+			'`kubectl get ingressclass nginx -o yaml` montre l’annotation `ingressclass.kubernetes.io/is-default-class: "true"`, posée par minikube, donc un Ingress sans classe va vers lui.',
+			'Une règle d’Ingress ne peut nommer qu’un Service de son propre namespace. Il n’y a pas de Service `blog` dans `web`, donc le controller ne sait pas où envoyer la requête.'
+		]
+	},
 	recall: {
 		q: 'Tu crées un Ingress et un PersistentVolumeClaim. Que doit-il exister dans le cluster pour que chacun ait un effet ?',
 		a: 'L’Ingress a besoin d’un ingress controller, un proxy du cluster qui le lit. Le claim a besoin d’un PersistentVolume qui correspond, ou d’une StorageClass à partir de laquelle le cluster en crée un.'

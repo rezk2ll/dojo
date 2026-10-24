@@ -117,6 +117,44 @@ services:
 			'Dedans, le master est le PID 1 : le **namespace PID** donne au conteneur sa propre numérotation et cache tous les processus de l’hôte.',
 			'L’hôte et le conteneur voient le même processus sous deux numéros. Aucun second noyau ne tourne.',
 			'Après `docker rm -f web`, tout fichier écrit dedans a disparu : il vivait dans la couche inscriptible du conteneur. L’image `nginx` n’a pas changé et peut relancer un conteneur neuf.'
+		],
+		steps: [
+			{
+				title: 'Regarde depuis l’hôte',
+				questions: [
+					{ q: 'Après `docker run -d --name web nginx`, `ps -ef | grep nginx` sur l’hôte liste-t-il nginx ?', options: ['Non : il tourne dans un OS invité', 'Seulement si tu ajoutes `--privileged`', 'Oui : le master et les workers, avec des PID normaux de l’hôte', 'Seulement le processus client `docker`'], answer: 2, why: 'Un conteneur est un processus normal sur le noyau de l’hôte, donc le `ps` de l’hôte l’affiche.' },
+					{ q: 'Que montre `docker top web` ?', options: ['Les mêmes processus nginx, vus depuis l’hôte', 'Une autre copie de nginx', 'Les threads du noyau du conteneur', 'Seulement les processus que Docker lance pour lui-même'], answer: 0, why: '`docker top` liste les processus du conteneur. Ce sont les mêmes que ceux du `ps` de l’hôte.' },
+					{ q: 'Qu’est-ce que l’hôte a démarré pour lancer ce conteneur ?', options: ['Un petit noyau invité', 'Un hyperviseur et une VM', 'Un second système d’init', 'Rien : le processus tourne sur le noyau de l’hôte'], answer: 3, why: 'Un conteneur ne démarre aucun OS. C’est pour ça qu’il se lance en une seconde environ.' },
+					{ q: 'Où passe la frontière entre un conteneur et une VM ici ?', options: ['Un conteneur a moins de fichiers', 'Un conteneur partage le noyau de l’hôte, une VM démarre le sien', 'Une VM ne peut pas faire tourner nginx', 'Un conteneur tourne toujours en non root'], answer: 1, why: 'Une VM fait tourner un OS complet avec son propre noyau sur du matériel virtuel. Un conteneur est un processus sur le noyau de l’hôte.' }
+				]
+			},
+			{
+				title: 'Regarde depuis l’intérieur',
+				questions: [
+					{ q: 'Dans le conteneur, quel PID a le master nginx ?', options: ['Le même PID que sur l’hôte', 'Le PID 1', 'Aucun : les conteneurs n’ont pas de PID', 'Un PID au hasard au-dessus de 1000'], answer: 1, why: 'Le conteneur a sa propre numérotation des PID, et le premier processus qu’il lance est le PID 1.' },
+					{ q: '`docker exec web ls /proc` ne liste que quelques numéros. Où sont `sshd` et `cron` ?', options: ['Cachés par le namespace PID', 'Arrêtés pendant que le conteneur tourne', 'Déplacés dans l’image', 'Bloqués par une limite cgroup'], answer: 0, why: 'Le namespace PID cache tous les processus de l’hôte. Le conteneur ne voit que les siens.' },
+					{ q: 'Quelle fonction du noyau décide de ce que le processus voit ?', options: ['Les cgroups', 'Les capabilities', 'Les namespaces', 'Les couches de l’image'], answer: 2, why: 'Les namespaces donnent au processus une vue privée : ses PID, son réseau, ses montages et son nom d’hôte.' },
+					{ q: 'Quelle fonction du noyau plafonnerait sa mémoire si tu passais `--memory 512m` ?', options: ['Le namespace PID', 'La couche inscriptible', 'Le namespace de montage', 'Les cgroups'], answer: 3, why: 'Les cgroups décident de ce qu’un processus peut consommer. Par défaut, un conteneur n’a aucune limite.' }
+				]
+			},
+			{
+				title: 'Explique les deux PID',
+				questions: [
+					{ q: 'Pourquoi le même nginx a-t-il deux PID différents ?', options: ['Docker copie le processus dans le conteneur', 'Le namespace PID lui donne un second numéro dedans', 'nginx se lance une fois pour l’hôte et une fois pour le conteneur', 'La VM renumérote les processus'], answer: 1, why: 'L’hôte et le conteneur voient le même processus sous deux numéros. Seule la numérotation change.' },
+					{ q: 'Combien de noyaux font tourner nginx en ce moment ?', options: ['Un seul : le noyau de l’hôte', 'Deux : hôte et conteneur', 'Un par worker', 'Aucun : Docker le fait tourner en espace utilisateur'], answer: 0, why: 'Tous les conteneurs de l’hôte tournent sur ce seul noyau de l’hôte.' },
+					{ q: 'Que découle-t-il du partage d’un seul noyau ?', options: ['Les conteneurs peuvent faire tourner n’importe quel OS', 'Chaque conteneur peut charger sa propre version de noyau', 'Un bug noyau peut atteindre l’hôte et les autres conteneurs', 'Les conteneurs sont aussi isolés que des VM'], answer: 2, why: 'Tous les conteneurs partagent le noyau, donc un bug noyau ou un conteneur avec `SYS_MODULE` peut atteindre ses voisins.' },
+					{ q: 'Peux-tu faire tourner une appli Windows dans un conteneur sur cet hôte Linux ?', options: ['Oui, avec la bonne image', 'Oui, si tu ajoutes `SYS_MODULE`', 'Seulement avec `--memory` réglé', 'Non : un conteneur ne peut pas apporter un autre noyau'], answer: 3, why: 'Le conteneur utilise le noyau de l’hôte. Un autre noyau demande une VM.' }
+				]
+			},
+			{
+				title: 'Supprime-le et vérifie les fichiers',
+				questions: [
+					{ q: 'Tu as écrit `/tmp/note.txt` dans le conteneur. Où est-il allé ?', options: ['Dans la couche inscriptible du conteneur', 'Dans l’image `nginx`', 'Dans le `/tmp` de l’hôte', 'Dans un volume créé par Docker'], answer: 0, why: 'Chaque conteneur reçoit sa propre fine couche inscriptible par-dessus l’image en lecture seule.' },
+					{ q: 'Après `docker rm -f web`, que devient `/tmp/note.txt` ?', options: ['Il reste dans l’image', 'Il passe sur l’hôte', 'Il disparaît avec la couche inscriptible', 'Il attend le prochain conteneur nommé `web`'], answer: 2, why: 'Supprimer le conteneur supprime sa couche inscriptible. Le fichier ne vivait que là.' },
+					{ q: 'Que devient l’image `nginx` ?', options: ['Elle contient maintenant ton fichier', 'Elle est supprimée aussi', 'Il faut la retélécharger', 'Rien : elle reste intacte'], answer: 3, why: 'Docker n’écrit jamais dans les couches d’une image, donc l’image peut relancer un conteneur neuf.' },
+					{ q: 'Comment garder un fichier d’une suppression de conteneur à l’autre ?', options: ['L’écrire en root', 'Le mettre dans un volume', 'Donner un nom fixe au conteneur', 'Fixer une limite cgroup'], answer: 1, why: 'Tout ce qui est écrit dans le conteneur est perdu à sa suppression, sauf s’il est dans un volume.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,29 @@ services:
 			why: 'Docker n’écrit jamais dans les couches d’une image. Chaque conteneur écrit dans sa propre fine couche inscriptible, et les trois partagent la même image intacte.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir un même processus nginx sous deux PID, plafonner sa mémoire avec un cgroup, et voir un fichier disparaître avec son conteneur.',
+		steps: [
+			'Lance nginx avec une limite mémoire : `docker run -d --name lab-web --memory 256m nginx:1.27-alpine`.',
+			'Regarde depuis l’hôte : `ps -fp "$(docker inspect -f \'{{.State.Pid}}\' lab-web)"`, puis `docker top lab-web`. Sur macOS ou Windows, Docker tourne dans une petite VM Linux, donc seul `docker top` marche.',
+			'Regarde depuis l’intérieur : `docker exec lab-web cat /proc/1/cmdline`, `docker exec lab-web ls /proc`, puis compare `docker exec lab-web cat /etc/hostname` avec `hostname`.',
+			'Vérifie le cgroup : `docker inspect -f \'{{.HostConfig.Memory}}\' lab-web` et `docker exec lab-web cat /sys/fs/cgroup/memory.max`.',
+			'Écris un fichier, puis supprime le conteneur : `docker exec lab-web sh -c \'echo hello > /tmp/note.txt\' && docker diff lab-web`, puis `docker rm -f lab-web && docker run -d --name lab-web nginx:1.27-alpine && docker exec lab-web cat /tmp/note.txt`. Nettoie avec `docker rm -f lab-web`.'
+		],
+		done: [
+			'Sur Linux, le `ps` de l’hôte montre `nginx: master process` sous le même PID que la première ligne de `docker top lab-web`, un grand nombre.',
+			'Dedans, `/proc/1/cmdline` vaut `nginx: master process nginx -g daemon off;` : le master est le PID 1.',
+			'`docker inspect` affiche `268435456`, et sur un hôte en cgroup v2, `memory.max` affiche le même nombre.',
+			'`docker diff lab-web` liste `A /tmp/note.txt`, et après le nouveau lancement `cat /tmp/note.txt` échoue avec « No such file or directory ».'
+		],
+		solution: [
+			'Le namespace PID donne au conteneur sa propre numérotation : un processus, deux PID, un seul noyau.',
+			'Un autre namespace donne au conteneur son propre nom d’hôte : par défaut, l’ID court du conteneur.',
+			'`--memory 256m` est devenu une limite cgroup de 256 × 1024 × 1024 octets, que le noyau applique.',
+			'Le fichier vivait dans la couche inscriptible. `docker rm` a supprimé cette couche, et l’image n’a jamais changé.'
+		]
+	},
 	recall: {
 		q: 'Quelles deux fonctions du noyau font d’un processus un conteneur, et que contrôle chacune ?',
 		a: 'Les namespaces contrôlent ce que le processus voit (ses PID, son réseau, ses montages). Les cgroups contrôlent ce qu’il consomme (mémoire, CPU). Le processus tourne toujours sur le noyau de l’hôte.'

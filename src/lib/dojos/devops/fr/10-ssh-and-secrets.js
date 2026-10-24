@@ -105,6 +105,44 @@ export default {
 			'Sors le secret du code : `deploy.sh` le lit à l’exécution, depuis le coffre à secrets de la CI ou depuis un fichier que seul l’utilisateur du service peut lire (`chmod 600`), jamais depuis le script lui-même.',
 			'Réécrire l’historique est facultatif et lent : le secret reste dans chaque clone et chaque fork, et la doc de GitHub liste les effets de bord. Seul le nouveau mot de passe bloque l’attaquant.',
 			'Évite le prochain : un hook pre-commit, le secret scanning côté serveur, et les fichiers `.env` dans `.gitignore`.'
+		],
+		steps: [
+			{
+				title: 'Mesure la fuite',
+				questions: [
+					{ q: 'Le push date d’il y a une heure. Qui a peut-être déjà le mot de passe ?', options: ['Personne, le dépôt n’est partagé qu’avec l’équipe', 'Quiconque a cloné ou forké le dépôt depuis', 'Seulement le personnel de GitHub', 'Seulement le collègue qui l’a poussé'], answer: 1, why: 'Un secret poussé est dans chaque clone et chaque fork, et tu ne peux pas rappeler ces copies.' },
+					{ q: 'Que peut faire tout de suite un attaquant qui a ce mot de passe ?', options: ['Se connecter à la base', 'Pousser sur le dépôt', 'Lire tes clés SSH', 'Rien avant le prochain déploiement'], answer: 0, why: 'Un secret donne un accès. Tant qu’il ne change pas, quiconque l’a peut se faire passer pour le service.' },
+					{ q: 'Supprimer `DB_PASSWORD` de `deploy.sh` dans un nouveau commit, ça aide ?', options: ['Oui, ça retire le mot de passe de Git', 'Oui, une fois que tout le monde a fait un pull', 'Non, l’ancien commit le garde dans l’historique', 'Seulement si le dépôt est privé'], answer: 2, why: 'Un nouveau commit change la dernière version. Le commit d’avant, et chaque clone, gardent le mot de passe.' },
+					{ q: 'Quelle étape retire vraiment l’accès à l’attaquant ?', options: ['Réécrire l’historique', 'Passer le dépôt en privé', 'Ajouter un hook pre-commit', 'Faire tourner le mot de passe'], answer: 3, why: 'Seul un nouveau mot de passe rend inutile la valeur qui a fuité.' }
+				]
+			},
+			{
+				title: 'Fais la rotation et vérifie',
+				questions: [
+					{ q: 'Que fais-tu en premier ?', options: ['La rotation : changer le mot de passe de la base maintenant', 'Réécrire l’historique et faire un force push', 'Ouvrir un ticket pour l’équipe sécurité', 'Supprimer le fichier'], answer: 0, why: 'La doc de GitHub met révoquer ou faire tourner en première étape.' },
+					{ q: 'Juste après la rotation, que vérifies-tu ?', options: ['Les logs de la CI pour les temps de build', 'Les logs de la base pour les connexions avec l’ancien mot de passe depuis le push', 'La taille du dépôt', 'La config SSH du bastion'], answer: 1, why: 'Les logs te disent si quelqu’un a utilisé le mot de passe qui a fuité avant que tu le changes.' },
+					{ q: 'Que veut dire exactement la rotation ?', options: ['Déplacer le secret dans un nouveau fichier', 'Chiffrer l’ancien secret', 'Remplacer le secret et révoquer l’ancien', 'Renommer la variable'], answer: 2, why: 'Une nouvelle valeur entre, et l’ancienne cesse de marcher.' },
+					{ q: 'Pourquoi la rotation passe-t-elle avant la réécriture de l’historique ?', options: ['Réécrire l’historique est interdit', 'La rotation est plus lente', 'GitHub réécrit l’historique pour toi', 'La réécriture est lente, et le secret est déjà dans des clones et des forks'], answer: 3, why: 'Réécrire l’historique est facultatif et a des effets de bord. Seul le nouveau mot de passe bloque l’attaquant.' }
+				]
+			},
+			{
+				title: 'Sors le secret du code',
+				questions: [
+					{ q: 'D’où `deploy.sh` doit-il tirer le mot de passe ?', options: ['D’une constante en haut du script', 'D’un commentaire dans le README', 'À l’exécution, du coffre à secrets de la CI ou d’un fichier que seul l’utilisateur du service peut lire', 'Du message de commit'], answer: 2, why: 'Le secret est stocké hors du code et arrive au service à l’exécution.' },
+					{ q: 'Quel mode convient à un fichier qui contient le mot de passe ?', options: ['`chmod 600`', '`chmod 644`', '`chmod 755`', '`chmod 777`'], answer: 0, why: '`600` ne laisse que le propriétaire le lire et l’écrire.' },
+					{ q: 'Que dit la doc de systemd sur les variables d’environnement pour les secrets ?', options: ['C’est l’option la plus sûre', 'Elles ne conviennent pas aux secrets', 'Elles sont chiffrées par défaut', 'Seul root les voit'], answer: 1, why: 'La doc de systemd le déconseille. `LoadCredential=` met plutôt le secret dans un fichier sous `$CREDENTIALS_DIRECTORY`.' },
+					{ q: 'Quel est un coût des secrets injectés à l’exécution depuis un coffre ?', options: ['On ne peut plus les faire tourner', 'Il faut redéployer le code à chaque changement', 'Le secret finit quand même dans Git', 'Le coffre est un système de plus à faire tourner, sauvegarder et ouvrir aux bonnes personnes'], answer: 3, why: 'Le gain, c’est la rotation sans redéploiement. Le coût, c’est de faire tourner le coffre.' }
+				]
+			},
+			{
+				title: 'Évite le prochain',
+				questions: [
+					{ q: 'Quelle vérification locale arrête une clé privée avant le commit ?', options: ['Un hook pre-commit comme `detect-private-key`', '`git log -p`', '`ssh-add -l`', '`chmod 600`'], answer: 0, why: 'Le hook cherche des en-têtes de clé dans les fichiers indexés et renvoie 1, ce qui fait échouer le commit.' },
+					{ q: '`detect-private-key` aurait-il attrapé `DB_PASSWORD=S3cret!` ?', options: ['Oui, il lit chaque ligne', 'Oui, parce que ça finit par `!`', 'Non, il ne cherche que des en-têtes de clé', 'Seulement dans les fichiers `.env`'], answer: 2, why: 'Il cherche des lignes comme `BEGIN OPENSSH PRIVATE KEY`, donc un simple mot de passe passe.' },
+					{ q: 'Pourquoi ajouter aussi le secret scanning côté serveur ?', options: ['Il remplace la rotation', '`git commit --no-verify` saute un hook local', 'Il efface les secrets qui ont fuité', 'Les hooks locaux ne tournent que sous Linux'], answer: 1, why: 'Un hook local se contourne. Le scanning côté serveur voit quand même le push.' },
+					{ q: 'Quels fichiers vont dans `.gitignore` ?', options: ['`deploy.sh`', '`.gitignore` lui-même', '`README.md`', 'Les fichiers `.env`'], answer: 3, why: 'Les fichiers qui contiennent des secrets ne doivent jamais être indexés.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -142,6 +180,28 @@ export default {
 			why: 'Avec le transfert d’agent, quiconque peut contourner les permissions de fichiers sur le bastion peut utiliser tes clés chargées. ProxyJump fait un tunnel à travers le bastion et tes clés restent sur ta machine.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Dans un dépôt jetable, voir un mot de passe « supprimé » survivre dans l’historique, le déplacer dans un fichier lu à l’exécution, puis protéger une clé avec une passphrase et un hook pre-commit.',
+		steps: [
+			'Crée un dépôt et fais fuiter un mot de passe : `mkdir -p ~/secrets-lab && cd ~/secrets-lab && git init -q && git config user.name lab && git config user.email lab@localhost`, puis `printf \'#!/usr/bin/env bash\\nDB_PASSWORD=S3cret!\\necho "deploying"\\n\' > deploy.sh && git add deploy.sh && git commit -qm "add deploy"`.',
+			'« Corrige » dans un nouveau commit : `printf \'#!/usr/bin/env bash\\nset -euo pipefail\\nDB_PASSWORD=$(cat "${DB_PASSWORD_FILE:?}")\\necho "deploying with ${#DB_PASSWORD} chars"\\n\' > deploy.sh && git commit -qam "read password from file"`. Puis cherche : `grep -c S3cret deploy.sh` et `git log -p | grep S3cret`.',
+			'Fais la rotation et garde la nouvelle valeur hors de Git : `printf \'N3wPass\\n\' > db_password && chmod 600 db_password && echo db_password >> .gitignore`. Lance `DB_PASSWORD_FILE=./db_password bash deploy.sh`, puis `bash deploy.sh; echo $?` sans la variable, et `git status --short`.',
+			'Crée une clé avec une passphrase : `ssh-keygen -t ed25519 -C "lab@laptop" -f ./lab_key -N \'correct horse\'`. Essaie `ssh-keygen -y -P wrong -f lab_key`, puis `ssh-keygen -y -P \'correct horse\' -f lab_key`. Puis `chmod 644 lab_key`, relance la seconde commande, et remets le mode avec `chmod 600 lab_key`.',
+			'Ajoute un hook pre-commit qui refuse les en-têtes de clé : `printf \'#!/bin/sh\\nif git diff --cached --name-only -z | xargs -0 grep -l "PRIVATE KEY" 2>/dev/null; then\\n  echo "Private key found, commit refused" >&2\\n  exit 1\\nfi\\n\' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`. Essaie `git add lab_key && git commit -m oops; echo $?`, puis `git reset -q lab_key`.'
+		],
+		done: [
+			'`grep -c S3cret deploy.sh` affiche `0`, et `git log -p | grep S3cret` affiche toujours le mot de passe.',
+			'`deploy.sh` affiche `deploying with 7 chars`, `ls -l db_password` commence par `-rw-------`, et `git status --short` ne liste pas `db_password`.',
+			'La mauvaise passphrase affiche `incorrect passphrase supplied`. En mode 644, ssh-keygen affiche `UNPROTECTED PRIVATE KEY FILE!`.',
+			'Le commit de `lab_key` affiche `Private key found, commit refused` et sort avec `1`.'
+		],
+		solution: [
+			'L’historique garde chaque version de `deploy.sh` : c’est la rotation, pas le deuxième commit, qui met fin à la fuite.',
+			'Sans la variable, le script s’arrête avec `DB_PASSWORD_FILE: parameter null or not set` et sort avec `1`, au lieu de tourner sans mot de passe. `set -e` compte ici : sans lui, bash affiche l’erreur et lance quand même la ligne suivante.',
+			'`git commit --no-verify` saute ce hook, c’est pourquoi le chapitre ajoute aussi le secret scanning côté serveur. Supprime `~/secrets-lab` à la fin : il contient une clé de test.'
+		]
+	},
 	recall: {
 		q: 'Un mot de passe a été poussé dans un dépôt Git partagé. Quelle est la première étape, et pourquoi supprimer le fichier ne suffit pas ?',
 		a: 'Faire tourner le mot de passe : le remplacer et révoquer l’ancien. Un nouveau commit qui supprime le fichier laisse le mot de passe dans l’historique, dans chaque clone et dans chaque fork.'

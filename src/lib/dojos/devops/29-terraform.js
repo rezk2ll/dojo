@@ -127,6 +127,44 @@ resource "aws_instance" "app_server" {
 			'In the instance: `tags = { Name = var.instance_name, Backups = aws_s3_bucket.backups.bucket }`.',
 			'The reference makes the instance depend on the bucket, so the bucket is created first.',
 			'Plan: `+` for `aws_s3_bucket.backups`, and `~` (update in place) for `aws_instance.app_server`, because only a tag changes. No `-/+`.'
+		],
+		steps: [
+			{
+				title: 'Write the bucket block',
+				questions: [
+					{ q: 'Which block adds the bucket?', options: ['`data "aws_s3_bucket" "backups"`', '`resource "aws_s3_bucket" "backups" { bucket = "myteam-backups-1234" }`', '`module "backups" { bucket = "myteam-backups-1234" }`', '`provider "aws_s3_bucket" { name = "backups" }`'], answer: 1, why: 'A `resource` block is something Terraform creates and manages.' },
+					{ q: 'Why not a `data` block?', options: ['A data source only reads something that already exists', 'Data blocks only work for AMIs', 'Data blocks run after every resource', 'Data blocks cannot have names'], answer: 0, why: 'Terraform only reads a data source. It creates, updates and destroys a resource.' },
+					{ q: 'In `resource "aws_s3_bucket" "backups"`, what is `backups`?', options: ['The bucket name in AWS', 'The Region', 'The local name you use in references', 'A tag'], answer: 2, why: 'A resource has a type, a local name, and its arguments. The AWS name is the `bucket` argument.' },
+					{ q: 'What must be true of `myteam-backups-1234`?', options: ['It must match the instance name', 'It must start with the Region', 'It must be under 10 characters', 'It must be unique across all AWS accounts'], answer: 3, why: 'In the shared global namespace, the default, two accounts cannot hold the same bucket name.' }
+				]
+			},
+			{
+				title: 'Reference it from the instance',
+				questions: [
+					{ q: 'Which line changes in the instance?', options: ['`tags = { Name = var.instance_name, Backups = aws_s3_bucket.backups.bucket }`', '`tags = { Name = var.instance_name, Backups = "myteam-backups-1234" }`', '`ami = aws_s3_bucket.backups.id`', '`subnet_id = aws_s3_bucket.backups.bucket`'], answer: 0, why: 'A reference keeps one source for the name, and tells Terraform about the link.' },
+					{ q: 'What does that reference do to the order?', options: ['Nothing: blocks run top to bottom', 'The instance is created first, then the bucket', 'The instance now depends on the bucket, so the bucket comes first', 'Both are created at the same moment'], answer: 2, why: 'Terraform builds its dependency graph from the references between blocks.' },
+					{ q: 'Do you also need `depends_on = [aws_s3_bucket.backups]`?', options: ['Yes, always, for every link', 'Yes, or the plan fails', 'Only for S3 buckets', 'No: it is only for hidden dependencies Terraform cannot see'], answer: 3, why: 'The reference already makes the dependency visible.' },
+					{ q: 'Two resources do not reference each other. How does Terraform create them?', options: ['One at a time, in file order', 'In parallel, up to 10 at a time', 'In alphabetical order', 'Only after you add `depends_on`'], answer: 1, why: 'Things that do not depend on each other run in parallel.' }
+				]
+			},
+			{
+				title: 'Predict the plan',
+				questions: [
+					{ q: 'Which symbol does the plan show for `aws_s3_bucket.backups`?', options: ['`~`', '`-/+`', '`-`', '`+`'], answer: 3, why: 'It does not exist yet, so it will be created.' },
+					{ q: 'Which symbol does it show for `aws_instance.app_server`?', options: ['`~`, update in place', '`+`, create', '`-/+`, destroy and recreate', 'None: tags are not tracked'], answer: 0, why: 'The instance exists, and only one argument changes.' },
+					{ q: 'Why no `-/+` on the instance?', options: ['Terraform never replaces instances', 'Only a tag changes, and a tag can be updated in place', 'The bucket protects it', 'You did not run `init` again'], answer: 1, why: '`-/+` appears when a changed argument cannot be updated in place. Tags can.' },
+					{ q: 'What does the last line of the plan say?', options: ['`Plan: 2 to add, 0 to change, 0 to destroy.`', '`Plan: 1 to add, 0 to change, 1 to destroy.`', '`Plan: 1 to add, 1 to change, 0 to destroy.`', '`Plan: 0 to add, 2 to change, 0 to destroy.`'], answer: 2, why: 'One `+` for the bucket, one `~` for the instance, nothing destroyed.' }
+				]
+			},
+			{
+				title: 'Apply it safely',
+				questions: [
+					{ q: 'What does `terraform plan` change in AWS?', options: ['Nothing', 'Only the tags', 'Only new resources', 'Everything, then rolls back'], answer: 0, why: '`plan` compares and lists the changes. It changes nothing.' },
+					{ q: 'What does `terraform apply` do first?', options: ['It creates the bucket at once', 'It runs `init` again', 'It deletes the state', 'It shows the plan and asks for `yes`'], answer: 3, why: 'Then it makes the changes in dependency order.' },
+					{ q: 'The plan shows `-/+` on the instance after all. What do you do?', options: ['Type yes: `-/+` is harmless', 'Stop and read: the instance and what is on it will be destroyed', 'Add `depends_on` and apply', 'Run `plan` until the symbol changes'], answer: 1, why: '`-/+` means destroy and create a replacement. Anything stored on it goes with it.' },
+					{ q: 'Months later you delete the bucket block. What does the next plan propose?', options: ['Nothing: Terraform never removes things', 'An error, because the bucket still exists', 'To destroy the bucket', 'To keep the bucket with a warning'], answer: 2, why: 'A managed resource missing from the code should not exist, so the plan shows `-`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -164,6 +202,28 @@ resource "aws_instance" "app_server" {
 			why: '`-/+` means Terraform destroys the resource and then creates a replacement, usually because a changed argument cannot be updated in place. Anything stored on that instance goes with it.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Read every plan symbol for real, with no cloud account: a local file stands in for the bucket and a `terraform_data` resource for the instance.',
+		steps: [
+			'Install Terraform from [developer.hashicorp.com/terraform/install](https://developer.hashicorp.com/terraform/install), then `mkdir -p ~/tf-lab && cd ~/tf-lab`.',
+			'Write `main.tf` with a `resource "local_file" "backups"` (`filename = "${path.module}/backups/README.txt"`, `content = "Backups live here.\\n"`) and a `resource "terraform_data" "app_server"` whose `input` is `{ Name = "app-server", Backups = local_file.backups.filename }`.',
+			'Run `terraform init`, `terraform plan`, then `terraform apply` and type `yes`. Run `terraform plan` once more.',
+			'Change `"app-server"` to `"web-server"` and run `terraform plan`. Then change the file `content` and run `terraform plan` again.',
+			'Delete the whole `terraform_data` block and run `terraform plan`.'
+		],
+		done: [
+			'The first plan ends with `Plan: 2 to add, 0 to change, 0 to destroy.`, and `apply` prints `local_file.backups: Creation complete` before `terraform_data.app_server: Creating...`.',
+			'The plan right after `apply` says `No changes`.',
+			'The rename shows `~ update in-place`. The new `content` shows `-/+` and `# forces replacement`. The deleted block shows `will be destroyed`.'
+		],
+		solution: [
+			'`init` downloads the `hashicorp/local` provider and writes `.terraform.lock.hcl`. `terraform_data` is built in and needs no provider.',
+			'The reference `local_file.backups.filename` makes `app_server` wait for the file, as the instance waits for the bucket.',
+			'`local_file` cannot change its content in place, so Terraform destroys and recreates it. On a database, that line is the one to stop at.',
+			'Run `terraform destroy` to clean up. It lists everything in the state with `-`.'
+		]
+	},
 	recall: {
 		q: 'What does `terraform plan` compare, and which symbol in its output means a resource will be destroyed and recreated?',
 		a: 'It compares your configuration with the current state of what Terraform manages, and changes nothing. `-/+` means destroy and recreate, and anything stored on that resource goes with it.'

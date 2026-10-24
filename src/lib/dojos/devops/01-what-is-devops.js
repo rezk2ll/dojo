@@ -116,6 +116,44 @@ export default {
 			'Automation: the pipeline may improve, but it belongs to one team, so nobody else learns or changes it.',
 			'Proposal: make the new team **temporary**, with a mandate to make itself unnecessary. They build the pipeline with the dev team, pair with ops, then hand ownership back. Devs join the on-call rotation for their own service.',
 			'Measurement: agree on a few shared numbers for the service (next chapters: DORA metrics), seen by dev and ops alike.'
+		],
+		steps: [
+			{
+				title: 'Count the walls',
+				questions: [
+					{ q: 'Before the announcement, how many walls stand between writing a change and running it?', options: ['None', 'One: dev to ops', 'Two: dev to CI, CI to ops', 'Three: one per team'], answer: 1, why: 'The classic split has one wall, made of tickets and handoffs, between the dev team and the ops team.' },
+					{ q: 'After the new DevOps team takes over CI and all deployments, how many walls are there?', options: ['One, because the new team replaces the old wall', 'None, because the company now does DevOps', 'Two: dev to DevOps team, DevOps team to ops', 'Three: dev, DevOps team and ops each wall off CI'], answer: 2, why: 'Devs and ops stay as they are, and a new team sits between them. That adds a second wall.' },
+					{ q: 'What does DevOps Topologies call this setup?', options: ['The DevOps team silo anti-pattern', 'A platform team', 'Shared ownership', 'The SRE model'], answer: 0, why: 'A new team called "DevOps" placed between dev and ops is the **DevOps team silo** anti-pattern.' },
+					{ q: 'A deploy breaks at 2 a.m. Under the new plan, who is most likely missing from the room?', options: ['The DevOps team, who own deployments', 'The ops team, who run the servers', 'The on-call manager', 'The developer who wrote the change'], answer: 3, why: 'Devs still hand code over a wall and do not carry the pager, so the person who knows the change is not there.' }
+				]
+			},
+			{
+				title: 'Check Culture and Sharing',
+				questions: [
+					{ q: 'What does CALMS stand for?', options: ['Code, Automation, Linux, Monitoring, Security', 'Culture, Automation, Lean, Measurement, Sharing', 'Culture, Agile, Logging, Metrics, Support', 'CI, Automation, Lean, Monitoring, Sharing'], answer: 1, why: 'Culture, Automation, Lean, Measurement, Sharing: a checklist of how far a team has really moved toward DevOps.' },
+					{ q: 'For Culture and Sharing, what changes for the devs under the new plan?', options: ['They now own their deployments', 'They join the on-call rotation', 'Nothing: they still throw code over a wall, just a different one', 'They review the ops team\'s config'], answer: 2, why: 'The devs\' habits stay the same. Only the team on the other side of the wall has a new name.' },
+					{ q: 'What happens to every release once one team owns all deployments?', options: ['It waits on the new team', 'It ships faster, because experts do it', 'It skips review', 'It goes straight from dev to ops'], answer: 0, why: 'All deployments go through three people, so each release queues behind their tickets.' },
+					{ q: 'Why does hiring a team not by itself change how people work?', options: ['Because DevOps engineers are too expensive to keep', 'Because a reorg or a tool purchase alone leaves habits in place', 'Because only ops can change culture', 'Because CALMS forbids new teams'], answer: 1, why: 'The chapter\'s trade-off: a reorg or a tool purchase alone does not change how people work, and habits change slowly.' }
+				]
+			},
+			{
+				title: 'Check Automation and Measurement',
+				questions: [
+					{ q: 'The new team builds a much better pipeline. What is the catch?', options: ['Pipelines cannot be automated', 'It slows the devs down by design', 'It belongs to one team, so nobody else learns or changes it', 'It replaces the need for tests'], answer: 2, why: 'Automation owned by one team is another silo: the others cannot read, change or fix it.' },
+					{ q: 'In the shared ownership picture, where do the deploy steps live?', options: ['In one repo with the app and its config', 'In the DevOps team\'s private wiki', 'In the ops team\'s heads', 'In a ticket template'], answer: 0, why: 'App, config and deploy steps sit in one repo, changed through the same review, like the `compose.yaml` in the example.' },
+					{ q: 'Which Measurement step does the chapter propose?', options: ['Count how many tickets each team closes', 'Measure each team against its own goal', 'Track the DevOps team\'s headcount', 'A few shared numbers for the service, seen by dev and ops alike'], answer: 3, why: 'Shared numbers (DORA metrics, in the next chapters) give both sides the same goal instead of opposite ones.' },
+					{ q: 'In the diagram, where do metrics and incidents from users flow back to?', options: ['The change gate', 'The developers, who can fix the code', 'Only the ops team', 'The DevOps team'], answer: 1, why: 'Numbers from production flow back to the people who can fix the code.' }
+				]
+			},
+			{
+				title: 'Propose something better',
+				questions: [
+					{ q: 'What should happen to the new DevOps team?', options: ['Make it permanent and give it more people', 'Merge it into the ops team', 'Make it temporary, with a mandate to make itself unnecessary', 'Disband it before it starts'], answer: 2, why: 'A temporary team can build the pipeline with the others, then hand ownership back.' },
+					{ q: 'How should that team work while it exists?', options: ['Build the pipeline with the dev team and pair with ops', 'Build the pipeline alone, then train everyone at the end', 'Take over on-call so devs can focus', 'Approve every deploy by hand'], answer: 0, why: 'Building together means the knowledge stays with dev and ops when the team hands back ownership.' },
+					{ q: 'Who joins the on-call rotation for a service?', options: ['Only the DevOps team', 'Only ops, as before', 'A separate incident team', 'The devs who build that service, alongside ops'], answer: 3, why: 'One on-call rotation means the person who wrote the change sees the incident and knows where to look.' },
+					{ q: 'What is the cost of this proposal for the devs?', options: ['They lose access to production', 'They have to learn operations and take part in on-call', 'They stop writing features', 'They must move to the ops team'], answer: 1, why: 'Shared ownership has a price: devs learn ops and carry the pager, ops learn Git and code review.' }
+				]
+			}
 		]
 	},
 	quiz: [

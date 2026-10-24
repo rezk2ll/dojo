@@ -123,6 +123,44 @@ module "ec2_instances" {
 			'`terraform plan -refresh-only` shows what changed outside Terraform, like the new rule. Nothing changes on AWS.',
 			'Opening MySQL to the internet is wrong, so keep the code as it is. If the group\'s rules are written in its Terraform block, a normal `terraform plan` proposes to bring it back to the code, and `terraform apply` closes the port.',
 			'Then talk about why it happened: whoever needed the change should open a pull request on the Terraform code, not click in the console.'
+		],
+		steps: [
+			{
+				title: 'See why local state breaks',
+				questions: [
+					{ q: 'Your teammate clones the repo, runs `plan`, and Terraform wants to create everything. Why?', options: ['His AWS credentials are wrong', 'His clone has no state file, so to his Terraform nothing exists', 'He forgot to pin the module version', 'Git changed the line endings of `main.tf`'], answer: 1, why: '`terraform.tfstate` stayed on your laptop. Without it, Terraform does not know what it built.' },
+					{ q: 'What does the state record?', options: ['Which real object belongs to which block', 'The history of every `plan`', 'The AWS bill', 'The provider source code'], answer: 0, why: 'State is how Terraform maps blocks to real objects.' },
+					{ q: 'You both run `apply` at the same time with local state. What happens?', options: ['The second run waits for the first', 'AWS rejects the second run', 'Terraform merges the two states', 'Both change the same resources and neither knows about the other'], answer: 3, why: 'No shared state, no lock, so nothing stops two writers.' },
+					{ q: 'The state looks wrong. Can you fix it in an editor?', options: ['Yes, it is plain JSON', 'Yes, if you also run `init`', 'Never edit it by hand', 'Only the `resources` part'], answer: 2, why: 'The state is Terraform\'s record. Hand edits break the mapping it relies on.' }
+				]
+			},
+			{
+				title: 'Write the backend block',
+				questions: [
+					{ q: 'Where does the backend go?', options: ['In a `provider "aws"` block', 'In a `backend "s3"` block inside the `terraform` block', 'In a `module "state"` block', 'In `.terraform.lock.hcl`'], answer: 1, why: 'The `terraform` block holds settings about Terraform itself, including where the state lives.' },
+					{ q: 'Which setting turns on locking with the S3 backend?', options: ['`encrypt = true`', '`versioning = true`', 'None: S3 state is always locked', '`use_lockfile = true`'], answer: 3, why: 'Locking is opt-in for the S3 backend, and `use_lockfile` defaults to `false`.' },
+					{ q: 'Why also set `encrypt = true` and tight access on the bucket?', options: ['The state can hold secrets in plain text', 'It makes `plan` faster', 'It turns on locking', 'AWS requires it for any bucket'], answer: 0, why: 'Database passwords and the like can sit in the state, so the bucket needs encryption and tight access.' },
+					{ q: 'Why turn on versioning on the bucket?', options: ['It locks the state', 'It pins the module versions', 'You can get back an older state after a mistake', 'It shows drift'], answer: 2, why: 'A versioned bucket keeps the earlier copies of the state file.' }
+				]
+			},
+			{
+				title: 'Move the state',
+				questions: [
+					{ q: 'You added the backend block. Which command comes next?', options: ['`terraform apply`', '`terraform init`', '`terraform force-unlock`', '`terraform plan -refresh-only`'], answer: 1, why: '`init` sets up the backend, as it sets up providers and modules.' },
+					{ q: '`init` finds your local state. What does it ask?', options: ['Whether to migrate the existing state into the new backend', 'Whether to delete every resource', 'Which Region the bucket is in', 'Whether to unlock the state'], answer: 0, why: 'Say yes, and the state moves to S3, where the team and CI can reach it.' },
+					{ q: 'Do you also create a DynamoDB table for the lock?', options: ['Yes, the S3 backend needs one to lock', 'Yes, one per state file', 'Only for production', 'No: the DynamoDB lock table is deprecated'], answer: 3, why: '`use_lockfile = true` replaces it.' },
+					{ q: 'A crashed run left a lock behind. What do you do?', options: ['Delete the state file', 'Turn off locking for good', '`terraform force-unlock`, and only on your own lock', 'Wait: locks expire after an hour'], answer: 2, why: 'Removing someone else\'s live lock lets two runs write the state at once.' }
+				]
+			},
+			{
+				title: 'Find and fix the drift',
+				questions: [
+					{ q: 'Which command shows the hand-made MySQL rule without touching AWS?', options: ['`terraform plan -refresh-only`', '`terraform apply -auto-approve`', '`terraform init -upgrade`', '`terraform state rm`'], answer: 0, why: 'A refresh-only plan compares the state with real AWS and changes nothing.' },
+					{ q: 'Do you write the new rule into the code, or keep the code as it is?', options: ['Write it into the code, since it is live now', 'Delete the security group from the code', 'Keep the code: MySQL open to the internet is wrong', 'Leave both as they are'], answer: 2, why: 'Drift leaves you a choice. Here the hand change is the mistake, so the code wins.' },
+					{ q: 'What closes the port again?', options: ['`terraform plan -refresh-only`', 'A normal `terraform plan`, then `terraform apply`', '`terraform force-unlock`', 'A new `terraform init`'], answer: 1, why: 'With the group\'s rules in its Terraform block, a normal plan proposes to bring it back to the code.' },
+					{ q: 'How do you stop the next hand edit?', options: ['Remove everyone\'s AWS access', 'Run `apply` every hour', 'Turn on bucket versioning', 'Changes go through a pull request on the Terraform code, not the console'], answer: 3, why: 'Whoever needed the change gets it reviewed like any other code.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,30 @@ module "ec2_instances" {
 			why: 'Locking is opt-in for the S3 backend, and `use_lockfile` defaults to `false`. The older `dynamodb_table` option is deprecated. `encrypt` protects the state at rest but does not lock it.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Call a local module twice, move the state to a new backend path, watch the lock block a second run, then find and fix drift.',
+		steps: [
+			'`mkdir -p ~/tf-state-lab/modules/note && cd ~/tf-state-lab`. In `modules/note/main.tf`, declare `variable "name"` and `variable "text"`, a `resource "local_file" "this"` with `filename = "${path.root}/out/${var.name}.txt"` and `content = var.text`, and an `output "path"`.',
+			'In `main.tf`, call it twice: a `module "notes"` block with `source = "./modules/note"`, `count = 2`, `name = "note-${count.index}"` and `text = "Managed by Terraform.\\n"`, one per line. Run `terraform init`, `terraform apply`, then `terraform state list`.',
+			'Move the state: in `backend.tf`, write a `terraform` block holding `backend "local"` with `path = "shared/team.tfstate"`. Run `terraform init -migrate-state` and answer `yes`, then `terraform plan`.',
+			'Lock: in one terminal run `terraform apply -replace=\'module.notes[0].local_file.this\'` and leave it at the `yes` prompt. In a second terminal, in the same folder, run `terraform plan`. Then answer `no` in the first one.',
+			'Drift: `echo hacked > out/note-0.txt`. Run `terraform plan -refresh-only`, then `terraform plan`, then `terraform apply`.'
+		],
+		done: [
+			'`terraform state list` prints `module.notes[0].local_file.this` and `module.notes[1].local_file.this`.',
+			'`ls shared` shows `team.tfstate`, and `terraform plan` after the move says `No changes`.',
+			'The second terminal prints `Error acquiring the state lock`.',
+			'The refresh-only plan prints `Objects have changed outside of Terraform`, and after `apply`, `cat out/note-0.txt` prints `Managed by Terraform.` again.'
+		],
+		solution: [
+			'`count = 2` gives two instances of the module, addressed `module.notes[0]` and `module.notes[1]`.',
+			'A plain `terraform apply` with nothing to change ends without a prompt. `-replace` gives it one change, so it stops at `yes` while it holds the lock.',
+			'The `local` backend locks the state file too. The S3 backend only locks when you set `use_lockfile = true`.',
+			'`local_file` sees a changed file as deleted, so the normal plan shows `will be created`: the code wins over the hand edit.',
+			'The old `terraform.tfstate` is left behind after the move. Delete it once `plan` says `No changes`, so nobody uses it by mistake.'
+		]
+	},
 	recall: {
 		q: 'Your team keeps Terraform state in the S3 backend. Which setting stops two applies from writing at once, and which command shows changes made by hand in the console?',
 		a: '`use_lockfile = true` turns on locking, which is off by default, so a second apply waits or fails. `terraform plan -refresh-only` shows the drift without changing anything.'

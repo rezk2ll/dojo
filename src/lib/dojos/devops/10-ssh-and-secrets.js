@@ -105,6 +105,44 @@ export default {
 			'Move the secret out: `deploy.sh` reads it at run time, from the CI secret store or a file only the service user can read (`chmod 600`), never from the script itself.',
 			'Rewriting history is optional and slow: the secret is still in every clone and fork, and GitHub\'s docs list the side effects. Only the new password locks the attacker out.',
 			'Prevent the next one: a pre-commit hook, secret scanning on the server, and `.env` files in `.gitignore`.'
+		],
+		steps: [
+			{
+				title: 'Size up the leak',
+				questions: [
+					{ q: 'The push was an hour ago. Who may already have the password?', options: ['Nobody, the repository is shared only with the team', 'Anyone who cloned or forked the repository since', 'Only GitHub staff', 'Only the colleague who pushed it'], answer: 1, why: 'A pushed secret is in every clone and every fork, and you cannot recall those copies.' },
+					{ q: 'What can an attacker with that password do right now?', options: ['Log in to the database', 'Push to the repository', 'Read your SSH keys', 'Nothing until the next deploy'], answer: 0, why: 'A secret grants access. Until it changes, anyone holding it can act as the service.' },
+					{ q: 'Does deleting `DB_PASSWORD` from `deploy.sh` in a new commit help?', options: ['Yes, it removes the password from Git', 'Yes, once everyone pulls', 'No, the old commit still holds it in the history', 'Only if the repository is private'], answer: 2, why: 'A new commit changes the latest version. The earlier commit, and every clone of it, still has the password.' },
+					{ q: 'Which step actually takes access away from the attacker?', options: ['Rewriting history', 'Making the repository private', 'Adding a pre-commit hook', 'Rotating the password'], answer: 3, why: 'Only a new password makes the leaked value useless.' }
+				]
+			},
+			{
+				title: 'Rotate and check',
+				questions: [
+					{ q: 'What do you do first?', options: ['Rotate: change the database password now', 'Rewrite the history and force push', 'Open a ticket for the security team', 'Delete the file'], answer: 0, why: 'GitHub\'s docs put revoke or rotate as the first step.' },
+					{ q: 'Right after rotating, what do you check?', options: ['The CI logs for build times', 'The database logs for logins with the old password since the push', 'The size of the repository', 'The SSH config on the bastion'], answer: 1, why: 'The logs tell you whether someone used the leaked password before you changed it.' },
+					{ q: 'What does rotation mean exactly?', options: ['Moving the secret to a new file', 'Encrypting the old secret', 'Replacing the secret and revoking the old one', 'Renaming the variable'], answer: 2, why: 'A new value goes in, and the old one stops working.' },
+					{ q: 'Why does rotation come before rewriting history?', options: ['Rewriting history is forbidden', 'Rotation is slower', 'GitHub rewrites history for you', 'Rewriting is slow, and the secret is already in clones and forks'], answer: 3, why: 'Rewriting history is optional and has side effects. Only the new password locks the attacker out.' }
+				]
+			},
+			{
+				title: 'Move the secret out of the code',
+				questions: [
+					{ q: 'Where should `deploy.sh` get the password from?', options: ['A constant at the top of the script', 'A comment in the README', 'At run time, from the CI secret store or a file only the service user can read', 'The Git commit message'], answer: 2, why: 'The secret is stored outside the code and reaches the service at run time.' },
+					{ q: 'Which file mode fits a file that holds the password?', options: ['`chmod 600`', '`chmod 644`', '`chmod 755`', '`chmod 777`'], answer: 0, why: '`600` lets only the owner read and write it.' },
+					{ q: 'What do the systemd docs say about environment variables for secrets?', options: ['They are the safest option', 'They are not suitable for secrets', 'They are encrypted by default', 'They are only visible to root'], answer: 1, why: 'The systemd docs warn against them. `LoadCredential=` puts the secret in a file under `$CREDENTIALS_DIRECTORY` instead.' },
+					{ q: 'What is a cost of injecting secrets at run time from a store?', options: ['You cannot rotate them', 'The code must be redeployed for every change', 'The secret ends up in Git anyway', 'The store is one more system to run, back up and grant access to'], answer: 3, why: 'The gain is rotation without redeploying. The cost is running the store.' }
+				]
+			},
+			{
+				title: 'Prevent the next one',
+				questions: [
+					{ q: 'Which local check stops a private key before it is committed?', options: ['A pre-commit hook such as `detect-private-key`', '`git log -p`', '`ssh-add -l`', '`chmod 600`'], answer: 0, why: 'The hook looks for key headers in staged files and returns 1, which makes the commit fail.' },
+					{ q: 'Would `detect-private-key` have caught `DB_PASSWORD=S3cret!`?', options: ['Yes, it scans every line', 'Yes, because it ends with `!`', 'No, it matches key headers only', 'Only in `.env` files'], answer: 2, why: 'It looks for lines like `BEGIN OPENSSH PRIVATE KEY`, so a plain password passes.' },
+					{ q: 'Why add secret scanning on the server too?', options: ['It replaces rotation', '`git commit --no-verify` skips a local hook', 'It deletes leaked secrets', 'Local hooks only run on Linux'], answer: 1, why: 'A local hook can be skipped. Scanning on the server side still sees the push.' },
+					{ q: 'Which files go in `.gitignore`?', options: ['`deploy.sh`', '`.gitignore` itself', '`README.md`', '`.env` files'], answer: 3, why: 'Files that hold secrets should never be staged in the first place.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -142,6 +180,28 @@ export default {
 			why: 'With agent forwarding, anyone who can bypass file permissions on the bastion can use your loaded keys. ProxyJump tunnels through the bastion and your keys stay on your machine.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'In a throwaway repo, see a "deleted" password survive in the history, move it to a file read at run time, then protect a key with a passphrase and a pre-commit hook.',
+		steps: [
+			'Make a repo and leak a password: `mkdir -p ~/secrets-lab && cd ~/secrets-lab && git init -q && git config user.name lab && git config user.email lab@localhost`, then `printf \'#!/usr/bin/env bash\\nDB_PASSWORD=S3cret!\\necho "deploying"\\n\' > deploy.sh && git add deploy.sh && git commit -qm "add deploy"`.',
+			'"Fix" it in a new commit: `printf \'#!/usr/bin/env bash\\nset -euo pipefail\\nDB_PASSWORD=$(cat "${DB_PASSWORD_FILE:?}")\\necho "deploying with ${#DB_PASSWORD} chars"\\n\' > deploy.sh && git commit -qam "read password from file"`. Then search: `grep -c S3cret deploy.sh` and `git log -p | grep S3cret`.',
+			'Rotate and keep the new value out of Git: `printf \'N3wPass\\n\' > db_password && chmod 600 db_password && echo db_password >> .gitignore`. Run `DB_PASSWORD_FILE=./db_password bash deploy.sh`, then `bash deploy.sh; echo $?` without the variable, and `git status --short`.',
+			'Make a key with a passphrase: `ssh-keygen -t ed25519 -C "lab@laptop" -f ./lab_key -N \'correct horse\'`. Try `ssh-keygen -y -P wrong -f lab_key`, then `ssh-keygen -y -P \'correct horse\' -f lab_key`. Then `chmod 644 lab_key`, run the second one again, and put it back with `chmod 600 lab_key`.',
+			'Add a pre-commit hook that refuses key headers: `printf \'#!/bin/sh\\nif git diff --cached --name-only -z | xargs -0 grep -l "PRIVATE KEY" 2>/dev/null; then\\n  echo "Private key found, commit refused" >&2\\n  exit 1\\nfi\\n\' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`. Try `git add lab_key && git commit -m oops; echo $?`, then `git reset -q lab_key`.'
+		],
+		done: [
+			'`grep -c S3cret deploy.sh` prints `0`, and `git log -p | grep S3cret` still prints the password.',
+			'`deploy.sh` prints `deploying with 7 chars`, `ls -l db_password` starts with `-rw-------`, and `git status --short` does not list `db_password`.',
+			'The wrong passphrase prints `incorrect passphrase supplied`. With mode 644, ssh-keygen prints `UNPROTECTED PRIVATE KEY FILE!`.',
+			'The commit of `lab_key` prints `Private key found, commit refused` and exits `1`.'
+		],
+		solution: [
+			'The history keeps every version of `deploy.sh`, which is why rotation, not the second commit, ends the leak.',
+			'Without the variable, the script stops with `DB_PASSWORD_FILE: parameter null or not set` and exits `1`, instead of running without a password. `set -e` matters here: without it, bash prints the error and still runs the next line.',
+			'`git commit --no-verify` skips this hook, which is why the chapter adds secret scanning on the server too. Delete `~/secrets-lab` when done: it holds a test key.'
+		]
+	},
 	recall: {
 		q: 'A password was pushed to a shared Git repository. What is the first step, and why does deleting the file not help?',
 		a: 'Rotate the password: replace it and revoke the old one. A new commit that deletes the file leaves the password in the history, in every clone and in every fork.'

@@ -113,6 +113,44 @@ CMD [ "node", "src/index.js" ]`,
 			'Change `app.py`: only `COPY . .` (and anything after it) is rebuilt. `pip install` is a cache hit.',
 			'Change `requirements.txt`: the install runs again, which is what you want.',
 			'Bonus: add a `.dockerignore` so `.git`, virtualenvs and local junk stay out of the build context (the files `docker build .` sends to the builder) and out of the image.'
+		],
+		steps: [
+			{
+				title: 'Find the slow step',
+				questions: [
+					{ q: 'Which step takes most of the four minutes?', options: ['`FROM python:3.12-slim`', '`WORKDIR /app`', '`RUN pip install -r requirements.txt`', '`CMD ["python", "app.py"]`'], answer: 2, why: 'Installing every dependency is the slow work. The other lines copy files or change settings.' },
+					{ q: 'You change one line of `app.py`. Why does `pip install` run again?', options: ['`COPY . .` sits above it, so its layer and every layer after are rebuilt', '`RUN` is never cached', 'pip always ignores the cache', 'The base image changed'], answer: 0, why: 'One changed file invalidates its layer and every layer after it. `app.py` is part of `COPY . .`.' },
+					{ q: 'Which file decides what `pip install` does?', options: ['`app.py`', 'The Dockerfile', '`.dockerignore`', '`requirements.txt`'], answer: 3, why: 'The install reads only the requirements file. That is the one file it needs before running.' },
+					{ q: 'Does the builder warn you about this order?', options: ['Yes, it prints a cache warning', 'No: it raises no error, every build just reinstalls', 'Yes, `docker build` fails', 'Only on the first build'], answer: 1, why: 'A wrong order is not an error. Builds stay slow and nobody notices for months.' }
+				]
+			},
+			{
+				title: 'Reorder the Dockerfile',
+				questions: [
+					{ q: 'What comes right after `WORKDIR /app`?', options: ['`COPY . .`', '`COPY requirements.txt .`', '`RUN pip install -r requirements.txt`', '`CMD ["python", "app.py"]`'], answer: 1, why: 'Copy only the dependency file first, so the install depends on nothing else.' },
+					{ q: 'Where does `COPY . .` go now?', options: ['After `RUN pip install`', 'Right after `FROM`', 'Before `WORKDIR`', 'It is no longer needed'], answer: 0, why: 'The source changes on every commit, so it goes last, after the slow install.' },
+					{ q: 'What rule does this order follow?', options: ['Shortest lines first', 'Alphabetical by instruction', 'Files that change least often first, most often last', 'All `COPY` lines together'], answer: 2, why: 'A layer is reused only if it and everything above it are unchanged. Stable things go on top.' },
+					{ q: 'Does `CMD ["python", "app.py"]` add a layer?', options: ['Yes, a small one', 'Yes, it copies `app.py`', 'Only in the JSON form', 'No: it only records the default command'], answer: 3, why: '`CMD` changes the image settings, not the filesystem.' }
+				]
+			},
+			{
+				title: 'Predict the rebuild',
+				questions: [
+					{ q: 'With the new order, you change `app.py`. Which layers are rebuilt?', options: ['All of them', 'Only `COPY . .` and anything after it', '`pip install` and after', 'None: Docker skips small changes'], answer: 1, why: 'The edit invalidates `COPY . .`. Everything above it comes from cache.' },
+					{ q: 'Is `RUN pip install` a cache hit now?', options: ['Yes: `requirements.txt` did not change', 'No: `RUN` always reruns', 'Only if you pass `--no-cache`', 'Only on CI'], answer: 0, why: 'The instruction and its input file match the earlier build, so the builder reuses the layer.' },
+					{ q: 'You add a library to `requirements.txt`. What happens?', options: ['Nothing reruns', 'Only `COPY . .` reruns', 'The build fails until you clear the cache', 'The install runs again, which is what you want'], answer: 3, why: 'Its input changed, so its layer and the ones after are rebuilt.' },
+					{ q: 'Roughly how long does the `app.py` rebuild take now?', options: ['Still about four minutes', 'Longer, since there is one more `COPY`', 'Seconds', 'It depends on the size of `requirements.txt`'], answer: 2, why: 'With a good order, rebuilds reuse every slow layer and take seconds.' }
+				]
+			},
+			{
+				title: 'Trim the build context',
+				questions: [
+					{ q: 'What is the build context?', options: ['The files `docker build .` sends to the builder', 'The list of cached layers', 'The base image', 'The running container\'s filesystem'], answer: 0, why: 'The `.` in `docker build .` is the context: every file in it goes to the builder.' },
+					{ q: 'Which file keeps `.git` and virtualenvs out of the context?', options: ['`.gitignore`', '`requirements.txt`', '`.dockerignore`', 'The `WORKDIR` line'], answer: 2, why: 'A `.dockerignore` lists paths the builder never receives.' },
+					{ q: 'Without `.dockerignore`, what else can break the cache of `COPY . .`?', options: ['Nothing else', 'Changes in local junk like `.git`, which then land in the image too', 'Only changes to the Dockerfile', 'Running the container'], answer: 1, why: '`COPY . .` copies everything in the context. Any change there invalidates the layer.' },
+					{ q: 'A colleague splits `RUN apt-get update` and `RUN apt-get install` on two lines. What is the risk?', options: ['The build fails on a lock', 'apt runs twice as slow', 'Nothing, Docker links the two lines', 'The update layer stays cached, so the install uses an old package list'], answer: 3, why: 'The builder compares only the command text. Docker recommends both in one `RUN`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,28 @@ CMD [ "node", "src/index.js" ]`,
 			why: 'The builder compares only the `RUN` command text. The update line did not change, so it is a cache hit. Docker recommends `apt-get update && apt-get install` in one `RUN`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build the colleague\'s slow Dockerfile, watch a one-line change rerun `pip install`, then fix the order and watch it come from cache.',
+		steps: [
+			'Make the app: `mkdir -p ~/build-lab && cd ~/build-lab && printf \'requests==2.32.3\\n\' > requirements.txt && printf \'print("hello v1")\\n\' > app.py`.',
+			'Write the slow Dockerfile and build it once: `printf \'FROM python:3.12-slim\\nWORKDIR /app\\nCOPY . .\\nRUN pip install -r requirements.txt\\nCMD ["python", "app.py"]\\n\' > Dockerfile && docker build -t lab-py . && docker run --rm lab-py`.',
+			'Change one line and rebuild: `printf \'print("hello v2")\\n\' > app.py && docker build --progress=plain -t lab-py . 2>&1 | grep -E "^#[0-9]+ (\\[[0-9]|CACHED)"`.',
+			'Reorder: `printf \'FROM python:3.12-slim\\nWORKDIR /app\\nCOPY requirements.txt .\\nRUN pip install -r requirements.txt\\nCOPY . .\\nCMD ["python", "app.py"]\\n\' > Dockerfile && docker build -t lab-py .`. Then change `app.py` again (`printf \'print("hello v3")\\n\' > app.py`), rerun the same `--progress=plain` build, and run `docker run --rm lab-py`.',
+			'Look at the layers: `docker history lab-py`. Clean up with `docker rmi lab-py`.'
+		],
+		done: [
+			'In step 3, the `RUN pip install` step runs again (no `CACHED` under it) and takes as long as the first build.',
+			'In step 4, after the `app.py` edit, `RUN pip install` is followed by `CACHED`, and only `COPY . .` has no `CACHED` line.',
+			'`docker run --rm lab-py` prints `hello v3`.',
+			'`docker history lab-py` shows `CMD ["python" "app.py"]` with a size of `0B`.'
+		],
+		solution: [
+			'The slow order puts `COPY . .` above the install, so any edit invalidates the install layer.',
+			'The fixed order copies `requirements.txt` alone first. The install depends only on it, so it stays cached until the requirements change.',
+			'`CMD` shows `0B` because it adds no filesystem layer: it only sets the default command.'
+		]
+	},
 	recall: {
 		q: 'In a Node Dockerfile, what do you copy before `RUN npm ci`, and why?',
 		a: 'Only `package.json` and the lock file. A source edit then rebuilds only the `COPY . /code` layer and after, and `npm ci` comes from the cache.'

@@ -133,6 +133,44 @@ jobs:
 			'Dans `CHANGELOG.md`, déplace les entrées de Unreleased sous `## [2.0.0] - 2026-10-16`, groupées en `### Added` (`--dry-run`), `### Removed` (`--force`), `### Fixed` (rotation des logs).',
 			'`git tag -a v2.0.0 -m "Release 2.0.0"`, puis `git push origin v2.0.0`, parce qu’un simple `git push` n’envoie pas les tags.',
 			'Publie une GitHub Release à partir de `v2.0.0` et laisse la CI construire et attacher les artefacts. Si la 2.0.0 s’avère cassée, sors une 2.0.1. Ne déplace jamais le tag.'
+		],
+		steps: [
+			{
+				title: 'Trie les changements',
+				questions: [
+					{ q: 'Pour un CLI, qu’est-ce qui compte comme API publique ?', options: ['L’organisation du code source', 'Ses options', 'Le changelog', 'L’historique Git'], answer: 1, why: 'Les scripts appellent le CLI par ses options. Les changer, c’est changer ce dont les utilisateurs dépendent.' },
+					{ q: 'Le correctif de la rotation des logs, tout seul, ferait monter quelle partie ?', options: ['PATCH', 'MINOR', 'MAJOR', 'Aucune : un correctif n’a pas besoin de nouvelle version'], answer: 0, why: 'PATCH est fait pour les corrections de bugs rétrocompatibles.' },
+					{ q: 'La nouvelle option `--dry-run`, toute seule, ferait monter quelle partie ?', options: ['PATCH', 'MAJOR', 'Aucune : les options facultatives ne comptent pas', 'MINOR'], answer: 3, why: 'Une nouvelle fonctionnalité rétrocompatible fait monter MINOR.' },
+					{ q: 'Pourquoi la suppression de `--force` est-elle différente des deux autres ?', options: ['C’est le plus gros changement de code', 'Elle était dépréciée, donc elle ne compte pas', 'Elle casse les scripts qui l’utilisent encore', 'Elle demande un nouveau fichier de changelog'], answer: 2, why: 'Supprimer une option est un changement incompatible de l’API publique. C’est à ça que sert MAJOR.' }
+				]
+			},
+			{
+				title: 'Choisis la version',
+				questions: [
+					{ q: 'Quelle est la version suivante après 1.4.2 ?', options: ['1.4.3', '1.5.0', '2.0.0', '2.5.3'], answer: 2, why: 'Le plus gros saut l’emporte. Un seul changement incompatible donne MAJOR, et MINOR et PATCH repassent à 0.' },
+					{ q: 'Que dit 2.0.0 aux utilisateurs, avec le seul numéro ?', options: ['Quelque chose est incompatible : lis le changelog avant de mettre à jour', 'Seulement des correctifs, mise à jour sans risque', 'De nouvelles fonctionnalités, rien ne casse', 'Rien : un numéro de version n’a pas de sens'], answer: 0, why: 'Avec le semver, seul un saut de MAJOR peut casser les utilisateurs.' },
+					{ q: 'Si tu avais seulement ajouté `--dry-run`, quelle version viendrait ensuite ?', options: ['1.4.3', '2.0.0', '1.4.2-1', '1.5.0'], answer: 3, why: 'Une nouvelle fonctionnalité rétrocompatible fait monter MINOR et remet PATCH à zéro.' },
+					{ q: 'Qu’est-ce qui rend difficile le choix entre MINOR et MAJOR sur certains projets ?', options: ['Utiliser des tags annotés', 'Pas d’API publique claire, donc personne ne s’accorde sur ce qui casse', 'Pousser les tags par leur nom', 'Un long changelog'], answer: 1, why: 'Le semver demande une API publique claire. Sans elle, le numéro devient une affaire d’opinion.' }
+				]
+			},
+			{
+				title: 'Écris le changelog',
+				questions: [
+					{ q: 'Quel titre ouvre la nouvelle entrée de `CHANGELOG.md` ?', options: ['`## [2.0.0] - 2026-10-16`', '`## Derniers changements`', '`## v1.4.2`', '`## Unreleased`, inchangé'], answer: 0, why: 'Tu déplaces les entrées de Unreleased sous un titre avec la version et la date.' },
+					{ q: 'Dans quel groupe va `--force` ?', options: ['`### Fixed`', '`### Added`', '`### Removed`', '`### Changed`'], answer: 2, why: 'L’option a disparu, donc elle va sous Removed, là où les utilisateurs cherchent les changements cassants.' },
+					{ q: 'Où se place la nouvelle entrée dans le fichier ?', options: ['En bas, la plus ancienne d’abord', 'En haut, la plus récente d’abord', 'Dans un fichier séparé par version', 'Seulement dans le message du tag'], answer: 1, why: 'Un changelog liste les changements notables de chaque version, du plus récent au plus ancien.' },
+					{ q: 'Pourquoi ne pas coller `git log` comme notes de release ?', options: ['`git log` ne sait pas afficher les tags', 'C’est trop lent à lancer', 'Les utilisateurs ne lisent pas le Markdown', 'Il liste chaque commit, pas les changements utiles aux utilisateurs'], answer: 3, why: 'Un changelog est écrit pour les gens qui utilisent le logiciel. Un copier-coller du log va vite mais liste des commits.' }
+				]
+			},
+			{
+				title: 'Tague et publie',
+				questions: [
+					{ q: 'Quelle commande tague la release ?', options: ['`git tag v2.0.0`', '`git branch v2.0.0`', '`git tag -a v2.0.0 -m "Release 2.0.0"`', '`git commit -m "v2.0.0"`'], answer: 2, why: 'Un tag annoté enregistre qui, quand et pourquoi. La doc dit que les tags annotés sont faits pour les releases.' },
+					{ q: 'Tu as lancé un simple `git push`. Le tag est-il sur GitHub ?', options: ['Non : lance `git push origin v2.0.0`', 'Oui, les tags suivent toujours la branche', 'Oui, si le tag est annoté', 'Seulement une fois la release publiée'], answer: 0, why: '`git push` n’envoie pas les tags par défaut. Tu les pousses par leur nom, ou avec `--follow-tags`.' },
+					{ q: 'Qui construit les artefacts de la 2.0.0 ?', options: ['Toi, sur ton portable, avant de taguer', 'Chaque utilisateur, depuis les sources', 'La CI, une fois par cible de déploiement', 'La CI, une seule fois, à partir du commit tagué quand la release est publiée'], answer: 3, why: 'L’événement de release lance un job de CI qui extrait le commit tagué et construit les fichiers une seule fois.' },
+					{ q: 'La 2.0.0 s’avère cassée. Que fais-tu ?', options: ['Déplacer le tag `v2.0.0` sur le commit corrigé', 'Sortir une 2.0.1', 'Supprimer la release et réutiliser 2.0.0', 'Pousser le correctif sans tag'], answer: 1, why: 'Ne déplace jamais un tag publié. Deux personnes pourraient alors avoir des builds « 2.0.0 » différents.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,29 @@ jobs:
 			why: 'Une nouvelle fonctionnalité rétrocompatible fait monter MINOR et remet PATCH à zéro. PATCH, c’est seulement pour les corrections de bugs, MAJOR pour les changements cassants.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Taguer une release, voir la différence entre un tag annoté et un tag léger, et prouver que `git push` laisse les tags derrière lui.',
+		steps: [
+			'Crée un « remote » local et un dépôt : `mkdir -p ~/tag-lab && cd ~/tag-lab && git init --bare -q remote.git && git init -q -b main cli && cd cli && git remote add origin ../remote.git`.',
+			'Commite et tague : `echo v1 > cli.sh && git add . && git commit -qm "First release" && git tag -a v1.4.2 -m "Release 1.4.2" && git tag try-this`. Compare `git cat-file -t v1.4.2` avec `git cat-file -t try-this`, puis lance `git show v1.4.2 --no-patch`.',
+			'Commite un correctif après le tag : `echo fix >> cli.sh && git commit -qam "Fix log rotation"`. Lance `git describe` et `git log --oneline`.',
+			'Pousse seulement la branche, puis le tag : `git push -q origin main && git ls-remote --tags origin`, puis `git push -q origin v1.4.2 && git ls-remote --tags origin`.',
+			'Tague la release suivante et pousse les deux d’un coup : `git tag -a v2.0.0 -m "Release 2.0.0" && git push -q --follow-tags origin main && git ls-remote --tags origin`.'
+		],
+		done: [
+			'`git cat-file -t v1.4.2` affiche `tag` et `git cat-file -t try-this` affiche `commit`.',
+			'`git show v1.4.2 --no-patch` montre une ligne `Tagger:`, une date et `Release 1.4.2`.',
+			'À l’étape 3, `git describe` affiche `v1.4.2-1-g` suivi d’un hash court.',
+			'À l’étape 4, le premier `git ls-remote --tags origin` n’affiche rien ; le second liste `refs/tags/v1.4.2`.',
+			'À l’étape 5, `git ls-remote --tags origin` liste aussi `refs/tags/v2.0.0`.'
+		],
+		solution: [
+			'Un tag annoté est un objet à part, avec auteur, date et message. Un tag léger n’est qu’un nom pour un commit.',
+			'`v1.4.2-1-g…` veut dire un commit après `v1.4.2` : le tag est resté en place pendant que `main` avançait.',
+			'`git push origin main` n’envoie aucun tag. Pousse-le par son nom, ou utilise `--follow-tags` pour les tags annotés des commits que tu pousses.'
+		]
+	},
 	recall: {
 		q: 'Ton CLI en 1.4.2 supprime l’option `--force`. Quelle est la version suivante, et quelles commandes la taguent et la publient ?',
 		a: '2.0.0, parce que supprimer une option casse les scripts qui l’utilisent. `git tag -a v2.0.0 -m "Release 2.0.0"`, puis `git push origin v2.0.0`, car un simple `git push` n’envoie aucun tag.'

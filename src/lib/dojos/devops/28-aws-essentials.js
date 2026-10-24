@@ -115,6 +115,44 @@ Resources:
 			'Web security group: allow HTTP and HTTPS **only from the load balancer\'s security group**, not from an IP range.',
 			'Database security group: allow the database port only from the web security group.',
 			'One web server per AZ, so one AZ can fail. Web servers get an IAM role for anything they read in AWS, no access keys.'
+		],
+		steps: [
+			{
+				title: 'Pick the AZs',
+				questions: [
+					{ q: 'Over how many Availability Zones do you spread the app?', options: ['One, to keep traffic local', 'Two', 'One per server, so four', 'None: a VPC is not tied to AZs'], answer: 1, why: 'Two isolated locations in one Region let the app survive the loss of one zone.' },
+					{ q: 'Why not put everything in `eu-west-1a`?', options: ['AWS forbids more than two servers per AZ', 'One AZ costs more than two', 'One AZ failure would take it all down', 'Load balancers need a second Region'], answer: 2, why: 'AZs are isolated from each other. Everything in one AZ fails together.' },
+					{ q: 'How many AZs can one subnet span?', options: ['Exactly one', 'Two', 'Every AZ of its Region', 'Every AZ of every Region'], answer: 0, why: 'A VPC can cover several AZs, but **each subnet sits in one AZ**.' },
+					{ q: 'So how do you lay out the subnets?', options: ['One big subnet across both AZs', 'One public subnet in 1a, one private subnet in 1b', 'One subnet per server', 'A public and a private subnet in each AZ'], answer: 3, why: 'Each AZ needs a place for the load balancer and a place for the servers behind it.' }
+				]
+			},
+			{
+				title: 'Split public and private',
+				questions: [
+					{ q: 'Which part faces the internet?', options: ['Only the load balancer', 'The load balancer and the web servers', 'The web servers and the database', 'All of them'], answer: 0, why: 'The web servers and the database have no reason to be reachable from outside.' },
+					{ q: 'Where do the web servers go?', options: ['In the public subnets, next to the load balancer', 'In a separate VPC', 'In the private subnets', 'In S3'], answer: 2, why: 'They only need traffic from the load balancer, so they stay private.' },
+					{ q: 'What makes a subnet public?', options: ['Its CIDR range', 'The name you give it', 'The instances in it having public keys', 'A route to the internet gateway in its route table'], answer: 3, why: 'Public or private is only a question of the route.' },
+					{ q: 'A web server in a private subnet must download updates. What does it need?', options: ['A security group that allows all inbound traffic', 'A NAT device', 'A second internet gateway', 'An IAM user'], answer: 1, why: 'A private subnet has no route to the internet gateway, so it reaches out through NAT.' }
+				]
+			},
+			{
+				title: 'Write the rules',
+				questions: [
+					{ q: 'What does the load balancer\'s security group allow in?', options: ['HTTP and HTTPS from `0.0.0.0/0`', 'SSH from `0.0.0.0/0`', 'Everything from the web servers', 'Nothing: load balancers need no rules'], answer: 0, why: 'It is the one public entry point, so it takes web traffic from anywhere.' },
+					{ q: 'What does the web security group allow in?', options: ['HTTP and HTTPS from `0.0.0.0/0`', 'HTTP and HTTPS from `10.0.0.0/16`', 'HTTP and HTTPS only from the load balancer\'s security group', 'The database port from the database'], answer: 2, why: 'A rule can name another security group as its source. Only the load balancer gets through.' },
+					{ q: 'What does the database security group allow in?', options: ['The database port from the load balancer', 'The database port only from the web security group', 'Every port from the VPC', 'The database port from your home IP'], answer: 1, why: 'Only the web servers talk to the database.' },
+					{ q: 'How do you block everything else?', options: ['Add a deny rule for each port', 'Add a deny rule for `0.0.0.0/0`', 'Put the servers in another Region', 'Nothing to write: anything not allowed is blocked'], answer: 3, why: 'Security groups have allow rules only. A new one lets nothing in.' }
+				]
+			},
+			{
+				title: 'Give the servers access',
+				questions: [
+					{ q: 'The web servers read from S3. How do they get credentials?', options: ['An IAM role attached to each instance', 'Access keys of an IAM user in `/etc/app.env`', 'The root user\'s keys', 'A public bucket, so no credentials'], answer: 0, why: 'People and apps should use roles. No keys sit on the server.' },
+					{ q: 'What does the app get from the role?', options: ['A password it must change every 90 days', 'Long-term access keys', 'Temporary credentials that AWS rotates', 'An SSH key pair'], answer: 2, why: 'A role has no long-term credentials. Whoever assumes it gets temporary ones.' },
+					{ q: 'How is the role attached to an instance?', options: ['Through its security group', 'Through an instance profile', 'Through its subnet\'s route table', 'Through the AMI'], answer: 1, why: 'The instance profile carries the role to the instance.' },
+					{ q: 'The web security group allows HTTPS in from the load balancer. Do the replies need an outbound rule?', options: ['Yes, one per port', 'Yes, to the load balancer\'s IP', 'Only for HTTPS', 'No: security groups are stateful'], answer: 3, why: 'Replies to allowed inbound traffic go out without an extra rule.' }
+				]
+			}
 		]
 	},
 	quiz: [

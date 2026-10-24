@@ -124,6 +124,44 @@ deploy-job:      # This job runs in the deploy stage.
 			'Deploy to staging: copy the artifact, run the migration, restart. These are the commands from your runbook, now run by the machine.',
 			'Approval, then deploy to production with the **same artifact**. The approval makes it continuous delivery. If you drop the approval once you trust the pipeline, you have continuous deployment.',
 			'The `git pull` on the server goes away: the server only receives what the pipeline built.'
+		],
+		steps: [
+			{
+				title: 'Read the runbook',
+				questions: [
+					{ q: 'What is the weak point of today\'s runbook?', options: ['It needs a server with ssh access', 'It works only if a human does every step, in the right order', 'It runs the tests too often', 'It builds on a machine that is too slow'], answer: 1, why: 'The runbook is fine on paper. It fails the day someone skips `make test` or swaps two steps.' },
+					{ q: 'In the pipeline, where does `make build` run?', options: ['On each server, after `git pull`', 'Once in staging, then again in production', 'Once, in the pipeline\'s build stage', 'Only after the tests have passed on the server'], answer: 2, why: 'The pipeline builds the code **once**. The server builds nothing.' },
+					{ q: 'Which runbook step goes away completely?', options: ['The database migration', 'The `systemctl restart app`', '`make test`', 'The `git pull` on the server'], answer: 3, why: 'The server only receives what the pipeline built, so it never needs the source.' },
+					{ q: 'Which commands still run against the server, now started by the machine?', options: ['Copy the artifact, run the migration, restart', '`git pull`, `make build`, restart', '`make test` and the linter', 'Only `make build`'], answer: 0, why: 'These are the commands from your runbook. The pipeline runs them in the deploy stage.' }
+				]
+			},
+			{
+				title: 'Group the stages',
+				questions: [
+					{ q: 'In what order do the stages go?', options: ['Test, build, deploy to staging, deploy to production', 'Build, test, deploy to staging, approval, production', 'Build, deploy to production, then test', 'Deploy to staging, build, test, production'], answer: 1, why: 'Each stage waits for the one before it to pass, so a broken change never reaches a server.' },
+					{ q: 'What runs in parallel?', options: ['`make test` and a linter, in the test stage', 'The build and the deploy to staging', 'The migration and the restart', 'The deploys to staging and production'], answer: 0, why: 'Jobs in the same stage run in parallel. Neither check needs the other.' },
+					{ q: 'The linter fails after 10 seconds while the unit tests are running. What happens?', options: ['The unit tests are cancelled at once', 'The deploy stage starts with a warning', 'The unit tests run to the end, and no later stage starts', 'The pipeline retries the linter'], answer: 2, why: 'GitLab skips only the jobs of the later stages. The other job in the same stage keeps running.' },
+					{ q: 'Why put the fast checks early?', options: ['Because the linter needs the build output', 'So the slow tests can be skipped', 'Because GitLab runs fast jobs first anyway', 'So a lint error shows up after seconds, not after the full suite'], answer: 3, why: 'Fail fast: the cheapest check that can catch a mistake should run first.' }
+				]
+			},
+			{
+				title: 'Name the artifact',
+				questions: [
+					{ q: 'Which output is the artifact?', options: ['The source tree that `git pull` fetched', 'The database after the migration', 'What `make build` produces: a tarball, a binary, later an image', 'The log of `systemctl restart app`'], answer: 2, why: 'An artifact is a file a job produces and hands to later jobs. Here it is the build output.' },
+					{ q: 'What does staging receive?', options: ['The exact file the build stage made', 'A fresh build from the same commit', 'The repo, to build on the server', 'Only the test report'], answer: 0, why: 'Nothing is built again. Staging gets the file the tests ran against.' },
+					{ q: 'What does production receive?', options: ['A new build with production flags', 'The code from a `git pull`', 'Whatever staging rebuilt', 'The same artifact staging got'], answer: 3, why: 'The pipeline promotes one artifact from stage to stage.' },
+					{ q: 'Why not build again for production?', options: ['CI tools forbid two builds in one pipeline', 'A rebuild can pull a different dependency, so production runs untested code', 'It saves build minutes on the runner', 'Production servers cannot run a compiler'], answer: 1, why: 'Building once means the file you deploy is exactly the file you tested.' }
+				]
+			},
+			{
+				title: 'Place the approval',
+				questions: [
+					{ q: 'Where does the human approval go for continuous delivery?', options: ['Before the build stage', 'Between build and test', 'After staging, before production', 'After the deploy to production'], answer: 2, why: 'Every green change reaches staging. A human picks when it goes to production.' },
+					{ q: 'With the approval in place, what is true of every green change?', options: ['It could go to production at any time, and a human decides when', 'It goes to production by itself', 'It is built again before release', 'It is tested again in production'], answer: 0, why: 'That is the definition of continuous delivery.' },
+					{ q: 'You remove the approval. What do you have now?', options: ['Continuous delivery', 'A pipeline with no deploy stage', 'Manual deployment', 'Continuous deployment'], answer: 3, why: 'Without the button, every change that passes the pipeline goes to production with no human in between.' },
+					{ q: 'When is it safe to drop the approval?', options: ['On the first day, to ship faster', 'Once you trust the pipeline', 'When the tests get too slow', 'Never: continuous delivery requires it forever'], answer: 1, why: 'You need delivery working before you can do deployment.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,27 @@ deploy-job:      # This job runs in the deploy stage.
 			why: 'A rebuild can pull a different dependency or use a different compiler. Then production runs something nobody tested. When the pipeline promotes one artifact from stage to stage, production runs the tested file.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Write a tiny pipeline in bash that builds once, tests in parallel, stops at the first failure and waits for a human before production.',
+		steps: [
+			'Make a scratch app: `mkdir -p ~/pipe-lab && cd ~/pipe-lab && printf \'echo hello v1\\n\' > app.sh`.',
+			'Write `pipeline.sh` with `set -euo pipefail` and four stages, each starting with a line like `echo "== build"`: build (`tar -czf dist/app.tar.gz app.sh`), test (two jobs started with `&`, then one `wait` per job), deploy to staging (copy and unpack the tarball in `staging/`), deploy to production (same tarball, in `prod/`).',
+			'Before production, ask for approval: `read -r -p "Ship to production? [y/N] " ok` and stop unless the answer is `y`.',
+			'Run `bash pipeline.sh` and answer `y`. Then break the app with `printf \'echo bye\\n\' > app.sh` and run it again.'
+		],
+		done: [
+			'After the first run, `cmp dist/app.tar.gz prod/app.tar.gz` prints nothing: production got the file the tests ran against.',
+			'After the broken run, `echo $?` right after `bash pipeline.sh` prints `1` and the output ends at `== test`.',
+			'`bash prod/app.sh` still prints `hello v1`.'
+		],
+		solution: [
+			'`mkdir -p dist && tar -czf dist/app.tar.gz app.sh`',
+			'`(bash app.sh | grep -q hello) & unit=$!` and `bash -n app.sh & lint=$!`, then `wait "$unit"` and `wait "$lint"` on two separate lines. Joined with `&&`, a failure would not stop `set -e`.',
+			'`mkdir -p staging && cp dist/app.tar.gz staging/ && tar -xzf staging/app.tar.gz -C staging`, and the same with `prod`.',
+			'`[ "$ok" = y ] || { echo "stopped before production"; exit 0; }`. Delete that line and you have continuous deployment.'
+		]
+	},
 	recall: {
 		q: 'In GitLab\'s starter pipeline, the lint job fails. Which jobs still run, and what changes if you remove the approval before production?',
 		a: 'The unit test job in the same stage runs to the end, and no job of a later stage starts. Without the approval, every passing change goes to production: that is continuous deployment.'

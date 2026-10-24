@@ -124,6 +124,44 @@ deploy-job:      # This job runs in the deploy stage.
 			'Déploiement en staging : copier l’artefact, lancer la migration, redémarrer. Ce sont les commandes de ta procédure, lancées par la machine.',
 			'Validation, puis déploiement en production avec le **même artefact**. La validation en fait de la livraison continue. Si tu la retires quand tu fais confiance au pipeline, tu passes au déploiement continu.',
 			'Le `git pull` sur le serveur disparaît : le serveur reçoit seulement ce que le pipeline a construit.'
+		],
+		steps: [
+			{
+				title: 'Lis la procédure',
+				questions: [
+					{ q: 'Quel est le point faible de ta procédure actuelle ?', options: ['Elle demande un serveur accessible en ssh', 'Elle ne marche que si un humain fait chaque étape, dans le bon ordre', 'Elle lance les tests trop souvent', 'Elle construit sur une machine trop lente'], answer: 1, why: 'Sur le papier, la procédure tient. Elle casse le jour où quelqu’un saute `make test` ou inverse deux étapes.' },
+					{ q: 'Dans le pipeline, où tourne `make build` ?', options: ['Sur chaque serveur, après `git pull`', 'Une fois en staging, puis encore en production', 'Une seule fois, dans le stage build du pipeline', 'Seulement après les tests, sur le serveur'], answer: 2, why: 'Le pipeline construit le code **une seule fois**. Le serveur ne construit rien.' },
+					{ q: 'Quelle étape de la procédure disparaît complètement ?', options: ['La migration de la base', 'Le `systemctl restart app`', '`make test`', 'Le `git pull` sur le serveur'], answer: 3, why: 'Le serveur reçoit seulement ce que le pipeline a construit, il n’a donc jamais besoin des sources.' },
+					{ q: 'Quelles commandes visent encore le serveur, lancées maintenant par la machine ?', options: ['Copier l’artefact, lancer la migration, redémarrer', '`git pull`, `make build`, redémarrer', '`make test` et le linter', 'Seulement `make build`'], answer: 0, why: 'Ce sont les commandes de ta procédure. Le pipeline les lance dans le stage de déploiement.' }
+				]
+			},
+			{
+				title: 'Regroupe les stages',
+				questions: [
+					{ q: 'Dans quel ordre vont les stages ?', options: ['Test, build, déploiement en staging, déploiement en production', 'Build, test, déploiement en staging, validation, production', 'Build, déploiement en production, puis test', 'Déploiement en staging, build, test, production'], answer: 1, why: 'Chaque stage attend que le précédent passe, donc un changement cassé n’atteint jamais un serveur.' },
+					{ q: 'Qu’est-ce qui tourne en parallèle ?', options: ['`make test` et un linter, dans le stage de test', 'Le build et le déploiement en staging', 'La migration et le redémarrage', 'Les déploiements en staging et en production'], answer: 0, why: 'Les jobs d’un même stage tournent en parallèle. Aucune des deux vérifications n’a besoin de l’autre.' },
+					{ q: 'Le linter échoue au bout de 10 secondes pendant que les tests unitaires tournent. Que se passe-t-il ?', options: ['Les tests unitaires sont annulés aussitôt', 'Le stage de déploiement démarre avec un avertissement', 'Les tests unitaires vont jusqu’au bout, et aucun stage suivant ne démarre', 'Le pipeline relance le linter'], answer: 2, why: 'GitLab saute seulement les jobs des stages suivants. L’autre job du même stage continue.' },
+					{ q: 'Pourquoi mettre les vérifications rapides en premier ?', options: ['Parce que le linter a besoin du résultat du build', 'Pour pouvoir sauter les tests lents', 'Parce que GitLab lance de toute façon les jobs rapides d’abord', 'Pour qu’une erreur de lint apparaisse en quelques secondes, pas après toute la suite'], answer: 3, why: 'Échouer vite : la vérification la moins chère qui peut attraper une erreur doit tourner en premier.' }
+				]
+			},
+			{
+				title: 'Nomme l’artefact',
+				questions: [
+					{ q: 'Quel résultat sert d’artefact ?', options: ['Les sources récupérées par `git pull`', 'La base après la migration', 'Ce que produit `make build` : une archive, un binaire, plus tard une image', 'Le log de `systemctl restart app`'], answer: 2, why: 'Un artefact est un fichier qu’un job produit et transmet aux jobs suivants. Ici, c’est le résultat du build.' },
+					{ q: 'Que reçoit le staging ?', options: ['Le fichier exact produit par le stage build', 'Un nouveau build du même commit', 'Le dépôt, à construire sur le serveur', 'Seulement le rapport de tests'], answer: 0, why: 'Rien n’est reconstruit. Le staging reçoit le fichier sur lequel les tests ont tourné.' },
+					{ q: 'Que reçoit la production ?', options: ['Un nouveau build avec des options de production', 'Le code d’un `git pull`', 'Ce que le staging a reconstruit', 'Le même artefact que le staging'], answer: 3, why: 'Le pipeline promeut un seul artefact de stage en stage.' },
+					{ q: 'Pourquoi ne pas reconstruire pour la production ?', options: ['Les outils de CI interdisent deux builds dans un pipeline', 'Un nouveau build peut récupérer une autre dépendance, et la production fait tourner du code non testé', 'Cela économise des minutes de build sur le runner', 'Les serveurs de production ne peuvent pas lancer de compilateur'], answer: 1, why: 'Construire une seule fois garantit que le fichier déployé est exactement celui que tu as testé.' }
+				]
+			},
+			{
+				title: 'Place la validation',
+				questions: [
+					{ q: 'Où va la validation humaine pour faire de la livraison continue ?', options: ['Avant le stage build', 'Entre le build et les tests', 'Après le staging, avant la production', 'Après le déploiement en production'], answer: 2, why: 'Chaque changement vert arrive en staging. Un humain choisit quand il part en production.' },
+					{ q: 'Avec la validation en place, qu’est-ce qui est vrai pour chaque changement vert ?', options: ['Il pourrait partir en production à tout moment, et un humain décide quand', 'Il part en production tout seul', 'Il est reconstruit avant la mise en ligne', 'Il est testé à nouveau en production'], answer: 0, why: 'C’est la définition de la livraison continue.' },
+					{ q: 'Tu retires la validation. Qu’as-tu maintenant ?', options: ['De la livraison continue', 'Un pipeline sans stage de déploiement', 'Du déploiement manuel', 'Du déploiement continu'], answer: 3, why: 'Sans le bouton, chaque changement qui passe le pipeline part en production sans humain entre les deux.' },
+					{ q: 'Quand peux-tu retirer la validation sans risque ?', options: ['Dès le premier jour, pour livrer plus vite', 'Quand tu fais confiance au pipeline', 'Quand les tests deviennent trop lents', 'Jamais : la livraison continue l’exige pour toujours'], answer: 1, why: 'Il te faut une livraison continue qui marche avant de passer au déploiement continu.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,27 @@ deploy-job:      # This job runs in the deploy stage.
 			why: 'Un nouveau build peut récupérer une autre dépendance ou utiliser un autre compilateur. La production fait alors tourner quelque chose que personne n’a testé. Quand le pipeline promeut un seul artefact de stage en stage, la production fait tourner le fichier testé.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Écrire un petit pipeline en bash qui construit une fois, teste en parallèle, s’arrête au premier échec et attend un humain avant la production.',
+		steps: [
+			'Crée une appli jetable : `mkdir -p ~/pipe-lab && cd ~/pipe-lab && printf \'echo hello v1\\n\' > app.sh`.',
+			'Écris `pipeline.sh` avec `set -euo pipefail` et quatre stages, chacun ouvert par une ligne comme `echo "== build"` : build (`tar -czf dist/app.tar.gz app.sh`), test (deux jobs lancés avec `&`, puis un `wait` par job), déploiement en staging (copier et décompresser l’archive dans `staging/`), déploiement en production (la même archive, dans `prod/`).',
+			'Avant la production, demande une validation : `read -r -p "Ship to production? [y/N] " ok` et arrête-toi si la réponse n’est pas `y`.',
+			'Lance `bash pipeline.sh` et réponds `y`. Puis casse l’appli avec `printf \'echo bye\\n\' > app.sh` et relance.'
+		],
+		done: [
+			'Après le premier passage, `cmp dist/app.tar.gz prod/app.tar.gz` n’affiche rien : la production a reçu le fichier sur lequel les tests ont tourné.',
+			'Après le passage cassé, `echo $?` juste après `bash pipeline.sh` affiche `1` et la sortie s’arrête à `== test`.',
+			'`bash prod/app.sh` affiche toujours `hello v1`.'
+		],
+		solution: [
+			'`mkdir -p dist && tar -czf dist/app.tar.gz app.sh`',
+			'`(bash app.sh | grep -q hello) & unit=$!` et `bash -n app.sh & lint=$!`, puis `wait "$unit"` et `wait "$lint"` sur deux lignes séparées. Reliés par `&&`, un échec n’arrêterait pas `set -e`.',
+			'`mkdir -p staging && cp dist/app.tar.gz staging/ && tar -xzf staging/app.tar.gz -C staging`, et pareil avec `prod`.',
+			'`[ "$ok" = y ] || { echo "stopped before production"; exit 0; }`. Supprime cette ligne et tu as du déploiement continu.'
+		]
+	},
 	recall: {
 		q: 'Dans le pipeline de démarrage de GitLab, le job de lint échoue. Quels jobs tournent encore, et que change le retrait de la validation avant la production ?',
 		a: 'Le job de tests unitaires du même stage va jusqu’au bout, et aucun job d’un stage suivant ne démarre. Sans la validation, chaque changement validé part en production : c’est du déploiement continu.'

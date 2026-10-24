@@ -112,6 +112,44 @@ export default {
 			'Attaque (c) en premier. Va vers le libre-service : un formulaire ou un script qui crée le compte, avec un retour au ticket seulement pour les cas particuliers.',
 			'Pour (a), avant d’écrire un script de nettoyage, demande-toi pourquoi `/tmp` se remplit. Corriger l’appli ou mettre en place le nettoyage à la source supprime la tâche.',
 			'Pour (e), automatise le renouvellement avec un client ACME comme certbot, et alerte sur les certificats proches de l’expiration. Ça prend 30 minutes par trimestre, et un renouvellement oublié met le site par terre.'
+		],
+		steps: [
+			{
+				title: 'Classe chaque tâche',
+				questions: [
+					{ q: '(a) Nettoyer `/tmp` à la main sur six serveurs web, 40 min par semaine.', options: ['Toil', 'Overhead', 'Ingénierie', 'Aucun : c’est ponctuel'], answer: 0, why: 'Manuel, répétitif, automatisable, et ça ne laisse rien de mieux derrière : toutes les cases de la grille SRE.' },
+					{ q: '(b) La réunion d’équipe hebdomadaire, 60 min.', options: ['Toil', 'Overhead', 'Ingénierie', 'Aucun : c’est ponctuel'], answer: 1, why: 'Le livre SRE range les réunions dans l’overhead : du travail administratif qui n’est pas lié au fonctionnement du service.' },
+					{ q: '(c) Créer des comptes utilisateurs à la demande, environ 10 tickets de 15 min, de plus en plus à chaque embauche.', options: ['Toil', 'Overhead', 'Ingénierie', 'Aucun : c’est ponctuel'], answer: 0, why: 'Manuel, réactif, répétitif, et ça **grandit avec l’entreprise** : le toil type.' },
+					{ q: '(d) Écrire un rôle Ansible pour nginx, environ 6 heures, une seule fois.', options: ['Toil', 'Overhead', 'Ingénierie', 'Aucun : c’est ponctuel'], answer: 2, why: 'Un travail ponctuel qui laisse une amélioration durable, c’est de l’ingénierie, même quand c’est fastidieux.' }
+				]
+			},
+			{
+				title: 'Mesure',
+				questions: [
+					{ q: 'Combien de temps prend (c) par semaine aujourd’hui ?', options: ['Environ 15 min', 'Environ 40 min', 'Environ 150 min', 'Environ 600 min'], answer: 2, why: '10 tickets × 15 min font 150 min, et ça monte avec les effectifs.' },
+					{ q: '(e), renouveler un certificat TLS à la main 30 min par trimestre, ça fait combien par semaine ?', options: ['Environ 2 min', 'Environ 30 min', 'Environ 10 min', 'Environ 1 heure'], answer: 0, why: '30 min sur 13 semaines, ça fait un peu plus de 2 min par semaine.' },
+					{ q: 'Quelle tâche grossit quand l’entreprise grandit, même si personne ne change rien ?', options: ['(a) le nettoyage de `/tmp`', '(c) les tickets de comptes', '(e) le renouvellement du certificat', '(b) la réunion'], answer: 1, why: 'Chaque embauche ajoute des tickets. Le toil qui grandit avec le service, c’est celui à surveiller.' },
+					{ q: 'Pourquoi mesurer en minutes par semaine avant de choisir ?', options: ['Pour comparer le coût de l’automatisation au temps qu’elle fait gagner', 'Parce que le livre SRE plafonne le toil à 10 minutes par semaine', 'Pour décider qui dans l’équipe doit faire la tâche', 'Parce que seules les tâches de plus d’une heure comptent comme du toil'], answer: 0, why: 'Le workbook SRE demande de peser le coût de construire et maintenir l’automatisation contre le temps qu’elle fait gagner.' }
+				]
+			},
+			{
+				title: 'Choisis par quoi commencer',
+				questions: [
+					{ q: 'Quelle tâche attaques-tu en premier ?', options: ['(c) les tickets de comptes', '(a) le nettoyage de `/tmp`', '(e) le renouvellement du certificat', '(d) le rôle Ansible'], answer: 0, why: 'C’est le plus gros toil aujourd’hui, et le seul qui grandit avec l’entreprise.' },
+					{ q: '(e) ne prend qu’environ 2 min par semaine. Pourquoi le corriger quand même bientôt ?', options: ['Un renouvellement oublié met tout le site par terre', 'Les certificats doivent être renouvelés chaque semaine', 'C’est de l’overhead, et l’overhead passe en premier', 'Ça ne s’automatise pas, donc il faut un process'], answer: 0, why: 'Petit mais risqué : le prix d’un seul oubli, c’est une panne, pas quelques minutes.' },
+					{ q: 'Avant d’écrire le script de nettoyage de `/tmp`, que demandes-tu d’abord ?', options: ['Pourquoi `/tmp` se remplit', 'Quel shell le script doit utiliser', 'S’il faut le lancer chaque jour ou chaque semaine', 'Qui lancera le script à la main'], answer: 0, why: 'Supprimer une tâche à la source vaut mieux que l’automatiser. Quelque chose écrit ces fichiers.' },
+					{ q: 'Que dit le workbook SRE d’envisager en premier pour une tâche chargée en toil ?', options: ['La refuser : comparer le coût de la faire au coût de ne pas la faire', 'Concevoir un système qui supprime tout le toil d’un coup', 'La confier au dernier arrivé de l’équipe', 'La faire plus vite en sautant les vérifications'], answer: 0, why: 'Refuser le toil est la première option que cite le workbook.' }
+				]
+			},
+			{
+				title: 'Dis comment',
+				questions: [
+					{ q: 'Comment te débarrasses-tu de (c) ?', options: ['Un formulaire ou un script en libre-service, avec un ticket seulement pour les cas particuliers', 'Un document partagé avec les étapes, pour que tout le monde puisse le faire', 'Une deuxième personne qui relit chaque ticket', 'Regrouper les tickets et les traiter le vendredi'], answer: 0, why: 'Le libre-service sort l’humain de la boucle pour le cas courant. Un runbook laisse encore le temps passé à la main.' },
+					{ q: 'Comment te débarrasses-tu de (e) ?', options: ['Un client ACME comme certbot, plus une alerte sur les certificats proches de l’expiration', 'Un rappel dans l’agenda chaque trimestre', 'Acheter des certificats valables dix ans', 'Un script que tu lances à la main quand le rappel sonne'], answer: 0, why: 'Le renouvellement automatique supprime la tâche, et l’alerte attrape le jour où il casse.' },
+					{ q: 'Tu transformes le nettoyage hebdomadaire en script que tu lances encore à la main. Ce temps est-il encore du toil ?', options: ['Oui : le temps passé à lancer un script reste du toil', 'Non : avec un script, c’est du travail automatisé', 'Non : c’est maintenant de l’ingénierie', 'Seulement si le script échoue'], answer: 0, why: 'Le livre SRE est explicite : seul le fait de sortir l’humain de la boucle supprime le toil.' },
+					{ q: 'Ton script de comptes a des droits admin. De quoi a-t-il besoin avant de tourner tout seul ?', options: ['De garde-fous et d’un moyen de l’arrêter et d’appeler un humain', 'De rien : les scripts ne font pas d’erreurs', 'D’une réécriture dans un langage compilé', 'D’une exécution chaque minute, pour corriger vite les erreurs'], answer: 0, why: 'Une automatisation avec des droits admin peut provoquer des pannes très vite, elle a donc besoin de garde-fous et d’un bouton d’arrêt.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,27 @@ export default {
 			why: 'Le workbook dit que refuser une tâche chargée en toil devrait être la première option envisagée. Il met aussi en garde contre la recherche du système parfait, et recommande de commencer petit.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Transformer un nettoyage fait à la main en nettoyage qui tourne tout seul, avec un garde-fou.',
+		steps: [
+			'Crée un dossier de test avec des fichiers anciens et récents : `mkdir -p ~/toil-lab && cd ~/toil-lab && touch -t 202001010000 old-{1..5}.log && touch new-{1..3}.log`.',
+			'Fais le nettoyage une fois à la main et chronomètre-le : liste ce qui a plus de 7 jours avec `find . -name "*.log" -mtime +7`, puis supprime ces fichiers.',
+			'Recrée les fichiers, puis écris `cleanup.sh` : il prend le dossier en argument, lance le même `find` avec `-delete`, et s’arrête avec une erreur pour tout dossier autre que `~/toil-lab`.',
+			'Lance-le avec `bash -x cleanup.sh ~/toil-lab` pour voir chaque commande, puis planifie-le : `crontab -e` et ajoute `0 3 * * * bash ~/toil-lab/cleanup.sh ~/toil-lab`.'
+		],
+		done: [
+			'`ls ~/toil-lab/*.log` ne montre plus que les trois fichiers `new-*.log` après le passage du script.',
+			'`bash cleanup.sh /tmp` refuse de supprimer quoi que ce soit.',
+			'`crontab -l` affiche la ligne de la nuit.'
+		],
+		solution: [
+			'`#!/usr/bin/env bash`, puis `set -euo pipefail`.',
+			'`dir=$(cd "$1" && pwd -P); [ "$dir" = "$(cd ~/toil-lab && pwd -P)" ] || { echo "refusing to clean $1" >&2; exit 1; }`',
+			'`find "$dir" -maxdepth 1 -name "*.log" -mtime +7 -print -delete` : `-print` laisse dans le mail de cron une trace de ce qui a été supprimé.',
+			'Puis pose la question de la leçon : qui écrit ces fichiers ? Un réglage de rotation des logs à la source rendrait le script inutile.'
+		]
+	},
 	recall: {
 		q: 'Tu lances à la main un script de nettoyage chaque semaine. Ce temps est-il du toil, et que conseille le workbook SRE d’envisager en premier pour une tâche chargée en toil ?',
 		a: 'Oui, le temps passé à lancer un script reste du toil. La première option est de refuser la tâche : comparer le coût de la faire au coût de ne pas la faire.'

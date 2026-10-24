@@ -118,6 +118,44 @@ spec:
 			'Compare le selector du Service (`kubectl get svc shop -o yaml`) aux labels des Pods (`kubectl get pods --show-labels`). Une faute comme `app: shop` contre `app: shopp`, ou une clé en trop dans le selector, donne zéro correspondance.',
 			'Un Pod pas prêt apparaît quand même dans l’EndpointSlice, marqué `ready: false`, donc la readiness n’explique pas zéro endpoint. Une fois le selector corrigé, regarde la colonne READY de `kubectl get pods` : un Pod peut être Running sans être **Ready**. Le Service n’envoie aucun trafic à un Pod pas prêt.',
 			'Enfin, vérifie que le `targetPort` du Service correspond au port sur lequel le conteneur écoute vraiment.'
+		],
+		steps: [
+			{
+				title: 'Lis le symptôme',
+				questions: [
+					{ q: 'Trois Pods sont `Running`, et pourtant le Service n’a aucun endpoint. Où est la coupure ?', options: ['Dans les conteneurs', 'Dans le DNS du cluster', 'Sur le disque du node', 'Entre le Service et les Pods'], answer: 3, why: 'Les Pods tournent, donc la coupure est dans le lien qui rattache le Service à eux.' },
+					{ q: 'Quelle est la seule chose qui relie un Service à ses Pods ?', options: ['Son selector de labels', 'Le nom du Deployment', 'Une liste d’IP de Pods dans le spec du Service', 'Le node où tournent les Pods'], answer: 0, why: 'Un Service ne sait pas que le Deployment existe. Il n’a qu’un selector.' },
+					{ q: 'Un selector ne correspond à aucun Pod. Quelle erreur donne Kubernetes ?', options: ['L’API server rejette le Service', 'Les Pods plantent en `CrashLoopBackOff`', 'Aucune : le Service n’a simplement pas de Pods', 'Un avertissement dans `kubectl get pods`'], answer: 2, why: 'Une faute dans un selector ne lève aucune erreur. Le Service a juste zéro endpoint.' },
+					{ q: 'La readiness seule peut-elle expliquer **zéro** endpoint ici ?', options: ['Oui : les Pods pas prêts sont retirés de la liste', 'Oui : un Pod Running n’est jamais prêt au début', 'Non : seul le port peut causer ça', 'Non : un Pod pas prêt apparaît quand même, marqué `ready: false`'], answer: 3, why: 'Un Pod pas prêt reste dans l’EndpointSlice avec `ready: false`. Zéro endpoint désigne le selector.' }
+				]
+			},
+			{
+				title: 'Compare selector et labels',
+				questions: [
+					{ q: 'Quelle commande montre le selector du Service ?', options: ['`kubectl get svc shop -o yaml`', '`kubectl logs svc/shop`', '`kubectl get nodes`', '`kubectl rollout status shop`'], answer: 0, why: 'Le YAML complet du Service montre son `spec.selector`.' },
+					{ q: 'Quelle commande montre les labels des Pods ?', options: ['`kubectl describe svc shop`', '`kubectl get pods --show-labels`', '`kubectl get endpointslices`', '`kubectl top pods`'], answer: 1, why: '`--show-labels` ajoute une colonne avec tous les labels de chaque Pod.' },
+					{ q: 'Le Service sélectionne `app: shop`, les Pods portent `app: shopp`. Combien d’endpoints ?', options: ['Trois, un par Pod', 'Un, le premier Pod trouvé', 'Zéro', 'Trois, mais tous marqués pas prêts'], answer: 2, why: 'Les labels doivent correspondre exactement. Une lettre en trop et plus rien ne correspond.' },
+					{ q: 'Le Service sélectionne `app: shop` et `tier: web`. Les Pods n’ont que `app: shop`. Que se passe-t-il ?', options: ['Les Pods correspondent, un label suffit', 'Aucun Pod ne correspond : chaque clé du selector doit correspondre', 'Le Service ajoute `tier: web` aux Pods', 'L’API server rejette le Service'], answer: 1, why: 'Un selector veut dire « chaque Pod qui a tous ces labels ». Une clé en trop dans le selector donne zéro correspondance.' }
+				]
+			},
+			{
+				title: 'Vérifie la readiness',
+				questions: [
+					{ q: 'Le selector correspond maintenant. Quelle colonne montre si chaque Pod est prêt ?', options: ['STATUS', 'RESTARTS', 'AGE', 'READY'], answer: 3, why: 'STATUS peut dire Running alors que READY affiche encore `0/1`.' },
+					{ q: 'Un Pod est `Running` mais pas prêt. Le Service lui envoie-t-il du trafic ?', options: ['Non : le trafic ne va qu’aux Pods prêts', 'Oui : Running suffit', 'Oui, mais deux fois moins', 'Seulement depuis le même node'], answer: 0, why: 'Kubernetes marque quels endpoints sont prêts, et le Service n’envoie qu’à ceux-là.' },
+					{ q: 'Comment un Pod pas prêt apparaît-il dans l’EndpointSlice ?', options: ['Il n’apparaît pas du tout', 'Avec `ready: false`', 'Avec une nouvelle adresse IP', 'En double'], answer: 1, why: 'Il reste dans la liste, marqué pas prêt, donc tu vois qu’il est sélectionné mais pas utilisé.' },
+					{ q: 'Pourquoi vérifier la readiness seulement après le selector ?', options: ['Les checks de readiness sont lents', 'kubectl ne peut pas montrer la readiness avant un correctif', 'Sans correspondance, aucun Pod n’est dans la liste, prêt ou pas', 'La readiness dépend du type de Service'], answer: 2, why: 'Répare d’abord le lien. La readiness ne compte que pour les Pods que le Service sélectionne déjà.' }
+				]
+			},
+			{
+				title: 'Vérifie le port en dernier',
+				questions: [
+					{ q: 'Quel champ du Service doit correspondre au port où écoute le conteneur ?', options: ['`port`', '`targetPort`', '`nodePort`', '`clusterIP`'], answer: 1, why: '`targetPort` est le port du Pod où le Service envoie le trafic.' },
+					{ q: 'Les endpoints existent et sont prêts, mais l’appli écoute sur 8080 et `targetPort` vaut 80. Que voient les clients ?', options: ['Le trafic arrive au Pod mais rien ne répond sur 80', 'Le Service choisit le port 8080 pour toi', 'Les endpoints disparaissent', 'Kubernetes rejette le Service'], answer: 0, why: 'Le Service envoie sur le mauvais port. Le Pod est sélectionné et prêt, et personne n’écoute là.' },
+					{ q: 'Quel est le bon ordre des vérifications ?', options: ['Port, readiness, selector', 'Readiness, port, selector', 'Selector, port, readiness', 'Selector, readiness, port'], answer: 3, why: 'Zéro endpoint désigne d’abord le selector. Ensuite la readiness décide quels Pods reçoivent du trafic, puis le port.' },
+					{ q: 'Les clients appellent `shop` par son nom. Qu’est-ce qui change pour eux quand tu corriges les labels et que les Pods sont remplacés ?', options: ['Ils doivent utiliser les nouvelles IP des Pods', 'Rien : le nom reste, seules les IP derrière changent', 'Ils doivent redémarrer pour rafraîchir le DNS', 'Ils passent à une nouvelle IP de Service'], answer: 1, why: 'Le nom du Service reste stable. Seule la liste des IP de Pods derrière lui change.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ spec:
 			why: '`ClusterIP` est le défaut : une IP virtuelle joignable seulement depuis le cluster. `NodePort` et `LoadBalancer` s’appuient dessus pour atteindre l’extérieur.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Casser un Service avec une faute d’une lettre dans le selector, voir que rien ne se plaint, puis trouver et corriger.',
+		steps: [
+			'Démarre un cluster local avec `minikube start`, puis lance trois Pods : `kubectl create deployment shop --image=nginx:1.27 --replicas=3` et `kubectl rollout status deployment shop`.',
+			'Crée un Service avec une faute dans son selector : `kubectl expose deployment shop --port=80 --selector=app=shopp`.',
+			'Appelle-le depuis le cluster : `kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -- wget -qO- -T 5 http://shop`. Puis regarde `kubectl get endpointslices -l kubernetes.io/service-name=shop`.',
+			'Compare les deux côtés : `kubectl get svc shop -o jsonpath=\'{.spec.selector}\'` et `kubectl get pods -l app=shop --show-labels`.',
+			'Corrige le selector : `kubectl set selector service shop app=shop`. Attends quelques secondes et relance la même commande `kubectl run probe ...`. Nettoie avec `kubectl delete deployment,service shop`.'
+		],
+		done: [
+			'Avant la correction, l’EndpointSlice montre `<unset>` sous ENDPOINTS et `wget` échoue tout de suite avec `Connection refused`, alors que les trois Pods sont `Running`.',
+			'Aucune commande n’a affiché d’erreur sur le selector.',
+			'Après la correction, l’EndpointSlice liste trois IP de Pods sur le port 80 et `wget` affiche la page `Welcome to nginx!`.'
+		],
+		solution: [
+			'Le Service sélectionne `{"app":"shopp"}` et les Pods portent `app=shop`. Les labels doivent correspondre exactement, donc le Service a zéro endpoint.',
+			'`kubectl set selector` remplace le `spec.selector` du Service. Kubernetes remplit alors l’EndpointSlice avec les Pods correspondants qui sont prêts.',
+			'Dans un vrai dépôt, corrige plutôt le fichier YAML dans Git, pour que le prochain `kubectl apply` ne ramène pas la faute.'
+		]
+	},
 	recall: {
 		q: 'Un Service sélectionne `app: shop`, et ses Pods portent `app: shopp`. Combien d’endpoints reçoit le Service, et quelle erreur vois-tu ?',
 		a: 'Zéro endpoint, et aucune erreur. Un Service ne trouve ses Pods que par son label selector, donc la faute de frappe le laisse sans aucun Pod.'

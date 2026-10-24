@@ -105,6 +105,44 @@ server {
 			'DNS: `dig example.com +short` against your resolver and against a public one (`dig @1.1.1.1 example.com +short`). Old answers stay until the TTL runs out.',
 			'Also `dig example.com AAAA +short`: an old IPv6 record still sends IPv6 users to the old server.',
 			'Never "fix" the certificate error with `-k`. Find which name the certificate does not cover.'
+		],
+		steps: [
+			{
+				title: 'Check the port on the new server',
+				questions: [
+					{ q: 'Which layer do you check first on the new server itself?', options: ['HTTP, with `curl -I`', 'TCP: is nginx listening on 443?', 'DNS, with `dig`', 'The certificate expiry date'], answer: 1, why: 'Before any name or certificate matters, something must listen on the port.' },
+					{ q: 'Which command lists listening TCP sockets and the process that owns each?', options: ['`ss -tlnp`', '`dig example.com +short`', '`curl -I localhost`', '`getent hosts example.com`'], answer: 0, why: '`ss -tlnp` shows listening TCP sockets with the owning process.' },
+					{ q: 'nginx listens on `0.0.0.0:443` but not on `[::]:443`. Who fails?', options: ['Nobody, IPv4 covers both', 'Only users with an old browser', 'Users who reach the server over IPv6', 'Only users of `www.example.com`'], answer: 2, why: 'IPv4 and IPv6 are separate sockets. If DNS publishes an `AAAA` record, IPv6 users need the `[::]` listener.' },
+					{ q: 'A test from outside says "Connection refused". What does that tell you?', options: ['The name did not resolve', 'The certificate is wrong', 'The packet was dropped on the way', 'The packet arrived and nothing listens there, or a firewall rejects it'], answer: 3, why: 'Refused means the host answered. A timeout would mean the packet was dropped.' }
+				]
+			},
+			{
+				title: 'Test TLS and HTTP without DNS',
+				questions: [
+					{ q: 'How do you test the new server under its real name before trusting DNS?', options: ['`curl -k https://198.51.100.7/`', 'Edit the DNS record again', '`curl -v --resolve example.com:443:198.51.100.7 https://example.com/`', '`dig @198.51.100.7 example.com`'], answer: 2, why: '`--resolve` skips DNS and sends the real name in SNI and the Host header to the IP you choose.' },
+					{ q: 'In that `curl -v` output, what do you read?', options: ['The certificate subject and the status line', 'Only the response body', 'The TTL of the record', 'The list of DNS servers'], answer: 0, why: 'The subject shows which names the certificate covers, and the status line shows HTTP works.' },
+					{ q: 'Why repeat the test for `www.example.com`?', options: ['`www` uses a different port', 'The `www` block needs its own certificate name, even if it only redirects', '`www` skips TLS', 'DNS caches `www` longer'], answer: 1, why: 'TLS comes before HTTP, so a certificate that misses `www.example.com` fails before the 301 is ever sent.' },
+					{ q: 'Why does nginx need SNI to pick the certificate?', options: ['The Host header is encrypted by DNS', 'SNI is faster to parse', 'HTTP/2 has no Host header', 'The TLS handshake happens before any HTTP is sent'], answer: 3, why: 'The certificate is part of the handshake, and SNI puts the name inside it.' }
+				]
+			},
+			{
+				title: 'Look at what DNS answers',
+				questions: [
+					{ q: 'Some users still get the old site. Why, if you updated DNS?', options: ['Resolvers cache the old answer until its TTL runs out', 'DNS changes need a server reboot', 'nginx caches the old IP', 'The certificate points at the old IP'], answer: 0, why: 'Resolvers may cache an answer for its TTL, so old answers linger after the change.' },
+					{ q: 'How do you compare what different resolvers say?', options: ['`curl -I` twice', '`ss -tlnp` on both servers', '`dig example.com +short` against your resolver, then against a public one with `@`', '`getent hosts` on the new server'], answer: 2, why: '`dig @server` asks one specific DNS server, so you can see who still serves the old address.' },
+					{ q: 'Which record can still send IPv6 users to the old server?', options: ['`A`', '`AAAA`', '`CNAME`', '`MX`'], answer: 1, why: 'An `AAAA` record gives the IPv6 address. Updating only the `A` record leaves IPv6 on the old box.' },
+					{ q: '`dig` shows the new IP but your laptop\'s `curl` reaches the old server. First place to look?', options: ['The TTL', 'The certificate', 'The nginx config', '`/etc/hosts`, which `curl` reads and `dig` ignores'], answer: 3, why: '`dig` asks a DNS server directly. `getent hosts` does the lookup programs do, `/etc/hosts` included.' }
+				]
+			},
+			{
+				title: 'Fix the certificate error properly',
+				questions: [
+					{ q: 'A colleague suggests `curl -k` to get past the certificate error. What is wrong with that?', options: ['It skips the checks, so the problem you are debugging stays hidden', 'It is slower', 'It only works on IPv6', 'It disables SNI'], answer: 0, why: '`-k` makes the error go away and leaves the certificate problem in place for real users.' },
+					{ q: 'Which three things does a client check on a certificate?', options: ['Its size, its port and its IP', 'The name matches the URL, a trusted CA signed it, it has not expired', 'Its TTL, its record type and its resolver', 'The Host header, the status line and the body'], answer: 1, why: 'Name, signer and expiry are the three checks.' },
+					{ q: 'curl stops on a certificate check. Which exit code does it return?', options: ['7', '22', '60', '127'], answer: 2, why: 'curl exits with 60 when it cannot verify the peer certificate.' },
+					{ q: 'Users who hit `www` get the certificate error. What do you look for?', options: ['A missing `AAAA` record', 'A closed port 80', 'A long TTL', 'Which name the certificate does not cover'], answer: 3, why: 'A name mismatch is the usual cause: the certificate covers `example.com` but not `www.example.com`, or the other way round.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -142,6 +180,29 @@ server {
 			why: 'The certificate is part of the TLS handshake, and HTTP only starts once TLS is set up. SNI puts the name inside the handshake itself.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Run a local HTTPS server for example.com and make each layer fail on purpose: port, TLS trust, certificate name, then a clean answer.',
+		steps: [
+			'Make a self-signed certificate for `example.com`: `mkdir -p ~/net-lab && cd ~/net-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -subj /CN=example.com -addext subjectAltName=DNS:example.com`.',
+			'Write `site.conf` with one `server` block: `listen 443 ssl;`, `server_name example.com;`, `ssl_certificate /etc/nginx/certs/cert.pem;`, `ssl_certificate_key /etc/nginx/certs/key.pem;` and `return 200 "new server\\n";`.',
+			'Start it: `docker run -d --name netlab -p 8443:443 -v "$PWD/site.conf:/etc/nginx/conf.d/default.conf:ro" -v "$PWD:/etc/nginx/certs:ro" nginx:1.27-alpine`. Check the port with `ss -tln | grep 8443` (on macOS: `lsof -iTCP:8443 -sTCP:LISTEN`).',
+			'Test each layer with `--resolve`, which skips DNS. Wrong port: `curl -s --resolve example.com:8444:127.0.0.1 https://example.com:8444/; echo $?`. Untrusted CA: `curl -s --resolve example.com:8443:127.0.0.1 https://example.com:8443/; echo $?`.',
+			'Trust your CA, then try a name the certificate does not cover: `curl -s --cacert cert.pem --resolve example.com:8443:127.0.0.1 https://example.com:8443/`, then the same with `www.example.com` in both places, followed by `echo $?`.',
+			'Time every layer: `curl -s -o /dev/null --cacert cert.pem --resolve example.com:8443:127.0.0.1 -w \'%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer}\\n\' https://example.com:8443/`. Clean up with `docker rm -f netlab`.'
+		],
+		done: [
+			'`ss -tln` shows 8443 listening on both `0.0.0.0` and `[::]`.',
+			'The wrong port prints exit code `7` (connection refused).',
+			'Without `--cacert`, curl exits with `60`. With it, it prints `new server`. With `www.example.com`, it exits with `60` again.',
+			'The `-w` line prints four growing times, and `time_appconnect` is where TLS finished.'
+		],
+		solution: [
+			'Exit 7 is TCP: nothing listens on 8444. Exit 60 is TLS: either the CA is unknown or the name does not match.',
+			'The two `60` errors have different causes. `curl -v` shows which: "self-signed certificate" for trust, "no alternative certificate subject name matches target host name" for the name. The exact wording depends on the TLS library your curl uses.',
+			'`curl -k` would print `new server` in both cases and hide both problems. Adding `DNS:www.example.com` to `subjectAltName` is the real fix for the second one.'
+		]
+	},
 	recall: {
 		q: 'In which order do you test the layers of a failing HTTPS request, and which tool checks each one?',
 		a: 'Name, port, TLS, HTTP. `dig` checks the name, `ss -tlnp` the port, and `curl -v` the TLS and HTTP.'

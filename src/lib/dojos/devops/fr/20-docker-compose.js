@@ -143,6 +143,44 @@ secrets:
 			'Ajoute un `healthcheck` à `db` (par exemple `test: ["CMD", "pg_isready"]` avec un `interval` et des `retries`).',
 			'Change `web` en `depends_on: { db: { condition: service_healthy } }`.',
 			'Mot de passe : utilise un `secret` Compose depuis un fichier non commité, lu via `POSTGRES_PASSWORD_FILE`. Ou mets-le dans un `.env` ignoré par Git et référence `${DB_PASSWORD}`.'
+		],
+		steps: [
+			{
+				title: 'Explique le plantage',
+				questions: [
+					{ q: 'Qu’attend un `depends_on: [db]` simple ?', options: ['Que `db` accepte les connexions', 'Que le conteneur `db` tourne', 'Que le healthcheck de `db` passe', 'Rien : il documente seulement le lien'], answer: 1, why: 'Compose attend que le processus du conteneur tourne, pas que PostgreSQL soit prêt.' },
+					{ q: 'Pourquoi `web` plante-t-il seulement une fois sur trois environ ?', options: ['C’est une course : parfois PostgreSQL est prêt à temps, parfois non', 'Le réseau perd un paquet sur trois', 'Compose démarre les services dans un ordre au hasard', 'Le mot de passe est faux une fois sur trois'], answer: 0, why: 'Le processus de la base peut tourner un moment avant d’accepter les connexions. Que `web` se connecte avant ou après dépend du timing.' },
+					{ q: 'Pourquoi ça marche après un redémarrage ?', options: ['Le redémarrage vide le volume', 'Compose passe à un healthcheck', 'À ce moment-là, PostgreSQL accepte les connexions', 'Le redémarrage choisit un nouveau port'], answer: 2, why: 'Le second essai arrive plus tard, une fois que la base a fini de démarrer.' },
+					{ q: 'Quel nom d’hôte `web` utilise-t-il pour joindre la base ?', options: ['`localhost`', 'L’adresse IP de l’hôte', 'L’IP vue dans `docker inspect`', '`db`, le nom de service'], answer: 3, why: 'Chaque service rejoint le réseau du projet et se trouve par son nom de service.' }
+				]
+			},
+			{
+				title: 'Ajoute un healthcheck',
+				questions: [
+					{ q: 'Quel service reçoit le healthcheck ?', options: ['`db`', '`web`', 'Les deux, avec la même commande', 'Aucun : Compose vérifie les ports tout seul'], answer: 0, why: 'La question est « la base est-elle prête ? », donc le check tourne dans `db`.' },
+					{ q: 'Quel test convient à PostgreSQL ?', options: ['`["CMD", "ps", "postgres"]`', '`["CMD", "pg_isready"]`', '`["CMD", "true"]`', '`["CMD", "ls", "/var/lib/postgresql/data"]`'], answer: 1, why: '`pg_isready` ne réussit qu’une fois que PostgreSQL accepte les connexions.' },
+					{ q: 'Que règlent `interval` et `retries` ?', options: ['Combien de temps `web` attend avant de démarrer', 'La fréquence des sauvegardes du volume', 'La fréquence du check, et combien d’échecs le marquent unhealthy', 'Le timeout de connexion de `web`'], answer: 2, why: 'Le conteneur lance la commande à intervalle régulier. Son résultat donne l’état de santé.' },
+					{ q: 'Pourquoi ne pas juste vérifier que le port 5432 est ouvert ?', options: ['Compose ne sait pas tester les ports', 'Tester un port demande root', 'Le port 5432 n’est jamais ouvert dans le réseau', 'Un check faible passe trop tôt, alors que l’appli refuse encore les requêtes'], answer: 3, why: 'Tu écris chaque healthcheck toi-même. Un check faible dit « prêt » avant que le service le soit vraiment.' }
+				]
+			},
+			{
+				title: 'Attends l’état healthy',
+				questions: [
+					{ q: 'Qu’écris-tu sur `web` ?', options: ['`depends_on: [db]` deux fois', '`depends_on: { db: { condition: service_healthy } }`', '`restart: always`', '`links: [db]`'], answer: 1, why: 'Avec `condition: service_healthy`, Compose attend que le healthcheck passe avant de démarrer `web`.' },
+					{ q: 'Dans l’exemple, `proxy` a la forme courte `depends_on: [backend]`. Qu’attend-il ?', options: ['Seulement que le conteneur du backend démarre', 'Que le healthcheck du backend passe', 'Que `db` soit healthy aussi', 'Que le port 80 s’ouvre'], answer: 0, why: 'La forme courte attend seulement que le conteneur démarre. Seul `condition: service_healthy` attend un healthcheck.' },
+					{ q: 'Avec le correctif, que voit `web` à sa première connexion ?', options: ['Une fois « connection refused », puis ça marche', 'Un timeout', 'Une base qui accepte déjà les connexions', 'Un volume vide'], answer: 2, why: 'Compose ne démarre `web` qu’une fois `pg_isready` passé.' },
+					{ q: 'Est-ce que ça rend Compose adapté à un parc de serveurs ?', options: ['Oui, avec les healthchecks il bascule', 'Oui, si chaque hôte a le même fichier', 'Seulement avec `depends_on`', 'Non : Compose fait tourner tous les services sur un seul hôte'], answer: 3, why: 'Compose n’a ni bascule vers une autre machine ni déploiement progressif sur un parc. Kubernetes s’en charge.' }
+				]
+			},
+			{
+				title: 'Garde le mot de passe dehors',
+				questions: [
+					{ q: 'Quelle option garde le mot de passe hors de `compose.yaml` et hors de l’environnement du conteneur ?', options: ['Un `secret` Compose lu depuis un fichier, avec `POSTGRES_PASSWORD_FILE`', '`POSTGRES_PASSWORD` sous `environment`', 'Un commentaire dans le YAML', 'Un argument de build'], answer: 0, why: 'Le secret apparaît dans le conteneur sous `/run/secrets/...`, ni dans le YAML ni dans l’environnement.' },
+					{ q: 'Où vit le fichier du secret ?', options: ['Commité à côté de `compose.yaml`', 'Dans l’image', 'Dans un fichier non commité', 'Dans le volume'], answer: 2, why: 'Si le fichier est dans Git, le mot de passe est dans Git.' },
+					{ q: 'Tu choisis plutôt un `.env` ignoré par Git. Comment le fichier compose l’utilise-t-il ?', options: ['`env_file: .env` remplit `${DB_PASSWORD}` dans le YAML', 'Il référence `${DB_PASSWORD}`, que Compose remplit depuis `.env`', 'Compose ignore `.env`', 'Tu le copies dans l’image'], answer: 1, why: 'Un fichier `.env` remplit les `${VAR}` du fichier compose. `env_file:` est autre chose : il passe des variables dans un conteneur.' },
+					{ q: 'Après `docker compose down`, les données de la base ont-elles disparu ?', options: ['Oui, avec les conteneurs', 'Oui, sauf si le secret est réglé', 'Seulement si PostgreSQL a été arrêté proprement', 'Non : le volume nommé reste sauf avec `-v`'], answer: 3, why: '`down` supprime conteneurs et réseaux. Les volumes nommés ne partent qu’avec `-v`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -180,6 +218,28 @@ secrets:
 			why: 'Par défaut `down` supprime les conteneurs et les réseaux qu’il a créés. Les volumes nommés ne sont supprimés qu’avec `--volumes` (`-v`).'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Reproduire la course du « connection refused », la corriger avec un healthcheck, et vérifier où vivent le mot de passe et les données.',
+		steps: [
+			'Crée le projet et un secret : `mkdir -p ~/compose-lab && cd ~/compose-lab && echo lab-secret > password.txt`.',
+			'Écris le fichier fragile, où `web` est un client qui se connecte une fois : `printf \'services:\\n  db:\\n    image: postgres:16\\n    environment:\\n      POSTGRES_PASSWORD_FILE: /run/secrets/db-password\\n    secrets: [db-password]\\n    volumes: [db-data:/var/lib/postgresql/data]\\n  web:\\n    image: postgres:16\\n    command: [pg_isready, -h, db, -U, postgres]\\n    depends_on: [db]\\nvolumes:\\n  db-data:\\nsecrets:\\n  db-password:\\n    file: password.txt\\n\' > compose.yaml`. Lance `docker compose run --rm web; echo "exit=$?"`, puis `docker compose down -v`.',
+			'Corrige : réécris le fichier avec un healthcheck et une condition : `printf \'services:\\n  db:\\n    image: postgres:16\\n    environment:\\n      POSTGRES_PASSWORD_FILE: /run/secrets/db-password\\n    secrets: [db-password]\\n    volumes: [db-data:/var/lib/postgresql/data]\\n    healthcheck:\\n      test: [CMD, pg_isready, -U, postgres]\\n      interval: 2s\\n      retries: 15\\n  web:\\n    image: postgres:16\\n    command: [pg_isready, -h, db, -U, postgres]\\n    depends_on:\\n      db:\\n        condition: service_healthy\\nvolumes:\\n  db-data:\\nsecrets:\\n  db-password:\\n    file: password.txt\\n\' > compose.yaml`. Lance `docker compose run --rm web; echo "exit=$?"` et `docker compose ps`.',
+			'Trouve le mot de passe : `docker compose exec db env | grep POSTGRES`, puis `docker compose exec db cat /run/secrets/db-password`.',
+			'Teste le volume : `docker compose exec db psql -U postgres -c "CREATE TABLE notes (t text); INSERT INTO notes VALUES (\'kept\');"`, puis `docker compose down && docker compose up -d --wait db && docker compose exec db psql -U postgres -c "SELECT * FROM notes;"`. Termine avec `docker compose down -v`.'
+		],
+		done: [
+			'À l’étape 2, `web` affiche `db:5432 - no response` et `exit=2`.',
+			'À l’étape 3, `web` affiche `db:5432 - accepting connections` et `exit=0`, et `docker compose ps` montre `db` en `(healthy)`.',
+			'À l’étape 4, `env` montre seulement `POSTGRES_PASSWORD_FILE=/run/secrets/db-password`, et le fichier du secret contient `lab-secret`.',
+			'À l’étape 5, le `SELECT` après `down` puis `up` renvoie toujours `kept`.'
+		],
+		solution: [
+			'Le `depends_on` simple a démarré `web` dès que le conteneur `db` tournait, avant que PostgreSQL accepte les connexions.',
+			'Le healthcheck plus `condition: service_healthy` a fait attendre Compose jusqu’à ce que `pg_isready` passe.',
+			'Le mot de passe n’apparaît ni dans le YAML ni dans l’environnement, et le volume nommé a survécu à `down`. Seul `down -v` le supprime.'
+		]
+	},
 	recall: {
 		q: 'Qu’ajoutes-tu pour que le backend ne démarre qu’une fois que PostgreSQL accepte les connexions ?',
 		a: 'Un healthcheck sur `db` (`pg_isready`, toutes les 10 secondes) et `depends_on: { db: { condition: service_healthy } }` sur le backend. Un `depends_on` simple attend seulement que le conteneur tourne.'

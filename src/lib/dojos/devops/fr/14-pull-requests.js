@@ -110,6 +110,44 @@ export default {
 			'« Require status checks before merging », et sélectionne le check `lint`.',
 			'Les force push et les suppressions sont déjà bloqués par défaut sur une branche protégée : laisse « Allow force pushes » désactivé. Active « Do not allow bypassing the above settings » pour que les admins suivent les règles aussi.',
 			'`.github/CODEOWNERS` : `* @acme/devs` d’abord, puis `/prod/ @acme/ops`, puis `/.github/CODEOWNERS @acme/ops`. Le dernier motif gagne, donc les changements dans `prod/` vont à ops. Les deux équipes ont besoin de l’accès en écriture.'
+		],
+		steps: [
+			{
+				title: 'Exige une PR relue',
+				questions: [
+					{ q: 'Où règles-tu ce qui empêche les push directs sur `main` ?', options: ['Dans un fichier à la racine du dépôt', 'Dans une règle de protection de branche sur `main`, dans les paramètres du dépôt', 'Dans le job de CI `lint`', 'Dans le `.git/config` de chaque développeur'], answer: 1, why: 'La protection de branche vit dans les paramètres du dépôt, dans aucun fichier Git.' },
+					{ q: 'Quel réglage fait passer chaque changement de `main` par une PR ?', options: ['« Require status checks before merging »', '« Allow force pushes »', '« Dismiss stale pull request approvals »', '« Require pull request reviews before merging »'], answer: 3, why: 'Avec les revues obligatoires, les collaborateurs ne peuvent changer `main` que par une PR approuvée.' },
+					{ q: 'Quel réglage rend l’approbation d’ops obligatoire pour `prod/` ?', options: ['« Require review from Code Owners »', 'Un fichier CODEOWNERS tout seul', '« Require status checks before merging »', '« Do not allow bypassing the above settings »'], answer: 0, why: 'Tout seul, CODEOWNERS ne fait que demander des revues. C’est cette règle qui rend l’approbation de l’owner obligatoire.' },
+					{ q: 'Quelqu’un pousse un nouveau commit après l’approbation. Avec « dismiss stale pull request approvals » activé, que se passe-t-il ?', options: ['La PR est mergée tout de suite', 'Le nouveau commit est refusé', 'L’ancienne approbation est annulée, donc quelqu’un doit approuver à nouveau', 'La CI est sautée pour ce commit'], answer: 2, why: 'Le diff a changé, donc l’approbation ne couvre plus ce qui sera mergé.' }
+				]
+			},
+			{
+				title: 'Exige le check lint',
+				questions: [
+					{ q: 'Quel réglage fait bloquer le merge par `lint` ?', options: ['« Require review from Code Owners »', '« Require status checks before merging », avec `lint` sélectionné', '« Require pull request reviews before merging »', 'Une ligne `lint` dans CODEOWNERS'], answer: 1, why: 'Un status check obligatoire est un job de CI qui doit finir en succès, skipped ou neutral avant que la PR puisse être mergée.' },
+					{ q: 'Quels résultats de `lint` laissent la PR être mergée ?', options: ['N’importe lequel, une fois qu’il a tourné', 'Seulement succès', 'Succès, ou échec avec une approbation', 'Succès, skipped ou neutral'], answer: 3, why: 'GitHub accepte un check obligatoire qui finit en succès, skipped ou neutral. Un check en échec garde le merge bloqué.' },
+					{ q: 'Pourquoi lancer la CI sur la PR avant la relecture humaine ?', options: ['Pour que les relecteurs lisent un changement qui passe déjà les checks', 'Pour que les relecteurs n’aient pas à lire le diff', 'Pour que la PR soit mergée sans approbation', 'Pour que `main` reçoive le commit plus tôt'], answer: 0, why: 'La machine vérifie d’abord. Les humains passent ensuite leur temps sur un changement qui compile et passe déjà.' },
+					{ q: 'Où tourne le job `lint` dans ce flux ?', options: ['Seulement sur `main`, après le merge', 'Seulement sur le portable d’un développeur', 'Sur la PR, avant que quoi que ce soit n’arrive sur `main`', 'Seulement quand un admin le lance'], answer: 2, why: 'La CI tourne sur la PR, donc un changement cassé est repéré avant que `main` bouge.' }
+				]
+			},
+			{
+				title: 'Bloque les force push',
+				questions: [
+					{ q: 'Les force push sur un `main` protégé sont-ils bloqués par défaut ?', options: ['Oui : laisse « Allow force pushes » désactivé', 'Non : il faut ajouter un job de CI pour ça', 'Non : seul CODEOWNERS peut les bloquer', 'Seulement pour les utilisateurs sans accès en écriture'], answer: 0, why: 'Une branche protégée bloque par défaut les force push et les suppressions.' },
+					{ q: 'Par défaut, les règles de protection s’appliquent-elles aux admins ?', options: ['Oui, toujours', 'Seulement pour les force push', 'Non, sauf si tu actives « Do not allow bypassing the above settings »', 'Seulement quand ils ouvrent une PR'], answer: 2, why: 'Par défaut, les admins peuvent contourner la protection de branche. Ce réglage les oblige à suivre les règles aussi.' },
+					{ q: 'La consigne dit « admins compris ». Quel réglage couvre ça ?', options: ['« Require review from Code Owners »', '« Allow force pushes »', '« Dismiss stale pull request approvals »', '« Do not allow bypassing the above settings »'], answer: 3, why: 'C’est le seul réglage qui retire le contournement par les admins.' },
+					{ q: 'Le mois prochain, tu crées un second dépôt de playbooks. De quoi dois-tu te souvenir ?', options: ['De rien : la protection est copiée depuis le premier dépôt', 'De régler à nouveau la protection de branche, qui n’est dans aucun fichier Git', 'De copier CODEOWNERS, qui porte la protection', 'De relancer `lint` une fois'], answer: 1, why: 'La protection de branche se règle dans les paramètres du dépôt, donc tu l’oublies facilement sur le dépôt suivant.' }
+				]
+			},
+			{
+				title: 'Écris CODEOWNERS',
+				questions: [
+					{ q: 'Quelle ligne vient en premier dans `.github/CODEOWNERS` ?', options: ['`/prod/ @acme/ops`', '`/.github/CODEOWNERS @acme/ops`', '`* @acme/devs`', 'N’importe laquelle : l’ordre ne compte pas'], answer: 2, why: 'Le dernier motif qui correspond gagne, donc le fourre-tout vient d’abord et les chemins précis après.' },
+					{ q: 'Une PR ne change que `prod/hosts.ini`. Qui est sollicité pour la revue ?', options: ['Seulement `@acme/ops`', 'Les deux équipes', 'Seulement `@acme/devs`', 'Personne, car deux lignes correspondent'], answer: 0, why: '`/prod/ @acme/ops` vient après `*`, et le dernier motif gagne.' },
+					{ q: 'Pourquoi ajouter `/.github/CODEOWNERS @acme/ops` ?', options: ['GitHub refuse le fichier sans elle', 'Elle rend ops owner de tous les fichiers', 'Elle cache le fichier aux devs', 'Changer qui possède quoi demande alors l’approbation d’ops'], answer: 3, why: 'La doc GitHub présente un CODEOWNERS dans `.github/` qui se possède lui-même comme la méthode la plus sûre.' },
+					{ q: 'Que doivent avoir `@acme/devs` et `@acme/ops` pour que ça marche ?', options: ['Les droits admin sur le dépôt', 'L’accès en écriture au dépôt', 'Leur propre règle de protection de branche', 'Une entrée perso pour chaque membre'], answer: 1, why: 'GitHub exige que chaque code owner, équipe ou personne, ait l’accès en écriture.' }
+				]
+			}
 		]
 	},
 	quiz: [

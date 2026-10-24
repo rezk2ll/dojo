@@ -115,6 +115,44 @@ export default {
 			'`when { branch \'main\' }` only works in a multibranch pipeline. On other branches the stage is skipped.',
 			'The order: by default Jenkins asks for `input` **before** it checks `when`. Without `beforeInput true`, every feature branch would stop and wait for an approval it does not need.',
 			'Run it on an agent with the deploy credentials, not on the controller.'
+		],
+		steps: [
+			{
+				title: 'Place the stage',
+				questions: [
+					{ q: 'Where does the new `Deploy` stage go?', options: ['Inside `post { always { } }`', 'Inside `options { }`', 'Inside `stages { }`, after `stage(\'Deliver\')`', 'In a second Jenkinsfile'], answer: 2, why: 'Stages run in the order they are listed, so `Deploy` comes last.' },
+					{ q: '`mvn test` fails. Does `Deploy` run?', options: ['No: once a stage fails, the later stages never run', 'Yes, it is a separate stage', 'Yes, but only after an approval', 'Only on `main`'], answer: 0, why: 'As with Deliver, a failure earlier in the pipeline stops everything after it.' },
+					{ q: 'Some tests fail and the build goes UNSTABLE. What does `skipStagesAfterUnstable()` do to `Deploy`?', options: ['Nothing: it only affects Deliver', 'It runs `Deploy` with a warning', 'It retries the tests first', 'It skips it, like every stage after UNSTABLE'], answer: 3, why: 'The option skips all stages once the status has gone to UNSTABLE.' },
+					{ q: 'Where should the `Deploy` steps run?', options: ['On the controller, which holds the credentials', 'On an agent with the deploy credentials', 'On any agent with the `windows` label', 'On the developer\'s laptop'], answer: 1, why: 'The Jenkins docs discourage builds on the controller. A deploy runs on an agent set up for it.' }
+				]
+			},
+			{
+				title: 'Limit it to main',
+				questions: [
+					{ q: 'Which directive keeps `Deploy` to the `main` branch?', options: ['`agent { label \'main\' }`', '`when { branch \'main\' }`', '`input { branch \'main\' }`', '`options { branch(\'main\') }`'], answer: 1, why: '`when` decides if a stage runs. `branch` checks the branch being built.' },
+					{ q: 'Where does `when { branch \'main\' }` work?', options: ['Only in a multibranch pipeline', 'In any freestyle job', 'Only on the controller', 'Only with the scripted syntax'], answer: 0, why: 'A multibranch pipeline builds each branch, so Jenkins knows which branch it is on.' },
+					{ q: 'A feature branch reaches `Deploy`. With only `when` and no `input`, what happens?', options: ['The build fails', 'The stage runs with no credentials', 'Jenkins asks which branch to use', 'The stage is skipped'], answer: 3, why: 'When the `when` condition is false, Jenkins skips the stage.' },
+					{ q: 'Why write the branch check in the Jenkinsfile and not in the job settings?', options: ['The job form has no branch field', 'Jenkins reads job settings only once a day', 'The Jenkinsfile is reviewed and versioned like code', 'Plugins cannot read the Jenkinsfile'], answer: 2, why: 'Settings clicked in the web UI cannot be reviewed or rebuilt. The Jenkinsfile can.' }
+				]
+			},
+			{
+				title: 'Ask for approval',
+				questions: [
+					{ q: 'Which directive makes the stage wait for a human?', options: ['`input { message \'Deploy to production?\' }`', '`post { always { } }`', '`when { manual true }`', '`options { approve() }`'], answer: 0, why: '`input` pauses the stage and asks someone to approve.' },
+					{ q: 'Where does `input` go?', options: ['In `options`, at the top of the file', 'In the `Deploy` stage, beside `when` and `steps`', 'In the `Deliver` stage', 'In `post`, after the stage'], answer: 1, why: 'The approval belongs to the stage it guards.' },
+					{ q: 'What does the build do when it reaches `input`?', options: ['It approves itself after a short delay', 'It fails, so someone reruns it', 'It skips the stage', 'It stops and waits for someone to approve'], answer: 3, why: 'The build pauses until a human answers.' },
+					{ q: 'When does `sh \'./deploy.sh\'` run?', options: ['On `main`, after someone approves', 'On every branch, before the approval', 'On `main`, before the approval', 'On every branch, after the approval'], answer: 0, why: 'The steps run only once both the branch check and the approval have passed.' }
+				]
+			},
+			{
+				title: 'Check the order',
+				questions: [
+					{ q: 'By default, which does Jenkins evaluate first in a stage?', options: ['`when`, then `input`', '`input`, then `when`', 'Both at the same time', '`steps`, then `when`'], answer: 1, why: 'By default Jenkins asks for `input` **before** it checks `when`.' },
+					{ q: 'Without `beforeInput true`, what happens on a feature branch?', options: ['The stage is skipped at once', 'The build fails with a syntax error', 'The build stops and waits for an approval it does not need', 'Jenkins deploys the feature branch'], answer: 2, why: 'The `input` comes first, so every branch asks for approval before the branch check runs.' },
+					{ q: 'What does `beforeInput true` change?', options: ['It removes the approval on `main`', 'It runs the approval on the controller', 'It skips `when` on `main`', 'Jenkins checks `when` before it asks for `input`'], answer: 3, why: 'With the check first, feature branches skip the stage and never ask.' },
+					{ q: 'Where does `beforeInput true` go?', options: ['Inside `when { }`', 'Inside `input { }`', 'Inside `options { }`', 'Inside `steps { }`'], answer: 0, why: 'It is an option of `when`: `when { beforeInput true; branch \'main\' }`.' }
+				]
+			}
 		]
 	},
 	quiz: [

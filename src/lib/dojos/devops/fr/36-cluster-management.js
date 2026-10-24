@@ -106,6 +106,44 @@ spec:
 			'Avant les drains, ajoute un PDB pour l’API de paiement (`minAvailable: 2`), pour qu’un drain ne déplace qu’un seul de ses pods à la fois.',
 			'Le worker batch sera arrêté pendant que son pod bouge. Accepte-le, ou passe-le à deux replicas. Un PDB `minAvailable: 1` sur une appli à un replica bloquerait juste le drain.',
 			'Nœuds : ajoute un pool à la nouvelle version, `kubectl drain --ignore-daemonsets` sur chaque ancien nœud, vérifie les applis, supprime l’ancien pool.'
+		],
+		steps: [
+			{
+				title: 'Planifie le chemin de versions',
+				questions: [
+					{ q: 'Peux-tu passer directement de 1.30 à 1.32 ?', options: ['Oui, si chaque nœud est drainé d’abord', 'Oui, sur un cluster managé', 'Non : l’API server ne doit pas sauter de version mineure', 'Non : il faut réinstaller le cluster'], answer: 2, why: 'Tu avances d’une version mineure à la fois : 1.30 vers 1.31, puis 1.31 vers 1.32.' },
+					{ q: 'Combien de tours de mise à jour ça fait ?', options: ['Un', 'Deux', 'Trois', 'Un par nœud'], answer: 1, why: 'Deux versions mineures, un tour chacune.' },
+					{ q: 'Que lis-tu avant chaque tour ?', options: ['Le changelog, pour les API supprimées', 'Les métriques du HPA', 'La facture du node pool', 'Le PDB de chaque appli'], answer: 0, why: 'Un tour peut supprimer des API que tes manifestes utilisent encore. Trouve-les avant la mise à jour, pas après.' },
+					{ q: 'Pourquoi mettre à jour plusieurs fois par an ?', options: ['Les nouvelles versions sont plus rapides', 'Les nœuds ne démarrent plus après un an', 'Le HPA a besoin de la dernière version', 'Seules les trois versions mineures les plus récentes reçoivent des correctifs'], answer: 3, why: 'Un cluster qui sort des trois versions mineures maintenues ne reçoit plus de correctifs de sécurité.' }
+				]
+			},
+			{
+				title: 'Ordonne control plane et nœuds',
+				questions: [
+					{ q: 'À chaque tour, qu’est-ce qui passe en premier ?', options: ['Les nœuds', 'Le control plane', 'Les applis', 'Ce qui a le plus de pods'], answer: 1, why: 'Le control plane d’abord, les nœuds ensuite.' },
+					{ q: 'Pourquoi cet ordre ?', options: ['Un kubelet ne doit jamais être plus récent que l’API server', 'Le scheduler ne tourne que sur les nouveaux nœuds', 'Les nœuds se mettent à jour seuls après le control plane', 'etcd refuse les vieux kubelets'], answer: 0, why: 'Les kubelets peuvent être plus vieux que l’API server, jamais plus récents.' },
+					{ q: 'Le control plane est en 1.31 et les nœuds en 1.30. Est-ce sûr ?', options: ['Non : toutes les versions doivent correspondre', 'Seulement pendant une heure', 'Oui : un kubelet peut avoir jusqu’à trois versions mineures de retard', 'Seulement si aucun pod ne redémarre avant que les nœuds soient aussi en 1.31'], answer: 2, why: 'Les anciens nœuds continuent de marcher pendant la mise à jour, c’est ce qui te permet d’avancer nœud par nœud.' },
+					{ q: 'Quel état ne serait pas supporté ?', options: ['Control plane 1.31, nœuds 1.30', 'Control plane 1.31, nœuds 1.32', 'Control plane 1.32, nœuds 1.31', 'Control plane 1.32, nœuds 1.32'], answer: 1, why: 'Des nœuds plus récents que l’API server cassent la règle. Mettre à jour les nœuds d’abord t’y amènerait.' }
+				]
+			},
+			{
+				title: 'Protège les applis',
+				questions: [
+					{ q: 'Quel PDB convient à l’API de paiement à 3 replicas ?', options: ['`minAvailable: 3`', '`minAvailable: 0`', '`maxUnavailable: 3`', '`minAvailable: 2`'], answer: 3, why: 'Deux doivent rester debout, donc un drain ne déplace qu’un seul de ses pods à la fois.' },
+					{ q: 'Deux drains tournent en parallèle, chaque nœud porte un pod de paiement. Que se passe-t-il ?', options: ['Un pod est évincé, l’autre attend un remplaçant en bonne santé', 'Les deux pods partent en même temps', 'Les deux drains échouent d’un coup avec une erreur sur le PDB, et tu relances', 'Le PDB est ignoré pendant les mises à jour'], answer: 0, why: 'L’Eviction API refuse une éviction qui casserait le PDB, et le drain réessaie jusqu’à pouvoir continuer.' },
+					{ q: 'Pourquoi ne pas mettre `minAvailable: 1` sur le worker batch à 1 replica ?', options: ['Les PDB ne marchent que sur des Deployments à 3 pods', 'Il bloquerait le drain pour toujours', 'Il supprimerait le worker', 'Il doublerait les replicas'], answer: 1, why: 'Aucune interruption n’est jamais permise, donc le drain ne peut jamais évincer ce pod.' },
+					{ q: 'Quelles sont tes vraies options pour le worker batch ?', options: ['Ajouter un PDB avec `maxUnavailable: 0`', 'Ne pas drainer son nœud', 'Accepter une courte coupure pendant qu’il bouge, ou passer à deux replicas', 'Le supprimer pendant la mise à jour'], answer: 2, why: 'Un seul replica veut dire une coupure quand il bouge. Accepte-la, ou donne-lui une deuxième copie.' }
+				]
+			},
+			{
+				title: 'Remplace les nœuds',
+				questions: [
+					{ q: 'Sur un cluster managé, comment passes-tu les nœuds à la nouvelle version ?', options: ['Patcher chaque nœud sur place en SSH', 'Ajouter un pool à la nouvelle version, déplacer les pods, supprimer l’ancien pool', 'Réinstaller le kubelet sur tous les nœuds d’un coup', 'Attendre que le cluster autoscaler remplace peu à peu les anciens nœuds par des nouveaux'], answer: 1, why: 'Tu remplaces les nœuds au lieu de les patcher. Un node pool se met à jour ou se redimensionne d’un bloc.' },
+					{ q: 'Quelle commande vide un ancien nœud ?', options: ['`kubectl delete node`', '`kubectl cordon` seul', '`kubectl uncordon`', '`kubectl drain --ignore-daemonsets`'], answer: 3, why: 'Le drain fait un cordon sur le nœud, puis évince ses pods par l’Eviction API, qui respecte les PDB.' },
+					{ q: 'Pourquoi `--ignore-daemonsets` ?', options: ['Les pods de DaemonSet tournent sur chaque nœud, donc les évincer ne les déplacerait pas', 'Il saute les vérifications de PDB pour les pods système, pour que le drain ne bloque jamais dessus', 'Il accélère le drain en supprimant les pods', 'Les DaemonSets bloquent les mises à jour'], answer: 0, why: 'Un DaemonSet garde un pod par nœud. Le drain les laisse, et ils partent avec le nœud.' },
+					{ q: 'Après avoir drainé un ancien nœud, que fais-tu avant de supprimer l’ancien pool ?', options: ['Retirer tous les PDB', 'Faire un uncordon sur l’ancien nœud', 'Vérifier que les applis tournent sur les nouveaux nœuds', 'Redémarrer le control plane'], answer: 2, why: 'Vérifie les applis après chaque drain. Ensuite seulement, supprime l’ancien pool.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -143,6 +181,28 @@ spec:
 			why: 'Le HPA ne change que le nombre de pods. Le cluster autoscaler surveille les pods qui ne peuvent pas être planifiés et ajoute des nœuds pour qu’ils rentrent.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Drainer un nœud et voir deux PodDisruptionBudgets à l’œuvre : un qui laisse un pod bouger, un qui bloque le drain pour de bon.',
+		steps: [
+			'Démarre un cluster local à un nœud avec `minikube start`. Lance une API de paiement à 3 replicas et un worker à 1 replica : `kubectl create deployment pay --image=nginx:1.27 --replicas=3` et `kubectl create deployment batch --image=nginx:1.27`.',
+			'Ajoute un PDB à chacun : `kubectl create pdb pay --selector=app=pay --min-available=2` et `kubectl create pdb batch --selector=app=batch --min-available=1`. Puis `kubectl get pdb`.',
+			'Draine le nœud, limité à ces deux applis pour que les pods système restent : `kubectl drain $(kubectl get nodes -o name | head -n 1) --ignore-daemonsets --pod-selector="app in (pay,batch)" --timeout=40s`.',
+			'Regarde ce qui s’est passé : `kubectl get pods -l "app in (pay,batch)"`, `kubectl get pdb` et `kubectl get nodes`.',
+			'Remets le nœud en service : `kubectl uncordon $(kubectl get nodes -o name | head -n 1)`, puis `kubectl get pods -l "app in (pay,batch)"`. Nettoie avec `kubectl delete pdb pay batch && kubectl delete deployment pay batch`.'
+		],
+		done: [
+			'Avant le drain, `kubectl get pdb` montre ALLOWED DISRUPTIONS à `1` pour `pay` et `0` pour `batch`.',
+			'Le drain affiche `Cannot evict pod as it would violate the pod\'s disruption budget.`, réessaie, et s’arrête au timeout.',
+			'Pendant le drain, un pod `pay` est `Pending`, le nœud montre `Ready,SchedulingDisabled`, et le pod `batch` n’a jamais bougé.',
+			'Après `uncordon`, les quatre pods sont `Running`.'
+		],
+		solution: [
+			'`pay` a 3 replicas et `minAvailable: 2`, donc une éviction est permise. Son remplaçant reste `Pending` parce que le seul nœud est en cordon, et le PDB refuse alors l’éviction suivante.',
+			'`batch` a 1 replica et `minAvailable: 1` : aucune interruption n’est jamais permise, donc le drain ne peut jamais l’évincer. Sur un vrai cluster, accepte la courte coupure ou passe à deux replicas.',
+			'Sur un cluster à plusieurs nœuds, le remplaçant démarrerait sur un autre nœud, et le drain avancerait un pod à la fois.'
+		]
+	},
 	recall: {
 		q: 'Dans quel ordre mets-tu à jour un cluster, et qu’est-ce qui empêche un drain d’évincer trop de pods d’une même appli ?',
 		a: 'Le control plane d’abord, puis les nœuds, une version mineure par tour. Un PodDisruptionBudget : avec 3 replicas et `minAvailable: 2`, l’API Eviction ne laisse partir qu’un pod à la fois.'

@@ -137,6 +137,44 @@ deploy:
 			'Sur `deploy` : `rules:` puis `- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` avec `when: manual`. Sur les autres branches aucune règle ne correspond, donc le job n’est pas dans le pipeline.',
 			'`deploy` récupère `build/*` de `run` sans ligne en plus : les stages suivants téléchargent les artefacts précédents par défaut.',
 			'Garde `environment: production`. Chaque clic est maintenant noté sur la page de l’environnement, et tu peux faire un rollback vers le déploiement précédent depuis là.'
+		],
+		steps: [
+			{
+				title: 'Rends les stages explicites',
+				questions: [
+					{ q: 'Le template n’a pas de liste `stages:`. Quels stages GitLab utilise-t-il ?', options: ['Seulement `test`', '`build`, `test`, `deploy`, sans rien autour', '`.pre`, `build`, `test`, `deploy`, `.post`', 'Aucun : tous les jobs tournent en parallèle'], answer: 2, why: 'Ce sont les stages par défaut de GitLab.' },
+					{ q: 'Dans quel stage tombe `run` aujourd’hui ?', options: ['`test`', '`build`', '`deploy`', '`.pre`'], answer: 0, why: '`run` n’a pas de clé `stage`, et un job sans `stage` est placé dans `test`.' },
+					{ q: 'Quelle ligne rend les stages explicites ?', options: ['`stage: [build, test, deploy]` sur chaque job', '`rules: [build, test, deploy]` sur `deploy`', '`environment: [build, test, deploy]`', '`stages: [build, test, deploy]` en haut'], answer: 3, why: '`stages:` en haut fixe la liste et son ordre. `stage:` sur un job en choisit un.' },
+					{ q: 'Quelle ligne déplace `run` dans le stage build ?', options: ['`needs: build` sur `run`', '`stage: build` sur `run`', '`image: build` sur `run`', '`when: build` sur `run`'], answer: 1, why: 'La clé `stage` place un job dans un stage. `test` attend maintenant que `run` passe.' }
+				]
+			},
+			{
+				title: 'Transmets le résultat du build',
+				questions: [
+					{ q: '`run` produit `build/*`, et `deploy` en a besoin. Où le mettre ?', options: ['Dans `artifacts`', 'Dans `cache`', 'Dans une variable CI/CD', 'Nulle part : `deploy` le reconstruit'], answer: 0, why: 'GitLab stocke les artefacts et les passe aux stages suivants du même pipeline.' },
+					{ q: 'Quelle ligne en plus faut-il à `deploy` pour recevoir `build/*` ?', options: ['`cache: paths: [build/*]`', '`image: python:latest`', '`stage: build`', 'Aucune : les stages suivants téléchargent les artefacts précédents par défaut'], answer: 3, why: 'Le téléchargement est le comportement par défaut. Le template garde déjà `build/*` comme artefact.' },
+					{ q: 'Pourquoi lire `build/*` depuis le cache casserait-il les déploiements ?', options: ['Le cache est en lecture seule pour les jobs de déploiement', 'Un job peut démarrer avec un cache vide', 'Le cache ne garde que des fichiers Python', 'Le cache est effacé après chaque stage'], answer: 1, why: 'Le cache accélère les téléchargements comme `.cache/pip`. Un job doit quand même marcher sans lui.' },
+					{ q: 'Combien de temps GitLab garde-t-il les artefacts ?', options: ['Pour toujours', 'Jusqu’au prochain push', '30 jours par défaut, sauf si le job définit `expire_in`', 'Tant que le runner reste allumé'], answer: 2, why: 'La valeur par défaut est de 30 jours, un réglage de l’instance que `expire_in` change job par job.' }
+				]
+			},
+			{
+				title: 'Verrouille le déploiement',
+				questions: [
+					{ q: 'Quelle règle réserve `deploy` à la branche par défaut, avec un clic ?', options: ['`when: manual`, sans `if`', '`- if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH` avec `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` avec `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` seul'], answer: 2, why: 'Le `if` choisit la branche, et `when: manual` ajoute le bouton.' },
+					{ q: 'Tu pushes sur une branche de feature. Qu’arrive-t-il à `deploy` ?', options: ['Il apparaît, en attente d’un clic', 'Il tourne et échoue', 'Il tourne, parce que les rules ne s’appliquent qu’aux merge requests', 'Il n’est pas ajouté au pipeline'], answer: 3, why: 'Si aucune règle ne correspond, le job n’est pas du tout dans le pipeline.' },
+					{ q: 'Quand GitLab vérifie-t-il les `rules` ?', options: ['Quand il crée le pipeline', 'Quand un runner prend le job', 'Après la fin du script du job', 'Seulement quand quelqu’un clique'], answer: 0, why: 'Les rules décident, à la création, si un job est ajouté au pipeline, et comment.' },
+					{ q: 'Un job de test échoue sur la branche par défaut. Peut-on déployer ?', options: ['Oui, un job manuel ignore les stages précédents', 'Non : `deploy` ne démarre que si chaque stage précédent est passé', 'Oui, mais avec un avertissement', 'Seulement depuis une branche de feature'], answer: 1, why: '`deploy` est dans le stage deploy, donc il attend que chaque job du stage test passe.' }
+				]
+			},
+			{
+				title: 'Garde la trace',
+				questions: [
+					{ q: 'Pourquoi garder `environment: production` sur `deploy` ?', options: ['GitLab note quel commit y est parti et quand', 'Le job tourne plus vite', 'C’est ce qui ajoute le bouton manuel', 'Il choisit le runner'], answer: 0, why: 'Un environnement nomme une cible de déploiement, et GitLab garde son historique de déploiements.' },
+					{ q: 'Un déploiement tourne mal. Où fais-tu le rollback ?', options: ['Sur le runner, avec `git revert`', 'Dans `.gitlab-ci.yml`, en supprimant `deploy`', 'En vidant le cache', 'Sur la page de l’environnement, vers un déploiement précédent'], answer: 3, why: 'La page de l’environnement a un bouton pour revenir à un déploiement précédent.' },
+					{ q: 'Quelqu’un clique sur le bouton. Qui lance le script de déploiement ?', options: ['Le serveur GitLab lui-même', 'Un runner qui prend le job', 'Le navigateur de la personne qui a cliqué', 'Le serveur de production, via un webhook'], answer: 1, why: 'GitLab n’exécute rien lui-même. Un runner prend le job et lance son `script`.' },
+					{ q: 'Comment traites-tu le runner qui déploie en production ?', options: ['Comme n’importe quelle machine de CI partagée', 'Comme une machine jetable : il ne garde aucun secret', 'Comme un serveur de production', 'Comme un portable de développeur'], answer: 2, why: 'Un attaquant qui prend la main sur ce runner peut déployer n’importe quoi.' }
+				]
+			}
 		]
 	},
 	quiz: [

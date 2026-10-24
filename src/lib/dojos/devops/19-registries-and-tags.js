@@ -118,6 +118,44 @@ env:
 			'Stop deploying `latest`. CI tags each build with something unique (the Git tag or commit SHA) and records the **digest** from the push.',
 			'The deploy uses `acme/api@sha256:...` (or at least an immutable version tag), set in Git, so every server pulls the same image.',
 			'To roll back, put the previous digest back and redeploy.'
+		],
+		steps: [
+			{
+				title: 'Read the symptom',
+				questions: [
+					{ q: 'All five servers ran `docker pull acme/api:latest`. Does that mean they run the same image?', options: ['Yes: same name, same image', 'Yes, if they pulled the same day', 'No: `latest` may have pointed at different images when each one pulled', 'No: each server builds its own image'], answer: 2, why: 'A tag is a movable name. The same name can mean different images at different times.' },
+					{ q: 'What does the cron job pull each time it runs?', options: ['Whatever `latest` points at in that moment', 'The image the server already has', 'The newest digest of the stable release', 'The image named in Git'], answer: 0, why: 'Pulling a tag asks the registry what the tag points at now.' },
+					{ q: 'Who can move `acme/api:latest`?', options: ['Only Docker Hub staff', 'Nobody once it is pushed', 'Only the server that pulls it', 'Anyone who can push to the repository'], answer: 3, why: 'Anyone who can push can point `latest` at a new image.' },
+					{ q: 'What would show you which image each server really runs?', options: ['The tag name', 'The image digest on each server', 'The cron schedule', 'The size of the compose file'], answer: 1, why: 'A digest is a hash of the content. Two images with the same digest have the same bytes.' }
+				]
+			},
+			{
+				title: 'Name the cause',
+				questions: [
+					{ q: 'What most likely happened before Monday?', options: ['Two servers have a corrupted disk', 'The registry served a random image', 'Someone pushed a new image to `latest` between the servers\' pulls', 'The compose file changed on two servers'], answer: 2, why: 'Servers that pulled before and after the push run different images under the same name.' },
+					{ q: 'What does `latest` mean on a registry?', options: ['Just a tag, moved by whoever pushes it', 'The newest stable version', 'The image with the highest version number', 'The image most servers run'], answer: 0, why: '`latest` is a tag like any other. It looks like a version, but nothing guarantees it.' },
+					{ q: 'With `docker/metadata-action` defaults, which Git tag can move `latest`?', options: ['Only a stable `v1.2.3`', 'Only a manual push', 'Branch pushes only', 'A tag like `v2.0.8-beta.67` too'], answer: 3, why: 'Its README shows a beta tag also gets `latest`, so `latest` can point at a beta.' },
+					{ q: 'Why is this hard to see from the servers?', options: ['Docker hides the digest', 'All five report the same image name', 'The servers have no logs', 'Registries delete old images'], answer: 1, why: 'Every server says `acme/api:latest`. The name is the same, the bytes are not.' }
+				]
+			},
+			{
+				title: 'Change the deploy',
+				questions: [
+					{ q: 'How should CI tag each build?', options: ['With `latest` only', 'With the date of the week', 'With something unique, like the Git tag or commit SHA', 'With the server name'], answer: 2, why: 'A unique tag per build stops two builds from sharing one name.' },
+					{ q: 'What should CI record after the push?', options: ['The image size', 'The digest of the pushed image', 'The cron schedule', 'The list of servers'], answer: 1, why: 'The digest names exactly the image that was built and pushed.' },
+					{ q: 'Which reference should the servers deploy?', options: ['`acme/api:latest`', '`acme/api`, with no tag', '`acme/api:stable`', '`acme/api@sha256:...`, set in Git'], answer: 3, why: 'A digest cannot be moved to other content, so every server pulls the same image.' },
+					{ q: 'What is the cost of deploying by digest?', options: ['Digests are long, so you need tooling to update them', 'Pulls get slower', 'The registry stops storing tags', 'You can no longer roll back'], answer: 0, why: 'Digests are unreadable, so CI output, Renovate or Dependabot keep them up to date.' }
+				]
+			},
+			{
+				title: 'Plan the rollback',
+				questions: [
+					{ q: 'The new digest is broken. How do you roll back?', options: ['Push the old image to `latest` again', 'Put the previous digest back in Git and redeploy', 'Delete the new image from the registry', 'Wait for the cron job'], answer: 1, why: 'The previous digest still names the old bytes, whatever happened to the tags.' },
+					{ q: 'Why is the old digest a safe rollback target?', options: ['It always names the same bytes', 'It is shorter than a tag', 'Registries keep it on top', 'It skips the pull'], answer: 0, why: 'Pull by digest and you get exactly that image, forever.' },
+					{ q: 'Why keep the digest in Git rather than only on the servers?', options: ['Git can pull images', 'Servers cannot store digests', 'Docker requires it', 'Every server reads the same value, and the change is reviewed'], answer: 3, why: 'One value in Git means one image everywhere, and the history shows what ran when.' },
+					{ q: 'Which part of the deploy path can still stop a rollout?', options: ['The digest', 'Git', 'The registry, if it is down or rate limited', 'The tag name'], answer: 2, why: 'A registry is part of your deploy path. If it is unreachable, nothing new can start.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,27 @@ env:
 			why: 'A signature on a movable name would say nothing about what the name points to tomorrow. Signing the digest ties it to those exact bytes.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run a registry on localhost, move `latest` under a "server", and pull the old image back by digest.',
+		steps: [
+			'Start a local registry: `docker run -d --name lab-registry -p 5001:5000 registry:2`.',
+			'Build and push v1 as `1.0` and `latest`: `printf \'FROM busybox:1.36\\nCMD ["echo", "api v1"]\\n\' | docker build -t localhost:5001/api:1.0 - && docker tag localhost:5001/api:1.0 localhost:5001/api:latest && docker push localhost:5001/api:1.0 && docker push localhost:5001/api:latest`. Note the digest: `docker inspect --format \'{{index .RepoDigests 0}}\' localhost:5001/api:1.0`.',
+			'Push v2 under `2.0` and the same `latest`: `printf \'FROM busybox:1.36\\nCMD ["echo", "api v2"]\\n\' | docker build -t localhost:5001/api:2.0 - && docker tag localhost:5001/api:2.0 localhost:5001/api:latest && docker push localhost:5001/api:2.0 && docker push localhost:5001/api:latest`.',
+			'Play a fresh server: `docker rmi localhost:5001/api:1.0 localhost:5001/api:2.0 localhost:5001/api:latest`, then `docker run --rm localhost:5001/api:latest`, then `docker run --rm localhost:5001/api@sha256:...` with the digest from step 2.',
+			'List the tags and clean up: `curl -s http://localhost:5001/v2/api/tags/list`, then `docker rm -f lab-registry`.'
+		],
+		done: [
+			'`docker run --rm localhost:5001/api:latest` prints `api v2`: the tag moved.',
+			'`docker run --rm localhost:5001/api@sha256:...` prints `api v1`, and the pull output shows the same `Digest:` you noted.',
+			'`curl` lists `latest`, `1.0` and `2.0` in the `api` repository.'
+		],
+		solution: [
+			'Both pushes of `latest` were accepted: the registry let the tag point at new content without complaint.',
+			'A server that pulled `latest` after step 2 runs v1, one that pulled after step 3 runs v2. Same name, different bytes.',
+			'The digest from step 2 still pulls v1, which is why the deploy pins `acme/api@sha256:...` and a rollback puts the old digest back.'
+		]
+	},
 	recall: {
 		q: 'Two servers pulled `acme/api:latest` a week apart. Why can they run different code, and what reference makes them pull the same image?',
 		a: 'A push moved `latest` to a new image between the two pulls. `acme/api@sha256:...`, the digest, always names the same bytes.'

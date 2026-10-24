@@ -107,6 +107,44 @@ export default {
 			'Feedback: after each change, check a few key numbers (latency, error rate) before the next one. Automate those checks so the answer comes in minutes. Test config changes in CI before they reach a server.',
 			'WIP: do not start the next change until the current one is checked and done.',
 			'Learning: hold a short blameless review of the Saturday incident. It ends with a change to the process, for example "each change has a rollback step written before it is applied". It names no one to blame.'
+		],
+		steps: [
+			{
+				title: 'Name what went wrong',
+				questions: [
+					{ q: 'Latency doubled after the Saturday window. Why can nobody say which change did it?', options: ['Nobody looked at the logs', 'Thirty changes went out together, so there are thirty suspects', 'Latency cannot be measured', 'The kernel update hid the others'], answer: 1, why: 'With thirty changes per deploy, an incident has thirty suspects. With one, it has one.' },
+					{ q: 'The team rolls back everything. What does that cost?', options: ['Nothing, the changes come back next window', 'Only the kernel update', 'The whole month\'s work, and the next window gets even bigger', 'One day of work'], answer: 2, why: 'A big batch can only be rolled back as a whole, and the delayed work piles into the next batch.' },
+					{ q: 'In the chapter\'s words, what is a monthly window of thirty changes?', options: ['A huge batch', 'A small batch', 'A WIP limit', 'A value stream'], answer: 0, why: 'Batch size is how much change you ship at once. Thirty changes at once is a huge batch.' },
+					{ q: 'Which of the Three Ways is about getting each change to production on its own?', options: ['Experimentation and learning', 'Feedback', 'Automation', 'Flow'], answer: 3, why: 'The First Way is flow: work moving left to right through the whole value stream.' }
+				]
+			},
+			{
+				title: 'Fix the flow',
+				questions: [
+					{ q: 'What is the first change for flow?', options: ['Move the window to Friday night', 'Apply each change on its own instead of batching them', 'Add more people to the window', 'Freeze all changes for a quarter'], answer: 1, why: 'One change at a time means one suspect when something breaks, and a small rollback.' },
+					{ q: 'What schedule fits small batches better than one monthly window?', options: ['Small daily or weekly changes', 'One quarterly window', 'Two monthly windows of fifteen changes', 'Only changes that users request'], answer: 0, why: 'The answer suggests a schedule of small daily or weekly changes instead of one big window.' },
+					{ q: 'What WIP rule goes with this?', options: ['Start as many changes as there are engineers', 'Start the next change while the current one deploys', 'Do not start the next change until the current one is checked and done', 'Keep ten changes in progress so nobody waits'], answer: 2, why: 'A WIP limit makes started work finish before new work begins.' },
+					{ q: 'Two people have nothing to pick up because of the WIP limit. What does DORA say?', options: ['Raise the limit', 'Give them two tasks each', 'Track their work in a hidden column', 'Keep the limit and have them help unblock the stuck step'], answer: 3, why: 'The limit shows where work is stuck. Raising it hides that stuck step again.' }
+				]
+			},
+			{
+				title: 'Shorten the feedback',
+				questions: [
+					{ q: 'After each change, what do you check before the next one?', options: ['A few key numbers, such as latency and error rate', 'That the change was approved', 'That the server still pings', 'That the window is not over'], answer: 0, why: 'Checking latency and error rate after each change tells you which change hurt them.' },
+					{ q: 'How do you make that answer come in minutes?', options: ['Ask users to report problems', 'Automate the checks', 'Check once a week', 'Read every log line by hand'], answer: 1, why: 'The Second Way makes feedback loops shorter and harder to miss. Automated checks do that.' },
+					{ q: 'Where can you catch a bad nginx config before it reaches a server?', options: ['In the postmortem', 'In production, during the window', 'In CI, on every push', 'In the monthly report'], answer: 2, why: 'CI checks every push, and the author gets red or green while the change is still fresh.' },
+					{ q: 'What is the cost of small batches the chapter warns about?', options: ['They cause more failures', 'They need more servers', 'They make rollbacks impossible', 'They need cheap checks and cheap deploys, or thirty deploys cost thirty times the effort'], answer: 3, why: 'Without automation, shipping thirty times means thirty manual checks.' }
+				]
+			},
+			{
+				title: 'Make the team learn',
+				questions: [
+					{ q: 'Which of the Three Ways covers what the team does after the incident?', options: ['Flow', 'Feedback', 'Experimentation and learning', 'Batch size'], answer: 2, why: 'The Third Way is experimentation and learning, including learning from failures in postmortems.' },
+					{ q: 'What kind of review do you hold about the Saturday incident?', options: ['A short blameless review', 'A review that names who caused it', 'No review, the rollback fixed it', 'A review only for managers'], answer: 0, why: 'A blameless review looks for a process change and names no one to blame.' },
+					{ q: 'What should that review end with?', options: ['A list of people to retrain', 'A promise to be more careful', 'A bigger window next month', 'A change to the process, such as a written rollback step for each change'], answer: 3, why: 'The review ends with a concrete process change, for example "each change has a rollback step written before it is applied".' },
+					{ q: 'How does the team make sure improving daily work does not wait for "later"?', options: ['It improves things only after incidents', 'It puts that time in the plan', 'It asks volunteers to work weekends', 'It waits for a quiet month'], answer: 1, why: 'The team puts time to improve daily work in the plan, so it does not wait for "later".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -144,6 +182,27 @@ export default {
 			why: 'The limit shows where work is stuck. Raising it, splitting people or hiding work hides that stuck step again.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See why one change per commit gives an incident one suspect: ship thirty small changes, one of them slow, and find it in a few automatic checks.',
+		steps: [
+			'Make a repo with a tiny app: `mkdir -p ~/batch-lab && cd ~/batch-lab && git init -q && git config user.name lab && git config user.email lab@localhost && echo \'echo ok\' > app.sh && git add app.sh && git commit -qm start`.',
+			'Ship thirty small changes, one commit each. Change 17 quietly adds a 2-second delay, every other change adds a config file: `for i in $(seq 1 30); do if [ "$i" = 17 ]; then echo \'sleep 2\' >> app.sh; else echo "setting $i" > conf-$i.txt; fi; git add -A; git commit -qm "change $i"; done`.',
+			'Notice the incident: `time bash app.sh` takes about 2 seconds. Look at it as one big batch: `git diff --stat HEAD~30 | tail -1` shows 30 files changed, and nothing says which one hurt.',
+			'Let git test each small change for you. Mark HEAD bad and the start good, then give it the latency check: `git bisect start HEAD HEAD~30`, then `git bisect run bash -c \'SECONDS=0; bash app.sh >/dev/null; [ "$SECONDS" -lt 2 ]\'`.',
+			'Read the suspect, end the bisect with `git bisect reset`, and roll back only that change: `git revert --no-edit <sha>` with the sha bisect printed.'
+		],
+		done: [
+			'`git bisect run` prints `<sha> is the first bad commit` and the message `change 17`.',
+			'After the revert, `time bash app.sh` returns at once and prints `ok`.',
+			'`ls conf-*.txt | wc -l` still shows 29: the other 29 changes stayed in.'
+		],
+		solution: [
+			'Bisect halves the range each time, so it needs about 5 checks for 30 commits instead of 30.',
+			'This only works because each commit holds one change and a check runs in a second. With thirty changes in one commit, bisect would point at the whole batch.',
+			'In a real pipeline, the latency check runs after each deploy, so you learn about change 17 the day it ships, without bisecting at all.'
+		]
+	},
 	recall: {
 		q: 'What are Gene Kim\'s Three Ways, and what does DORA say to do when a team hits its WIP limit?',
 		a: 'Flow (left to right), feedback (right to left) and experimentation and learning. Keep the limit and have idle people help unblock the stuck step.'

@@ -113,6 +113,44 @@ roleRef:
 			'In `shop`: a ServiceAccount for CI, with its own RoleBinding. The pipeline uses its token, never a human login.',
 			'In `blog`: a ResourceQuota with `requests.cpu: "2"`. Pods without CPU requests will be rejected, so give the namespace a LimitRange with defaults, or tell the team.',
 			'Check it: `kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci` should answer `no`.'
+		],
+		steps: [
+			{
+				title: 'Give each team a place',
+				questions: [
+					{ q: 'What is the first object to create for each team?', options: ['A node pool', 'A ClusterRole', 'A namespace', 'A NetworkPolicy'], answer: 2, why: 'Namespaces say where resources live. Everything else for the team goes inside one.' },
+					{ q: 'Both teams want a Deployment named `api`. Is that a clash?', options: ['No: names must be unique inside a namespace, not across them', 'Yes: names are cluster-wide', 'Only if they use the same image', 'Yes, unless one uses a StatefulSet'], answer: 0, why: 'Each namespace is its own set of names.' },
+					{ q: 'With only the two namespaces, can the shop team delete a blog Deployment?', options: ['No: namespaces block access by themselves', 'Only with a ClusterRole', 'No: kubectl refuses other namespaces', 'Possibly: namespaces alone do not block anything'], answer: 3, why: 'Namespaces are only names until you add RBAC rules.' },
+					{ q: 'Which of these is not in any namespace?', options: ['A Deployment', 'A node', 'A ServiceAccount', 'A ResourceQuota'], answer: 1, why: 'Nodes and PersistentVolumes are cluster-wide.' }
+				]
+			},
+			{
+				title: 'Let the shop team deploy',
+				questions: [
+					{ q: 'Which pair lets the shop team deploy in `shop` only?', options: ['A ClusterRoleBinding to `edit`', 'A Role and a RoleBinding in `shop`', 'A ResourceQuota in `shop`', 'A ServiceAccount named `shop`'], answer: 1, why: 'The Role lists the verbs, the RoleBinding names who gets them, inside `shop`.' },
+					{ q: 'Can the RoleBinding point at the built-in `edit` ClusterRole?', options: ['Yes, and it still grants only inside `shop`', 'No: a RoleBinding can only use a Role', 'Yes, and it then grants in every namespace', 'Only for service accounts'], answer: 0, why: 'A RoleBinding grants inside its own namespace, even when it points at a ClusterRole.' },
+					{ q: 'Who should the binding name?', options: ['Each person, one subject per name', 'The `default` service account', 'The cluster admin', 'The shop team\'s group'], answer: 3, why: 'Bind the group, and you manage people outside the cluster, like Unix groups.' },
+					{ q: 'Why does nothing extra need to block them from `blog`?', options: ['The quota in `blog` blocks them', 'RBAC has a default deny rule per namespace', 'RBAC only grants, and nothing grants them rights in `blog`', 'kubectl hides other namespaces'], answer: 2, why: 'With no grant there, they can do nothing in `blog`.' }
+				]
+			},
+			{
+				title: 'Give CI its own identity',
+				questions: [
+					{ q: 'What should the pipeline authenticate as?', options: ['The lead developer\'s login', 'A ServiceAccount made for it, like `ci` in `shop`', 'The `default` service account', 'The cluster admin'], answer: 1, why: 'A program gets an identity of its own, never a person\'s login. `default` is shared by every pod that names no account.' },
+					{ q: 'What else does the CI ServiceAccount need?', options: ['Its own RoleBinding in `shop`', 'Nothing: service accounts can do everything', 'A ResourceQuota', 'A node of its own'], answer: 0, why: 'An identity with no binding has no rights. Bind it like any subject.' },
+					{ q: 'What username does Kubernetes see for it?', options: ['`ci@shop`', '`shop/ci`', '`system:serviceaccount:shop:ci`', '`serviceaccount-ci`'], answer: 2, why: 'Service account usernames have the form `system:serviceaccount:<namespace>:<name>`.' },
+					{ q: 'How do you check it cannot deploy into `blog`?', options: ['Run the pipeline and watch it', 'Read the Role YAML', '`kubectl get rolebindings -A`', '`kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci`'], answer: 3, why: 'It asks the API server directly, and should answer `no`.' }
+				]
+			},
+			{
+				title: 'Cap the blog team',
+				questions: [
+					{ q: 'Which object caps the blog team at 2 CPUs?', options: ['A LimitRange', 'A ResourceQuota with `requests.cpu: "2"`', 'A PodDisruptionBudget', 'A Role with `cpu` in its rules'], answer: 1, why: 'A ResourceQuota caps the sum of all pods in the namespace.' },
+					{ q: 'A pod would push the namespace over the quota. What happens?', options: ['It is rejected with `403 Forbidden`', 'It runs, throttled', 'It waits as `Pending`', 'It moves to another namespace'], answer: 0, why: 'The quota is checked when the pod is created, and the API server refuses it.' },
+					{ q: 'A blog pod sets no CPU request. What happens with the quota on?', options: ['It runs with unlimited CPU', 'It counts as zero', 'It is rejected', 'It gets 2 CPUs'], answer: 2, why: 'With a CPU quota on, every pod must set requests or limits so the quota can count it.' },
+					{ q: 'How do you spare the blog team those rejections?', options: ['Remove the quota', 'Give them a ClusterRole', 'Use a PDB', 'Add a LimitRange with default requests, or tell the team'], answer: 3, why: 'A LimitRange fills in defaults for pods that forget.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ roleRef:
 			why: 'With a CPU quota on, pods must state requests or limits so the quota can count them. A LimitRange can fill in defaults for teams that forget.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Set up two team namespaces with RBAC and a CPU quota, then prove each rule with `kubectl auth can-i` and a rejected pod.',
+		steps: [
+			'Start a local cluster with `minikube start`, then create the namespaces: `kubectl create namespace shop && kubectl create namespace blog`.',
+			'Give the shop team\'s group the built-in `edit` role in `shop`: `kubectl -n shop create rolebinding shop-team-edit --clusterrole=edit --group=shop-team`.',
+			'Give CI its own identity: `kubectl -n shop create serviceaccount ci && kubectl -n shop create rolebinding ci-edit --clusterrole=edit --serviceaccount=shop:ci`.',
+			'Ask the API server, for both namespaces: `kubectl auth can-i create deployments -n shop --as=alice --as-group=shop-team`, then the same with `-n blog`, then `kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci`.',
+			'Cap `blog` with a small quota that fits a laptop: `kubectl -n blog create quota cpu --hard=requests.cpu=500m`. Run `kubectl -n blog create deployment web --image=nginx:1.27` and read `kubectl -n blog get events --field-selector reason=FailedCreate`. Then `kubectl -n blog set resources deployment web --requests=cpu=200m`, `kubectl -n blog scale deployment web --replicas=3`, and `kubectl -n blog describe quota cpu`. Clean up with `kubectl delete namespace shop blog`.'
+		],
+		done: [
+			'`can-i` answers `yes` for Alice and for CI in `shop`, and `no` for both in `blog`.',
+			'Before `set resources`, `kubectl -n blog get pods` shows nothing and the events say `must specify requests.cpu`.',
+			'After scaling to 3, only 2 pods run, the quota shows `400m` used of `500m`, and the events say `exceeded quota`.'
+		],
+		solution: [
+			'A RoleBinding grants only in its own namespace, even when it points at the `edit` ClusterRole. RBAC has no deny rule: Alice and CI are refused in `blog` because nothing grants them anything there.',
+			'`--as` and `--as-group` impersonate a user, which is how you test rules without that user\'s login.',
+			'With a CPU quota on, a pod without a CPU request is refused. Two pods at `200m` use `400m`, and a third would reach `600m`, over the `500m` cap. A LimitRange with a default request would have saved the first rejection.'
+		]
+	},
 	recall: {
 		q: 'Alice has a RoleBinding in `team-a` and nothing else. What can she do in `team-b`, and why?',
 		a: 'Nothing. A RoleBinding grants rights only inside its own namespace, and RBAC has no deny rules, so with no binding in `team-b` she has no rights there.'

@@ -102,6 +102,44 @@ crash.*.log
 			'`git add nginx.conf` : le correctif est maintenant dans le working tree **et** dans l’index. `debug.conf` est toujours seulement dans le working tree.',
 			'`git commit -m "Raise worker_connections"` : le correctif est maintenant un snapshot dans le dépôt. `main` avance sur le nouveau commit et HEAD pointe toujours vers `main`.',
 			'`git restore debug.conf` : recopie la version de l’index par-dessus ta modif de test. Le test a disparu, rien n’a été commité.'
+		],
+		steps: [
+			{
+				title: 'Lis l’état de départ',
+				questions: [
+					{ q: 'Tu lances `git status`. Où est la nouvelle version de `nginx.conf` ?', options: ['Seulement dans le working tree', 'Dans le working tree et dans l’index', 'Dans le dépôt, sous forme de nouveau commit', 'Seulement dans l’index'], answer: 0, why: 'Tu as modifié le fichier sur le disque, rien de plus. Git voit qu’il est modifié, mais il n’est pas encore stagé.' },
+					{ q: 'Que contient l’index en ce moment ?', options: ['Tes deux fichiers modifiés', 'Le même contenu que le dernier commit', 'Seulement `nginx.conf`, puisque c’est le vrai correctif', 'Rien tant que tu n’as pas fait `git add`'], answer: 1, why: 'Tu n’as rien stagé, donc l’index correspond toujours au dernier commit.' },
+					{ q: 'Quelle commande montre tes modifs pas encore stagées ?', options: ['`git diff --staged`', '`git log`', '`git diff`', '`git show HEAD`'], answer: 2, why: '`git diff` compare le working tree à l’index. `git diff --staged` montre seulement ce qui est déjà stagé.' },
+					{ q: 'Vers quoi pointe HEAD ?', options: ['Le hash du commit que tu vas faire', 'La branche `main` sur le serveur distant', 'Le dernier fichier que tu as modifié', 'La branche `main`, sous la forme `refs/heads/main`'], answer: 3, why: 'HEAD est en général une ref vers la branche sur laquelle tu es. Il ne contient un hash nu qu’en detached HEAD.' }
+				]
+			},
+			{
+				title: 'Stage seulement le correctif',
+				questions: [
+					{ q: 'Quelle commande met seulement le correctif dans le prochain commit ?', options: ['`git add .`', '`git add nginx.conf`', '`git restore nginx.conf`', '`git commit nginx.conf debug.conf`'], answer: 1, why: '`git add` copie un fichier dans l’index. Tu choisis ce qui entre dans le prochain commit, fichier par fichier.' },
+					{ q: 'Après `git add nginx.conf`, où est le correctif ?', options: ['Dans le working tree et dans l’index', 'Seulement dans l’index', 'Dans le dépôt, pas encore sur le remote', 'Seulement dans le working tree'], answer: 0, why: '`git add` copie la version actuelle dans l’index. Le fichier sur le disque ne bouge pas.' },
+					{ q: 'Où est ta modif de test de `debug.conf` maintenant ?', options: ['Dans l’index, à côté du correctif', 'Dans le dépôt, comme brouillon', 'Seulement dans le working tree', 'Nulle part : `git add` l’a annulée'], answer: 2, why: 'Tu ne l’as pas stagée, donc elle reste seulement sur le disque. L’index a toujours l’ancienne version.' },
+					{ q: 'Pourquoi ne pas lancer `git add .` ici ?', options: ['Ça ne marche que sur les nouveaux fichiers', 'Ça commiterait aussi le changement tout de suite', 'Ça ignore les fichiers déjà suivis', 'Ça stagerait aussi `debug.conf`'], answer: 3, why: '`git add .` stage tous les fichiers modifiés. L’index te permet de laisser le test de côté, mais seulement si tu ajoutes les fichiers un par un.' }
+				]
+			},
+			{
+				title: 'Commite le correctif',
+				questions: [
+					{ q: 'Que fait `git commit -m "Raise worker_connections"` de l’index ?', options: ['Il le transforme en snapshot dans le dépôt', 'Il l’envoie au serveur distant', 'Il le vide, pour que le prochain commit parte de zéro', 'Il le recopie par-dessus le working tree'], answer: 0, why: 'Un commit est un snapshot du projet entier, fait à partir de l’index, avec un lien vers son parent.' },
+					{ q: 'Que contient la branche `main` après le commit ?', options: ['Le hash du commit précédent', 'La liste de tous les fichiers du snapshot', 'Le hash du nouveau commit', 'Le nom du fichier que tu as commité'], answer: 2, why: 'Une branche est une ref qui contient un hash de commit. HEAD pointe vers `main`, donc le commit fait avancer `main`.' },
+					{ q: 'Vers quoi pointe HEAD après le commit ?', options: ['Directement vers le hash du nouveau commit', 'Toujours vers la branche `main`', 'Vers le commit parent', 'Vers rien tant que tu n’as pas poussé'], answer: 1, why: 'HEAD pointe toujours vers `main`. C’est `main` qui a avancé sur le nouveau commit.' },
+					{ q: 'Le correctif est-il sur le remote maintenant ?', options: ['Oui : un commit part tout de suite sur le remote', 'Oui, mais seulement sur la branche `main` distante', 'Seulement si le remote lance `git pull`', 'Non : il n’arrive sur le remote qu’avec `git push`'], answer: 3, why: 'Le commit vit dans ton dépôt local, dans `.git`. C’est `git push` qui l’envoie.' }
+				]
+			},
+			{
+				title: 'Abandonne le test',
+				questions: [
+					{ q: 'Quelle commande jette ta modif de test de `debug.conf` ?', options: ['`git commit debug.conf`', '`git rm --cached debug.conf`', '`git add debug.conf`', '`git restore debug.conf`'], answer: 3, why: '`git restore` remet un fichier depuis l’index, par-dessus ta modif sur le disque.' },
+					{ q: 'D’où `git restore debug.conf` recopie-t-il le fichier ?', options: ['Depuis l’index', 'Depuis le remote', 'Depuis une copie `.bak` que Git garde', 'Depuis le prochain commit'], answer: 0, why: 'L’index contient toujours la version du dernier commit, donc c’est elle qui revient.' },
+					{ q: 'Après `git restore`, la modif de test est-elle dans un commit ?', options: ['Oui, dans le commit que tu viens de faire', 'Non : rien n’en a été commité', 'Oui, dans un commit caché sur `main`', 'Seulement dans l’index'], answer: 1, why: 'Tu ne l’as jamais stagée, donc elle n’est jamais arrivée dans un snapshot. Elle a disparu.' },
+					{ q: 'Imagine que tu aies commité un secret dans `debug.conf`, puis supprimé dans le commit suivant. A-t-il disparu ?', options: ['Oui : le commit le plus récent l’emporte', 'Oui, dès que tu lances `git restore`', 'Non : l’ancien snapshot l’a toujours, dans chaque clone', 'Non, mais `.gitignore` le cache désormais'], answer: 2, why: 'Chaque commit est un snapshot complet. Le secret reste dans l’ancien tant que personne ne réécrit l’historique.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -139,6 +177,28 @@ crash.*.log
 			why: 'HEAD est en général une référence symbolique vers la branche courante. Il ne contient directement un hash de commit qu’en detached HEAD.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir un fichier passer du working tree à l’index puis au dépôt, et lire HEAD et `main` directement dans `.git`.',
+		steps: [
+			'Crée un dépôt avec un premier commit : `mkdir -p ~/git-lab && cd ~/git-lab && git init -b main && printf \'worker_connections 512;\\n\' > nginx.conf && printf \'log debug;\\n\' > debug.conf && git add . && git commit -m "First config"`. Si Git te demande qui tu es, règle d’abord `git config --global user.name` et `user.email`.',
+			'Lis les refs : `cat .git/HEAD`, puis `cat .git/refs/heads/main`.',
+			'Modifie les deux fichiers : `printf \'worker_connections 1024;\\n\' > nginx.conf && printf \'log trace;\\n\' >> debug.conf`. Puis stage seulement le correctif et compare : `git add nginx.conf && git status --short && git diff --name-only && git diff --staged --name-only`.',
+			'Commite le correctif et abandonne le test : `git commit -m "Raise worker_connections" && git restore debug.conf && git status --short`. Puis compare `git rev-parse HEAD` avec `cat .git/refs/heads/main`.',
+			'Détache HEAD et reviens : `git checkout HEAD~1 && cat .git/HEAD && git switch main`.'
+		],
+		done: [
+			'À l’étape 2, `cat .git/HEAD` affiche `ref: refs/heads/main`.',
+			'À l’étape 3, `git status --short` montre `M  nginx.conf` (stagé) et ` M debug.conf` (pas stagé).',
+			'À l’étape 4, `git status --short` n’affiche rien, et `git rev-parse HEAD` affiche le même hash que `.git/refs/heads/main`.',
+			'À l’étape 5, `cat .git/HEAD` affiche un hash nu au lieu d’un nom de branche.'
+		],
+		solution: [
+			'La colonne de gauche de `git status --short` est l’index, celle de droite le working tree. `M ` est stagé, ` M` est modifié sur le disque seulement.',
+			'`git diff --name-only` liste seulement `debug.conf` et `git diff --staged --name-only` seulement `nginx.conf` : deux endroits, deux réponses.',
+			'Après le commit, `main` contient le nouveau hash et HEAD dit toujours `ref: refs/heads/main`. Après `git checkout HEAD~1`, HEAD contient le hash de l’ancien commit : detached HEAD.'
+		]
+	},
 	recall: {
 		q: 'Tu as lancé `git add nginx.conf` mais pas `git commit`. Où est la nouvelle version, et vers quoi pointe HEAD ?',
 		a: 'Dans le working tree et dans l’index, dans aucun commit pour l’instant. HEAD pointe vers la branche `main`, qui contient le hash du dernier commit.'

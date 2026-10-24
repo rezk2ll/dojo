@@ -131,6 +131,44 @@ env:
 			'GitOps: one Argo CD Application per environment, automated sync, prune and self-heal on. Promotion to production is a pull request that copies the tag.',
 			'Alert: page when the 5xx ratio burns the error budget over a long and a short window, with a `runbook_url` whose first step is "revert the last config commit".',
 			'Break it on purpose: deploy a version that returns 500, watch the alert fire, roll back with `git revert`, and write a short blameless postmortem of your own drill.'
+		],
+		steps: [
+			{
+				title: 'Build the image',
+				questions: [
+					{ q: 'Which Dockerfile shape fits the kata?', options: ['One stage with the full build toolchain, run as root', 'Multi-stage, small base, non-root user, with a `.dockerignore`', 'A base image you update by hand inside the container', 'Any shape, since Kubernetes rebuilds it'], answer: 1, why: 'Build tools stay in the builder stage, the final image is small, and it does not run as root.' },
+					{ q: 'Which tag does the registry get for a push to `main`?', options: ['`latest` only', '`main` only', '`prod`', '`sha-<commit>`, an immutable tag'], answer: 3, why: 'A SHA tag never moves, so the config names exactly one image to run or roll back to.' },
+					{ q: 'Why is a `main` tag alone a problem for GitOps?', options: ['It moves with every push, so the same values file can mean two deploys', 'Registries refuse branch names', 'Kubernetes caches a branch tag forever and never pulls a newer image for it', 'It makes the image larger'], answer: 0, why: 'metadata-action\'s default tag for `main` moves. Add `tags: type=sha` for an immutable one.' },
+					{ q: 'How do you check this link before the next one?', options: ['Wait for Argo CD to sync', 'Read the Dockerfile again', 'Run the image locally and hit `/healthz`', 'Push it and hope'], answer: 2, why: 'Check each link before the next: does the image run locally?' }
+				]
+			},
+			{
+				title: 'Wire CI',
+				questions: [
+					{ q: 'What does CI do on a pull request?', options: ['Tests and builds, without pushing the image', 'Builds, pushes and deploys to production', 'Nothing until merge', 'Pushes the image tagged `pr`'], answer: 0, why: 'A PR checks that the image builds, and never publishes it.' },
+					{ q: 'On `main`, after build and push, what is CI\'s last step?', options: ['`helm upgrade` on staging with the new tag, using a staging kubeconfig','`kubectl apply` of the chart', 'Commit the new tag to `values-staging.yaml` in the config repo', 'Page on-call that a deploy happened'], answer: 2, why: 'CI does not deploy. Its commit asks for the deploy, and a teammate can review or revert it.' },
+					{ q: 'A test fails. What reaches the registry?', options: ['The image, tagged `broken`', 'Nothing: CI stops before the build', 'Half the layers', 'The image, but not the tag'], answer: 1, why: 'Tests run first. A failure stops CI before anything is built or pushed.' },
+					{ q: 'Why pin each third-party action to a full commit SHA?', options: ['SHAs run faster', 'GitHub requires it', 'It hides the action from others', 'A tag on someone else\'s repo can be moved'], answer: 3, why: 'The same reason you pin image digests: a SHA always means the same code.' }
+				]
+			},
+			{
+				title: 'Package and deploy',
+				questions: [
+					{ q: 'What goes in the Deployment template of the chart?', options: ['2 replicas, requests and limits, a readiness probe on `/healthz`', '1 replica, no probes, and all settings written straight into the template', 'A hard-coded `latest` tag', 'The cluster-admin kubeconfig'], answer: 0, why: 'Two copies, resources the scheduler can count, and traffic only once the app answers.' },
+					{ q: 'Which object keeps one pod up during a node drain?', options: ['A ResourceQuota', 'A HorizontalPodAutoscaler', 'A PodDisruptionBudget', 'An Ingress'], answer: 2, why: 'A PDB limits how many pods a drain may evict at once.' },
+					{ q: 'How is the Argo CD side set up?', options: ['One Application for all environments, manual sync', 'One Application per environment, automated sync, prune and self-heal on', 'No Application: CI runs `kubectl`', 'One Application per Pod'], answer: 1, why: 'Each environment follows its own values file, and Git wins over hand edits.' },
+					{ q: 'How does a release reach production?', options: ['Rebuild the image with production settings', 'Push the image again tagged `prod`', 'Copy pods from staging', 'A pull request that copies the tested tag into production values'], answer: 3, why: 'Promotion moves the same image. A rebuild could pull different dependencies.' }
+				]
+			},
+			{
+				title: 'Alert and drill',
+				questions: [
+					{ q: 'What should the one alert page on?', options: ['CPU over 80%', 'The 5xx ratio burning the error budget, over a long and a short window', 'Any pod restart, since each restart means users saw an error at that moment', 'Disk over 85%'], answer: 1, why: 'Page on a symptom users feel, and on how fast the budget burns.' },
+					{ q: 'What is the first step in its runbook?', options: ['Revert the last config commit', 'SSH into a node', 'Delete the pods', 'Rebuild from source'], answer: 0, why: 'The last config commit is the likely cause, and reverting it is one safe command.' },
+					{ q: 'With self-heal on, why not roll back with `kubectl rollout undo`?', options: ['It only rolls back the ReplicaSet, and the Service keeps the new endpoints', 'It needs root', 'Argo CD undoes it, because Git still names the bad tag', 'It deletes the Service'], answer: 2, why: 'Change the desired state with `git revert`, and Argo CD syncs the old tag back.' },
+					{ q: 'What closes the drill?', options: ['Deleting the alert so it stays quiet', 'Turning off self-heal', 'A long report naming who broke it', 'A short blameless postmortem of your own drill'], answer: 3, why: 'Write down what happened and what to change, without blame. It is practice for the real thing.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -118,6 +118,44 @@ spec:
 			'Compare the Service selector (`kubectl get svc shop -o yaml`) with the Pod labels (`kubectl get pods --show-labels`). A typo like `app: shop` vs `app: shopp`, or an extra key in the selector, gives zero matches.',
 			'A Pod that is not ready still shows in the EndpointSlice, marked `ready: false`, so readiness does not explain zero endpoints. Once the selector matches, check the READY column of `kubectl get pods`: a Pod can be Running and still not **Ready**. The Service sends no traffic to a Pod that is not ready.',
 			'Last, check the Service `targetPort` matches the port the container really listens on.'
+		],
+		steps: [
+			{
+				title: 'Read the symptom',
+				questions: [
+					{ q: 'Three Pods are `Running`, yet the Service has no endpoints. Where is the break?', options: ['Inside the containers', 'In the cluster DNS', 'On the node\'s disk', 'Between the Service and the Pods'], answer: 3, why: 'The Pods run, so the break is in the link that ties the Service to them.' },
+					{ q: 'What is the only thing that links a Service to its Pods?', options: ['Its label selector', 'The Deployment\'s name', 'A list of Pod IPs in the Service spec', 'The node the Pods run on'], answer: 0, why: 'A Service does not know the Deployment exists. It only has a selector.' },
+					{ q: 'A selector matches no Pod at all. What error does Kubernetes give?', options: ['The API server rejects the Service', 'The Pods crash with `CrashLoopBackOff`', 'None: the Service simply has no Pods', 'A warning in `kubectl get pods`'], answer: 2, why: 'A typo in a selector raises no error. The Service just gets zero endpoints.' },
+					{ q: 'Could readiness alone explain **zero** endpoints here?', options: ['Yes: Pods that are not ready are dropped from the list', 'Yes: Running Pods are never ready at first', 'No: only the port can cause it', 'No: a Pod that is not ready still shows, marked `ready: false`'], answer: 3, why: 'An unready Pod stays in the EndpointSlice with `ready: false`. Zero endpoints points to the selector.' }
+				]
+			},
+			{
+				title: 'Compare selector and labels',
+				questions: [
+					{ q: 'Which command shows the Service selector?', options: ['`kubectl get svc shop -o yaml`', '`kubectl logs svc/shop`', '`kubectl get nodes`', '`kubectl rollout status shop`'], answer: 0, why: 'The full YAML of the Service shows its `spec.selector`.' },
+					{ q: 'Which command shows the labels on the Pods?', options: ['`kubectl describe svc shop`', '`kubectl get pods --show-labels`', '`kubectl get endpointslices`', '`kubectl top pods`'], answer: 1, why: '`--show-labels` adds a column with every label on each Pod.' },
+					{ q: 'The Service selects `app: shop`, the Pods carry `app: shopp`. How many endpoints?', options: ['Three, one per Pod', 'One, the first Pod found', 'Zero', 'Three, but all marked not ready'], answer: 2, why: 'Labels match exactly. One extra letter and nothing matches.' },
+					{ q: 'The Service selects `app: shop` and `tier: web`. The Pods only have `app: shop`. What happens?', options: ['The Pods match, since one label is enough', 'No Pod matches: every key in the selector must match', 'The Service adds `tier: web` to the Pods', 'The API server rejects the Service'], answer: 1, why: 'A selector is "every Pod with all these labels". An extra key in the selector gives zero matches.' }
+				]
+			},
+			{
+				title: 'Check readiness',
+				questions: [
+					{ q: 'The selector now matches. Which column shows whether each Pod is ready?', options: ['STATUS', 'RESTARTS', 'AGE', 'READY'], answer: 3, why: 'STATUS can say Running while READY still says `0/1`.' },
+					{ q: 'A Pod is `Running` but not ready. Does the Service send it traffic?', options: ['No: traffic only goes to ready Pods', 'Yes: Running is enough', 'Yes, but at half the rate', 'Only from inside the same node'], answer: 0, why: 'Kubernetes marks which endpoints are ready, and the Service only sends to those.' },
+					{ q: 'How does a not-ready Pod show up in the EndpointSlice?', options: ['It does not show at all', 'With `ready: false`', 'With a new IP address', 'As a duplicate entry'], answer: 1, why: 'It stays in the list, marked not ready, so you can see it is selected but not used.' },
+					{ q: 'Why check readiness only after the selector?', options: ['Readiness checks are slow to run', 'kubectl cannot show readiness before a fix', 'With no match, no Pod is in the list to be ready or not', 'Readiness depends on the Service type'], answer: 2, why: 'Fix the link first. Readiness only matters for Pods the Service already selects.' }
+				]
+			},
+			{
+				title: 'Check the port last',
+				questions: [
+					{ q: 'Which Service field must match the port the container listens on?', options: ['`port`', '`targetPort`', '`nodePort`', '`clusterIP`'], answer: 1, why: '`targetPort` is where the Service sends traffic on the Pod.' },
+					{ q: 'Endpoints exist and are ready, but the app listens on 8080 and `targetPort` is 80. What do clients see?', options: ['Traffic reaches the Pod but nothing answers on 80', 'The Service picks port 8080 for you', 'The endpoints vanish', 'Kubernetes rejects the Service'], answer: 0, why: 'The Service sends to the wrong port. The Pod is selected and ready, and still nobody listens there.' },
+					{ q: 'What is the right order of the checks?', options: ['Port, readiness, selector', 'Readiness, port, selector', 'Selector, port, readiness', 'Selector, readiness, port'], answer: 3, why: 'Zero endpoints points at the selector first. Then readiness decides which Pods get traffic, then the port.' },
+					{ q: 'Clients call `shop` by name. What changes for them when you fix the labels and the Pods get replaced?', options: ['They must use the new Pod IPs', 'Nothing: the name stays, only the IPs behind it change', 'They must restart to refresh DNS', 'They switch to a new Service IP'], answer: 1, why: 'The Service name stays stable. Only the list of Pod IPs behind it changes.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ spec:
 			why: '`ClusterIP` is the default: a virtual IP reachable only from inside the cluster. `NodePort` and `LoadBalancer` build on it to reach the outside.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Break a Service with a one-letter selector typo, see that nothing complains, then find and fix it.',
+		steps: [
+			'Start a local cluster with `minikube start`, then run three Pods: `kubectl create deployment shop --image=nginx:1.27 --replicas=3` and `kubectl rollout status deployment shop`.',
+			'Create a Service with a typo in its selector: `kubectl expose deployment shop --port=80 --selector=app=shopp`.',
+			'Call it from inside the cluster: `kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -- wget -qO- -T 5 http://shop`. Then look at `kubectl get endpointslices -l kubernetes.io/service-name=shop`.',
+			'Compare the two sides: `kubectl get svc shop -o jsonpath=\'{.spec.selector}\'` and `kubectl get pods -l app=shop --show-labels`.',
+			'Fix the selector: `kubectl set selector service shop app=shop`. Wait a few seconds and run the same `kubectl run probe ...` command again. Clean up with `kubectl delete deployment,service shop`.'
+		],
+		done: [
+			'Before the fix, the EndpointSlice shows `<unset>` under ENDPOINTS and `wget` fails at once with `Connection refused`, while all three Pods are `Running`.',
+			'No command along the way printed an error about the selector.',
+			'After the fix, the EndpointSlice lists three Pod IPs on port 80 and `wget` prints the `Welcome to nginx!` page.'
+		],
+		solution: [
+			'The Service selects `{"app":"shopp"}` and the Pods carry `app=shop`. Labels match exactly, so the Service gets zero endpoints.',
+			'`kubectl set selector` replaces the Service\'s `spec.selector`. Kubernetes then fills the EndpointSlice with the matching Pods that are ready.',
+			'In a real repo, fix the YAML file in Git instead, so the next `kubectl apply` does not bring the typo back.'
+		]
+	},
 	recall: {
 		q: 'A Service selects `app: shop`, and its Pods carry `app: shopp`. How many endpoints does the Service get, and what error do you see?',
 		a: 'Zero endpoints, and no error. A Service finds Pods only through its label selector, so the typo leaves it with no Pods behind it.'

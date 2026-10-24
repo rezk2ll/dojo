@@ -121,6 +121,44 @@ export default {
 			'Le contrôleur du ReplicaSet a vu état actuel 2, état désiré 3, et a demandé à l’API server de créer un nouveau Pod, avec un nouveau nom aléatoire.',
 			'Le scheduler lui a choisi un node, et le kubelet de ce node a démarré les conteneurs.',
 			'Pour vraiment retirer l’appli, change l’état désiré : scale à 0 ou supprime le Deployment qui possède le ReplicaSet.'
+		],
+		steps: [
+			{
+				title: 'Lis ce qui s’est passé',
+				questions: [
+					{ q: 'Après `kubectl delete pod web-7d4b9c-x2k8p`, la suppression a-t-elle marché ?', options: ['Non : l’API server l’a refusée', 'Oui : l’ancien Pod a disparu, un nouveau l’a remplacé', 'Non : le Pod a seulement redémarré sous un autre nom', 'Seulement sur le node où tournait le Pod'], answer: 1, why: 'Le nouveau Pod a un autre nom, `q9m3z`. L’ancien Pod a été supprimé, et quelque chose en a créé un nouveau.' },
+					{ q: 'Pourquoi le nouveau Pod a-t-il un nouveau nom aléatoire ?', options: ['Le kubelet renomme un Pod à chaque redémarrage', 'etcd ajoute un suffixe quand il réenregistre un objet', 'Le scheduler donne à chaque Pod un nom propre à son node', 'C’est un Pod tout neuf, créé depuis le même modèle'], answer: 3, why: 'Le contrôleur a demandé un nouveau Pod. C’est un nouvel objet, donc il reçoit un nouveau suffixe aléatoire.' },
+					{ q: 'Que te dit le nom `web-7d4b9c-...` sur le propriétaire du Pod ?', options: ['Un ReplicaSet nommé `web-7d4b9c`', 'Un node nommé `web-7d4b9c`', 'Rien : les noms de Pods sont totalement aléatoires', 'Un Service nommé `web`'], answer: 0, why: 'Le Pod appartient à un ReplicaSet, et son nom commence par le nom de ce ReplicaSet.' },
+					{ q: 'Quel champ contient ce que veut le propriétaire, par exemple 3 réplicas ?', options: ['Le `status` de l’objet', 'La config du kubelet du node', 'Le `spec` de l’objet', 'Le fichier `~/.kube/config`'], answer: 2, why: 'L’état désiré vit dans `spec`. Ce qui tourne vraiment est remonté dans `status`.' }
+				]
+			},
+			{
+				title: 'Trouve la boucle qui a agi',
+				questions: [
+					{ q: 'Quel composant a remarqué qu’il manquait un Pod ?', options: ['Le kube-scheduler', 'Le contrôleur du ReplicaSet, dans le controller manager', 'Le kubelet de l’ancien node', 'etcd'], answer: 1, why: 'Un contrôleur surveille son type d’objet et compare état désiré et état actuel. Ici il a vu 2 Pods qui tournent pour 3 voulus.' },
+					{ q: 'Qu’a comparé ce contrôleur ?', options: ['L’usage CPU de chaque node', 'L’état désiré 3 avec l’état actuel 2', 'Le tag de l’image avec le dernier du registry', 'Le nom du Pod avec celui du Deployment'], answer: 1, why: 'Un contrôleur est une boucle : comparer état désiré et état actuel, puis agir sur l’écart.' },
+					{ q: 'Comment le contrôleur a-t-il créé le nouveau Pod ?', options: ['Il a démarré lui-même un conteneur sur un node', 'Il a écrit le Pod directement dans etcd', 'Il a envoyé une requête à l’API server', 'Il a demandé à kubectl de réappliquer le fichier'], answer: 2, why: 'Les contrôleurs parlent à l’API server, qui stocke l’objet dans etcd. Ils ne démarrent pas de conteneurs.' },
+					{ q: 'Pourquoi ça a pris quelques secondes, et pas un cycle de minuterie complet ?', options: ['Les contrôleurs surveillent l’API server, donc un changement les réveille', 'Le contrôleur interroge chaque seconde', 'kubectl a prévenu le contrôleur de la suppression', 'Le scheduler redémarre le contrôleur après chaque suppression'], answer: 0, why: 'Les contrôleurs enregistrent des handlers sur les objets qu’ils surveillent. Un Pod supprimé réveille la boucle tout de suite.' }
+				]
+			},
+			{
+				title: 'Suis le nouveau Pod jusqu’à un node',
+				questions: [
+					{ q: 'Le nouveau Pod existe dans l’API mais n’a pas encore de node. Qui en choisit un ?', options: ['Le contrôleur du ReplicaSet', 'Le kube-scheduler', 'Le kubelet qui a le plus de mémoire libre', 'L’API server, au hasard'], answer: 1, why: 'Le scheduler cherche les Pods sans node et lie chacun à un node. Il ne démarre rien.' },
+					{ q: 'Qu’écrit le scheduler ?', options: ['Une nouvelle image de conteneur', 'Un nouveau nombre de réplicas', 'Les logs du Pod', '« Ce Pod va sur le node 2 »'], answer: 3, why: 'Il enregistre seulement le lien. Démarrer les conteneurs est le travail d’un autre composant.' },
+					{ q: 'Qui démarre les conteneurs sur ce node ?', options: ['Le scheduler, en SSH', 'Le controller manager', 'Le kubelet, via le runtime de conteneurs', 'etcd'], answer: 2, why: 'Le kubelet de chaque node demande à l’API server quels Pods sont les siens, puis les fait démarrer par le runtime.' },
+					{ q: 'Comment le cluster apprend-il que le nouveau Pod tourne vraiment ?', options: ['Le kubelet le remonte comme état actuel', 'Le scheduler vérifie le node chaque minute', 'kubectl interroge directement le runtime', 'Le contrôleur pingue le Pod sur le port 80'], answer: 0, why: 'Le kubelet remonte ce qui tourne vraiment. C’est l’état actuel que le contrôleur compare au tour suivant.' }
+				]
+			},
+			{
+				title: 'Retire vraiment l’appli',
+				questions: [
+					{ q: 'Ton collègue veut faire disparaître l’appli. Que change-t-il ?', options: ['Il supprime les Pods plus vite qu’ils ne reviennent', 'L’état désiré : scale à 0, ou supprimer le Deployment', 'Il arrête le kubelet sur chaque node', 'Il modifie le `status` du Pod pour dire arrêté'], answer: 1, why: 'La boucle corrige tout écart avec l’état désiré. Change l’état désiré, et la boucle retire les Pods pour toi.' },
+					{ q: 'Pourquoi supprimer le Deployment et pas seulement le ReplicaSet ?', options: ['Le Deployment possède le ReplicaSet et le recréerait', 'Un ReplicaSet ne peut pas être supprimé', 'Supprimer un ReplicaSet supprime aussi le node', 'Le ReplicaSet n’a pas de Pods'], answer: 0, why: 'La même règle un niveau plus haut : le contrôleur du Deployment ramènerait son ReplicaSet.' },
+					{ q: 'Il se connecte en SSH au node et arrête le conteneur avec le runtime. Que se passe-t-il ensuite ?', options: ['L’appli reste arrêtée jusqu’à ce que quelqu’un la relance', 'Le scheduler déplace l’appli sur le control plane', 'Le kubelet voit que le Pod ne tourne pas et le relance', 'Le Deployment est supprimé pour lui'], answer: 2, why: 'Un changement fait à la main sur un node est défait au passage suivant de la boucle.' },
+					{ q: 'Quelle commande change l’état désiré à zéro copie ?', options: ['`kubectl delete pod web-7d4b9c-q9m3z`', '`kubectl get pods`', '`kubectl describe node`', '`kubectl scale deployment web --replicas=0`'], answer: 3, why: '`scale` modifie le nombre de réplicas dans le `spec` du Deployment. Les contrôleurs retirent ensuite les Pods.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,27 @@ export default {
 			why: 'kubectl lit `$HOME/.kube/config`. Tu peux pointer ailleurs avec la variable `KUBECONFIG` ou le flag `--kubeconfig`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Supprimer un Pod, regarder un contrôleur le ramener, puis changer l’état désiré pour qu’il ne revienne plus.',
+		steps: [
+			'Démarre un cluster local : `minikube start` (il tourne dans Docker). Vérifie avec `kubectl get nodes`.',
+			'Demande trois copies de nginx : `kubectl create deployment web --image=nginx:1.27 --replicas=3`, puis `kubectl rollout status deployment web` et `kubectl get pods -l app=web`. Note les trois noms.',
+			'Supprime un Pod : `kubectl delete $(kubectl get pods -l app=web -o name | head -n 1)`, puis lance tout de suite `kubectl get pods -l app=web`.',
+			'Trouve qui a agi : `kubectl get rs -l app=web` et `kubectl get events --field-selector reason=SuccessfulCreate`.',
+			'Change l’état désiré : `kubectl scale deployment web --replicas=0`, puis `kubectl get pods -l app=web`. Nettoie avec `kubectl delete deployment web`.'
+		],
+		done: [
+			'Après la suppression, `kubectl get pods -l app=web` montre de nouveau trois Pods, dont un avec un nouveau nom et un AGE plus jeune.',
+			'Les events listent un `SuccessfulCreate` venant de `replicaset/web-...` pour le nouveau Pod.',
+			'Après le scale, `kubectl get pods -l app=web` affiche `No resources found`, et `kubectl get deploy web` montre `0/0`.'
+		],
+		solution: [
+			'Le nouveau Pod n’est pas un redémarrage : c’est un nouvel objet, créé par le contrôleur du ReplicaSet parce que l’état actuel (2) différait de l’état désiré (3).',
+			'`kubectl get pod <nom> -o jsonpath=\'{.metadata.ownerReferences[0].name}\'` affiche le ReplicaSet propriétaire, `web-` suivi d’un hash.',
+			'Supprimer des Pods ne gagne jamais contre la boucle. `kubectl scale` modifie le `spec` du Deployment, et les contrôleurs retirent les Pods pour toi.'
+		]
+	},
 	recall: {
 		q: 'Tu supprimes un Pod d’un ReplicaSet qui veut 3 réplicas. Quels composants agissent, et dans quel ordre ?',
 		a: 'Le contrôleur du ReplicaSet voit état actuel 2 et état désiré 3, et demande un nouveau Pod à l’API server. Le scheduler le lie à un node, et le kubelet de ce node le démarre.'

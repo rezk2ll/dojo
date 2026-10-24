@@ -133,6 +133,44 @@ jobs:
 			'In `CHANGELOG.md`, move the Unreleased items under `## [2.0.0] - 2026-10-16`, grouped as `### Added` (`--dry-run`), `### Removed` (`--force`), `### Fixed` (log rotation).',
 			'`git tag -a v2.0.0 -m "Release 2.0.0"`, then `git push origin v2.0.0`, because a plain `git push` does not send tags.',
 			'Publish a GitHub Release from `v2.0.0` and let CI build and attach the artifacts. If 2.0.0 turns out broken, release 2.0.1. Never move the tag.'
+		],
+		steps: [
+			{
+				title: 'Sort the changes',
+				questions: [
+					{ q: 'For a CLI, what counts as the public API?', options: ['The source code layout', 'Its flags and options', 'The changelog', 'The Git history'], answer: 1, why: 'Scripts call the CLI through its flags. Change them and you change what users depend on.' },
+					{ q: 'The fix in log rotation, on its own, would bump which part?', options: ['PATCH', 'MINOR', 'MAJOR', 'None: fixes need no new version'], answer: 0, why: 'PATCH is for backward compatible bug fixes.' },
+					{ q: 'The new `--dry-run` flag, on its own, would bump which part?', options: ['PATCH', 'MAJOR', 'None: optional flags do not count', 'MINOR'], answer: 3, why: 'A new backward compatible feature bumps MINOR.' },
+					{ q: 'Why is removing `--force` different from the other two?', options: ['It is the biggest code change', 'It was deprecated, so it does not count', 'It breaks the scripts that still use it', 'It needs a new changelog file'], answer: 2, why: 'Removing a flag is an incompatible change to the public API. That is what MAJOR is for.' }
+				]
+			},
+			{
+				title: 'Pick the version',
+				questions: [
+					{ q: 'What is the next version after 1.4.2?', options: ['1.4.3', '1.5.0', '2.0.0', '2.5.3'], answer: 2, why: 'The highest bump wins. One incompatible change makes it MAJOR, and MINOR and PATCH reset to 0.' },
+					{ q: 'What does 2.0.0 tell users, from the number alone?', options: ['Something is incompatible: read the changelog before upgrading', 'Only bug fixes, safe to upgrade', 'New features, nothing breaks', 'Nothing: version numbers carry no meaning'], answer: 0, why: 'Under semver, only a MAJOR bump may break users.' },
+					{ q: 'If you had only added `--dry-run`, which version would come next?', options: ['1.4.3', '2.0.0', '1.4.2-1', '1.5.0'], answer: 3, why: 'New backward compatible functionality bumps MINOR and resets PATCH.' },
+					{ q: 'What makes picking MINOR or MAJOR hard on some projects?', options: ['Using annotated tags', 'No clear public API, so nobody agrees what breaks', 'Pushing tags by name', 'A long changelog'], answer: 1, why: 'Semver needs a clear public API. Without one, the number becomes a matter of opinion.' }
+				]
+			},
+			{
+				title: 'Write the changelog',
+				questions: [
+					{ q: 'Which heading opens the new entry in `CHANGELOG.md`?', options: ['`## [2.0.0] - 2026-10-16`', '`## Latest changes`', '`## v1.4.2`', '`## Unreleased`, unchanged'], answer: 0, why: 'You move the Unreleased items under a heading with the version and the date.' },
+					{ q: 'Under which group does `--force` go?', options: ['`### Fixed`', '`### Added`', '`### Removed`', '`### Changed`'], answer: 2, why: 'The option is gone, so it goes under Removed, where users looking for breaking changes will find it.' },
+					{ q: 'Where does the new entry sit in the file?', options: ['At the bottom, oldest first', 'On top, newest first', 'In a separate file per version', 'Inside the tag message only'], answer: 1, why: 'A changelog lists the notable changes of each version, newest first.' },
+					{ q: 'Why not paste `git log` as the release notes?', options: ['`git log` cannot show tags', 'It is too slow to run', 'Users cannot read Markdown', 'It lists every commit, not the changes users care about'], answer: 3, why: 'A changelog is written for the people who use the software. A log dump is fast but lists commits.' }
+				]
+			},
+			{
+				title: 'Tag and publish',
+				questions: [
+					{ q: 'Which command tags the release?', options: ['`git tag v2.0.0`', '`git branch v2.0.0`', '`git tag -a v2.0.0 -m "Release 2.0.0"`', '`git commit -m "v2.0.0"`'], answer: 2, why: 'An annotated tag records who, when and why. The docs say annotated tags are meant for releases.' },
+					{ q: 'You ran a plain `git push`. Is the tag on GitHub?', options: ['No: run `git push origin v2.0.0`', 'Yes, tags always follow the branch', 'Yes, if the tag is annotated', 'Only after the release is published'], answer: 0, why: '`git push` does not send tags by default. You push them by name, or with `--follow-tags`.' },
+					{ q: 'Who builds the artifacts for 2.0.0?', options: ['You, on your laptop, before tagging', 'Each user, from the source', 'CI, once per deploy target', 'CI, once, from the tagged commit when the release is published'], answer: 3, why: 'The release event starts a CI job that checks out the tagged commit and builds the files once.' },
+					{ q: '2.0.0 turns out broken. What do you do?', options: ['Move the `v2.0.0` tag to the fixed commit', 'Release 2.0.1', 'Delete the release and reuse 2.0.0', 'Push the fix with no tag'], answer: 1, why: 'Never move a published tag. Two people could then hold different "2.0.0" builds.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,29 @@ jobs:
 			why: 'New backward compatible functionality bumps MINOR and resets PATCH. PATCH is for bug fixes only, MAJOR for breaking changes.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Tag a release, see the difference between an annotated and a lightweight tag, and prove that `git push` leaves tags behind.',
+		steps: [
+			'Make a local "remote" and a repo: `mkdir -p ~/tag-lab && cd ~/tag-lab && git init --bare -q remote.git && git init -q -b main cli && cd cli && git remote add origin ../remote.git`.',
+			'Commit and tag: `echo v1 > cli.sh && git add . && git commit -qm "First release" && git tag -a v1.4.2 -m "Release 1.4.2" && git tag try-this`. Compare `git cat-file -t v1.4.2` with `git cat-file -t try-this`, then run `git show v1.4.2 --no-patch`.',
+			'Commit a fix after the tag: `echo fix >> cli.sh && git commit -qam "Fix log rotation"`. Run `git describe` and `git log --oneline`.',
+			'Push the branch only, then the tag: `git push -q origin main && git ls-remote --tags origin`, then `git push -q origin v1.4.2 && git ls-remote --tags origin`.',
+			'Tag the next release and push both at once: `git tag -a v2.0.0 -m "Release 2.0.0" && git push -q --follow-tags origin main && git ls-remote --tags origin`.'
+		],
+		done: [
+			'`git cat-file -t v1.4.2` prints `tag` and `git cat-file -t try-this` prints `commit`.',
+			'`git show v1.4.2 --no-patch` shows a `Tagger:` line, a date and `Release 1.4.2`.',
+			'In step 3, `git describe` prints `v1.4.2-1-g` followed by a short hash.',
+			'In step 4, the first `git ls-remote --tags origin` prints nothing; the second lists `refs/tags/v1.4.2`.',
+			'In step 5, `git ls-remote --tags origin` also lists `refs/tags/v2.0.0`.'
+		],
+		solution: [
+			'An annotated tag is its own object with tagger, date and message. A lightweight tag is only a name for a commit.',
+			'`v1.4.2-1-g…` means one commit after `v1.4.2`: the tag stayed put while `main` moved on.',
+			'`git push origin main` sends no tags. Push one by name, or use `--follow-tags` for annotated tags on the commits you push.'
+		]
+	},
 	recall: {
 		q: 'Your CLI at 1.4.2 drops the `--force` flag. What is the next version, and which commands tag and publish it?',
 		a: '2.0.0, because removing a flag breaks the scripts that use it. `git tag -a v2.0.0 -m "Release 2.0.0"`, then `git push origin v2.0.0`, since a plain `git push` sends no tags.'

@@ -116,6 +116,44 @@ x-airflow-common:
 			'`mode: 0755` vaut 493 (octal) en YAML 1.1, mais le simple nombre 755 en YAML 1.2. Mets des guillemets, `"0755"`, et laisse l’outil faire la conversion.',
 			'En YAML 1.1, le parseur lit `debug: off` comme `false`. Écris `false` si tu veux un booléen, `\'off\'` si tu veux le mot.',
 			'`>` replie les trois lignes en une seule ligne avec des espaces. Utilise `|` pour que chaque commande reste sur sa ligne.'
+		],
+		steps: [
+			{
+				title: 'Lis chaque valeur comme le parseur',
+				questions: [
+					{ q: 'Un parseur YAML 1.1 lit `country: NO`. Que reçoit le programme ?', options: ['La chaîne `NO`', '`false`', '`null`', 'Une erreur'], answer: 1, why: 'Les booléens de YAML 1.1 incluent `yes`, `no`, `on` et `off`, dans plusieurs casses.' },
+					{ q: 'Que devient `version: 1.10` ?', options: ['La chaîne `1.10`', 'Le nombre 110', 'Le nombre 1.1', 'Une date'], answer: 2, why: 'Ça ressemble à un nombre, donc c’est lu comme un flottant, et le zéro final disparaît. C’est vrai en YAML 1.2 aussi.' },
+					{ q: 'Que devient `ssh_port: 22:22` en YAML 1.1 ?', options: ['Le nombre en base 60 1342', 'La chaîne `22:22`', 'Une liste de deux ports', 'Le nombre 2222'], answer: 0, why: 'YAML 1.1 lit des nombres séparés par deux-points en base 60 : 22 × 60 + 22 = 1342.' },
+					{ q: 'Que devient `debug: off` en YAML 1.1 ?', options: ['La chaîne `off`', '`null`', '0', '`false`'], answer: 3, why: '`off` fait partie des mots booléens de YAML 1.1.' }
+				]
+			},
+			{
+				title: 'Repère le piège des versions',
+				questions: [
+					{ q: '`mode: 0755` en YAML 1.1, ça donne quoi ?', options: ['La chaîne `0755`', 'De l’octal, donc 493', 'Le décimal 755', 'Une erreur'], answer: 1, why: 'Un zéro en tête veut dire octal en YAML 1.1, et 755 en octal vaut 493.' },
+					{ q: 'Et `mode: 0755` en YAML 1.2 ?', options: ['L’octal 493', 'La chaîne `0755`', 'Le simple nombre 755', '`false`'], answer: 2, why: 'YAML 1.2 a abandonné cette règle de l’octal, donc le même texte donne un autre nombre.' },
+					{ q: 'Vu cette différence, comment écris-tu les droits ?', options: ['Entre guillemets, `"0755"`, et l’outil fait la conversion', 'Écrire `493`', 'Écrire `755` et espérer', 'Le laisser sans guillemets'], answer: 0, why: 'Une valeur entre guillemets est la même chaîne pour tous les parseurs, donc c’est l’outil qui décide comment la lire.' },
+					{ q: 'Quelle version de YAML PyYAML suit-il ?', options: ['1.2', '1.0', 'Il choisit selon le fichier', '1.1'], answer: 3, why: 'PyYAML est un parseur YAML 1.1, et beaucoup d’outils suivent encore les règles 1.1.' }
+				]
+			},
+			{
+				title: 'Corrige les scalaires',
+				questions: [
+					{ q: 'Comment gardes-tu `NO` comme code pays ?', options: ['`country: no`', '`country: \'NO\'`', '`country: !NO`', '`country: N O`'], answer: 1, why: 'Un scalaire entre guillemets est toujours une chaîne.' },
+					{ q: 'Comment gardes-tu la version telle qu’écrite ?', options: ['`version: 1.1`', '`version: 1.10.0`', '`version: "1.10"`', '`version: 01.10`'], answer: 2, why: 'Les guillemets arrêtent la devinette du nombre, donc le programme reçoit la chaîne `1.10`.' },
+					{ q: 'Quelle correction convient à `ssh_port: 22:22` ?', options: ['`"22:22"`', '`22-22`', '`[22, 22]`', '`2222`'], answer: 0, why: 'La doc de Compose demande d’écrire toujours `HOST:CONTAINER` comme une chaîne entre guillemets.' },
+					{ q: 'Tu voulais un booléen pour `debug`. Qu’écris-tu pour que tout parseur, 1.1 ou 1.2, en lise un ?', options: ['`debug: \'off\'`', '`debug: no`', '`debug: 0`', '`debug: false`'], answer: 3, why: '`false` est un booléen en YAML 1.1 comme en 1.2. Mets `\'off\'` entre guillemets seulement si tu veux le mot.' }
+				]
+			},
+			{
+				title: 'Corrige le bloc du script',
+				questions: [
+					{ q: 'Que fait `>` à trois commandes sur trois lignes ?', options: ['Il garde chacune sur sa ligne', 'Il les replie en une seule ligne avec des espaces', 'Il ne garde que la première', 'Il en fait une liste'], answer: 1, why: '`>` est le style folded : les retours à la ligne deviennent des espaces.' },
+					{ q: 'Que se passe-t-il quand le shell lance cette ligne repliée ?', options: ['Les trois commandes tournent l’une après l’autre', 'Rien, c’est un commentaire', 'Elles tournent ensemble comme une seule commande avec des arguments en plus', 'Le shell les lance en parallèle'], answer: 2, why: '`echo one echo two`, c’est un seul `echo` avec quatre arguments.' },
+					{ q: 'Quel indicateur garde chaque retour à la ligne ?', options: ['`|`', '`>`', '`>-`', '`&`'], answer: 0, why: '`|` est le style literal : chaque ligne reste une ligne.' },
+					{ q: 'Que change `|-` par rapport à `|` ?', options: ['Il replie les lignes', 'Il met le texte entre guillemets', 'Il retire l’indentation', 'Il supprime le retour à la ligne final'], answer: 3, why: 'Le `-` supprime le retour à la ligne de la fin.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,27 @@ x-airflow-common:
 			why: 'Compose ignore la clé `x-` elle-même, mais l’ancre fonctionne quand même. La clé de fusion copie les clés du mapping, et les clés écrites dans le service s’ajoutent par-dessus.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Donner les valeurs de l’exercice à un vrai parseur YAML 1.1, voir ce que ton programme recevrait, puis les corriger jusqu’à ce qu’il reçoive ce que tu as écrit.',
+		steps: [
+			'Installe PyYAML dans un venv jetable : `mkdir -p ~/yaml-lab && cd ~/yaml-lab && python3 -m venv .venv && .venv/bin/pip install pyyaml`.',
+			'Écris le fichier cassé : `printf \'country: NO\\nversion: 1.10\\nssh_port: 22:22\\nmode: 0755\\ndebug: off\\nscript: >\\n  echo one\\n  echo two\\n  echo three\\n\' > bad.yaml`.',
+			'Parse-le comme le ferait un programme : `.venv/bin/python -c \'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])))\' bad.yaml`.',
+			'Copie-le dans `good.yaml` et corrige chaque ligne : mets `NO`, `1.10`, `22:22` et `0755` entre guillemets, écris `debug: false`, et remplace `script: >` par `script: |`. Parse `good.yaml` avec la même commande.',
+			'Fais passer le bloc du script dans bash : `.venv/bin/python -c \'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["script"], end="")\' good.yaml | bash`. Essaie la même chose sur `bad.yaml`.'
+		],
+		done: [
+			'`bad.yaml` affiche `\'country\': False, \'version\': 1.1, \'ssh_port\': 1342, \'mode\': 493, \'debug\': False`.',
+			'`good.yaml` affiche `\'NO\'`, `\'1.10\'`, `\'22:22\'` et `\'0755\'` comme des chaînes.',
+			'Le script de `good.yaml` affiche `one`, `two` et `three` sur trois lignes. Celui de `bad.yaml` affiche `one echo two echo three` sur une seule ligne.'
+		],
+		solution: [
+			'`country: "NO"`, `version: "1.10"`, `ssh_port: "22:22"`, `mode: "0755"`, `debug: false`.',
+			'`script: |` suivi des trois commandes, chacune indentée de deux espaces.',
+			'Supprime le dossier à la fin : le venv ne vit que dans `~/yaml-lab`.'
+		]
+	},
 	recall: {
 		q: 'Que fait un parseur YAML 1.1 des valeurs sans guillemets `NO`, `1.10`, `22:22` et `0755`, et comment les gardes-tu comme chaînes ?',
 		a: 'Il les lit comme false, 1.1, 1342 et 493. Des guillemets, comme `\'NO\'` ou `"1.10"`, les gardent comme chaînes.'

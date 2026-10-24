@@ -115,6 +115,44 @@ export default {
 			'`when { branch \'main\' }` ne marche que dans un pipeline multibranche. Sur les autres branches le stage est sauté.',
 			'L’ordre : par défaut, Jenkins demande l’`input` **avant** de vérifier `when`. Sans `beforeInput true`, chaque branche de feature s’arrêterait pour attendre une validation dont elle n’a pas besoin.',
 			'Fais-le tourner sur un agent qui a les credentials de déploiement, pas sur le controller.'
+		],
+		steps: [
+			{
+				title: 'Place le stage',
+				questions: [
+					{ q: 'Où va le nouveau stage `Deploy` ?', options: ['Dans `post { always { } }`', 'Dans `options { }`', 'Dans `stages { }`, après `stage(\'Deliver\')`', 'Dans un deuxième Jenkinsfile'], answer: 2, why: 'Les stages tournent dans l’ordre où ils sont listés, donc `Deploy` vient en dernier.' },
+					{ q: '`mvn test` échoue. `Deploy` tourne-t-il ?', options: ['Non : dès qu’un stage échoue, les stages suivants ne tournent jamais', 'Oui, c’est un stage à part', 'Oui, mais seulement après une validation', 'Seulement sur `main`'], answer: 0, why: 'Comme pour Deliver, un échec plus tôt dans le pipeline arrête tout ce qui suit.' },
+					{ q: 'Des tests échouent et le build passe en UNSTABLE. Que fait `skipStagesAfterUnstable()` à `Deploy` ?', options: ['Rien : il ne touche que Deliver', 'Il lance `Deploy` avec un avertissement', 'Il relance d’abord les tests', 'Il le saute, comme chaque stage après UNSTABLE'], answer: 3, why: 'L’option saute tous les stages dès que le statut est passé à UNSTABLE.' },
+					{ q: 'Où doivent tourner les steps de `Deploy` ?', options: ['Sur le controller, qui garde les credentials', 'Sur un agent qui a les credentials de déploiement', 'Sur n’importe quel agent avec le label `windows`', 'Sur le portable du développeur'], answer: 1, why: 'La doc Jenkins déconseille les builds sur le controller. Un déploiement tourne sur un agent prévu pour ça.' }
+				]
+			},
+			{
+				title: 'Limite-le à main',
+				questions: [
+					{ q: 'Quelle directive réserve `Deploy` à la branche `main` ?', options: ['`agent { label \'main\' }`', '`when { branch \'main\' }`', '`input { branch \'main\' }`', '`options { branch(\'main\') }`'], answer: 1, why: '`when` décide si un stage tourne. `branch` vérifie la branche en cours de build.' },
+					{ q: 'Où `when { branch \'main\' }` marche-t-il ?', options: ['Seulement dans un pipeline multibranche', 'Dans n’importe quel job freestyle', 'Seulement sur le controller', 'Seulement avec la syntaxe scripted'], answer: 0, why: 'Un pipeline multibranche construit chaque branche, donc Jenkins sait sur quelle branche il est.' },
+					{ q: 'Une branche de feature arrive à `Deploy`. Avec seulement `when` et pas d’`input`, que se passe-t-il ?', options: ['Le build échoue', 'Le stage tourne sans credentials', 'Jenkins demande quelle branche utiliser', 'Le stage est sauté'], answer: 3, why: 'Quand la condition `when` est fausse, Jenkins saute le stage.' },
+					{ q: 'Pourquoi écrire la condition de branche dans le Jenkinsfile et pas dans les réglages du job ?', options: ['Le formulaire du job n’a pas de champ branche', 'Jenkins ne lit les réglages des jobs qu’une fois par jour', 'Le Jenkinsfile se relit et se versionne comme du code', 'Les plugins ne savent pas lire le Jenkinsfile'], answer: 2, why: 'Des réglages cliqués dans l’interface web ne se relisent pas et ne se reconstruisent pas. Le Jenkinsfile, si.' }
+				]
+			},
+			{
+				title: 'Demande la validation',
+				questions: [
+					{ q: 'Quelle directive fait attendre un humain au stage ?', options: ['`input { message \'Deploy to production?\' }`', '`post { always { } }`', '`when { manual true }`', '`options { approve() }`'], answer: 0, why: '`input` met le stage en pause et demande à quelqu’un de valider.' },
+					{ q: 'Où va `input` ?', options: ['Dans `options`, en haut du fichier', 'Dans le stage `Deploy`, à côté de `when` et `steps`', 'Dans le stage `Deliver`', 'Dans `post`, après le stage'], answer: 1, why: 'La validation appartient au stage qu’elle protège.' },
+					{ q: 'Que fait le build quand il arrive à `input` ?', options: ['Il se valide tout seul après un court délai', 'Il échoue, pour que quelqu’un le relance', 'Il saute le stage', 'Il s’arrête et attend que quelqu’un valide'], answer: 3, why: 'Le build se met en pause jusqu’à la réponse d’un humain.' },
+					{ q: 'Quand `sh \'./deploy.sh\'` tourne-t-il ?', options: ['Sur `main`, après une validation', 'Sur chaque branche, avant la validation', 'Sur `main`, avant la validation', 'Sur chaque branche, après la validation'], answer: 0, why: 'Les steps ne tournent qu’une fois la condition de branche et la validation passées.' }
+				]
+			},
+			{
+				title: 'Vérifie l’ordre',
+				questions: [
+					{ q: 'Par défaut, qu’est-ce que Jenkins évalue en premier dans un stage ?', options: ['`when`, puis `input`', '`input`, puis `when`', 'Les deux en même temps', '`steps`, puis `when`'], answer: 1, why: 'Par défaut, Jenkins demande l’`input` **avant** de vérifier `when`.' },
+					{ q: 'Sans `beforeInput true`, que se passe-t-il sur une branche de feature ?', options: ['Le stage est sauté tout de suite', 'Le build échoue sur une erreur de syntaxe', 'Le build s’arrête et attend une validation dont il n’a pas besoin', 'Jenkins déploie la branche de feature'], answer: 2, why: 'L’`input` passe en premier, donc chaque branche demande une validation avant la vérification de branche.' },
+					{ q: 'Que change `beforeInput true` ?', options: ['Il retire la validation sur `main`', 'Il lance la validation sur le controller', 'Il saute `when` sur `main`', 'Jenkins vérifie `when` avant de demander l’`input`'], answer: 3, why: 'Avec la vérification en premier, les branches de feature sautent le stage et ne demandent rien.' },
+					{ q: 'Où va `beforeInput true` ?', options: ['Dans `when { }`', 'Dans `input { }`', 'Dans `options { }`', 'Dans `steps { }`'], answer: 0, why: 'C’est une option de `when` : `when { beforeInput true; branch \'main\' }`.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -102,6 +102,44 @@ crash.*.log
 			'`git add nginx.conf`: the fix is now in the working tree **and** the index. `debug.conf` is still only in the working tree.',
 			'`git commit -m "Raise worker_connections"`: the fix is now a snapshot in the repository. `main` moves to the new commit and HEAD still points at `main`.',
 			'`git restore debug.conf`: copies the version from the index back over your test edit. The test is gone, nothing was committed.'
+		],
+		steps: [
+			{
+				title: 'Read the starting state',
+				questions: [
+					{ q: 'You run `git status`. Where is the new version of `nginx.conf`?', options: ['Only in the working tree', 'In the working tree and the index', 'In the repository, as a new commit', 'Only in the index'], answer: 0, why: 'You edited the file on disk and nothing else. Git notices it is modified, but it is not staged yet.' },
+					{ q: 'What does the index hold right now?', options: ['Both of your modified files', 'The same content as the last commit', 'Only `nginx.conf`, since it is the real fix', 'Nothing until you run `git add`'], answer: 1, why: 'You have not staged anything, so the index still matches the last commit.' },
+					{ q: 'Which command shows your edits that are not staged yet?', options: ['`git diff --staged`', '`git log`', '`git diff`', '`git show HEAD`'], answer: 2, why: '`git diff` compares the working tree with the index. `git diff --staged` shows only what is already staged.' },
+					{ q: 'What does HEAD point at?', options: ['The hash of the commit you will make next', 'The `main` branch on the remote server', 'The newest file you edited', 'The branch `main`, as `refs/heads/main`'], answer: 3, why: 'HEAD is usually a ref to the branch you are on. It holds a bare hash only in detached HEAD.' }
+				]
+			},
+			{
+				title: 'Stage only the fix',
+				questions: [
+					{ q: 'Which command puts only the fix into the next commit?', options: ['`git add .`', '`git add nginx.conf`', '`git restore nginx.conf`', '`git commit nginx.conf debug.conf`'], answer: 1, why: '`git add` copies one file into the index. You choose what goes into the next commit, file by file.' },
+					{ q: 'After `git add nginx.conf`, where is the fix?', options: ['In the working tree and the index', 'Only in the index', 'In the repository, not yet on the remote', 'Only in the working tree'], answer: 0, why: '`git add` copies the current version into the index. The file on disk stays as it is.' },
+					{ q: 'Where is your test edit to `debug.conf` now?', options: ['In the index, next to the fix', 'In the repository, as a draft', 'Only in the working tree', 'Nowhere: `git add` reset it'], answer: 2, why: 'You did not stage it, so it stays on disk only. The index still has the old version.' },
+					{ q: 'Why not run `git add .` here?', options: ['It only works on new files', 'It would also commit the change right away', 'It skips files that are already tracked', 'It would stage `debug.conf` too'], answer: 3, why: '`git add .` stages every modified file. The index lets you leave the test out, but only if you add files one by one.' }
+				]
+			},
+			{
+				title: 'Commit the fix',
+				questions: [
+					{ q: 'What does `git commit -m "Raise worker_connections"` do with the index?', options: ['It turns it into a snapshot in the repository', 'It sends it to the remote server', 'It empties it, so the next commit starts blank', 'It copies it back over the working tree'], answer: 0, why: 'A commit is a snapshot of the whole project, made from the index, with a link to its parent.' },
+					{ q: 'What does the branch `main` hold after the commit?', options: ['The hash of the previous commit', 'A list of every file in the snapshot', 'The hash of the new commit', 'The name of the file you committed'], answer: 2, why: 'A branch is a ref that holds one commit hash. HEAD points at `main`, so the commit moves `main` forward.' },
+					{ q: 'What does HEAD point at after the commit?', options: ['The new commit hash directly', 'Still the branch `main`', 'The parent commit', 'Nothing until you push'], answer: 1, why: 'HEAD keeps pointing at `main`. It is `main` that moved to the new commit.' },
+					{ q: 'Is the fix on the remote now?', options: ['Yes: a commit goes to the remote right away', 'Yes, but only on the remote `main` branch', 'Only if the remote runs `git pull`', 'No: it reaches the remote only with `git push`'], answer: 3, why: 'The commit lives in your local repository in `.git`. `git push` is what sends it.' }
+				]
+			},
+			{
+				title: 'Drop the test',
+				questions: [
+					{ q: 'Which command throws away your test edit to `debug.conf`?', options: ['`git commit debug.conf`', '`git rm --cached debug.conf`', '`git add debug.conf`', '`git restore debug.conf`'], answer: 3, why: '`git restore` puts a file back from the index, over your edit on disk.' },
+					{ q: 'Where does `git restore debug.conf` copy the file from?', options: ['From the index', 'From the remote', 'From a `.bak` copy Git keeps', 'From the next commit'], answer: 0, why: 'The index still holds the version of the last commit, so that is what comes back.' },
+					{ q: 'After `git restore`, is the test edit in any commit?', options: ['Yes, in the commit you just made', 'No: nothing of it was committed', 'Yes, in a hidden commit on `main`', 'Only in the index'], answer: 1, why: 'You never staged it, so it never reached a snapshot. It is gone.' },
+					{ q: 'Say you had committed a secret in `debug.conf` and deleted it in the next commit. Is it gone?', options: ['Yes: the newest commit wins', 'Yes, once you run `git restore`', 'No: the old snapshot still has it, in every clone', 'No, but `.gitignore` hides it from now on'], answer: 2, why: 'Each commit is a full snapshot. The secret stays in the old one until someone rewrites history.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -139,6 +177,28 @@ crash.*.log
 			why: 'HEAD is usually a symbolic reference to the current branch. It holds a commit hash directly only in the detached HEAD state.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a file move from the working tree to the index to the repository, and read HEAD and `main` straight from `.git`.',
+		steps: [
+			'Make a repo with a first commit: `mkdir -p ~/git-lab && cd ~/git-lab && git init -b main && printf \'worker_connections 512;\\n\' > nginx.conf && printf \'log debug;\\n\' > debug.conf && git add . && git commit -m "First config"`. If Git asks who you are, set `git config --global user.name` and `user.email` first.',
+			'Read the refs: `cat .git/HEAD`, then `cat .git/refs/heads/main`.',
+			'Edit both files: `printf \'worker_connections 1024;\\n\' > nginx.conf && printf \'log trace;\\n\' >> debug.conf`. Then stage only the fix and compare: `git add nginx.conf && git status --short && git diff --name-only && git diff --staged --name-only`.',
+			'Commit the fix and drop the test: `git commit -m "Raise worker_connections" && git restore debug.conf && git status --short`. Then compare `git rev-parse HEAD` with `cat .git/refs/heads/main`.',
+			'Detach HEAD and come back: `git checkout HEAD~1 && cat .git/HEAD && git switch main`.'
+		],
+		done: [
+			'In step 2, `cat .git/HEAD` prints `ref: refs/heads/main`.',
+			'In step 3, `git status --short` shows `M  nginx.conf` (staged) and ` M debug.conf` (not staged).',
+			'In step 4, `git status --short` prints nothing, and `git rev-parse HEAD` prints the same hash as `.git/refs/heads/main`.',
+			'In step 5, `cat .git/HEAD` prints a bare hash instead of a branch name.'
+		],
+		solution: [
+			'The left column of `git status --short` is the index, the right column is the working tree. `M ` is staged, ` M` is modified on disk only.',
+			'`git diff --name-only` lists only `debug.conf` and `git diff --staged --name-only` lists only `nginx.conf`: two places, two answers.',
+			'After the commit, `main` holds the new hash and HEAD still says `ref: refs/heads/main`. After `git checkout HEAD~1`, HEAD holds the old commit\'s hash: detached HEAD.'
+		]
+	},
 	recall: {
 		q: 'You ran `git add nginx.conf` but not `git commit`. Where is the new version, and what does HEAD point at?',
 		a: 'In the working tree and the index, in no commit yet. HEAD points at the branch `main`, which holds the hash of the last commit.'

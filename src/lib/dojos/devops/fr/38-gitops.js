@@ -124,6 +124,44 @@ spec:
 			'Commence avec `selfHeal` désactivé et regarde les rapports OutOfSync. Corrige le drift que tu trouves, puis active le self-heal.',
 			'Le job CI construit maintenant l’image, la pousse, et **commite le nouveau tag d’image** dans le fichier de values. Il ne parle plus au cluster.',
 			'Supprime le kubeconfig cluster-admin des variables CI. La CI ne détient alors plus aucun accès au cluster.'
+		],
+		steps: [
+			{
+				title: 'Mets l’état voulu dans Git',
+				questions: [
+					{ q: 'Aujourd’hui, qu’est-ce qui ne va pas dans le job GitLab, côté sécurité ?', options: ['Il utilise Helm, qui est obsolète', 'Il déploie trop lentement', 'Il détient des accès admin au cluster', 'Il ne sait pas faire de rollback'], answer: 2, why: 'Dans un push deploy, la CI a besoin d’accès admin au cluster. C’est ce kubeconfig qu’il faut retirer.' },
+					{ q: 'Qu’est-ce qui va d’abord dans le repo Git ?', options: ['Le chart et les values de chaque environnement', 'Le kubeconfig cluster-admin', 'L’image construite', 'Une copie de `kubectl get all -o yaml`'], answer: 0, why: 'Git devient l’état voulu, donc le chart et ses values par environnement doivent y vivre.' },
+					{ q: 'Quel repo peut les contenir ?', options: ['Seulement le repo d’Argo CD', 'Seulement un repo sans code', 'Seulement le repo de la CI GitLab', 'Le repo de l’appli ou un repo de config séparé'], answer: 3, why: 'Les deux marchent. Ce qui compte, c’est un chemin par environnement qu’Argo CD peut surveiller.' },
+					{ q: 'Qu’est-ce qui ne doit jamais aller en clair dans ce repo ?', options: ['Le tag d’image', 'Les secrets', 'Le nombre de replicas', 'Le port du Service'], answer: 1, why: 'Tu ne peux pas commiter des secrets en clair. Ajoute un outil qui les chiffre ou qui les récupère dans un coffre.' }
+				]
+			},
+			{
+				title: 'Laisse Argo CD l’appliquer',
+				questions: [
+					{ q: 'Où tourne Argo CD ?', options: ['Dans le cluster', 'Dans le runner GitLab', 'Sur le portable de chaque dev', 'Sur le serveur Git'], answer: 0, why: 'C’est un pull deploy : l’agent dans le cluster va chercher Git, et les accès restent à l’intérieur.' },
+					{ q: 'Combien d’Applications crées-tu ?', options: ['Une pour toute l’entreprise', 'Une par commit Git', 'Une par environnement', 'Une par Pod'], answer: 2, why: 'Une Application relie un chemin dans Git à un namespace d’un cluster, donc chaque environnement a la sienne.' },
+					{ q: 'De quels trois blocs une Application a-t-elle besoin ?', options: ['`image`, `replicas`, `ports`', '`source`, `destination`, `syncPolicy`', '`metadata`, `status`, `events`', '`values`, `chart`, `kubeconfig`'], answer: 1, why: 'Où sont les manifestes, où ils vont, et comment synchroniser.' },
+					{ q: 'En combien de temps Argo CD voit-il un nouveau commit par défaut ?', options: ['Tout de suite, via un hook dans la CI', 'Une fois par jour', 'Seulement quand tu cliques sur Sync', 'En 3 minutes au plus, en interrogeant le repo'], answer: 3, why: 'Par défaut, il interroge le repo toutes les 3 minutes au plus.' }
+				]
+			},
+			{
+				title: 'Trouve le drift, puis répare-le',
+				questions: [
+					{ q: 'Pourquoi commencer avec `selfHeal` désactivé ?', options: ['Pour voir le drift d’abord, avant qu’Argo CD l’écrase', 'Parce que le self-heal demande une offre payante', 'Parce que la sync `automated` casse avec', 'Parce qu’Argo CD ne voit pas le drift quand il est actif'], answer: 0, why: 'Des modifications à la main peuvent cacher de vrais correctifs. Lis les rapports OutOfSync, mets ce qui compte dans Git, puis active le self-heal.' },
+					{ q: 'Le self-heal est désactivé et quelqu’un scale un Deployment à la main. Que se passe-t-il ?', options: ['Argo CD l’annule tout de suite', 'Argo CD supprime le Deployment', 'L’appli passe OutOfSync, rien n’est annulé', 'Argo CD ne le voit pas'], answer: 2, why: 'Argo CD détecte le drift, mais seul le self-heal le fait agir.' },
+					{ q: 'Une fois le self-heal activé, que devient un `kubectl edit` du vendredi ?', options: ['Il reste jusqu’au prochain commit', 'Argo CD remet la version de Git en quelques secondes', 'Il est recopié dans Git', 'Il verrouille l’Application'], answer: 1, why: 'Le self-heal resynchronise au moindre drift. Le changement doit maintenant passer par une pull request.' },
+					{ q: 'Pendant un incident, tu as besoin d’une correction à la main tout de suite. Que fais-tu ?', options: ['Modifier et espérer que le self-heal soit lent', 'Supprimer Argo CD', 'Désactiver RBAC', 'Corriger en avant via Git, ou mettre l’auto-sync en pause d’abord'], answer: 3, why: 'Une modification d’urgence est annulée. Passe par Git, ou mets la sync en pause exprès.' }
+				]
+			},
+			{
+				title: 'Allège la CI',
+				questions: [
+					{ q: 'Que fait le job CI maintenant, après avoir construit et poussé l’image ?', options: ['Il lance `helm upgrade` avec un kubeconfig plus restreint', 'Il commite le nouveau tag d’image dans le fichier de values', 'Il appelle l’API d’Argo CD pour déployer', 'Rien de plus'], answer: 1, why: 'La CI n’écrit plus que dans Git. Argo CD voit le nouveau tag et l’applique.' },
+					{ q: 'Le job CI parle-t-il encore au cluster ?', options: ['Non', 'Oui, pour vérifier les Pods', 'Oui, pour lancer les migrations', 'Seulement en cas d’échec'], answer: 0, why: 'Dans le modèle pull, la CI a besoin d’un accès en écriture à un repo, et de rien d’autre.' },
+					{ q: 'Que devient le kubeconfig cluster-admin ?', options: ['Gardé en secours dans la CI', 'Déplacé dans une autre variable CI', 'Supprimé des variables CI', 'Donné à Argo CD'], answer: 2, why: 'La CI ne détient alors plus aucun accès au cluster.' },
+					{ q: 'Un mauvais tag arrive en production. Comment reviens-tu en arrière ?', options: ['`helm rollback` depuis ton portable', '`kubectl edit` sur le Deployment', 'Attendre le self-heal', '`git revert` du commit qui a changé le tag'], answer: 3, why: 'Chaque changement est un commit, donc revenir en arrière est un revert, relu comme tout autre changement.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ spec:
 			why: 'Par sécurité, la sync automatique ne supprime pas les ressources absentes de Git. Tu fais le prune à la main, ou tu mets `prune: true`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire un petit agent pull avec Git et `kubectl`, et le regarder annuler une modification à la main, appliquer un commit, et laisser en place l’objet d’un fichier supprimé, comme Argo CD sans `prune`.',
+		steps: [
+			'Démarre un cluster local avec `minikube start`. Crée un repo bare comme « serveur Git », et une copie de travail : `mkdir -p ~/gitops-lab && cd ~/gitops-lab && git init -q --bare remote.git && git clone -q remote.git config`.',
+			'Commite l’état voulu : `cd ~/gitops-lab/config && kubectl create deployment web --image=nginx:1.27 --replicas=2 --dry-run=client -o yaml > web.yaml && git add web.yaml && git commit -qm "web: 2 replicas" && git push -q origin HEAD`.',
+			'Dans un second terminal, lance l’agent. Il tire Git et n’applique que si le cluster diffère : `cd ~/gitops-lab && git clone -q remote.git agent && cd agent && while true; do git pull -q; kubectl diff -f . >/dev/null || kubectl apply -f .; sleep 10; done`.',
+			'Fais une modification du vendredi : `kubectl scale deployment web --replicas=5`, attends 15 secondes, puis `kubectl get deployment web`.',
+			'Change-le à la manière GitOps : dans `~/gitops-lab/config`, remplace `replicas: 2` par `replicas: 3` dans `web.yaml`, puis `git commit -qam "web: 3 replicas" && git push -q origin HEAD`. Ensuite ajoute puis retire une ConfigMap : `kubectl create configmap motd --from-literal=msg=hello --dry-run=client -o yaml > motd.yaml && git add motd.yaml && git commit -qm "add motd" && git push -q origin HEAD`, attends 20 secondes, puis `git rm -q motd.yaml && git commit -qm "remove motd" && git push -q origin HEAD`. Arrête l’agent avec Ctrl-C et nettoie avec `kubectl delete deployment web && kubectl delete configmap motd`.'
+		],
+		done: [
+			'Après `kubectl scale --replicas=5`, `kubectl get deployment web` revient à `2/2` en une dizaine de secondes, et l’agent a affiché `deployment.apps/web configured`.',
+			'Après le push de `replicas: 3`, le Deployment montre `3/3` sans aucune commande `kubectl` de ta part.',
+			'Après `git rm motd.yaml` et une sync, `kubectl get configmap motd` la trouve toujours.',
+			'`git log --oneline` dans `config` liste chaque changement que tu as fait au cluster.'
+		],
+		solution: [
+			'`kubectl diff` sort avec un code non nul quand l’état réel diffère des fichiers. C’est du drift, et l’agent réapplique Git : un self-heal.',
+			'Ici, seul l’agent parle au cluster. Ta « CI » est un `git push`, et c’est tout l’intérêt d’un pull deploy.',
+			'`kubectl apply -f .` ne supprime jamais un objet dont le fichier a disparu, comme Argo CD avec `prune` désactivé. Tu le supprimes à la main, ou tu actives le prune.'
+		]
+	},
 	recall: {
 		q: 'Quelqu’un lance `kubectl edit` sur une appli qu’Argo CD gère en sync automatique. Que fait Argo CD, avec et sans `selfHeal` ?',
 		a: 'Il compare l’état réel à Git et affiche l’appli en OutOfSync. Il ne remet la version de Git tout seul qu’avec `selfHeal: true`.'

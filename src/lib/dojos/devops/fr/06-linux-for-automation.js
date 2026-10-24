@@ -100,6 +100,44 @@ WantedBy=multi-user.target`,
 			'Mets dedans : `[Service]`, `Restart=on-failure`, `RestartSec=5s`. La doc de Caddy ajoute aussi `RestartPreventExitStatus=1`, pour que le code de sortie 1 ne déclenche pas de redémarrage.',
 			'L’unit du paquet reste intacte, donc une mise à jour du paquet n’efface pas ta modif.',
 			'Pourquoi il s’est arrêté : `systemctl status caddy` montre le dernier code de sortie et les dernières lignes de log. `journalctl -u caddy -b` montre toutes les lignes de log depuis le boot.'
+		],
+		steps: [
+			{
+				title: 'Comprends pourquoi il est resté arrêté',
+				questions: [
+					{ q: 'L’unit Caddy n’a pas de ligne `Restart=`. Que fait systemd quand Caddy plante ?', options: ['Il le redémarre au bout de 5 secondes', 'Il le laisse arrêté', 'Il le redémarre 5 fois, puis abandonne', 'Il redémarre la machine'], answer: 1, why: '`Restart=` vaut `no` par défaut, donc un service planté reste arrêté jusqu’à ce que quelqu’un le relance.' },
+					{ q: 'Comment systemd sait-il que Caddy a échoué ?', options: ['Par le code de sortie du processus', 'Par un fichier PID', 'Par une tâche cron', 'Par la taille du journal'], answer: 0, why: 'systemd démarre le processus, le suit et lit son code de sortie quand il se termine.' },
+					{ q: 'Quelle valeur de `Restart=` ne redémarre que si le service échoue ?', options: ['`always`', '`no`', '`on-failure`', '`notify`'], answer: 2, why: '`on-failure` redémarre après un échec. `always` redémarrerait aussi après une sortie propre.' },
+					{ q: 'Pourquoi ne pas modifier directement le `caddy.service` du paquet ?', options: ['systemd ignore les modifs des fichiers d’unit', 'Les fichiers d’unit sont en lecture seule partout', 'Caddy vérifie une somme de contrôle de son unit', 'Une mise à jour du paquet peut effacer ta modif'], answer: 3, why: 'Ce fichier appartient au paquet. Ta modif va dans un fichier à part, empilé par-dessus.' }
+				]
+			},
+			{
+				title: 'Ajoute un drop-in',
+				questions: [
+					{ q: 'Quelle commande ouvre un drop-in pour Caddy ?', options: ['`sudo vim /usr/lib/systemd/system/caddy.service`', '`sudo systemctl edit caddy`', '`sudo systemctl reload caddy`', '`journalctl -u caddy -e`'], answer: 1, why: '`systemctl edit` ouvre un fichier drop-in (`override.conf` par défaut) et recharge la config quand tu enregistres.' },
+					{ q: 'Quel en-tête de section va dans le drop-in ?', options: ['`[Unit]`', '`[Install]`', '`[Restart]`', '`[Service]`'], answer: 3, why: '`Restart=` et `RestartSec=` sont des réglages de service, donc ils vont sous `[Service]`.' },
+					{ q: 'Quelles deux lignes font redémarrer Caddy au bout de 5 secondes ?', options: ['`Restart=on-failure` et `RestartSec=5s`', '`Type=notify` et `TimeoutStopSec=5s`', '`Restart=always` et `TimeoutStopSec=5s`', '`ExecReload=` et `RestartSec=5s`'], answer: 0, why: '`Restart=on-failure` active les redémarrages, et `RestartSec=5s` règle l’attente.' },
+					{ q: 'Faut-il lancer `systemctl daemon-reload` après `systemctl edit` ?', options: ['Oui, toujours', 'Seulement si tu redémarres aussi la machine', 'Non, systemd recharge sa config tout seul quand tu enregistres', 'Non, parce que les drop-ins ne sont lus qu’au boot'], answer: 2, why: '`systemctl edit` recharge lui-même la configuration des units une fois le fichier enregistré.' }
+				]
+			},
+			{
+				title: 'Choisis quelles sorties redémarrent',
+				questions: [
+					{ q: 'Quelle ligne en plus la doc de Caddy ajoute-t-elle à l’override de redémarrage ?', options: ['`Restart=always`', '`RestartPreventExitStatus=1`', '`StandardError=null`', '`User=root`'], answer: 1, why: 'La doc de Caddy ajoute `RestartPreventExitStatus=1`, pour que le code de sortie 1 ne déclenche pas de redémarrage.' },
+					{ q: 'En général, que veut dire le code de sortie 0 ?', options: ['Succès', 'Échec', 'Commande introuvable', 'Tué par un signal'], answer: 0, why: '0 veut dire succès. Tout ce qui va de 1 à 255 veut dire échec, et c’est le programme qui choisit le nombre.' },
+					{ q: 'Un processus tué par le signal 15 (SIGTERM) affiche quel code en bash ?', options: ['15', '127', '0', '143'], answer: 3, why: 'Bash rend une mort par le signal N comme 128 + N, donc 128 + 15 = 143.' },
+					{ q: 'Un script demande `systemctl is-active caddy`. Comment lit-il la réponse ?', options: ['Seulement par le texte affiché', 'Par le journal', 'Par le code de sortie : 0 si active, autre chose sinon', 'Par un fichier dans `/run`'], answer: 2, why: 'Les outils parlent aux scripts par codes de sortie, et `is-active` ne renvoie 0 que si l’unit est active.' }
+				]
+			},
+			{
+				title: 'Trouve pourquoi il s’est arrêté',
+				questions: [
+					{ q: 'Quelle commande montre le dernier code de sortie et les dernières lignes de log ?', options: ['`systemctl status caddy`', '`systemctl cat caddy`', '`systemctl is-enabled caddy`', '`caddy version`'], answer: 0, why: '`systemctl status` montre l’état, le dernier code de sortie et les lignes les plus récentes du journal.' },
+					{ q: 'Quelle commande montre toutes les lignes de log de Caddy depuis le boot ?', options: ['`cat /var/log/caddy.log`', '`journalctl -u caddy -f`', '`journalctl -b`', '`journalctl -u caddy -b`'], answer: 3, why: '`-u caddy` filtre par unit et `-b` limite au boot en cours.' },
+					{ q: 'Où va le stderr d’un service par défaut ?', options: ['Dans `/dev/null`', 'Dans un fichier à côté du binaire', 'Là où va stdout : le journal', 'Sur la console de la machine'], answer: 2, why: 'Par défaut, stdout va dans le journal, et stderr va là où va stdout.' },
+					{ q: 'Caddy démarre avec `--environ`. À quoi dois-tu faire attention dans ces logs ?', options: ['À rien, ça n’affiche que la version', 'Un secret dans l’environnement finit dans le journal', 'Ça cache stderr', 'Ça coupe le journal'], answer: 1, why: '`--environ` affiche tout l’environnement au démarrage, et cette sortie arrive dans le journal.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -132,6 +170,30 @@ WantedBy=multi-user.target`,
 			why: '`Restart=` vaut `no` par défaut : le service n’est pas redémarré. Tu dois l’activer toi-même avec `on-failure` ou `always`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire les codes de sortie et les flux comme un pipeline, puis regarder systemd redémarrer un service qui plante, sans root.',
+		steps: [
+			'Lis des codes de sortie en bash : `ls /nope; echo $?`, puis `nosuchcmd; echo $?`, puis `sh -c \'kill -TERM $$\'; echo $?`.',
+			'Sépare les flux : `mkdir -p ~/streams-lab && cd ~/streams-lab && ls /nope /tmp > out.txt 2> err.txt; echo $?`, puis `cat out.txt` et `cat err.txt`. Essaie le piège de l’ordre : `ls /nope 2>&1 > out2.txt`.',
+			'Vois un outil sortir avec 0 sur ce que toi tu appelles un échec : `python3 -m http.server 8000 >/dev/null 2>&1 &`, puis `curl -s -o /dev/null localhost:8000/missing; echo $?` et `curl -s --fail -o /dev/null localhost:8000/missing; echo $?`. Arrête le serveur avec `kill %1`.',
+			'Linux avec systemd seulement : lance un service qui plante, avec la valeur par défaut `Restart=no` : `systemd-run --user --unit=crashy sh -c \'echo started; echo boom >&2; exit 3\'`. Puis `systemctl --user is-active crashy; echo $?` et `systemctl --user reset-failed crashy`.',
+			'Même service avec une politique de redémarrage : `systemd-run --user --unit=crashy -p Restart=on-failure -p RestartSec=5s sh -c \'echo started; echo boom >&2; sleep 2; exit 3\'`. Attends 15 secondes, puis lance `systemctl --user show crashy -p NRestarts` et `journalctl --user -u crashy --no-pager | tail`.',
+			'Nettoie : `systemctl --user stop crashy`. Si `systemctl --user status crashy` le montre encore en échec, lance `systemctl --user reset-failed crashy`.'
+		],
+		done: [
+			'L’étape 1 affiche un code non nul pour `ls`, `127` pour la commande absente et `143` pour le signal.',
+			'`err.txt` contient l’erreur sur `/nope` et `out.txt` le contenu de `/tmp`. Avec `2>&1 > out2.txt`, l’erreur s’affiche quand même dans le terminal.',
+			'`curl` seul affiche `0` sur le 404, et `curl --fail` affiche `22`.',
+			'Sans politique de redémarrage, `systemctl --user is-active crashy` affiche `failed`. Avec `Restart=on-failure`, `NRestarts` est au-dessus de 0 et le journal montre `started`, `boom` et `Scheduled restart job`.'
+		],
+		solution: [
+			'`ls` sort avec 2 sous GNU et 1 sous macOS : c’est le programme qui choisit le nombre. Bash renvoie lui-même 127 pour « introuvable » et 128 + 15 = 143 pour SIGTERM.',
+			'Les redirections s’appliquent de gauche à droite, donc écris `> out.txt 2>&1` pour envoyer les deux flux dans le fichier.',
+			'`boom` est parti sur stderr et il est quand même arrivé dans le journal, parce que stderr va là où va stdout.',
+			'Sur un vrai serveur, les deux mêmes réglages vont dans un drop-in : `sudo systemctl edit caddy`, puis `[Service]`, `Restart=on-failure`, `RestartSec=5s`.'
+		]
+	},
 	recall: {
 		q: 'Quelles sont les trois choses qu’un pipeline lit pour savoir si une commande a marché, et quel code de sortie veut dire succès ?',
 		a: 'Le code de sortie, stdout et stderr. Le code 0 veut dire succès, et de 1 à 255 veut dire échec.'

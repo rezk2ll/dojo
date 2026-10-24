@@ -98,6 +98,44 @@ HAVING max(bug) is True
 			'Failed deployment recovery time : médiane de 30 min, 40 min, 2 h = 40 min.',
 			'Change lead time : au moins 3 jours : du merge le lundi au déploiement le jeudi, plus le temps que le commit a passé en revue avant le merge.',
 			'Travaille d’abord le **lead time** : du code terminé attend trois jours. Demande-toi ce qu’il attend (un jour de release ? une validation manuelle ? un environnement de test partagé ?). Avec moins d’attente, les lots sont aussi plus petits, ce qui tend à faire baisser le taux d’échec. N’annonce pas de chiffre cible : améliore le processus et observe la métrique.'
+		],
+		steps: [
+			{
+				title: 'Compte les déploiements',
+				questions: [
+					{ q: '20 déploiements en 4 semaines. Quelle est la deployment frequency ?', options: ['Environ 20 par semaine', 'Environ 1 par semaine', 'Environ 5 par semaine', 'Environ 4 par semaine'], answer: 2, why: '20 divisé par 4 semaines, ça fait 5 par semaine. Elle se compte par service.' },
+					{ q: '3 des 20 ont demandé tout de suite un rollback ou un hotfix. Quel est le change fail rate ?', options: ['15 %', '3 %', '30 %', '10 %'], answer: 0, why: 'Les déploiements en échec divisés par tous les déploiements : 3 / 20 = 15 %.' },
+					{ q: '2 des 20 étaient des hotfix non prévus, faits à cause d’incidents en prod. Quel est le deployment rework rate ?', options: ['2 %', '15 %', '20 %', '10 %'], answer: 3, why: 'Les déploiements non prévus divisés par tous les déploiements : 2 / 20 = 10 %.' },
+					{ q: 'Ensemble, le change fail rate et le deployment rework rate mesurent quoi ?', options: ['Le débit', 'L’instabilité', 'Le lead time', 'La disponibilité'], answer: 1, why: 'Ces deux-là mesurent l’instabilité. Les trois autres mesurent le débit.' }
+				]
+			},
+			{
+				title: 'Calcule le temps de rétablissement',
+				questions: [
+					{ q: 'Quelles pannes comptent dans le failed deployment recovery time ?', options: ['Toutes les pannes, quelle qu’en soit la cause', 'Seulement les pannes causées par un déploiement', 'Seulement les pannes de datacenter', 'Seulement les pannes trouvées par les utilisateurs'], answer: 1, why: 'Depuis 2023, la métrique ne compte que les pannes causées par un changement, contrairement à l’ancien « time to restore service ».' },
+					{ q: 'Les rétablissements ont pris 30 min, 2 h et 40 min. Quelle est la médiane ?', options: ['30 min', '2 h', '40 min', '1 h 03'], answer: 2, why: 'Dans l’ordre : 30 min, 40 min, 2 h. La valeur du milieu est 40 min.' },
+					{ q: 'Pourquoi prendre la médiane plutôt que la moyenne ici ?', options: ['Un seul mauvais incident fait moins bouger une médiane qu’une moyenne', 'DORA interdit les moyennes', 'La moyenne est toujours plus basse', 'La médiane ne compte que les déploiements prévus'], answer: 0, why: 'L’incident de 2 h tirerait la moyenne vers le haut. La médiane montre le rétablissement typique.' },
+					{ q: 'Dans Four Keys, quand commence le temps de rétablissement ?', options: ['Quand l’issue reçoit son label', 'Quand quelqu’un ouvre un canal de chat', 'Quand le hotfix est mergé', 'Au déploiement qui a causé la panne'], answer: 3, why: 'Four Keys prend le plus tôt entre l’heure du déploiement et celle de l’issue, donc le rétablissement va du mauvais déploiement à la fermeture de l’issue.' }
+				]
+			},
+			{
+				title: 'Mesure le lead time',
+				questions: [
+					{ q: 'Où commence le change lead time ?', options: ['À la création du ticket', 'Au commit dans le gestionnaire de versions', 'Au début de la revue de code', 'Au démarrage du pipeline'], answer: 1, why: 'Il va du commit jusqu’au changement en prod. Le temps dans le backlog ne compte pas.' },
+					{ q: 'Un commit typique est mergé le lundi et déployé le jeudi. Quel est le lead time ?', options: ['Au moins 3 jours, plus le temps de revue avant le merge', 'Exactement 1 jour', 'Zéro, puisque le code était déjà mergé', 'Exactement 4 semaines'], answer: 0, why: 'Du lundi au jeudi, ça fait trois jours, et le commit a pu aussi attendre en revue avant le merge.' },
+					{ q: 'Que montre en général un lead time long ?', options: ['Que le pipeline met longtemps à tourner', 'Que les développeurs écrivent trop peu de code', 'Que du code fini attend : en revue, dans une file, pour une fenêtre de release', 'Que trop de déploiements échouent'], answer: 2, why: 'Le lead time montre combien de temps du code fini attend avant d’arriver aux utilisateurs.' },
+					{ q: '5 déploiements par semaine avec un lead time de 3 jours, est-ce contradictoire ?', options: ['Oui, des déploiements fréquents veulent toujours dire un lead time court', 'Oui, un des chiffres doit être faux', 'Non, parce que le lead time ne compte que les hotfix', 'Non : le service déploie souvent, mais chaque commit attend quand même des jours'], answer: 3, why: 'La fréquence compte les déploiements. Le lead time suit un commit, et chacun attend toujours du lundi au jeudi.' }
+				]
+			},
+			{
+				title: 'Choisis quoi améliorer',
+				questions: [
+					{ q: 'Quelle métrique travailles-tu en premier ?', options: ['Le lead time', 'La deployment frequency', 'Le deployment rework rate', 'Le temps de rétablissement'], answer: 0, why: 'Du code terminé attend trois jours. C’est la plus grosse attente dans les chiffres.' },
+					{ q: 'Quelle question poses-tu sur l’attente du lundi au jeudi ?', options: ['Qui a mergé le code en retard', 'Ce que le code attend : un jour de release, une validation manuelle, un environnement de test partagé', 'Comment déployer moins souvent', 'Quel développeur blâmer'], answer: 1, why: 'Trouve ce que le code fini attend, puis supprime cette attente.' },
+					{ q: 'Pourquoi un lead time plus court peut-il aussi faire baisser le taux d’échec ?', options: ['Parce que moins de déploiements, c’est moins de pannes', 'Parce que les hotfix ne comptent plus', 'Parce que moins d’attente veut dire des lots plus petits', 'Parce qu’on peut sauter les tests'], answer: 2, why: 'Des lots plus petits, c’est moins de changements par déploiement, et dans les données de DORA vitesse et stabilité progressent ensemble.' },
+					{ q: 'Ton manager veut annoncer « lead time sous 1 jour d’ici juin ». Que réponds-tu ?', options: ['Bonne idée, les objectifs rendent les équipes plus rapides', 'Prendre plutôt la deployment frequency comme objectif', 'Fixer l’objectif pour toutes les équipes d’un coup', 'Pas de chiffre cible : améliorer le processus et observer la métrique'], answer: 3, why: 'Une métrique qui sert d’objectif pousse à la truquer (loi de Goodhart).' }
+				]
+			}
 		]
 	},
 	quiz: [

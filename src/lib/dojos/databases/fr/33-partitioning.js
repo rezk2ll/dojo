@@ -119,6 +119,44 @@ LOOP
 			'`CREATE TABLE events_p2026_10 PARTITION OF events FOR VALUES FROM (\'2026-10-01\') TO (\'2026-11-01\');` et pareil pour novembre. `CREATE TABLE events_default PARTITION OF events DEFAULT;`',
 			'(a) est élaguée : l’intervalle tient dans octobre, donc `EXPLAIN` (jour 12) laisse novembre de côté et montre `events_p2026_10`. (b) lit toutes les partitions : le filtre ne dit rien sur `created_at`. Un index sur `user_id` aide dans chaque partition, mais chaque partition est quand même visitée.',
 			'Pour retirer septembre : `ALTER TABLE events DETACH PARTITION events_p2026_09 CONCURRENTLY;`, sauvegarde-la si besoin, puis `DROP TABLE events_p2026_09;`. Rapide quel que soit le nombre de lignes, et rien à nettoyer pour le vacuum.'
+		],
+		steps: [
+			{
+				title: 'Crée la table parente',
+				questions: [
+					{ q: 'Quelle clé primaire PostgreSQL accepte-t-il sur `events` ?', options: ['`PRIMARY KEY (id)`', '`PRIMARY KEY (id, created_at)`', '`PRIMARY KEY (user_id)`', 'Aucune : une table partitionnée ne peut pas en avoir'], answer: 1, why: 'Une contrainte unique sur une table partitionnée doit inclure la clé de partitionnement, parce que l’index de chaque partition ne voit que ses lignes.' },
+					{ q: 'Quelle clause partitionne la table par mois sur `created_at` ?', options: ['`PARTITION BY LIST (created_at)`', '`PARTITION BY HASH (id)`', '`PARTITION BY RANGE (created_at)`', '`CLUSTER BY created_at`'], answer: 2, why: 'Les mois sont des intervalles de timestamps. List convient à une région ou un tenant, pas à un timestamp.' },
+					{ q: 'Que stocke le parent `events` lui-même ?', options: ['Rien : chaque ligne est envoyée dans une partition', 'Une copie de chaque ligne, par sécurité', 'Seulement les lignes qui ne vont dans aucune partition', 'Seulement les index des partitions'], answer: 0, why: 'Le parent n’a pas de stockage. L’application écrit dans `events`, et PostgreSQL range chaque ligne selon son `created_at`.' },
+					{ q: 'Avec `PRIMARY KEY (id, created_at)`, que ne garantit plus la base ?', options: ['Que `id` n’est pas NULL', 'Que chaque paire `(id, created_at)` est unique', 'Que les lignes arrivent dans l’ordre du temps', 'Que `id` est unique sur toute la table'], answer: 3, why: 'Deux partitions pourraient contenir le même `id` avec des dates différentes. L’unicité globale de `id` est maintenant ton affaire.' }
+				]
+			},
+			{
+				title: 'Ajoute les partitions',
+				questions: [
+					{ q: 'Quelles bornes donnent octobre 2026 ?', options: ['`FROM (\'2026-10-01\') TO (\'2026-10-31\')`', '`FROM (\'2026-10-01\') TO (\'2026-11-01\')`', '`FROM (\'2026-09-30\') TO (\'2026-10-31\')`', '`FROM (\'2026-10-02\') TO (\'2026-11-01\')`'], answer: 1, why: 'La borne haute est exclue, donc `TO (\'2026-11-01\')` couvre tout le 31 octobre et rien de novembre.' },
+					{ q: 'Une ligne a un `created_at` pile à minuit le 1er novembre. Où va-t-elle ?', options: ['En octobre', 'En novembre', 'Dans la partition par défaut', 'Dans les deux, en copie'], answer: 1, why: 'Une partition range inclut sa borne basse et exclut sa borne haute. Minuit est la borne basse de novembre.' },
+					{ q: 'Quelle instruction crée la partition par défaut ?', options: ['`CREATE TABLE events_default PARTITION OF events DEFAULT;`', '`ALTER TABLE events SET DEFAULT PARTITION;`', '`CREATE TABLE events_default (LIKE events);`', '`CREATE DEFAULT PARTITION ON events;`'], answer: 0, why: '`PARTITION OF ... DEFAULT` attache un fourre-tout pour les lignes qui ne vont dans aucune autre partition.' },
+					{ q: 'Sans partition par défaut, une ligne arrive pour le 2 décembre. Que se passe-t-il ?', options: ['PostgreSQL crée une partition de décembre', 'La ligne va en novembre', 'L’insert échoue avec une erreur', 'La ligne attend dans la table parente'], answer: 2, why: 'Une ligne qui ne correspond à aucune partition est une erreur. C’est pour ça que pg_partman crée les partitions en avance et ajoute une partition par défaut.' }
+				]
+			},
+			{
+				title: 'Vérifie l’élagage',
+				questions: [
+					{ q: 'Quelles partitions lit la requête (a), un jour d’octobre ?', options: ['Seulement `events_p2026_10`', 'Octobre et novembre', 'Toutes les partitions', 'Seulement la partition par défaut'], answer: 0, why: 'L’intervalle tient dans les bornes d’octobre, donc le planificateur prouve que les autres ne peuvent pas correspondre et les laisse de côté.' },
+					{ q: 'Quelles partitions lit la requête (b), `WHERE user_id = 42` ?', options: ['Seulement la plus récente', 'Toutes les partitions', 'Seulement la partition par défaut', 'Aucune, elle passe par la clé primaire'], answer: 1, why: 'Le filtre ne dit rien sur `created_at`, donc aucune partition ne peut être écartée.' },
+					{ q: 'Comment vois-tu quelles partitions une requête lit ?', options: ['Un `SELECT count(*)` sur la requête', '`VACUUM VERBOSE events`', 'Un `pg_dump` du parent', 'Un `EXPLAIN` de la requête'], answer: 3, why: '`EXPLAIN` (jour 12) ne liste que les partitions restées dans le plan.' },
+					{ q: 'Tu ajoutes un index sur `user_id`. Qu’est-ce qui change pour (b) ?', options: ['Chaque partition est fouillée plus vite, mais toutes sont encore visitées', 'La requête est élaguée à une partition', 'Rien : les tables partitionnées ne peuvent pas avoir d’index', 'Seule la partition par défaut est fouillée'], answer: 0, why: 'Un index aide dans chaque partition. L’élagage demande toujours un filtre sur la clé de partitionnement.' }
+				]
+			},
+			{
+				title: 'Retire septembre',
+				questions: [
+					{ q: 'Septembre a passé la rétention. Quelle est la façon la moins chère de le retirer ?', options: ['`DELETE FROM events WHERE created_at < \'2026-10-01\'`', 'Détacher la partition, puis la supprimer', '`TRUNCATE events`, puis recopier octobre et novembre', 'La supprimer par lots de 10 000 lignes'], answer: 1, why: 'Supprimer une partition retire toutes ses lignes d’un coup, quel que soit leur nombre.' },
+					{ q: 'Pourquoi une partition supprimée ne laisse-t-elle rien à faire au vacuum ?', options: ['Aucune ligne n’est supprimée une à une, donc il n’y a pas de lignes mortes', 'Le vacuum ignore les tables partitionnées', 'Les lignes partent dans la partition par défaut', 'Le drop lance d’abord un `VACUUM FULL`'], answer: 0, why: 'Un gros `DELETE` laisse des millions de lignes mortes à l’autovacuum (jour 16). Un `DROP TABLE` retire le fichier.' },
+					{ q: 'Quel verrou prend `DROP TABLE` sur une partition, côté parent ?', options: ['`SHARE UPDATE EXCLUSIVE`', 'Aucun verrou', '`ACCESS EXCLUSIVE`', 'Un verrou sur chaque ligne'], answer: 2, why: 'Une longue requête sur `events` fait donc attendre la suppression, et toutes les requêtes derrière elle attendent aussi, comme au jour 26.' },
+					{ q: 'Pourquoi détacher d’abord au lieu de supprimer tout de suite ?', options: ['`DROP TABLE` refuse une partition attachée', 'Le détachement supprime les lignes plus vite', 'La rétention ne marche que sur des tables détachées', 'La table détachée reste sur le disque, donc tu peux la sauvegarder avant'], answer: 3, why: 'Une partition détachée devient une table simple. La doc PostgreSQL propose un `COPY` ou un `pg_dump` à ce moment, puis la suppression.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,31 @@ LOOP
 			why: 'Supprimer ou détacher une partition retire ses lignes sans les toucher une par une, et ne laisse aucune ligne morte pour le vacuum (jour 16). La partition qui n’a qu’une partie de ses données au-delà de 90 jours reste jusqu’à ce qu’elle soit entièrement passée.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire une table partitionnée par mois, voir l’élagage dans `EXPLAIN`, et retirer un mois avec un seul `DROP TABLE`.',
+		steps: [
+			'Lance PostgreSQL et ouvre `psql` : `docker run -d --name part-lab -e POSTGRES_PASSWORD=lab postgres:16`, attends quelques secondes, puis `docker exec -it part-lab psql -U postgres`.',
+			'Essaie d’abord la clé naïve : `CREATE TABLE events (id bigint PRIMARY KEY, user_id bigint, created_at timestamptz NOT NULL, payload jsonb) PARTITION BY RANGE (created_at);`. Lis l’erreur, puis crée la table avec la clé que PostgreSQL accepte.',
+			'Crée septembre, octobre et novembre 2026 avec `CREATE TABLE events_p2026_09 PARTITION OF events FOR VALUES FROM (\'2026-09-01\') TO (\'2026-10-01\');` et pareil pour les deux mois suivants. Insère une ligne de décembre : `INSERT INTO events VALUES (1, 1, \'2026-12-02\', \'{}\');`.',
+			'Ajoute la partition par défaut, relance le même insert, puis charge des données : `INSERT INTO events SELECT g, g % 100, timestamptz \'2026-09-01\' + (g % 91) * interval \'1 day\', \'{}\' FROM generate_series(2, 30000) g;`. Regarde où sont allées les lignes : `SELECT tableoid::regclass AS partition, count(*) FROM events GROUP BY 1 ORDER BY 1;`.',
+			'Lance `EXPLAIN (COSTS OFF)` sur `SELECT * FROM events WHERE created_at >= \'2026-10-05\' AND created_at < \'2026-10-06\';` et sur `SELECT * FROM events WHERE user_id = 42;`.',
+			'Retire septembre : essaie `ALTER TABLE events DETACH PARTITION events_p2026_09 CONCURRENTLY;`, puis lance-le sans `CONCURRENTLY`, puis `DROP TABLE events_p2026_09;`, et recompte par partition. Quand tu as fini : `docker rm -f part-lab`.'
+		],
+		done: [
+			'`PRIMARY KEY (id)` échoue avec `unique constraint on partitioned table must include all partitioning columns`.',
+			'L’insert de décembre échoue avec `no partition of relation "events" found for row` avant la partition par défaut, et arrive dans `events_default` après.',
+			'Le plan de la requête d’octobre ne montre que `events_p2026_10`. Le plan sur `user_id` a un `Append` sur les quatre partitions.',
+			'`DETACH ... CONCURRENTLY` échoue avec `cannot detach partitions concurrently when a default partition exists`, et le `DETACH` simple passe.',
+			'Après la suppression, le compte par partition ne liste plus `events_p2026_09`.'
+		],
+		solution: [
+			'`CREATE TABLE events (id bigint, user_id bigint, created_at timestamptz NOT NULL, payload jsonb, PRIMARY KEY (id, created_at)) PARTITION BY RANGE (created_at);`',
+			'`CREATE TABLE events_p2026_10 PARTITION OF events FOR VALUES FROM (\'2026-10-01\') TO (\'2026-11-01\');`, pareil avec `11` et `12` pour novembre, et `CREATE TABLE events_default PARTITION OF events DEFAULT;`.',
+			'`ALTER TABLE events DETACH PARTITION events_p2026_09;` puis `DROP TABLE events_p2026_09;`. Entre les deux, la table détachée est une table simple que tu peux sauvegarder avec `COPY` ou `pg_dump`.',
+			'Le `DETACH` simple prend un verrou plus fort que `CONCURRENTLY`. Avec une partition par défaut en place, PostgreSQL refuse la forme concurrente, donc prévois le détachement à un moment calme.'
+		]
+	},
 	recall: {
 		q: '`events` est partitionnée par mois sur `created_at`. Comment retires-tu les lignes de plus de 90 jours, et quelles partitions partent ?',
 		a: 'Tu détaches puis supprimes chaque partition dont tout l’intervalle a plus de 90 jours : `DETACH PARTITION ... CONCURRENTLY`, puis `DROP TABLE`. Une partition qui a encore des lignes récentes reste, et le vacuum n’a aucune ligne morte à nettoyer.'

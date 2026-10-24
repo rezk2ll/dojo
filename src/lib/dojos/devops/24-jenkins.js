@@ -147,9 +147,9 @@ export default {
 			{
 				title: 'Check the order',
 				questions: [
-					{ q: 'By default, which does Jenkins evaluate first in a stage?', options: ['`when`, then `input`', '`input`, then `when`', 'Both at the same time', '`steps`, then `when`'], answer: 1, why: 'By default Jenkins asks for `input` **before** it checks `when`.' },
-					{ q: 'Without `beforeInput true`, what happens on a feature branch?', options: ['The stage is skipped at once', 'The build fails with a syntax error', 'The build stops and waits for an approval it does not need', 'Jenkins deploys the feature branch'], answer: 2, why: 'The `input` comes first, so every branch asks for approval before the branch check runs.' },
-					{ q: 'What does `beforeInput true` change?', options: ['It removes the approval on `main`', 'It runs the approval on the controller', 'It skips `when` on `main`', 'Jenkins checks `when` before it asks for `input`'], answer: 3, why: 'With the check first, feature branches skip the stage and never ask.' },
+					{ q: 'Without `beforeInput true`, someone approves the prompt on a feature branch build. What happens next?', options: ['`deploy.sh` deploys the feature branch', 'Jenkins then checks `when`, finds a feature branch and skips the stage', 'The build fails with a syntax error', 'Jenkins asks for a second approval'], answer: 1, why: 'The `when` check still runs, just after the `input`. The approval was wasted, but the feature branch does not deploy.' },
+					{ q: 'With `beforeInput true`, a `main` build reaches `Deploy`. What happens?', options: ['It deploys right away', 'It skips the stage', 'Jenkins checks the branch, then stops and waits for an approval', 'It asks for approval, then checks the branch'], answer: 2, why: 'On `main` the `when` check passes, so the `input` prompt comes next, and `steps` run only after someone approves.' },
+					{ q: 'A teammate drops `when` and checks the branch with a shell `if` inside `steps` instead. What do feature branches get?', options: ['They skip the stage', 'They fail with a syntax error', 'They deploy without asking', 'They still stop at the approval prompt, because `steps` run only after `input`'], answer: 3, why: 'The `input` pauses the stage before any step runs, so a check inside `steps` comes too late to spare the prompt.' },
 					{ q: 'Where does `beforeInput true` go?', options: ['Inside `when { }`', 'Inside `input { }`', 'Inside `options { }`', 'Inside `steps { }`'], answer: 0, why: 'It is an option of `when`: `when { beforeInput true; branch \'main\' }`.' }
 				]
 			}

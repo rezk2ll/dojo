@@ -121,16 +121,16 @@ x-airflow-common:
 			{
 				title: 'Read each value as the parser does',
 				questions: [
-					{ q: 'A YAML 1.1 parser reads `country: NO`. What does the program get?', options: ['The string `NO`', '`false`', '`null`', 'An error'], answer: 1, why: 'YAML 1.1 booleans include `yes`, `no`, `on` and `off`, in several cases.' },
-					{ q: 'What does `version: 1.10` become?', options: ['The string `1.10`', 'The number 110', 'The number 1.1', 'A date'], answer: 2, why: 'It looks like a number, so it is parsed as a float, and the trailing zero is lost. This happens in YAML 1.2 too.' },
-					{ q: 'What does `ssh_port: 22:22` become in YAML 1.1?', options: ['The base 60 number 1342', 'The string `22:22`', 'A list of two ports', 'The number 2222'], answer: 0, why: 'YAML 1.1 reads numbers separated by colons as base 60: 22 × 60 + 22 = 1342.' },
-					{ q: 'What does `debug: off` become in YAML 1.1?', options: ['The string `off`', '`null`', '0', '`false`'], answer: 3, why: '`off` is one of the YAML 1.1 boolean words.' }
+					{ q: 'Which of the six values reaches the program as text before any fix?', options: ['`country: NO`', 'The `script: >` block, with its line breaks folded', '`mode: 0755`', '`ssh_port: 22:22`'], answer: 1, why: 'A block scalar is always text. The plain scalars are typed by how they look, and none of these three stays the string you wrote.' },
+					{ q: 'The chapter says to quote any value that looks like a number, a boolean or a time. Which value in the list looks like a time?', options: ['`version: 1.10`', '`mode: 0755`', '`ssh_port: 22:22`', '`debug: off`'], answer: 2, why: '`22:22` reads like a clock time, and YAML 1.1 treats colon-separated numbers as base 60. That is why port mappings get quoted.' },
+					{ q: 'Which value is a number under both YAML 1.1 and 1.2, so a newer parser does not save you?', options: ['`version: 1.10`', '`country: NO`', '`debug: off`', 'The `script: >` block'], answer: 0, why: '`1.10` looks like a float under both rules, so the trailing zero is lost whatever the parser. Only quotes keep it.' },
+					{ q: 'Someone indents the `mode` line with a tab. What does the parser do?', options: ['It treats the tab as two spaces', 'It skips the line', 'It reads `mode` as a string', 'It stops with an error: tabs are not allowed for indentation'], answer: 3, why: 'YAML nests by indentation with spaces only. A tab in the indentation is an error.' }
 				]
 			},
 			{
 				title: 'Spot the version trap',
 				questions: [
-					{ q: '`mode: 0755` in YAML 1.1 is what?', options: ['The string `0755`', 'Octal, so 493', 'The decimal 755', 'An error'], answer: 1, why: 'A leading zero means octal in YAML 1.1, and octal 755 is 493.' },
+					{ q: 'Like `mode`, which other value in the list is read differently by a YAML 1.1 and a YAML 1.2 parser?', options: ['`version: 1.10`', '`debug: off`', 'The `script: >` block', 'None: `mode` is the only one'], answer: 1, why: 'YAML 1.2 shrank booleans to `true` and `false`, so `off` is a boolean under 1.1 and the string `off` under 1.2. `1.10` is a number in both, and the block is text in both.' },
 					{ q: 'And `mode: 0755` in YAML 1.2?', options: ['Octal 493', 'The string `0755`', 'The plain number 755', '`false`'], answer: 2, why: 'YAML 1.2 dropped that octal rule, so the same text gives a different number.' },
 					{ q: 'Given that difference, how do you write the mode?', options: ['Quote it, `"0755"`, and let the tool convert it', 'Write `493`', 'Write `755` and hope', 'Leave it unquoted'], answer: 0, why: 'A quoted value is the same string under every parser, so the tool decides how to read it.' },
 					{ q: 'Which YAML version does PyYAML follow?', options: ['1.2', '1.0', 'It picks per file', '1.1'], answer: 3, why: 'PyYAML is a YAML 1.1 parser, and many tools still use 1.1 rules.' }
@@ -139,9 +139,9 @@ x-airflow-common:
 			{
 				title: 'Fix the scalars',
 				questions: [
-					{ q: 'How do you keep `NO` as the country code?', options: ['`country: no`', '`country: \'NO\'`', '`country: !NO`', '`country: N O`'], answer: 1, why: 'A quoted scalar is always a string.' },
-					{ q: 'How do you keep the version as written?', options: ['`version: 1.1`', '`version: 1.10.0`', '`version: "1.10"`', '`version: 01.10`'], answer: 2, why: 'Quotes stop the number guess, so the program receives the string `1.10`.' },
-					{ q: 'Which fix fits `ssh_port: 22:22`?', options: ['`"22:22"`', '`22-22`', '`[22, 22]`', '`2222`'], answer: 0, why: 'The Compose docs say to always write `HOST:CONTAINER` as a quoted string.' },
+					{ q: 'You meant `debug` as the word `off`, for a log setting. What do you write?', options: ['`debug: off`', '`debug: \'off\'`', '`debug: false`', '`debug: OFF`'], answer: 1, why: 'Plain `off` (or `OFF`) is a boolean under YAML 1.1 rules. Quoted, it is the string `off` under every parser.' },
+					{ q: 'Which check catches values like `NO` and `off` in review, before any program reads them?', options: ['`shellcheck`', '`git diff --check`', '`yamllint` with its `truthy` rule', '`python -m json.tool`'], answer: 2, why: 'The `truthy` rule of yamllint flags plain values a parser may read as booleans. It catches part of the type guessing, not all of it.' },
+					{ q: 'The `ssh_port` mapping goes into a Compose `ports:` list next to `8080:8080`. What rule do the Compose docs give for these values?', options: ['Always write `HOST:CONTAINER` as a quoted string', 'Quote only the ones that look like a time', 'Write host and container as two separate keys', 'Leave them plain: Compose converts them back'], answer: 0, why: 'The docs ask for a quoted string every time, because of the YAML base 60 rule. The Airflow file quotes `"8080:8080"` for the same reason.' },
 					{ q: 'You meant `debug` as a boolean. What do you write so every parser, 1.1 or 1.2, reads one?', options: ['`debug: \'off\'`', '`debug: no`', '`debug: 0`', '`debug: false`'], answer: 3, why: '`false` is a boolean in YAML 1.1 and 1.2. Quote `\'off\'` only if you mean the word.' }
 				]
 			},
@@ -150,7 +150,7 @@ x-airflow-common:
 				questions: [
 					{ q: 'What does `>` do to three commands on three lines?', options: ['Keeps each on its own line', 'Folds them into one line with spaces', 'Drops all but the first', 'Turns them into a list'], answer: 1, why: '`>` is the folded style: line breaks become spaces.' },
 					{ q: 'What happens when the shell runs that folded line?', options: ['The three commands run one after another', 'Nothing, it is a comment', 'They run together as one command with extra arguments', 'The shell runs them in parallel'], answer: 2, why: '`echo one echo two` is a single `echo` with four arguments.' },
-					{ q: 'Which indicator keeps every line break?', options: ['`|`', '`>`', '`>-`', '`&`'], answer: 0, why: '`|` is the literal style: every line stays a line.' },
+					{ q: '`>` is wrong for this script. What kind of text does it suit?', options: ['One long sentence, such as a description, split over lines for reading', 'A shell script with one command per line', 'A list of hosts', 'A port mapping'], answer: 0, why: '`>` joins lines with spaces, which suits one long sentence and breaks a shell script.' },
 					{ q: 'What does `|-` change compared with `|`?', options: ['It folds the lines', 'It quotes the text', 'It removes indentation', 'It drops the final newline'], answer: 3, why: 'The `-` chomping indicator strips the trailing newline.' }
 				]
 			}

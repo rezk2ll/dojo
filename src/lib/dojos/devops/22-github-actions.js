@@ -148,7 +148,7 @@ jobs:
 			{
 				title: 'Check the forks',
 				questions: [
-					{ q: 'A stranger opens a pull request from a fork. What does `secrets.DEPLOY_KEY` hold in that run?', options: ['The real key', 'The real key, shown as ***', 'No value', 'An error before the first step'], answer: 2, why: 'GitHub does not pass secrets to runs from a fork.' },
+					{ q: 'A stranger opens a pull request from a fork against `main`. Which jobs of your workflow run?', options: ['All four, with the real key', 'Only `deploy`', 'The three matrix build jobs, and `deploy` is skipped by its `if`', 'None: GitHub never runs workflows for forks'], answer: 2, why: 'The `pull_request` trigger still runs the build and tests. The event is not a push to `main`, so the `if` on `deploy` is false.' },
 					{ q: 'Which token does a run from a fork still get?', options: ['`DEPLOY_KEY`, made read-only', '`GITHUB_TOKEN`, read-only there', 'Every secret, made read-only', 'None at all'], answer: 1, why: '`GITHUB_TOKEN` is the one exception, and it is read-only for a fork.' },
 					{ q: 'The `pull_request_target` event runs in your repo\'s context, with your secrets. What must you never do in it?', options: ['Read `GITHUB_TOKEN`', 'Use a matrix', 'Run on `ubuntu-latest`', 'Build the pull request\'s code'], answer: 3, why: 'The pull request\'s code would run next to your secrets and could print them.' },
 					{ q: 'Why does GitHub hold secrets back from fork runs?', options: ['Otherwise anyone could open a pull request that prints them', 'Fork runs are too slow to use secrets', 'Forks always run on self-hosted runners', 'Masking does not work in forks'], answer: 0, why: 'A pull request can change the workflow steps. Without this rule, one `echo` would leak your key.' }

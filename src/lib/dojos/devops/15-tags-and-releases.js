@@ -140,16 +140,16 @@ jobs:
 				questions: [
 					{ q: 'For a CLI, what counts as the public API?', options: ['The source code layout', 'Its flags and options', 'The changelog', 'The Git history'], answer: 1, why: 'Scripts call the CLI through its flags. Change them and you change what users depend on.' },
 					{ q: 'The fix in log rotation, on its own, would bump which part?', options: ['PATCH', 'MINOR', 'MAJOR', 'None: fixes need no new version'], answer: 0, why: 'PATCH is for backward compatible bug fixes.' },
-					{ q: 'The new `--dry-run` flag, on its own, would bump which part?', options: ['PATCH', 'MAJOR', 'None: optional flags do not count', 'MINOR'], answer: 3, why: 'A new backward compatible feature bumps MINOR.' },
-					{ q: 'Why is removing `--force` different from the other two?', options: ['It is the biggest code change', 'It was deprecated, so it does not count', 'It breaks the scripts that still use it', 'It needs a new changelog file'], answer: 2, why: 'Removing a flag is an incompatible change to the public API. That is what MAJOR is for.' }
+					{ q: 'A script calls the CLI without `--dry-run`. What changes for that script after the upgrade?', options: ['It must add `--dry-run=false`', 'It fails until it passes the new flag', 'It runs in dry-run mode by default', 'Nothing: it works as before'], answer: 3, why: 'An optional new flag leaves every existing call working. That is what makes it backward compatible.' },
+					{ q: '`--force` was already marked deprecated in an earlier release. Does that make removing it a compatible change?', options: ['Yes: users were warned, so nothing breaks', 'Yes, if the changelog mentions it', 'No: deprecation only warns, removing it still breaks the scripts that use it', 'No, because deprecated options can never be removed'], answer: 2, why: 'Deprecation tells users it will go. The removal itself is still an incompatible change to the public API.' }
 				]
 			},
 			{
 				title: 'Pick the version',
 				questions: [
-					{ q: 'What is the next version after 1.4.2?', options: ['1.4.3', '1.5.0', '2.0.0', '2.5.3'], answer: 2, why: 'The highest bump wins. One incompatible change makes it MAJOR, and MINOR and PATCH reset to 0.' },
+					{ q: 'You bump MAJOR from 1.4.2. What happens to the 4 and the 2?', options: ['They stay: 2.4.2', 'MINOR stays, PATCH resets: 2.4.0', 'Both reset to 0', 'They add up into PATCH: 2.0.6'], answer: 2, why: 'A MAJOR bump resets MINOR and PATCH to 0, even when the release also holds a feature and a fix.' },
 					{ q: 'What does 2.0.0 tell users, from the number alone?', options: ['Something is incompatible: read the changelog before upgrading', 'Only bug fixes, safe to upgrade', 'New features, nothing breaks', 'Nothing: version numbers carry no meaning'], answer: 0, why: 'Under semver, only a MAJOR bump may break users.' },
-					{ q: 'If you had only added `--dry-run`, which version would come next?', options: ['1.4.3', '2.0.0', '1.4.2-1', '1.5.0'], answer: 3, why: 'New backward compatible functionality bumps MINOR and resets PATCH.' },
+					{ q: 'If `main` held only the log rotation fix, which version would come next?', options: ['1.5.0', '2.0.0', '1.4.2-1', '1.4.3'], answer: 3, why: 'A backward compatible bug fix bumps PATCH only.' },
 					{ q: 'What makes picking MINOR or MAJOR hard on some projects?', options: ['Using annotated tags', 'No clear public API, so nobody agrees what breaks', 'Pushing tags by name', 'A long changelog'], answer: 1, why: 'Semver needs a clear public API. Without one, the number becomes a matter of opinion.' }
 				]
 			},
@@ -165,8 +165,8 @@ jobs:
 			{
 				title: 'Tag and publish',
 				questions: [
-					{ q: 'Which command tags the release?', options: ['`git tag v2.0.0`', '`git branch v2.0.0`', '`git tag -a v2.0.0 -m "Release 2.0.0"`', '`git commit -m "v2.0.0"`'], answer: 2, why: 'An annotated tag records who, when and why. The docs say annotated tags are meant for releases.' },
-					{ q: 'You ran a plain `git push`. Is the tag on GitHub?', options: ['No: run `git push origin v2.0.0`', 'Yes, tags always follow the branch', 'Yes, if the tag is annotated', 'Only after the release is published'], answer: 0, why: '`git push` does not send tags by default. You push them by name, or with `--follow-tags`.' },
+					{ q: '`git tag -a` tags the commit you are on. Which commit should that be?', options: ['The 1.4.2 commit, so the tag sits next to the old one', 'Any commit on a feature branch', 'The commit on `main` with the three changes and the 2.0.0 changelog entry', 'The first commit that removed `--force`'], answer: 2, why: 'The tag names the exact code users get. It must hold every change of the release, and the changelog that describes them.' },
+					{ q: 'Instead of pushing the tag by name, which command sends it along with the branch?', options: ['`git push --follow-tags`', '`git push --force`', '`git push --all`', '`git fetch --tags`'], answer: 0, why: '`--follow-tags` sends the annotated tags that point at commits reachable from what you push.' },
 					{ q: 'Who builds the artifacts for 2.0.0?', options: ['You, on your laptop, before tagging', 'Each user, from the source', 'CI, once per deploy target', 'CI, once, from the tagged commit when the release is published'], answer: 3, why: 'The release event starts a CI job that checks out the tagged commit and builds the files once.' },
 					{ q: '2.0.0 turns out broken. What do you do?', options: ['Move the `v2.0.0` tag to the fixed commit', 'Release 2.0.1', 'Delete the release and reuse 2.0.0', 'Push the fix with no tag'], answer: 1, why: 'Never move a published tag. Two people could then hold different "2.0.0" builds.' }
 				]

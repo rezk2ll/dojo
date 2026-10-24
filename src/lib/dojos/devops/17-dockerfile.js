@@ -127,17 +127,17 @@ CMD [ "node", "src/index.js" ]`,
 			{
 				title: 'Reorder the Dockerfile',
 				questions: [
-					{ q: 'What comes right after `WORKDIR /app`?', options: ['`COPY . .`', '`COPY requirements.txt .`', '`RUN pip install -r requirements.txt`', '`CMD ["python", "app.py"]`'], answer: 1, why: 'Copy only the dependency file first, so the install depends on nothing else.' },
+					{ q: 'After `WORKDIR /app`, where does `COPY requirements.txt .` put the file in the image?', options: ['At `/requirements.txt`', 'At `/app/requirements.txt`', 'In the build context', 'Nowhere until `RUN` reads it'], answer: 1, why: 'The `.` is relative to the working directory that `WORKDIR` set, so the file lands next to where `pip install` runs.' },
 					{ q: 'Where does `COPY . .` go now?', options: ['After `RUN pip install`', 'Right after `FROM`', 'Before `WORKDIR`', 'It is no longer needed'], answer: 0, why: 'The source changes on every commit, so it goes last, after the slow install.' },
 					{ q: 'What rule does this order follow?', options: ['Shortest lines first', 'Alphabetical by instruction', 'Files that change least often first, most often last', 'All `COPY` lines together'], answer: 2, why: 'A layer is reused only if it and everything above it are unchanged. Stable things go on top.' },
-					{ q: 'Does `CMD ["python", "app.py"]` add a layer?', options: ['Yes, a small one', 'Yes, it copies `app.py`', 'Only in the JSON form', 'No: it only records the default command'], answer: 3, why: '`CMD` changes the image settings, not the filesystem.' }
+					{ q: 'Should the last line stay in the JSON form `CMD ["python", "app.py"]`?', options: ['No: the shell form `CMD python app.py` is safer', 'No: use `RUN python app.py` instead', 'It makes no difference', 'Yes: python runs as PID 1 and gets stop signals directly'], answer: 3, why: 'The exec form starts the program with no shell in between, so `docker stop` reaches python itself.' }
 				]
 			},
 			{
 				title: 'Predict the rebuild',
 				questions: [
-					{ q: 'With the new order, you change `app.py`. Which layers are rebuilt?', options: ['All of them', 'Only `COPY . .` and anything after it', '`pip install` and after', 'None: Docker skips small changes'], answer: 1, why: 'The edit invalidates `COPY . .`. Everything above it comes from cache.' },
-					{ q: 'Is `RUN pip install` a cache hit now?', options: ['Yes: `requirements.txt` did not change', 'No: `RUN` always reruns', 'Only if you pass `--no-cache`', 'Only on CI'], answer: 0, why: 'The instruction and its input file match the earlier build, so the builder reuses the layer.' },
+					{ q: 'One commit changes `app.py` and adds a library to `requirements.txt`. Where does the rebuild start?', options: ['At `FROM`: everything reruns', 'At `COPY requirements.txt .`, so the install and `COPY . .` both rerun', 'At `COPY . .`, since `app.py` changed', 'At `CMD`, the last line'], answer: 1, why: 'The first changed input decides. `requirements.txt` is copied above the install, so the rebuild starts there and runs every layer after it.' },
+					{ q: 'You only swap the order of two lines in `requirements.txt`, same libraries. Is `pip install` a cache hit?', options: ['No: the file changed, so its `COPY` layer and the install rerun', 'Yes: the libraries are the same', 'Yes: the builder only compares the `RUN` text', 'Only if you pass `--no-cache`'], answer: 0, why: 'For `COPY`, the builder compares the file content. Any change to it invalidates that layer and every layer after it.' },
 					{ q: 'You add a library to `requirements.txt`. What happens?', options: ['Nothing reruns', 'Only `COPY . .` reruns', 'The build fails until you clear the cache', 'The install runs again, which is what you want'], answer: 3, why: 'Its input changed, so its layer and the ones after are rebuilt.' },
 					{ q: 'Roughly how long does the `app.py` rebuild take now?', options: ['Still about four minutes', 'Longer, since there is one more `COPY`', 'Seconds', 'It depends on the size of `requirements.txt`'], answer: 2, why: 'With a good order, rebuilds reuse every slow layer and take seconds.' }
 				]
@@ -148,7 +148,7 @@ CMD [ "node", "src/index.js" ]`,
 					{ q: 'What is the build context?', options: ['The files `docker build .` sends to the builder', 'The list of cached layers', 'The base image', 'The running container\'s filesystem'], answer: 0, why: 'The `.` in `docker build .` is the context: every file in it goes to the builder.' },
 					{ q: 'Which file keeps `.git` and virtualenvs out of the context?', options: ['`.gitignore`', '`requirements.txt`', '`.dockerignore`', 'The `WORKDIR` line'], answer: 2, why: 'A `.dockerignore` lists paths the builder never receives.' },
 					{ q: 'Without `.dockerignore`, what else can break the cache of `COPY . .`?', options: ['Nothing else', 'Changes in local junk like `.git`, which then land in the image too', 'Only changes to the Dockerfile', 'Running the container'], answer: 1, why: '`COPY . .` copies everything in the context. Any change there invalidates the layer.' },
-					{ q: 'A colleague splits `RUN apt-get update` and `RUN apt-get install` on two lines. What is the risk?', options: ['The build fails on a lock', 'apt runs twice as slow', 'Nothing, Docker links the two lines', 'The update layer stays cached, so the install uses an old package list'], answer: 3, why: 'The builder compares only the command text. Docker recommends both in one `RUN`.' }
+					{ q: 'The project folder holds a 2 GB `data/` directory the app does not need. What does listing it in `.dockerignore` change?', options: ['Nothing: `COPY . .` skips large folders anyway', 'The build fails, since `COPY . .` expects it', '`data/` is deleted from your disk', 'The builder no longer receives it, so it stays out of the image'], answer: 3, why: 'Ignored paths never reach the builder. The context is smaller, and `COPY . .` cannot copy what it never got.' }
 				]
 			}
 		]

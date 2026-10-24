@@ -117,8 +117,8 @@ CMD ["/usr/local/bin/backend"]`,
 				questions: [
 					{ q: 'Which change cuts the most from a 1 GB image that ships its build tools?', options: ['A `.dockerignore`', 'A `USER` line', 'A multi-stage build', 'A shorter `CMD`'], answer: 2, why: 'Build tools, caches and sources stay in the build stage. Only the result reaches the final image.' },
 					{ q: 'What runs in the first stage?', options: ['`npm ci` and `npm run build`, in a `node:22` stage', 'Only the final `CMD`', 'Nothing: the first stage is empty', 'The vulnerability scanner'], answer: 0, why: 'The build stage can be big. Its size does not matter, because it never ships.' },
-					{ q: 'What does the final stage get from the build stage?', options: ['Everything, layer by layer', 'The whole `node_modules` with dev dependencies', 'The build cache', 'Only the build output and production dependencies, via `COPY --from`'], answer: 3, why: 'The final image is the last stage plus only what `COPY --from` takes from earlier stages.' },
-					{ q: 'Which stage does a plain `docker build` produce?', options: ['The first one', 'The last one', 'All stages merged', 'The one named `builder`'], answer: 1, why: 'By default the image is the last stage. `--target` builds up to an earlier one.' }
+					{ q: 'The final stage copies the whole `node_modules` from the build stage, dev dependencies included. What is the result?', options: ['Nothing changes: `COPY --from` drops dev dependencies', 'The build fails', 'The final image is the same size as the build stage', 'Test and build tools ship again: more megabytes and more packages to patch'], answer: 3, why: '`COPY --from` takes exactly what you name. Copy only the build output and production dependencies, or the tools you left behind come back.' },
+					{ q: 'You want an image of the build stage only, to debug `npm run build`. What do you pass to `docker build`?', options: ['`--no-cache`', '`--target` with the stage name, like `--target build`', '`--from=build`', 'Nothing: comment out the final stage'], answer: 1, why: 'Name the stage with `AS build`, then `--target` builds only up to it.' }
 				]
 			},
 			{
@@ -135,14 +135,14 @@ CMD ["/usr/local/bin/backend"]`,
 				questions: [
 					{ q: 'With no `.dockerignore`, what does `COPY . .` take?', options: ['Only tracked Git files', 'Only `package.json`', 'Everything in the context, `.git` and `.env` included', 'Nothing until you list the files'], answer: 2, why: 'The builder receives the whole context, and `COPY . .` copies all of it.' },
 					{ q: 'Which paths go into `.dockerignore` here?', options: ['`.git`, `node_modules`, `.env` and test data', '`package.json` and the lock file', '`Dockerfile` only', 'The final stage\'s output'], answer: 0, why: 'They never reach the builder, so they cannot end up in the image.' },
-					{ q: 'When does `.dockerignore` remove files?', options: ['After the build, from the final image', 'During `docker push`', 'Only in the last stage', 'Before the context is sent to the builder'], answer: 3, why: 'Matching files are removed from the context before the builder sees it.' },
+					{ q: '`.env` is already listed in `.gitignore`. Does that keep it out of the build context?', options: ['Yes: the builder reads `.gitignore` too', 'Yes, if the file is untracked', 'Only for `git push`, and for `docker push`', 'No: the builder reads only `.dockerignore`'], answer: 3, why: 'The context is the folder on disk, not the Git repo. `.gitignore` keeps files out of commits; only `.dockerignore` keeps them away from the builder.' },
 					{ q: 'Why ignore `node_modules` when `npm ci` runs in the image anyway?', options: ['npm refuses to run otherwise', 'So builds send less data, and your local copy stays out of the image', 'To make `CMD` faster', 'Because it holds the CVEs'], answer: 1, why: 'Ignored paths never reach the builder, so builds send less and `COPY . .` cannot pick them up.' }
 				]
 			},
 			{
 				title: 'Drop root',
 				questions: [
-					{ q: 'With no `USER` line in your file or the base, who runs the app?', options: ['`nobody`', 'root (UID 0)', 'The user who ran `docker build`', 'A random UID'], answer: 1, why: 'Docker starts the process as root unless a `USER` line says otherwise.' },
+					{ q: 'In the multi-stage file, which stage gets the `USER` line?', options: ['Only the build stage', 'The final stage, the one that ships', 'Both, or the build fails', 'Neither: only `docker run --user` can set it'], answer: 1, why: 'The final image is the last stage. A `USER` line in the build stage never reaches production.' },
 					{ q: 'Which user can you use in the official Node images?', options: ['`admin`, UID 0', '`www-data`', 'Only a UID you create yourself', '`node`, with UID 1000'], answer: 3, why: 'The official Node images ship a `node` user with UID 1000.' },
 					{ q: 'Why give a group as well, as in `USER 10001:10001`?', options: ['Without a primary group, the process runs with the root group', 'Docker rejects a user with no group', 'Groups make the image smaller', 'It sets file permissions on the host'], answer: 0, why: 'A user with no primary group gets the root group.' },
 					{ q: 'The app now fails to write its upload folder. What fixes it?', options: ['Switch back to root', 'Remove the `USER` line in production only', 'Give the folder to the app user, for example with `COPY --chown`', 'Mount the host\'s `/`'], answer: 2, why: 'A non-root user cannot write to root-owned paths, so you fix ownership of what the app writes.' }

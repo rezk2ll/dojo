@@ -143,7 +143,7 @@ deploy:
 				title: 'Make the stages explicit',
 				questions: [
 					{ q: 'The template has no `stages:` list. Which stages does GitLab use?', options: ['Only `test`', '`build`, `test`, `deploy`, with nothing around them', '`.pre`, `build`, `test`, `deploy`, `.post`', 'None: every job runs in parallel'], answer: 2, why: 'Those are GitLab\'s default stages.' },
-					{ q: 'Which stage does `run` land in today?', options: ['`test`', '`build`', '`deploy`', '`.pre`'], answer: 0, why: '`run` has no `stage` key, and a job with no `stage` is assigned to `test`.' },
+					{ q: 'Today `run` and `test` sit in the same stage. What does that mean for them?', options: ['They run in parallel, and neither waits for the other', '`test` waits for `run` to finish', '`run` waits for `test` to pass', 'Only one of them runs per pipeline'], answer: 0, why: 'Jobs in the same stage run in parallel. Moving `run` to an earlier `build` stage is what makes `test` wait for it.' },
 					{ q: 'Which line makes the stages explicit?', options: ['`stage: [build, test, deploy]` on every job', '`rules: [build, test, deploy]` on `deploy`', '`environment: [build, test, deploy]`', '`stages: [build, test, deploy]` at the top'], answer: 3, why: '`stages:` at the top sets the list and its order. `stage:` on a job picks one of them.' },
 					{ q: 'Which line moves `run` into the build stage?', options: ['`needs: build` on `run`', '`stage: build` on `run`', '`image: build` on `run`', '`when: build` on `run`'], answer: 1, why: 'The `stage` key puts a job in a stage. `test` now waits for `run` to pass.' }
 				]
@@ -151,9 +151,9 @@ deploy:
 			{
 				title: 'Pass the build output',
 				questions: [
-					{ q: '`run` makes `build/*`, and `deploy` needs it. Where does it go?', options: ['In `artifacts`', 'In `cache`', 'In a CI/CD variable', 'Nowhere: `deploy` builds it again'], answer: 0, why: 'GitLab stores artifacts and passes them to later stages of the same pipeline.' },
-					{ q: 'Which extra line does `deploy` need to receive `build/*`?', options: ['`cache: paths: [build/*]`', '`image: python:latest`', '`stage: build`', 'None: later stages download earlier artifacts by default'], answer: 3, why: 'The download is the default. The template already keeps `build/*` as an artifact.' },
-					{ q: 'Why would reading `build/*` from the cache break deploys?', options: ['The cache is read-only for deploy jobs', 'A job can start with an empty cache', 'The cache only holds Python files', 'The cache is deleted after each stage'], answer: 1, why: 'The cache is a speed-up for downloads like `.cache/pip`. A job must still work without it.' },
+					{ q: 'Which lines of the template already keep the output `deploy` needs?', options: ['`artifacts: paths: [build/*]` on `run`', '`cache: paths: [.cache/pip]` at the top', '`artifacts: paths: [public]` on `pages`', '`PIP_CACHE_DIR` under `variables`'], answer: 0, why: '`run` builds the app, and its `artifacts` block keeps `build/*`. `public` is the `pages` site, and `.cache/pip` only holds pip downloads.' },
+					{ q: 'Your GitLab has three runners and no shared cache. `deploy` lands on another runner than `run`. What does it find?', options: ['Nothing at all, so it fails', 'Both the cache and the artifacts of `run`', 'Only the cache, copied between runners', 'No cache from `run`\'s runner, but still the `build/*` artifacts'], answer: 3, why: 'Each runner keeps its own cache unless you set up a shared one. Artifacts are stored in GitLab, so any runner can download them.' },
+					{ q: 'You change `run` to write its build to `/opt/app/build`. Can `artifacts: paths:` keep it?', options: ['Yes, any absolute path works', 'No: artifact paths are relative to the project directory and cannot point outside it', 'Yes, but only with `expire_in`', 'Only if the cache points there too'], answer: 1, why: 'Cache and artifact paths stay inside the project directory. That is also why the template moves pip\'s cache to `$CI_PROJECT_DIR/.cache/pip`.' },
 					{ q: 'How long does GitLab keep artifacts?', options: ['Forever', 'Until the next push', '30 days by default, unless the job sets `expire_in`', 'Only while the runner stays up'], answer: 2, why: 'The default is 30 days, an instance setting that `expire_in` can change per job.' }
 				]
 			},
@@ -161,7 +161,7 @@ deploy:
 				title: 'Gate the deploy',
 				questions: [
 					{ q: 'Which rule makes `deploy` default branch only and click to run?', options: ['`when: manual`, with no `if`', '`- if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH` with `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` with `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` alone'], answer: 2, why: 'The `if` picks the branch, and `when: manual` adds the button.' },
-					{ q: 'You push to a feature branch. What happens to `deploy`?', options: ['It shows up, waiting for a click', 'It runs and fails', 'It runs, because rules apply only to merge requests', 'It is not added to the pipeline'], answer: 3, why: 'If no rule matches, the job is not in the pipeline at all.' },
+					{ q: 'The pipeline on the default branch is green. What does `deploy` do until someone clicks?', options: ['It runs right away', 'It is not added to the pipeline', 'It fails until someone clicks', 'It waits as a manual job until someone starts it'], answer: 3, why: '`when: manual` adds the job to the pipeline but does not start it. In the lab, `--manual deploy` plays that click.' },
 					{ q: 'When does GitLab check `rules`?', options: ['When it creates the pipeline', 'When a runner picks up the job', 'After the job\'s script ends', 'Only when someone clicks'], answer: 0, why: 'Rules decide if a job is added to the pipeline, and how, at creation time.' },
 					{ q: 'A test job fails on the default branch. Can someone deploy?', options: ['Yes, a manual job ignores earlier stages', 'No: `deploy` starts only if every earlier stage passed', 'Yes, but only with a warning', 'Only from a feature branch'], answer: 1, why: '`deploy` is in the deploy stage, so it waits for every test-stage job to pass.' }
 				]

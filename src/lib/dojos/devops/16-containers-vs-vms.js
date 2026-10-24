@@ -124,8 +124,8 @@ services:
 				questions: [
 					{ q: 'After `docker run -d --name web nginx`, does `ps -ef | grep nginx` on the host list nginx?', options: ['No: it runs inside a guest OS', 'Only if you add `--privileged`', 'Yes: the master and workers, with normal host PIDs', 'Only the `docker` client process'], answer: 2, why: 'A container is a normal process on the host kernel, so the host `ps` lists it.' },
 					{ q: 'What does `docker top web` show?', options: ['The same nginx processes, seen from the host', 'A different copy of nginx', 'The container\'s kernel threads', 'Only the processes Docker started for itself'], answer: 0, why: '`docker top` lists the container\'s processes. They are the same ones the host `ps` shows.' },
-					{ q: 'What did the host boot to start this container?', options: ['A small guest kernel', 'A hypervisor and a VM', 'A second init system', 'Nothing: the process runs on the host kernel'], answer: 3, why: 'A container boots nothing. That is why it starts in about a second.' },
-					{ q: 'Where is the line between a container and a VM here?', options: ['A container has fewer files', 'A container shares the host kernel, a VM boots its own', 'A VM cannot run nginx', 'A container always runs as non-root'], answer: 1, why: 'A VM runs a full OS with its own kernel on virtual hardware. A container is a process on the host kernel.' }
+					{ q: 'The `nginx` image is already pulled. About how long does `docker run -d --name web nginx` take to get nginx running?', options: ['A few minutes, like a VM install', 'About as long as a server reboot', 'It depends on the size of the guest OS', 'About a second'], answer: 3, why: 'There is no OS to boot: Docker only starts a process with its namespaces and cgroups.' },
+					{ q: 'As root on the host, you `kill` the host PID of the nginx master. What happens to `web`?', options: ['Nothing: the host cannot reach processes in a container', 'Its nginx stops: it is the same process', 'Only a host copy of nginx stops', 'Docker moves nginx into a VM'], answer: 1, why: 'The host PID and PID 1 inside are the same process under two numbers. Stop it and the container\'s main process is gone.' }
 				]
 			},
 			{
@@ -133,15 +133,15 @@ services:
 				questions: [
 					{ q: 'Inside the container, which PID does the nginx master have?', options: ['The same PID as on the host', 'PID 1', 'No PID: containers do not have them', 'A random PID above 1000'], answer: 1, why: 'The container has its own PID numbering, and the first process it starts is PID 1.' },
 					{ q: '`docker exec web ls /proc` lists only a few numbers. Where are `sshd` and `cron`?', options: ['Hidden by the PID namespace', 'Stopped while the container runs', 'Moved into the image', 'Blocked by a cgroup limit'], answer: 0, why: 'The PID namespace hides every host process. The container sees only its own.' },
-					{ q: 'Which kernel feature decides what the process can see?', options: ['cgroups', 'Capabilities', 'Namespaces', 'Image layers'], answer: 2, why: 'Namespaces give the process a private view: its own PIDs, network, mounts and hostname.' },
-					{ q: 'Which kernel feature would cap its memory if you passed `--memory 512m`?', options: ['The PID namespace', 'The writable layer', 'The mount namespace', 'cgroups'], answer: 3, why: 'cgroups decide how much a process can use. By default a container has no limit.' }
+					{ q: 'nginx listens on port 80 inside `web`. Another process on the host already uses port 80. Do they clash?', options: ['Yes: there is only one port 80 per kernel', 'Yes, unless nginx runs as root', 'No: the container has its own network stack', 'No, because the container has its own kernel'], answer: 2, why: 'The network namespace gives the container its own interfaces and ports. It shares the kernel, not the network view.' },
+					{ q: 'You started `web` without `--memory`. How much memory may nginx use?', options: ['512 MB, the Docker default', 'As much as the host gives it: there is no limit', 'Whatever the image declares', 'Only what the PID namespace allows'], answer: 1, why: 'By default a container has no cgroup limit. The kernel enforces one only once you set it.' }
 				]
 			},
 			{
 				title: 'Explain the two PIDs',
 				questions: [
 					{ q: 'Why does the same nginx have two different PIDs?', options: ['Docker copies the process into the container', 'The PID namespace gives it a second number inside', 'nginx forks once for the host and once for the container', 'The VM renumbers processes'], answer: 1, why: 'Host and container see the same process under two numbers. Only the numbering differs.' },
-					{ q: 'How many kernels are running nginx right now?', options: ['One: the host kernel', 'Two: host and container', 'One per worker', 'None: Docker runs it in user space'], answer: 0, why: 'Every container on the host runs on that one host kernel.' },
+					{ q: 'From a host shell, which PID do you give to `kill` to signal the nginx master?', options: ['The host PID that `ps -ef` shows', 'PID 1, as inside the container', 'Either: both numbers are the same on the host', 'Neither: the host cannot signal it'], answer: 0, why: 'PID 1 exists only inside the container\'s PID namespace. On the host, PID 1 is the host\'s own init.' },
 					{ q: 'What follows from sharing one kernel?', options: ['Containers can run any OS', 'Each container can load its own kernel version', 'A kernel bug can reach the host and the other containers', 'Containers are isolated as strongly as VMs'], answer: 2, why: 'All containers share the kernel, so a kernel bug or a container with `SYS_MODULE` can reach its neighbours.' },
 					{ q: 'Can you run a Windows app inside a container on this Linux host?', options: ['Yes, with the right image', 'Yes, if you add `SYS_MODULE`', 'Only with `--memory` set', 'No: a container cannot bring a different kernel'], answer: 3, why: 'The container uses the host kernel. A different kernel needs a VM.' }
 				]
@@ -149,9 +149,9 @@ services:
 			{
 				title: 'Remove it and check the files',
 				questions: [
-					{ q: 'You wrote `/tmp/note.txt` inside the container. Where did it go?', options: ['Into the container\'s writable layer', 'Into the `nginx` image', 'Into the host\'s `/tmp`', 'Into a volume Docker created'], answer: 0, why: 'Each container gets its own thin writable layer on top of the read-only image.' },
+					{ q: 'You wrote `/tmp/note.txt` inside `web`, then ran `docker stop web` and `docker start web`. Is the file there?', options: ['Yes: the writable layer stays until the container is removed', 'No: stopping a container wipes its files', 'Only if the image had a `/tmp` folder', 'No: the file moved to the host'], answer: 0, why: 'Stop and start keep the same container, so its writable layer is still there. Only removal throws it away.' },
 					{ q: 'After `docker rm -f web`, what happens to `/tmp/note.txt`?', options: ['It stays in the image', 'It moves to the host', 'It is gone with the writable layer', 'It waits for the next container named `web`'], answer: 2, why: 'Removing the container removes its writable layer. The file lived only there.' },
-					{ q: 'What happens to the `nginx` image?', options: ['It now holds your file', 'It is deleted too', 'It must be pulled again', 'Nothing: it stays unchanged'], answer: 3, why: 'Docker never writes to an image\'s layers, so the image can start a fresh container.' },
+					{ q: 'After the removal, which command shows the `nginx` image is still on the host?', options: ['`docker ps`', '`docker top web`', '`ps -ef | grep nginx`', '`docker image ls nginx`'], answer: 3, why: '`docker rm` removes the container only. The image is listed by `docker image ls` and can start a fresh container.' },
 					{ q: 'How would you keep a file across container removals?', options: ['Write it as root', 'Put it in a volume', 'Give the container a fixed name', 'Set a cgroup limit'], answer: 1, why: 'Anything written inside the container is lost on removal unless it is in a volume.' }
 				]
 			}

@@ -105,7 +105,7 @@ WantedBy=multi-user.target`,
 			{
 				title: 'Read why it stayed down',
 				questions: [
-					{ q: 'The Caddy unit has no `Restart=` line. What does systemd do when Caddy crashes?', options: ['Restarts it after 5 seconds', 'Leaves it stopped', 'Restarts it 5 times, then gives up', 'Reboots the machine'], answer: 1, why: '`Restart=` defaults to `no`, so a crashed service stays down until someone starts it.' },
+					{ q: 'You find Caddy down at 8 a.m. Before any fix, which command brings it back right now?', options: ['`sudo systemctl reload caddy`', '`sudo systemctl start caddy`', '`sudo systemctl enable caddy`', '`sudo systemctl daemon-reload`'], answer: 1, why: 'A crashed service stays down until someone starts it. `reload` runs `ExecReload`, which only applies new config to a Caddy that is already running.' },
 					{ q: 'How does systemd know Caddy failed?', options: ['From the exit code of the process', 'From a PID file', 'From a cron job', 'From the size of the journal'], answer: 0, why: 'systemd starts the process, keeps track of it and reads its exit code when it ends.' },
 					{ q: 'Which `Restart=` value restarts only when the service fails?', options: ['`always`', '`no`', '`on-failure`', '`notify`'], answer: 2, why: '`on-failure` restarts after a failure. `always` would also restart after a clean exit.' },
 					{ q: 'Why not edit the packaged `caddy.service` directly?', options: ['systemd ignores edits to unit files', 'Unit files are read-only on every system', 'Caddy checks a checksum of its unit', 'A package upgrade can erase your change'], answer: 3, why: 'The package owns that file. Your change belongs in a separate file layered on top.' }
@@ -124,7 +124,7 @@ WantedBy=multi-user.target`,
 				title: 'Choose which exits restart',
 				questions: [
 					{ q: 'What extra line do the Caddy docs add to the restart override?', options: ['`Restart=always`', '`RestartPreventExitStatus=1`', '`StandardError=null`', '`User=root`'], answer: 1, why: 'The Caddy docs add `RestartPreventExitStatus=1`, so exit code 1 does not trigger a restart.' },
-					{ q: 'In general, what does exit code 0 mean?', options: ['Success', 'Failure', 'Command not found', 'Killed by a signal'], answer: 0, why: '0 means success. Anything from 1 to 255 means failure, and the program picks the number.' },
+					{ q: 'A health check runs `curl http://localhost/` and Caddy answers with HTTP 500. Without `--fail`, which exit code does `curl` return?', options: ['0', '500', '1', '127'], answer: 0, why: 'Some tools exit 0 on what you call a failure. `curl` returns 0 on an HTTP 500 unless you pass `--fail`, so a check that trusts the exit code sees a healthy Caddy.' },
 					{ q: 'A process killed by signal 15 (SIGTERM) shows which status in bash?', options: ['15', '127', '0', '143'], answer: 3, why: 'Bash reports death by signal N as 128 + N, so 128 + 15 = 143.' },
 					{ q: 'A script asks `systemctl is-active caddy`. How does it read the answer?', options: ['From the text it prints only', 'From the journal', 'From the exit code: 0 if active, non-zero otherwise', 'From a file in `/run`'], answer: 2, why: 'Tools talk to scripts through exit codes, and `is-active` returns 0 only when the unit is active.' }
 				]

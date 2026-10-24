@@ -121,16 +121,16 @@ x-airflow-common:
 			{
 				title: 'Lis chaque valeur comme le parseur',
 				questions: [
-					{ q: 'Un parseur YAML 1.1 lit `country: NO`. Que reçoit le programme ?', options: ['La chaîne `NO`', '`false`', '`null`', 'Une erreur'], answer: 1, why: 'Les booléens de YAML 1.1 incluent `yes`, `no`, `on` et `off`, dans plusieurs casses.' },
-					{ q: 'Que devient `version: 1.10` ?', options: ['La chaîne `1.10`', 'Le nombre 110', 'Le nombre 1.1', 'Une date'], answer: 2, why: 'Ça ressemble à un nombre, donc c’est lu comme un flottant, et le zéro final disparaît. C’est vrai en YAML 1.2 aussi.' },
-					{ q: 'Que devient `ssh_port: 22:22` en YAML 1.1 ?', options: ['Le nombre en base 60 1342', 'La chaîne `22:22`', 'Une liste de deux ports', 'Le nombre 2222'], answer: 0, why: 'YAML 1.1 lit des nombres séparés par deux-points en base 60 : 22 × 60 + 22 = 1342.' },
-					{ q: 'Que devient `debug: off` en YAML 1.1 ?', options: ['La chaîne `off`', '`null`', '0', '`false`'], answer: 3, why: '`off` fait partie des mots booléens de YAML 1.1.' }
+					{ q: 'Laquelle des six valeurs arrive au programme sous forme de texte avant toute correction ?', options: ['`country: NO`', 'Le bloc `script: >`, avec ses retours à la ligne repliés', '`mode: 0755`', '`ssh_port: 22:22`'], answer: 1, why: 'Un bloc scalaire est toujours du texte. Les scalaires simples sont typés selon leur allure, et aucun de ces trois ne reste la chaîne que tu as écrite.' },
+					{ q: 'Le chapitre dit de mettre entre guillemets toute valeur qui ressemble à un nombre, un booléen ou une heure. Quelle valeur de la liste ressemble à une heure ?', options: ['`version: 1.10`', '`mode: 0755`', '`ssh_port: 22:22`', '`debug: off`'], answer: 2, why: '`22:22` se lit comme une heure, et YAML 1.1 traite des nombres séparés par deux-points en base 60. C’est pour ça qu’on met les mappings de ports entre guillemets.' },
+					{ q: 'Quelle valeur est un nombre en YAML 1.1 comme en 1.2, si bien qu’un parseur plus récent ne te sauve pas ?', options: ['`version: 1.10`', '`country: NO`', '`debug: off`', 'Le bloc `script: >`'], answer: 0, why: '`1.10` ressemble à un flottant dans les deux règles, donc le zéro final disparaît quel que soit le parseur. Seuls les guillemets le gardent.' },
+					{ q: 'Quelqu’un indente la ligne `mode` avec une tabulation. Que fait le parseur ?', options: ['Il compte la tabulation comme deux espaces', 'Il saute la ligne', 'Il lit `mode` comme une chaîne', 'Il s’arrête sur une erreur : les tabulations sont interdites dans l’indentation'], answer: 3, why: 'YAML imbrique par l’indentation, avec des espaces seulement. Une tabulation dans l’indentation est une erreur.' }
 				]
 			},
 			{
 				title: 'Repère le piège des versions',
 				questions: [
-					{ q: '`mode: 0755` en YAML 1.1, ça donne quoi ?', options: ['La chaîne `0755`', 'De l’octal, donc 493', 'Le décimal 755', 'Une erreur'], answer: 1, why: 'Un zéro en tête veut dire octal en YAML 1.1, et 755 en octal vaut 493.' },
+					{ q: 'Comme `mode`, quelle autre valeur de la liste est lue différemment par un parseur YAML 1.1 et un parseur YAML 1.2 ?', options: ['`version: 1.10`', '`debug: off`', 'Le bloc `script: >`', 'Aucune : `mode` est la seule'], answer: 1, why: 'YAML 1.2 a réduit les booléens à `true` et `false`, donc `off` est un booléen en 1.1 et la chaîne `off` en 1.2. `1.10` est un nombre dans les deux, et le bloc est du texte dans les deux.' },
 					{ q: 'Et `mode: 0755` en YAML 1.2 ?', options: ['L’octal 493', 'La chaîne `0755`', 'Le simple nombre 755', '`false`'], answer: 2, why: 'YAML 1.2 a abandonné cette règle de l’octal, donc le même texte donne un autre nombre.' },
 					{ q: 'Vu cette différence, comment écris-tu les droits ?', options: ['Entre guillemets, `"0755"`, et l’outil fait la conversion', 'Écrire `493`', 'Écrire `755` et espérer', 'Le laisser sans guillemets'], answer: 0, why: 'Une valeur entre guillemets est la même chaîne pour tous les parseurs, donc c’est l’outil qui décide comment la lire.' },
 					{ q: 'Quelle version de YAML PyYAML suit-il ?', options: ['1.2', '1.0', 'Il choisit selon le fichier', '1.1'], answer: 3, why: 'PyYAML est un parseur YAML 1.1, et beaucoup d’outils suivent encore les règles 1.1.' }
@@ -139,9 +139,9 @@ x-airflow-common:
 			{
 				title: 'Corrige les scalaires',
 				questions: [
-					{ q: 'Comment gardes-tu `NO` comme code pays ?', options: ['`country: no`', '`country: \'NO\'`', '`country: !NO`', '`country: N O`'], answer: 1, why: 'Un scalaire entre guillemets est toujours une chaîne.' },
-					{ q: 'Comment gardes-tu la version telle qu’écrite ?', options: ['`version: 1.1`', '`version: 1.10.0`', '`version: "1.10"`', '`version: 01.10`'], answer: 2, why: 'Les guillemets arrêtent la devinette du nombre, donc le programme reçoit la chaîne `1.10`.' },
-					{ q: 'Quelle correction convient à `ssh_port: 22:22` ?', options: ['`"22:22"`', '`22-22`', '`[22, 22]`', '`2222`'], answer: 0, why: 'La doc de Compose demande d’écrire toujours `HOST:CONTAINER` comme une chaîne entre guillemets.' },
+					{ q: 'Tu voulais pour `debug` le mot `off`, pour un réglage de logs. Qu’écris-tu ?', options: ['`debug: off`', '`debug: \'off\'`', '`debug: false`', '`debug: OFF`'], answer: 1, why: 'Un `off` (ou `OFF`) sans guillemets est un booléen avec les règles YAML 1.1. Entre guillemets, c’est la chaîne `off` pour tous les parseurs.' },
+					{ q: 'Quel contrôle attrape des valeurs comme `NO` et `off` en revue, avant qu’un programme ne les lise ?', options: ['`shellcheck`', '`git diff --check`', '`yamllint` avec sa règle `truthy`', '`python -m json.tool`'], answer: 2, why: 'La règle `truthy` de yamllint signale les valeurs simples qu’un parseur peut lire comme des booléens. Elle attrape une partie des types devinés, pas tout.' },
+					{ q: 'Le mapping `ssh_port` va dans une liste `ports:` de Compose, à côté de `8080:8080`. Quelle règle la doc de Compose donne-t-elle pour ces valeurs ?', options: ['Toujours écrire `HOST:CONTAINER` comme une chaîne entre guillemets', 'Ne mettre entre guillemets que celles qui ressemblent à une heure', 'Écrire l’hôte et le conteneur dans deux clés séparées', 'Les laisser sans guillemets : Compose les reconvertit'], answer: 0, why: 'La doc demande une chaîne entre guillemets à chaque fois, à cause de la règle de la base 60 de YAML. Le fichier Airflow met `"8080:8080"` entre guillemets pour la même raison.' },
 					{ q: 'Tu voulais un booléen pour `debug`. Qu’écris-tu pour que tout parseur, 1.1 ou 1.2, en lise un ?', options: ['`debug: \'off\'`', '`debug: no`', '`debug: 0`', '`debug: false`'], answer: 3, why: '`false` est un booléen en YAML 1.1 comme en 1.2. Mets `\'off\'` entre guillemets seulement si tu veux le mot.' }
 				]
 			},
@@ -150,7 +150,7 @@ x-airflow-common:
 				questions: [
 					{ q: 'Que fait `>` à trois commandes sur trois lignes ?', options: ['Il garde chacune sur sa ligne', 'Il les replie en une seule ligne avec des espaces', 'Il ne garde que la première', 'Il en fait une liste'], answer: 1, why: '`>` est le style folded : les retours à la ligne deviennent des espaces.' },
 					{ q: 'Que se passe-t-il quand le shell lance cette ligne repliée ?', options: ['Les trois commandes tournent l’une après l’autre', 'Rien, c’est un commentaire', 'Elles tournent ensemble comme une seule commande avec des arguments en plus', 'Le shell les lance en parallèle'], answer: 2, why: '`echo one echo two`, c’est un seul `echo` avec quatre arguments.' },
-					{ q: 'Quel indicateur garde chaque retour à la ligne ?', options: ['`|`', '`>`', '`>-`', '`&`'], answer: 0, why: '`|` est le style literal : chaque ligne reste une ligne.' },
+					{ q: '`>` ne convient pas à ce script. À quel genre de texte convient-il ?', options: ['Une longue phrase, comme une description, coupée sur plusieurs lignes pour la lecture', 'Un script shell avec une commande par ligne', 'Une liste d’hôtes', 'Un mapping de ports'], answer: 0, why: '`>` joint les lignes avec des espaces, ce qui convient à une longue phrase et casse un script shell.' },
 					{ q: 'Que change `|-` par rapport à `|` ?', options: ['Il replie les lignes', 'Il met le texte entre guillemets', 'Il retire l’indentation', 'Il supprime le retour à la ligne final'], answer: 3, why: 'Le `-` supprime le retour à la ligne de la fin.' }
 				]
 			}

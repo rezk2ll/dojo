@@ -120,6 +120,44 @@ export default {
 			'TLS : 680,3 moins 338,5 = 342 ms, un aller-retour. Ça colle avec TLS 1.3, que `curl -v` a confirmé.',
 			'Premier octet : 1054,8 moins 680,4 = 374 ms. L’aller-retour de la requête fait 339 ms, donc le serveur a travaillé environ 35 ms.',
 			'Téléchargement : 1054,808 moins 1054,753 = 0,055 ms. 3 allers-retours de 339 ms font 1 017 ms sur 1 055 : 96 % de la requête se passe à attendre le chemin. Un serveur plus proche, ou une connexion réutilisée qui évite TCP et TLS, ferait gagner le plus.'
+		],
+		steps: [
+			{
+				title: 'Connais les timers',
+				questions: [
+					{ q: 'Que mesure chaque timer de `curl -w` ?', options: ['La durée de sa propre phase seulement', 'Le temps depuis le timer précédent', 'Le temps du départ à cette étape', 'Le temps de traitement du serveur'], answer: 2, why: 'curl note chaque timer comme le temps écoulé depuis le début de la requête. Chaque valeur contient donc toutes les étapes d’avant.' },
+					{ q: 'Comment obtiens-tu la durée d’une phase ?', options: ['Soustrais le timer d’avant', 'Lis le timer tel quel', 'Divise par le RTT', 'Soustrais-le de `total`'], answer: 0, why: 'Une phase est l’écart entre deux timers, comme `time_connect - time_namelookup` pour la poignée de main TCP.' },
+					{ q: 'Quel timer marque la fin de la poignée de main TLS ?', options: ['`connect`', '`pretransfer`', '`starttransfer`', '`appconnect`'], answer: 3, why: '`time_appconnect` marque la fin de la poignée de main TLS. `connect`, c’est la poignée de main TCP.' },
+					{ q: 'Que contient `starttransfer` ?', options: ['Seulement le travail du serveur', 'Tout jusqu’au premier octet', 'Seulement le téléchargement du corps', 'Seulement DNS et TCP'], answer: 1, why: 'C’est le temps jusqu’à l’arrivée du premier octet de la réponse, compté depuis le départ.' }
+				]
+			},
+			{
+				title: 'Découpe DNS et TCP',
+				questions: [
+					{ q: 'Combien de temps a pris le DNS ?', options: ['339 ms', '0,7 ms', '7 ms', '338 ms'], answer: 1, why: '`namelookup=0.000699`, c’est 0,7 ms.' },
+					{ q: 'Pourquoi si peu ?', options: ['La réponse venait d’un cache', 'La machine n’a pas de nom DNS', 'Le DNS passe après TCP', 'curl saute le DNS en HTTPS'], answer: 0, why: 'Moins de 1 ms, c’est trop rapide pour un aller-retour réseau. Le chapitre a vu la même chose lors d’un second lancement vers ftp.jaist.ac.jp.' },
+					{ q: 'Combien de temps a pris la poignée de main TCP ?', options: ['338,5 ms, la valeur de `connect`', '680 ms', '338 ms, `connect` moins `namelookup`', '0,7 ms'], answer: 2, why: '338,539 moins 0,699 font environ 338 ms.' },
+					{ q: 'Combien d’allers-retours de 339 ms cela fait-il ?', options: ['La moitié d’un', 'Deux', 'Trois', 'Un'], answer: 3, why: 'Le SYN part, le SYN-ACK revient : un aller-retour, et rien d’autre.' }
+				]
+			},
+			{
+				title: 'Découpe TLS et le premier octet',
+				questions: [
+					{ q: 'Combien de temps a pris TLS ?', options: ['342 ms', '680 ms', '374 ms', '35 ms'], answer: 0, why: '680,307 moins 338,539 font environ 342 ms.' },
+					{ q: 'Pourquoi un seul aller-retour pour TLS est-il plausible ici ?', options: ['TLS prend toujours un aller-retour', 'Ça colle avec TLS 1.3, que `curl -v` a confirmé', 'Le certificat était en cache', 'TLS tourne en même temps que TCP'], answer: 1, why: 'Sur cette machine, la phase TLS 1.3 a pris un aller-retour. Vers ftp.jaist.ac.jp, la même phase en a pris environ deux.' },
+					{ q: 'Quelle soustraction donne la phase de la requête ?', options: ['`appconnect - connect`', '`total - starttransfer`', '`starttransfer - pretransfer` : 374 ms', '`starttransfer - connect`'], answer: 2, why: '1054,753 moins 680,390 font environ 374 ms, de la requête prête au premier octet.' },
+					{ q: 'Quelle part revient au travail du serveur ?', options: ['Les 374 ms', 'Rien : tout est réseau', 'Environ 339 ms', 'Environ 35 ms'], answer: 3, why: 'Un aller-retour porte la requête et la réponse : 339 ms. Les 35 ms qui restent, c’est le serveur.' }
+				]
+			},
+			{
+				title: 'Dis où passe le temps',
+				questions: [
+					{ q: 'Combien de temps a pris le téléchargement du corps ?', options: ['Environ 0,055 ms', 'Environ 55 ms', 'Environ 374 ms', 'Environ 1 s'], answer: 0, why: '`total` moins `starttransfer`, c’est 1054,808 moins 1054,753 : 0,055 ms.' },
+					{ q: 'Combien d’allers-retours la requête contient-elle, et combien pèsent-ils ensemble ?', options: ['2, environ 680 ms', '3, environ 1 017 ms', '4, environ 1 356 ms', '1, environ 339 ms'], answer: 1, why: 'TCP, TLS et la requête coûtent chacun un aller-retour de 339 ms.' },
+					{ q: 'Quelle part des 1,05 s passe à attendre le chemin ?', options: ['Environ 35 %', 'Environ 50 %', 'Environ 96 %', 'Environ 3 %'], answer: 2, why: '1 017 ms sur 1 055 ms, c’est environ 96 %. Le serveur et le DNS sont la petite part.' },
+					{ q: 'Qu’est-ce qui ferait gagner le plus de temps ?', options: ['Un CPU serveur plus rapide', 'Un plus gros cache DNS', 'Une page d’accueil plus légère', 'Moins d’allers-retours, ou des plus courts'], answer: 3, why: 'Le coût, ce sont les allers-retours. En faire moins, ou des plus courts, est le seul vrai gain.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,28 @@ export default {
 			why: 'Le temps entre la requête et le premier octet contient un aller-retour pour la requête et la réponse. 270 moins 256 laisse environ 14 ms de travail serveur, et le reste de la 1,3 s part en DNS et en allers-retours TCP et TLS.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Ajouter un délai connu entre deux conteneurs, puis le retrouver dans les timers de `curl -w` sous forme d’allers-retours.',
+		steps: [
+			'Crée un réseau, un serveur et un client : `docker network create latlab`, `docker run -d --name lat-srv --network latlab nicolaka/netshoot:v0.13 python3 -m http.server 8080` et `docker run -d --name lat-cli --network latlab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sleep 3600`.',
+			'Mesure une requête sans délai : `docker exec lat-cli curl -s -o /dev/null -w \'dns=%{time_namelookup} connect=%{time_connect} appconnect=%{time_appconnect} pretransfer=%{time_pretransfer} starttransfer=%{time_starttransfer} total=%{time_total}\\n\' http://lat-srv:8080/`.',
+			'Ajoute 100 ms à chaque paquet que le client envoie : `docker exec lat-cli tc qdisc add dev eth0 root netem delay 100ms`. Vérifie avec `docker exec lat-cli ping -c 3 lat-srv`, puis relance le même `curl`.',
+			'Ajoute TLS sur le serveur : `docker exec lat-srv sh -c \'cd /tmp && openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -subj /CN=lat-srv -days 1\'`, puis `docker exec -d lat-srv sh -c \'cd /tmp && openssl s_server -accept 8443 -cert c.pem -key k.pem -www\'`.',
+			'Lance le même `curl` avec `-k` vers `https://lat-srv:8443/`, puis une fois de plus en ajoutant `--tls-max 1.2`. Nettoie avec `docker rm -f lat-srv lat-cli && docker network rm latlab`.'
+		],
+		done: [
+			'Sans délai, chaque timer reste sous 20 ms environ.',
+			'Avec le délai, `ping` montre environ 100 ms, `connect` moins `dns` vaut environ 100 ms, et `starttransfer` moins `pretransfer` environ 100 ms.',
+			'En HTTPS avec TLS 1.3, `appconnect` moins `connect` vaut environ 100 ms : un aller-retour.',
+			'Avec `--tls-max 1.2`, la même phase vaut environ 200 ms : deux allers-retours.'
+		],
+		solution: [
+			'`netem` retarde les paquets qui sortent par le `eth0` du client : chaque paire requête et réponse coûte 100 ms de plus. C’est un faux RTT que tu retrouves dans chaque phase.',
+			'Le DNS reste rapide : le résolveur Docker du conteneur répond sur 127.0.0.11, une adresse de loopback, donc la requête ne sort jamais par le `eth0` retardé.',
+			'Le lancement en TLS 1.2 coûte un aller-retour de plus que TLS 1.3. Sur un chemin de 339 ms comme celui de l’exercice, c’est un tiers de seconde par nouvelle connexion.'
+		]
+	},
 	recall: {
 		q: 'Quels timers de `curl -w` marquent la fin du DNS, de TCP, de TLS et du premier octet, et comment obtiens-tu la durée d’une phase ?',
 		a: '`time_namelookup`, `time_connect`, `time_appconnect` et `time_starttransfer`. Chacun compte depuis le départ : soustrais le timer précédent. `time_connect - time_namelookup` donne la poignée de main TCP.'

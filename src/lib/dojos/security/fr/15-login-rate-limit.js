@@ -103,6 +103,44 @@ export default {
 			'Partie 1 : 1 000 019 / 20 donne 50 000 et 1 000 020 / 20 donne 50 001. Les deux salves tombent dans deux fenêtres, chacune avec son compteur, et chaque compteur arrive à 5, qui ne dépasse pas la limite. Les 10 tentatives atteignent l’appli en à peu près une seconde.',
 			'Partie 2 : chaque compteur par IP et chaque compteur par email est à 1, donc rien n’est bloqué. La limitation ne voit pas cette attaque.',
 			'Le cheat sheet OWASP sur le credential stuffing cite d’abord l’authentification multifacteur, et liste aussi la vérification des mots de passe contre des listes de fuites comme Pwned Passwords. L’ICO a relevé l’absence de MFA obligatoire dans l’amende de 23andMe.'
+		],
+		steps: [
+			{
+				title: 'Calcule les clés de fenêtre',
+				questions: [
+					{ q: 'Qu’ajoute `key_and_expiry` à la clé du compteur ?', options: ['L’IP du client', '`(time / period).to_i`, le numéro de fenêtre', 'Un nonce aléatoire', 'Le temps Unix complet'], answer: 1, why: 'Chaque période a son propre compteur, nommé par la division entière du temps par la période.' },
+					{ q: 'Combien donne 1 000 019 / 20 en division entière ?', options: ['50 001', '50 000,95', '50 000', '50 019'], answer: 2, why: '20 × 50 000 font 1 000 000, et 19 de plus n’atteignent pas le multiple suivant.' },
+					{ q: 'Et 1 000 020 / 20 ?', options: ['50 001', '50 000', '50 002', '50 020'], answer: 0, why: '1 000 020 vaut exactement 20 × 50 001 : c’est le début d’une nouvelle fenêtre.' },
+					{ q: 'Que devient le compteur au début d’une nouvelle fenêtre ?', options: ['Il garde l’ancien total', 'Il est divisé par deux', 'Il double la limite', 'Une nouvelle clé part de 0'], answer: 3, why: 'Une fenêtre fixe repart à chaque multiple de la période. L’ancienne clé expire, c’est tout.' }
+				]
+			},
+			{
+				title: 'Compte la partie 1',
+				questions: [
+					{ q: 'Avec `limit: 5`, quelle requête d’une fenêtre reçoit la première un `429` ?', options: ['La 5e', 'La 6e', 'La 4e', 'La 20e'], answer: 1, why: 'La ligne 19 bloque quand `count > current_limit`. Un total de 5 ne dépasse pas 5.' },
+					{ q: 'La première salve de 5 tombe dans la fenêtre 50 000. Combien passent ?', options: ['4', '0', '1', '5'], answer: 3, why: 'Les totaux 1 à 5 sont tous au plus égaux à la limite.' },
+					{ q: 'La seconde salve de 5 tombe dans la fenêtre 50 001. Combien passent ?', options: ['5', '0', '1', '4'], answer: 0, why: 'C’est un nouveau compteur : la seconde salve compte elle aussi de 1 à 5.' },
+					{ q: 'Combien des 10 tentatives atteignent donc l’appli, et en combien de temps ?', options: ['5, en 20 secondes', '6, en 1 seconde', '10, en à peu près une seconde', '10, en 40 secondes'], answer: 2, why: 'Les deux salves chevauchent le bord d’une fenêtre : une fenêtre fixe laisse passer deux fois la limite en une seconde environ.' }
+				]
+			},
+			{
+				title: 'Lis le trafic de la partie 2',
+				questions: [
+					{ q: '50 000 IP envoient chacune une connexion. À combien arrive chaque compteur `logins/ip` ?', options: ['1', '5', '50 000', '6'], answer: 0, why: 'Le throttle compte par discriminant, et chaque IP n’envoie qu’une requête.' },
+					{ q: 'Chaque requête vise un compte différent. À combien arrive chaque compteur `logins/email` ?', options: ['5', '50 000', '0', '1'], answer: 3, why: 'Un essai par compte : chaque compteur par email reste à 1.' },
+					{ q: 'Combien de requêtes reçoivent donc un `429` ?', options: ['45 000', 'Aucune', 'Toutes après la 5e', 'La moitié'], answer: 1, why: '`count > 5` est faux pour chaque compteur. La limitation ne voit pas cette attaque.' },
+					{ q: 'Comment s’appelle cette attaque ?', options: ['Le password spraying', 'La fixation de session', 'Le credential stuffing', 'Le verrouillage de compte'], answer: 2, why: 'Le credential stuffing essaie des couples identifiant et mot de passe tirés de la fuite d’un autre site, un par compte.' }
+				]
+			},
+			{
+				title: 'Choisis les défenses',
+				questions: [
+					{ q: 'Quelle défense le cheat sheet OWASP sur le credential stuffing cite-t-il en premier ?', options: ['L’authentification multifacteur', 'Une limite de throttle plus basse', 'Des identifiants plus longs', 'Bloquer toutes les IP étrangères'], answer: 0, why: 'Un mot de passe réutilisé ne suffit plus quand un second facteur est exigé.' },
+					{ q: 'Que liste aussi l’OWASP, qui agit sur le mot de passe lui-même ?', options: ['Imposer un changement de mot de passe tous les 30 jours', 'Hasher les mots de passe deux fois', 'Cacher le formulaire de connexion', 'Vérifier les mots de passe contre des listes de fuites comme Pwned Passwords'], answer: 3, why: 'Un mot de passe déjà présent dans une liste de fuites est justement celui que cette attaque utilise.' },
+					{ q: 'Qu’a relevé l’ICO comme manquant dans l’amende de 23andMe ?', options: ['Un CAPTCHA', 'Un throttle par IP', 'Une authentification multifacteur obligatoire', 'Un pare-feu applicatif'], answer: 2, why: 'L’ICO a relevé l’absence de "mandatory multi-factor authentication, secure password protocols, or unpredictable usernames" (MFA obligatoire, règles de mots de passe sûres, identifiants imprévisibles).' },
+					{ q: 'Pourquoi ne pas simplement baisser `logins/email` à 1 essai par fenêtre ?', options: ['Rack::Attack ne le permet pas', 'Ça compte toujours 1 par compte, et ça permet à un attaquant de bloquer les vrais utilisateurs', 'Ça ralentirait le cache', 'Ça ne marche qu’avec `GET`'], answer: 1, why: 'Le stuffing n’envoie de toute façon qu’un essai par compte, et une limite serrée par compte laisse quiconque connaît un email en bloquer le titulaire.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -135,6 +173,28 @@ export default {
 			why: 'Le compteur est indexé par l’email, pas par l’auteur de la requête. Dès que l’attaquant le pousse à 6, la connexion correcte d’Ann dans cette fenêtre reçoit aussi `429`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Construis le même compteur à fenêtre fixe que Rack::Attack et regarde-le laisser passer 10 tentatives au bord d’une fenêtre, rater un trafic d’un essai par compte, et bloquer un vrai utilisateur.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/throttle-lab && cd ~/throttle-lab`.',
+			'Écris `throttle.py` avec une fonction `allowed(name, key, now, limit=5, period=20)`. Elle compte sous la clé `name:key:now // period`, incrémente avant de comparer, et renvoie si le total est au plus égal à la limite.',
+			'Rejoue la partie 1 : `python3 -c \'from throttle import allowed; print(sum(allowed("logins/email", "ann@example.com", t) for t in [1000019]*5 + [1000020]*5))\'`.',
+			'Rejoue la partie 2, un essai par IP et par compte : `python3 -c \'from throttle import allowed; print(sum(allowed("logins/ip", f"10.0.{i // 256}.{i % 256}", 1000000) and allowed("logins/email", f"user{i}@example.com", 1000000) for i in range(50000)))\'`.',
+			'Bloque Ann : `python3 -c \'from throttle import allowed; [allowed("logins/email", "ann@example.com", 1000000) for _ in range(6)]; print(allowed("logins/email", "ann@example.com", 1000005))\'`.'
+		],
+		done: [
+			'La partie 1 affiche `10`.',
+			'La partie 2 affiche `50000` : aucune requête n’est bloquée.',
+			'Le test de blocage affiche `False` : la connexion d’Ann elle-même, 5 secondes plus tard, est refusée.'
+		],
+		solution: [
+			'`counts = Counter()` depuis `collections`, puis dans `allowed` : `k = f"{name}:{key}:{now // period}"`, `counts[k] += 1`, `return counts[k] <= limit`.',
+			'La partie 1 en laisse passer 10 car 1000019 et 1000020 tombent dans les fenêtres 50000 et 50001, chacune avec son compteur.',
+			'La partie 2 les laisse toutes passer car chaque compteur reste à 1. Seuls la MFA ou un contrôle des mots de passe fuités agissent sur ce trafic.',
+			'Le blocage marche car le compteur est indexé sur l’email, pas sur celui qui envoie la requête. Nettoie avec `rm -rf ~/throttle-lab`.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi une limite de connexion par compte n’arrête-t-elle pas le credential stuffing, et quel risque ajoute-t-elle ?',
 		a: 'Le credential stuffing essaie chaque compte une fois : un compteur par compte reste à 1. Comme le compteur est indexé par le compte et pas par l’expéditeur, n’importe qui peut le pousser au-dessus de la limite et tenir dehors le vrai utilisateur.'

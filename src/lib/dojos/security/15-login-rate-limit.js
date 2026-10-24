@@ -103,6 +103,44 @@ export default {
 			'Part 1: 1,000,019 / 20 is 50,000 and 1,000,020 / 20 is 50,001. The two bursts land in two windows, each with its own counter, and each counter reaches 5, which is not above the limit. All 10 attempts reach the app within about one second.',
 			'Part 2: every IP counter and every email counter is at 1, so nothing is throttled. The rate limit does not see this attack.',
 			'The OWASP Credential Stuffing cheat sheet names multi-factor authentication first and also lists checking passwords against breached password lists such as Pwned Passwords. The ICO named missing mandatory MFA in the 23andMe fine.'
+		],
+		steps: [
+			{
+				title: 'Compute the window keys',
+				questions: [
+					{ q: 'What does `key_and_expiry` add to the counter key?', options: ['The client IP', '`(time / period).to_i`, the window number', 'A random nonce', 'The full Unix time'], answer: 1, why: 'Each period gets its own counter, named by the integer division of the time by the period.' },
+					{ q: 'What is 1,000,019 / 20, as an integer division?', options: ['50,001', '50,000.95', '50,000', '50,019'], answer: 2, why: '20 × 50,000 is 1,000,000, and 19 more does not reach the next multiple.' },
+					{ q: 'And 1,000,020 / 20?', options: ['50,001', '50,000', '50,002', '50,020'], answer: 0, why: '1,000,020 is exactly 20 × 50,001, the start of a new window.' },
+					{ q: 'What happens to the counter at the start of a new window?', options: ['It keeps the old count', 'It halves', 'It doubles the limit', 'A new key starts at 0'], answer: 3, why: 'A fixed window starts again at each multiple of the period. The old key just expires.' }
+				]
+			},
+			{
+				title: 'Count part 1',
+				questions: [
+					{ q: 'With `limit: 5`, which request in a window is the first to get `429`?', options: ['The 5th', 'The 6th', 'The 4th', 'The 20th'], answer: 1, why: 'Line 19 throttles when `count > current_limit`. A count of 5 is not above 5.' },
+					{ q: 'The first burst of 5 lands in window 50,000. How many pass?', options: ['4', '0', '1', '5'], answer: 3, why: 'Counts 1 to 5 are all at or below the limit.' },
+					{ q: 'The second burst of 5 lands in window 50,001. How many pass?', options: ['5', '0', '1', '4'], answer: 0, why: 'It is a new counter, so the second burst also counts from 1 to 5.' },
+					{ q: 'So how many of the 10 attempts reach the app, and over what time?', options: ['5, over 20 seconds', '6, over 1 second', '10, within about one second', '10, over 40 seconds'], answer: 2, why: 'The two bursts straddle a window edge, so a fixed window lets twice the limit through in about a second.' }
+				]
+			},
+			{
+				title: 'Read the part 2 traffic',
+				questions: [
+					{ q: '50,000 IPs each send one login. What does each `logins/ip` counter reach?', options: ['1', '5', '50,000', '6'], answer: 0, why: 'The throttle counts per discriminator, and each IP sends only one request.' },
+					{ q: 'Each request is for a different account. What does each `logins/email` counter reach?', options: ['5', '50,000', '0', '1'], answer: 3, why: 'One try per account, so every email counter stays at 1.' },
+					{ q: 'So how many requests get `429`?', options: ['45,000', 'None', 'All of them after the 5th', 'Half'], answer: 1, why: '`count > 5` is false for every counter. The rate limit does not see this attack.' },
+					{ q: 'What is this attack called?', options: ['Password spraying', 'Session fixation', 'Credential stuffing', 'Account lockout'], answer: 2, why: 'Credential stuffing tries username and password pairs from another site’s breach, one per account.' }
+				]
+			},
+			{
+				title: 'Pick the defences',
+				questions: [
+					{ q: 'Which defence does the OWASP Credential Stuffing cheat sheet name first?', options: ['Multi-factor authentication', 'A lower throttle limit', 'Longer usernames', 'Blocking all foreign IPs'], answer: 0, why: 'A reused password is not enough when a second factor is required.' },
+					{ q: 'What does OWASP also list, which acts on the password itself?', options: ['Forcing a password change every 30 days', 'Hashing passwords twice', 'Hiding the login form', 'Checking passwords against breached lists such as Pwned Passwords'], answer: 3, why: 'A password already in a breach list is the exact password this attack uses.' },
+					{ q: 'What did the ICO name as missing in the 23andMe fine?', options: ['A CAPTCHA', 'A per-IP throttle', 'Mandatory multi-factor authentication', 'A web application firewall'], answer: 2, why: 'The ICO listed missing "mandatory multi-factor authentication, secure password protocols, or unpredictable usernames".' },
+					{ q: 'Why not just lower `logins/email` to 1 attempt per window?', options: ['Rack::Attack does not allow it', 'It still counts 1 per account, and lets an attacker lock real users out', 'It would slow down the cache', 'It only works with `GET`'], answer: 1, why: 'Stuffing sends one try per account anyway, and a tight per-account limit lets anyone who knows an email keep its owner out.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -135,6 +173,28 @@ export default {
 			why: 'The counter is keyed by the email, not by who sends the request. Once the attacker pushes it to 6, Ann’s own correct login in that window also gets `429`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build the same fixed-window counter as Rack::Attack and watch it let 10 attempts through at a window edge, miss one-try-per-account traffic, and lock a real user out.',
+		steps: [
+			'Make a folder: `mkdir -p ~/throttle-lab && cd ~/throttle-lab`.',
+			'Write `throttle.py` with a function `allowed(name, key, now, limit=5, period=20)`. It counts under the key `name:key:now // period`, increments before it compares, and returns whether the count is at most the limit.',
+			'Replay part 1: `python3 -c \'from throttle import allowed; print(sum(allowed("logins/email", "ann@example.com", t) for t in [1000019]*5 + [1000020]*5))\'`.',
+			'Replay part 2, one try per IP and per account: `python3 -c \'from throttle import allowed; print(sum(allowed("logins/ip", f"10.0.{i // 256}.{i % 256}", 1000000) and allowed("logins/email", f"user{i}@example.com", 1000000) for i in range(50000)))\'`.',
+			'Lock Ann out: `python3 -c \'from throttle import allowed; [allowed("logins/email", "ann@example.com", 1000000) for _ in range(6)]; print(allowed("logins/email", "ann@example.com", 1000005))\'`.'
+		],
+		done: [
+			'Part 1 prints `10`.',
+			'Part 2 prints `50000`: no request is throttled.',
+			'The lockout check prints `False`: Ann’s own login 5 seconds later is refused.'
+		],
+		solution: [
+			'`counts = Counter()` from `collections`, then in `allowed`: `k = f"{name}:{key}:{now // period}"`, `counts[k] += 1`, `return counts[k] <= limit`.',
+			'Part 1 passes 10 because 1000019 and 1000020 fall in windows 50000 and 50001, each with its own counter.',
+			'Part 2 passes all 50,000 because every counter stays at 1. Only MFA or a breached-password check acts on that traffic.',
+			'The lockout works because the counter is keyed by the email, not by who sends the request. Clean up with `rm -rf ~/throttle-lab`.'
+		]
+	},
 	recall: {
 		q: 'Why does a per-account login limit not stop credential stuffing, and what risk does it add?',
 		a: 'Credential stuffing tries each account once, so a per-account count stays at 1. Because the count is keyed by the account and not by the sender, anyone can push it over the limit and keep the real user out.'

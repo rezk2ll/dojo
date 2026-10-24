@@ -132,6 +132,44 @@ export default {
 			'No `exp`: PyJWT validates expiry only `if "exp" in payload`, so these tokens never expire. A token copied from a log a year ago still works.',
 			'Log out deletes the browser’s copy only. Any other copy stays valid, because the API checks nothing but the signature and the claims.',
 			'Fix: `jwt.decode(token, PUBLIC_KEY, algorithms=["RS256"], options={"require": ["exp", "sub"]})`, have the auth server set a short `exp` (for example 15 minutes), and for logout add the token’s `jti` to a denylist that the API checks until that `exp`.'
+		],
+		steps: [
+			{
+				title: 'Read the helper',
+				questions: [
+					{ q: 'Where does `header["alg"]` come from?', options: ['The auth server’s config', 'The token itself, which the sender controls', 'PyJWT’s default algorithm list', 'The `PUBLIC_KEY` file'], answer: 1, why: '`get_unverified_header` decodes the first part of the token. Whoever sent the token chose that value.' },
+					{ q: 'What does `algorithms=[header["alg"]]` do to the check at line 19?', options: ['It makes it stricter', 'It turns it into the RS256-only check', 'It makes it never refuse anything', 'It skips the signature check at line 49'], answer: 2, why: 'The allow-list is built from the token, so the token’s `alg` is always in it.' },
+					{ q: 'What can anyone holding the token read?', options: ['Only the header', 'Nothing, the payload is encrypted', 'Only the signature', 'The header and every claim in the payload'], answer: 3, why: 'The first two parts are only base64url-encoded, so anyone can decode them.' },
+					{ q: 'Which key does the API use to verify RS256 tokens?', options: ['The auth server’s public key, known to everyone', 'The auth server’s private key', 'A secret shared with each user', 'The user’s password hash'], answer: 0, why: 'The auth server signs with its private key, and every API checks with the published public key.' }
+				]
+			},
+			{
+				title: 'Spot the algorithm problem',
+				questions: [
+					{ q: 'Who should choose which algorithms the API accepts?', options: ['The token header', 'The API code, as a fixed list', 'The user, at login', 'The front end'], answer: 1, why: 'With `algorithms=["RS256"]` in code, the header cannot pick HMAC or `none`, whatever it says.' },
+					{ q: 'What does a current PyJWT still do for `HS256` with a PEM public key?', options: ['It accepts it as a normal secret', 'It converts the key to RSA', 'It refuses the key in `prepare_key`', 'It only logs a warning'], answer: 2, why: '`prepare_key` for HMAC refuses any key in PEM, SSH or DER form. That is a second line of defense, not a reason to keep the header-derived list.' },
+					{ q: 'Why was PyJWT before 2.4.0 weaker here?', options: ['It refused a fixed list of key strings, and `ssh-ed25519` was not on it', 'It had no HMAC support', 'It ignored the `algorithms` argument', 'It only checked `exp`'], answer: 0, why: 'The old check matched four fixed strings. The fix checks the key format instead.' },
+					{ q: 'What does RFC 8725 ask about keys and algorithms?', options: ['Each key may be used with any algorithm', 'Keys must rotate every day', 'Algorithms must be read from the header', 'Each key must be used with exactly one algorithm'], answer: 3, why: 'Binding a key to one algorithm stops a verifier from being pushed onto a different one.' }
+				]
+			},
+			{
+				title: 'Spot the lifetime problems',
+				questions: [
+					{ q: 'The tokens have no `exp`. What does PyJWT do by default?', options: ['It refuses them', 'It accepts them: expiry is checked only `if "exp" in payload`', 'It gives them a 15-minute lifetime', 'It asks the auth server'], answer: 1, why: 'Without `options={"require": ["exp"]}`, a token with no `exp` passes, so it never expires.' },
+					{ q: 'The user clicks "Log out". What changes for a copy of the token taken earlier?', options: ['Its signature becomes invalid', 'The API refuses it at once', 'Nothing: it stays valid', 'It works for one more request'], answer: 2, why: 'Logout deletes only the browser’s copy. The API checks the signature and claims, and never asks the auth server.' },
+					{ q: 'What does the API check on each request in this design?', options: ['The signature and the claims, with the public key and the clock', 'A session row in the database', 'The auth server, through a live call', 'The user’s IP address'], answer: 0, why: 'That is the gain of a JWT: no call per request. It is also why revoking needs extra server state.' },
+					{ q: 'What ends a token early, before its `exp`?', options: ['Deleting it from local storage', 'Rotating the user’s password', 'Changing the `sub` claim', 'A server-side denylist keyed on `jti` that every API checks'], answer: 3, why: 'Only server state can revoke a token that is still correctly signed and unexpired.' }
+				]
+			},
+			{
+				title: 'Write the fix',
+				questions: [
+					{ q: 'Which `algorithms` argument goes in the fixed `decode` call?', options: ['`algorithms=jwt.algorithms.get_default_algorithms()`', '`algorithms=["RS256"]`', '`algorithms=[header["alg"]]`', '`algorithms=["RS256", "HS256"]`'], answer: 1, why: 'Your auth server signs with RS256 only, so that is the only value to allow.' },
+					{ q: 'Which option makes PyJWT refuse a token with no expiry?', options: ['`options={"verify_signature": False}`', '`options={"verify_exp": False}`', '`options={"require": ["exp", "sub"]}`', '`options={"leeway": 0}`'], answer: 2, why: '`require` lists claims that must be present. Adding `sub` also stops `claims["sub"]` from failing later.' },
+					{ q: 'What should the auth server change?', options: ['Set a short `exp`, for example 15 minutes', 'Remove the signature to save bytes', 'Switch to `HS256` with the public key', 'Put the password in the payload'], answer: 0, why: 'A short `exp` limits how long a copied token works.' },
+					{ q: 'How long must the API keep a `jti` on the denylist after logout?', options: ['Forever', 'One hour', 'Until the user logs in again', 'Until that token’s `exp`'], answer: 3, why: 'After `exp` the token is refused anyway, so the entry can go.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,28 @@ export default {
 			why: 'The old `prepare_key` refused keys containing `-----BEGIN PUBLIC KEY-----`, `-----BEGIN CERTIFICATE-----`, `-----BEGIN RSA PUBLIC KEY-----` or `ssh-rsa`. `ssh-ed25519` matches none of them. The fix checks the key format with `is_pem_format` and `is_ssh_key`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Play the auth server with your own RSA key, then see which PyJWT setting stops a token with no `exp` and an HS256 token forged with the public key.',
+		steps: [
+			'Make a folder with PyJWT in it: `mkdir -p ~/jwt-lab && cd ~/jwt-lab && python3 -m venv .venv && . .venv/bin/activate && pip install pyjwt cryptography`.',
+			'Make the auth server’s key pair: `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem && openssl pkey -in private.pem -pubout -out public.pem`.',
+			'Issue a token with no `exp`, as the task’s auth server does: `python3 -c \'import jwt; print(jwt.encode({"sub": "42", "role": "user"}, open("private.pem").read(), algorithm="RS256"))\' > token.txt`. Then decode it: `python3 -c \'import jwt; print(jwt.decode(open("token.txt").read().strip(), open("public.pem").read(), algorithms=["RS256"]))\'`.',
+			'Decode it again with the fix’s option: `python3 -c \'import jwt; print(jwt.decode(open("token.txt").read().strip(), open("public.pem").read(), algorithms=["RS256"], options={"require": ["exp", "sub"]}))\'`.',
+			'Write `forge.py`: build `header.payload` from `{"alg": "HS256", "typ": "JWT"}` and `{"sub": "42", "role": "admin"}` in base64url with no padding, sign it with HMAC-SHA256 keyed with the bytes of `public.pem`, then call `jwt.decode` twice, first with the task’s `algorithms=[jwt.get_unverified_header(t)["alg"]]`, then with `algorithms=["RS256"]`. Print the exception name each time. Run `python3 forge.py`.'
+		],
+		done: [
+			'Step 3 prints `{\'sub\': \'42\', \'role\': \'user\'}`: a token with no `exp` passes.',
+			'Step 4 fails with `MissingRequiredClaimError` and `Token is missing the "exp" claim`.',
+			'In step 5, the header-derived list fails with `InvalidKeyError`: `prepare_key` refuses the PEM key as an HMAC secret.',
+			'With `algorithms=["RS256"]`, step 5 fails with `InvalidAlgorithmError` instead.'
+		],
+		solution: [
+			'`b = lambda d: base64.urlsafe_b64encode(d).rstrip(b"=")`, then `si = b(json.dumps(header).encode()) + b"." + b(json.dumps(payload).encode())` and `t = (si + b"." + b(hmac.new(open("public.pem", "rb").read(), si, hashlib.sha256).digest())).decode()`.',
+			'Wrap each `jwt.decode` in `try:` and `except Exception as e: print(type(e).__name__, e)`.',
+			'With the header-derived list, `HS256` reaches `prepare_key`, and only the key format check stops it. Before 2.4.0, an `ssh-ed25519` public key passed that check. With `["RS256"]`, line 19 refuses the token before any key is used. Clean up with `rm -rf ~/jwt-lab`.'
+		]
+	},
 	recall: {
 		q: 'Which two arguments make PyJWT refuse a token whose header says `HS256` and a token with no expiry?',
 		a: '`algorithms=["RS256"]` (the header’s `alg` must be in that list) and `options={"require": ["exp"]}` (otherwise `exp` is checked only when present).'

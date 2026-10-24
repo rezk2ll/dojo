@@ -109,6 +109,44 @@ export default {
 			'Part 2: the code for step T is accepted while the server is at step T-1, T or T+1. The user typed it 5 seconds into step T, so it stays valid for the remaining 25 seconds of T plus the 30 seconds of T+1: 55 seconds.',
 			'Because `verify` keeps no record, the attacker can use it as many times as they like in those 55 seconds. Storing the step returned by `verify_and_get_timecode` and refusing any step not greater than it cuts this to one use.',
 			'Neither fix stops the first relayed use. Only a WebAuthn key, which signs the page origin, makes the code from the fake page useless.'
+		],
+		steps: [
+			{
+				title: 'Find the offset',
+				questions: [
+					{ q: 'Which byte of the HMAC gives the offset?', options: ['The first byte', 'The last byte', 'The byte at position 4', 'The middle byte'], answer: 1, why: 'Line 12: `offset = hmac_hash[-1] & 0xF`, the low 4 bits of the last byte.' },
+					{ q: 'The HMAC ends in `5a`. What is the offset?', options: ['5', '90', '10', '15'], answer: 2, why: '`0x5a & 0xF` keeps the last hex digit, `a`, which is 10.' },
+					{ q: 'How many bytes is an HMAC-SHA1 output?', options: ['16', '32', '8', '20'], answer: 3, why: 'The hex string has 40 digits, two per byte, so 20 bytes, numbered 0 to 19.' },
+					{ q: 'Why can the offset never run past the end?', options: ['It is at most 15, and bytes 15 to 18 still fit in 20', 'pyotp wraps around to the start', 'The secret is padded to fit', 'SHA-1 always ends in a small byte'], answer: 0, why: '4 bits give 0 to 15. Reading 4 bytes from 15 ends at byte 18, inside the 20-byte output.' }
+				]
+			},
+			{
+				title: 'Read the code',
+				questions: [
+					{ q: 'Which 4 bytes start at offset 10?', options: ['`ca 16 61 85`', '`50 ef 7f 19`', '`ef 7f 19 da`', '`55 5a 1f 86`'], answer: 1, why: 'Counting from 0, two hex digits per byte, bytes 10 to 13 are `50 ef 7f 19`.' },
+					{ q: 'What does `& 0x7F` on the first byte do?', options: ['It clears the top bit, so the number is 31 bits and never negative', 'It keeps only the last digit', 'It turns the number into base32', 'It adds the time step'], answer: 0, why: 'RFC 4226 clears the top bit "to avoid confusion about signed vs. unsigned modulo computations".' },
+					{ q: '`0x50ef7f19` is 1357872921. What is the 6-digit code?', options: ['`135787`', '`357872`', '`921000`', '`872921`'], answer: 3, why: 'The code is `code % 10**6`, the last 6 digits. It matches the worked example in RFC 4226 section 5.4.' },
+					{ q: 'The number mod 10^6 is 41234. What does pyotp show?', options: ['`41234`', '`412340`', '`041234`', '`0041234`'], answer: 2, why: 'Lines 19 and 20 add `10_000_000_000` and slice the last 6 characters, which keeps the leading zero.' }
+				]
+			},
+			{
+				title: 'Work out the window',
+				questions: [
+					{ q: 'With `valid_window=1`, which steps does the server accept a code for?', options: ['Only T', 'T and T+1', 'T-1, T and T+1', 'Any step in the last 10 minutes'], answer: 2, why: 'A window of 1 adds one step on each side of the current one.' },
+					{ q: 'The user types the code for step T at 5 seconds into T. How much of T is left?', options: ['25 seconds', '30 seconds', '5 seconds', '55 seconds'], answer: 0, why: 'A step lasts 30 seconds, and 5 have passed.' },
+					{ q: 'Is that step T code still accepted during step T+1?', options: ['No: it expired at the end of T', 'Yes: during T+1 the server also accepts T, as its T-1', 'Only for the first 5 seconds of T+1', 'Only if the user types it again'], answer: 1, why: 'At step T+1 the window is T, T+1 and T+2, so the step T code still passes.' },
+					{ q: 'So for how long can the attacker use the code?', options: ['30 seconds', '25 seconds', '85 seconds', '55 seconds'], answer: 3, why: 'The remaining 25 seconds of T, plus the 30 seconds of T+1.' }
+				]
+			},
+			{
+				title: 'Count the uses and fix it',
+				questions: [
+					{ q: 'The server never records used codes. How many times can the attacker use the code in those 55 seconds?', options: ['Once', 'Twice', 'As many times as they like', 'None: the user used it first'], answer: 2, why: 'pyotp’s `verify` keeps no record, so the same code passes on every try inside the window.' },
+					{ q: 'What does RFC 6238 ask the verifier to do?', options: ['Refuse a second use of an OTP after one succeeded', 'Shorten the step to 10 seconds', 'Send the code by SMS too', 'Accept any code within 10 minutes'], answer: 0, why: 'The verifier "MUST NOT accept the second attempt of the OTP after the successful validation".' },
+					{ q: 'How do you refuse the replays with pyotp?', options: ['Call `verify` twice', 'Set `valid_window=0`', 'Store the code itself forever', 'Store the step from `verify_and_get_timecode` and refuse any step not greater than it'], answer: 3, why: 'Once a step is used, that step and every older one are refused, which leaves one use.' },
+					{ q: 'Which change stops the first relayed use as well?', options: ['A shorter `valid_window`', 'A WebAuthn key, which signs the page origin', 'Eight digits instead of six', 'Sending the code by SMS'], answer: 1, why: 'A typed code says nothing about the page it was typed on. A WebAuthn signature names the fake origin, so the real server refuses it.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,30 @@ export default {
 			why: 'With WebAuthn, the browser hands the page origin to the key along with the server challenge, and the key signs both. The signature made on `cloudflare-okta.com` names that origin, so the real server’s check fails.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Compute TOTP codes yourself, match the RFC test values, and add the replay check that pyotp’s `verify` leaves out.',
+		steps: [
+			'Make a folder: `mkdir -p ~/totp-lab && cd ~/totp-lab`.',
+			'Write `totp.py` with a function `totp(secret, t, digits=6)`: base32-decode the secret, HMAC-SHA1 the step `int(t // 30)` packed as 8 big-endian bytes, then truncate as in lines 12 to 20 of pyotp. Make `python3 totp.py SECRET TIME` print the code.',
+			'Check the RFC 6238 test value: `python3 -c \'from totp import totp; print(totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59, 8))\'`.',
+			'Check the task by hand: `python3 -c \'n = int("50ef7f19", 16) & 0x7FFFFFFF; print(n, n % 10**6)\'`.',
+			'See the step boundary: `python3 totp.py GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ 59`, then the same with `60` and `89`.',
+			'Write `guard.py` with `verify(secret, code, now, last_step)`: try steps T-1, T and T+1, accept only a step greater than `last_step`, and return it, or `None`. Test it: `python3 -c \'from totp import totp; from guard import verify; s = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; c = totp(s, 65); print(verify(s, c, 65, 0), verify(s, c, 70, 2), verify(s, c, 119, 0), verify(s, c, 120, 0))\'`.'
+		],
+		done: [
+			'The RFC check prints `94287082`.',
+			'The hand check prints `1357872921 872921`.',
+			'Times `60` and `89` print the same code, and time `59` prints a different one.',
+			'The guard test prints `2 None 2 None`.'
+		],
+		solution: [
+			'`h = hmac.new(base64.b32decode(secret), struct.pack(">Q", int(t // 30)), hashlib.sha1).digest()`',
+			'`o = h[-1] & 0xF`, then `n = int.from_bytes(h[o:o + 4], "big") & 0x7FFFFFFF`, then `return str(n % 10**digits).zfill(digits)`.',
+			'In `guard.py`: `for step in (now // 30 - 1, now // 30, now // 30 + 1): if step > last_step and totp(secret, step * 30) == code: return step`, then `return None`.',
+			'Read the guard test: a code typed at 65 (step 2) passes once, is refused when step 2 is stored, still passes at 119 for a fresh user, and fails at 120. That is the 55-second window. Clean up with `rm -rf ~/totp-lab`.'
+		]
+	},
 	recall: {
 		q: 'In TOTP, how is the 6-digit code built from the HMAC-SHA1 output?',
 		a: 'Take the low 4 bits of the last byte as an offset, read 4 bytes there, clear the top bit, and keep the number mod 1,000,000. For counter 1 with the RFC secret: offset 11, `41397eea`, 1094287082, code `287082`.'

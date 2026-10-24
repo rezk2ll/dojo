@@ -117,6 +117,44 @@ ngx_http_get_forwarded_addr_internal(ngx_http_request_t *r, ngx_addr_t *addr,
 			'Avec `real_ip_recursive off` : le pair 10.0.2.20 est de confiance, nginx prend la dernière entrée, 10.0.1.10, et s’arrête. `$remote_addr` vaut 10.0.1.10, le proxy de bord : faux pour les journaux.',
 			'Avec `real_ip_recursive on` : 10.0.1.10 est dans `10.0.1.0/24`, la boucle continue avec l’entrée suivante en partant de la droite, 198.51.100.23. Cette adresse n’est pas de confiance, la lecture s’arrête : `$remote_addr` vaut 198.51.100.23.',
 			'192.168.1.100 ne sert dans aucun des deux cas. Le client l’a écrite, et la lecture s’arrête sur la première entrée hors confiance avant de l’atteindre.'
+		],
+		steps: [
+			{
+				title: 'Pars du pair TCP',
+				questions: [
+					{ q: 'Quelle adresse le module realip vérifie-t-il en premier ?', options: ['Le pair TCP, 10.0.2.20', 'La première entrée, 192.168.1.100', 'La dernière entrée, 10.0.1.10', 'L’entrée du milieu, 198.51.100.23'], answer: 0, why: 'Le module part avec `addr` égal à l’adresse du pair de la connexion. L’en-tête n’est lu que si ce pair est de confiance.' },
+					{ q: 'Le pair 10.0.2.20 est-il de confiance ?', options: ['Non : il est privé, mais privé ne veut pas dire déclaré', 'Oui : il est dans `10.0.2.0/24`', 'Seulement avec `real_ip_recursive on`', 'Oui : toute adresse en 10.x est de confiance par défaut'], answer: 1, why: '`set_real_ip_from 10.0.2.0/24;` couvre 10.0.2.20, donc nginx passe à la lecture de l’en-tête.' },
+					{ q: 'Que ferait nginx si le pair n’était dans aucune plage de confiance ?', options: ['Il prendrait la première entrée de l’en-tête', 'Il prendrait quand même la dernière entrée', 'Il ignorerait l’en-tête et garderait l’adresse du pair', 'Il rejetterait la requête avec un `400`'], answer: 2, why: 'La ligne 13 renvoie `NGX_DECLINED` au premier passage, et nginx ignore complètement l’en-tête.' },
+					{ q: 'Dans quel sens nginx lit-il `X-Forwarded-For` ?', options: ['De gauche à droite, la première entrée d’abord', 'Il prend l’entrée qui revient le plus souvent', 'Il prend la première adresse privée', 'De droite à gauche, la dernière entrée d’abord'], answer: 3, why: 'Les lignes 17 à 28 partent de la fin de l’en-tête et reculent jusqu’à la virgule précédente.' }
+				]
+			},
+			{
+				title: 'Lis avec `real_ip_recursive off`',
+				questions: [
+					{ q: 'Quelle entrée nginx prend-il ?', options: ['198.51.100.23', '10.0.1.10, la dernière entrée', '192.168.1.100', 'Aucune : l’en-tête est ignoré'], answer: 1, why: 'Le pair est de confiance, donc nginx analyse la dernière entrée de la liste : 10.0.1.10.' },
+					{ q: 'nginx vérifie-t-il ensuite 10.0.1.10 contre la liste de confiance ?', options: ['Non : avec `off`, il s’arrête après une entrée', 'Oui, et il passe à l’entrée suivante', 'Oui, et il rejette la requête', 'Seulement si l’entrée est une adresse privée'], answer: 0, why: 'La boucle de la ligne 40 ne repart que si `recursive` est actif. Avec `off`, il ne lit qu’une entrée.' },
+					{ q: 'Que vaut donc `$remote_addr` avec `real_ip_recursive off` ?', options: ['10.0.2.20', '198.51.100.23', '192.168.1.100', '10.0.1.10'], answer: 3, why: 'nginx a remplacé l’adresse du pair par la dernière entrée, puis s’est arrêté.' },
+					{ q: 'Pourquoi ce résultat est-il faux pour les journaux ?', options: ['C’est l’entrée falsifiée', 'C’est le nginx interne lui-même', 'C’est le proxy de bord, pas le client', 'Ce n’est pas une adresse valide'], answer: 2, why: '10.0.1.10 est ton propre nginx de bord. Toutes les requêtes sembleraient venir de lui.' }
+				]
+			},
+			{
+				title: 'Lis avec `real_ip_recursive on`',
+				questions: [
+					{ q: 'nginx tient 10.0.1.10. Quelle plage de confiance la couvre ?', options: ['`10.0.2.0/24`, la plage du pair', 'Aucune, donc la lecture s’arrête', '`10.0.1.0/24`, donc la lecture continue', 'Les deux plages à la fois'], answer: 2, why: 'Avec `recursive on`, la nouvelle adresse repasse le contrôle de confiance. 10.0.1.10 est dans `10.0.1.0/24`.' },
+					{ q: 'Quelle entrée vient ensuite en partant de la droite ?', options: ['198.51.100.23', '192.168.1.100', '10.0.2.20', 'La lecture repart de la gauche'], answer: 0, why: 'La lecture recule d’une entrée à chaque passage. Avant 10.0.1.10 vient 198.51.100.23.' },
+					{ q: '198.51.100.23 est-elle de confiance ?', options: ['Oui : les adresses publiques sont de confiance', 'Oui : elle figure dans l’en-tête', 'Non, donc nginx revient au pair 10.0.2.20', 'Non, donc la lecture s’arrête et elle devient `$remote_addr`'], answer: 3, why: 'Elle n’est dans aucune plage `set_real_ip_from`. La lecture s’arrête sur la première entrée hors confiance et la garde.' },
+					{ q: 'Que vaut donc `$remote_addr` avec `real_ip_recursive on` ?', options: ['10.0.1.10', '198.51.100.23', '192.168.1.100', '10.0.2.20'], answer: 1, why: 'La lecture a sauté le proxy de bord de confiance et s’est arrêtée sur la première adresse qui n’est pas à toi : le client.' }
+				]
+			},
+			{
+				title: 'Vérifie l’entrée falsifiée',
+				questions: [
+					{ q: '192.168.1.100 sert-elle avec l’un des deux réglages ?', options: ['Oui, avec `real_ip_recursive on`', 'Oui, avec `real_ip_recursive off`', 'Oui, avec les deux', 'Non : la lecture s’arrête avant de l’atteindre'], answer: 3, why: 'Les deux lectures s’arrêtent sur 198.51.100.23 ou avant, donc l’entrée la plus à gauche n’est jamais lue.' },
+					{ q: 'Qui a écrit 192.168.1.100 dans l’en-tête ?', options: ['Le nginx de bord', 'Le client', 'Le nginx interne', 'L’appli'], answer: 1, why: 'Chaque proxy ajoute le pair qu’il a vu. Une entrée à gauche de la vraie adresse du client ne peut venir que du client.' },
+					{ q: 'Une appli lit la première entrée de `X-Forwarded-For`. Qu’obtient-elle ?', options: ['192.168.1.100, que le client peut changer à chaque requête', '198.51.100.23, le vrai client', '10.0.1.10, le proxy de bord', '10.0.2.20, le pair interne'], answer: 0, why: 'C’est le bug de Litestar : chaque fausse valeur ouvrait un nouveau compteur de limite de débit.' },
+					{ q: 'Quel réglage convient à ce nginx interne, avec deux sauts de proxy ?', options: ['`real_ip_recursive off`, pour ne lire qu’une entrée', '`set_real_ip_from 0.0.0.0/0`, pour faire confiance à chaque saut', '`real_ip_recursive on`, pour sauter tes propres proxies', 'Aucun `set_real_ip_from`, pour lire l’en-tête tel quel'], answer: 2, why: 'Avec deux sauts de confiance, `on` passe le proxy de bord et s’arrête sur le client. Faire confiance à tout laisserait gagner l’entrée du client.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,26 @@ ngx_http_get_forwarded_addr_internal(ngx_http_request_t *r, ngx_addr_t *addr,
 			why: 'Chaque proxy ajoute l’adresse du pair qu’il a vu : la dernière entrée vient de ton nginx, et le client ne peut pas la changer. Tout ce qui précède a été envoyé par le client et peut contenir n’importe quel texte, comme l’avis Litestar l’a montré avec 192.168.1.100, .101 et .102.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire tourner un nginx de bord et deux nginx internes avec realip, envoyer des en-têtes `X-Forwarded-For` falsifiés, et voir quelle adresse gagne.',
+		steps: [
+			'Crée la config : `mkdir -p ~/rp-lab/conf && cd ~/rp-lab`, puis mets cette seule ligne dans `conf/default.conf`. Le port 8090 est le bord, 8091 un serveur interne avec `real_ip_recursive off`, 8092 le même avec `on` : `server { listen 8090; location / { proxy_pass http://127.0.0.1:8091; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; } } server { listen 8091; set_real_ip_from 127.0.0.1; set_real_ip_from 10.0.1.0/24; real_ip_header X-Forwarded-For; return 200 "remote_addr=$remote_addr xff=$http_x_forwarded_for\\n"; } server { listen 8092; set_real_ip_from 127.0.0.1; set_real_ip_from 10.0.1.0/24; real_ip_header X-Forwarded-For; real_ip_recursive on; return 200 "remote_addr=$remote_addr xff=$http_x_forwarded_for\\n"; }`',
+			'Démarre-le : `docker run -d --rm --name rp-lab -p 8090:8090 -p 8091:8091 -v "$PWD/conf:/etc/nginx/conf.d:ro" nginx:1.27-alpine`.',
+			'Falsifie un en-tête via le bord : `curl -s localhost:8090/ -H "X-Forwarded-For: 192.168.1.100"`. Puis envoie le même en-tête directement au serveur interne : `curl -s localhost:8091/ -H "X-Forwarded-For: 192.168.1.100"`.',
+			'Rejoue la tâche depuis l’intérieur du conteneur, où le pair est le 127.0.0.1 de confiance : `docker exec rp-lab wget -qO- --header "X-Forwarded-For: 192.168.1.100, 198.51.100.23, 10.0.1.10" http://127.0.0.1:8091/`, puis pareil avec le port 8092. Nettoie avec `docker rm -f rp-lab`.'
+		],
+		done: [
+			'Via le bord, `xff` se termine par l’adresse de ta passerelle Docker (par exemple `192.168.1.100, 172.17.0.1` sous Linux), et `remote_addr` vaut cette passerelle, pas 192.168.1.100.',
+			'En direct sur le port 8091, `remote_addr` vaut l’adresse de la passerelle et l’en-tête falsifié est ignoré.',
+			'Le port 8091 depuis l’intérieur affiche `remote_addr=10.0.1.10`, et le port 8092 affiche `remote_addr=198.51.100.23`.'
+		],
+		solution: [
+			'Le bord ajoute le pair qu’il a vu avec `$proxy_add_x_forwarded_for`. Le serveur interne fait confiance à 127.0.0.1, prend la dernière entrée, et la première entrée falsifiée n’est jamais lue.',
+			'Depuis ta machine, le pair du port 8091 est la passerelle Docker, absente de `set_real_ip_from`. nginx ignore l’en-tête : un client qui contourne ton proxy ne peut rien falsifier.',
+			'Avec `off`, nginx prend une entrée : le proxy de bord 10.0.1.10. Avec `on`, il passe le 10.0.1.10 de confiance et s’arrête sur 198.51.100.23, la première adresse hors confiance.'
+		]
+	},
 	recall: {
 		q: 'Comment le module realip de nginx choisit-il l’adresse du client dans `X-Forwarded-For`, et qu’est-ce qui écarte une fausse entrée ?',
 		a: 'Il part du pair TCP et lit la liste depuis la droite. Il prend une entrée tant que l’adresse qu’il tient est dans `set_real_ip_from`, et s’arrête à la première hors confiance : une fausse première entrée comme 192.168.1.100 n’est jamais atteinte.'

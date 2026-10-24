@@ -117,6 +117,44 @@ ngx_http_get_forwarded_addr_internal(ngx_http_request_t *r, ngx_addr_t *addr,
 			'With `real_ip_recursive off`: the peer 10.0.2.20 is trusted, so nginx takes the last entry, 10.0.1.10, and stops. `$remote_addr` is 10.0.1.10, the edge proxy, which is wrong for logging.',
 			'With `real_ip_recursive on`: 10.0.1.10 is in `10.0.1.0/24`, so the loop continues with the next entry from the right, 198.51.100.23. That address is not trusted, so the walk stops there: `$remote_addr` is 198.51.100.23.',
 			'192.168.1.100 is never used in either case. The client wrote it, and the walk stops at the first untrusted entry before reaching it.'
+		],
+		steps: [
+			{
+				title: 'Start from the TCP peer',
+				questions: [
+					{ q: 'Which address does the realip module check first?', options: ['The TCP peer, 10.0.2.20', 'The first entry, 192.168.1.100', 'The last entry, 10.0.1.10', 'The middle entry, 198.51.100.23'], answer: 0, why: 'The module starts with `addr` set to the connection\'s peer address. The header is read only if that peer is trusted.' },
+					{ q: 'Is the peer 10.0.2.20 trusted?', options: ['No: it is private, but private does not mean listed', 'Yes: it is inside `10.0.2.0/24`', 'Only with `real_ip_recursive on`', 'Yes: every 10.x address is trusted by default'], answer: 1, why: '`set_real_ip_from 10.0.2.0/24;` covers 10.0.2.20, so nginx goes on to read the header.' },
+					{ q: 'What would nginx do if the peer were not in a trusted range?', options: ['Take the first entry of the header', 'Take the last entry anyway', 'Ignore the header and keep the peer address', 'Reject the request with `400`'], answer: 2, why: 'Line 13 returns `NGX_DECLINED` on the first pass, and nginx ignores the header completely.' },
+					{ q: 'In which direction does nginx read `X-Forwarded-For`?', options: ['From left to right, first entry first', 'It picks the entry that appears most often', 'It picks the first private address', 'From right to left, last entry first'], answer: 3, why: 'Lines 17 to 28 start at the end of the header and move back to the previous comma.' }
+				]
+			},
+			{
+				title: 'Walk with `real_ip_recursive off`',
+				questions: [
+					{ q: 'Which entry does nginx take?', options: ['198.51.100.23', '10.0.1.10, the last entry', '192.168.1.100', 'None: the header is ignored'], answer: 1, why: 'The peer is trusted, so nginx parses the last entry of the list: 10.0.1.10.' },
+					{ q: 'Does nginx then check 10.0.1.10 against the trusted list?', options: ['No: with `off`, it stops after one entry', 'Yes, and it goes on to the next entry', 'Yes, and it rejects the request', 'Only if the entry is a private address'], answer: 0, why: 'The loop on line 40 runs again only when `recursive` is set. With `off`, one entry is all it reads.' },
+					{ q: 'So what is `$remote_addr` with `real_ip_recursive off`?', options: ['10.0.2.20', '198.51.100.23', '192.168.1.100', '10.0.1.10'], answer: 3, why: 'nginx replaced the peer address with the last entry, then stopped.' },
+					{ q: 'Why is that result wrong for logging?', options: ['It is the forged entry', 'It is the inner nginx itself', 'It is the edge proxy, not the client', 'It is not a valid address'], answer: 2, why: '10.0.1.10 is your own edge nginx. Every request would seem to come from it.' }
+				]
+			},
+			{
+				title: 'Walk with `real_ip_recursive on`',
+				questions: [
+					{ q: 'nginx holds 10.0.1.10. Which trusted range covers it?', options: ['`10.0.2.0/24`, the peer range', 'None, so the walk stops', '`10.0.1.0/24`, so the walk goes on', 'Both ranges at once'], answer: 2, why: 'With `recursive on`, the new address goes through the trust check again. 10.0.1.10 is inside `10.0.1.0/24`.' },
+					{ q: 'Which entry comes next from the right?', options: ['198.51.100.23', '192.168.1.100', '10.0.2.20', 'The walk restarts from the left'], answer: 0, why: 'The walk moves one entry left each pass. Before 10.0.1.10 comes 198.51.100.23.' },
+					{ q: 'Is 198.51.100.23 trusted?', options: ['Yes: public addresses are trusted', 'Yes: it appears in the header', 'No, so nginx falls back to the peer 10.0.2.20', 'No, so the walk stops and it becomes `$remote_addr`'], answer: 3, why: 'It is in neither `set_real_ip_from` range. The walk stops at the first untrusted entry and keeps it.' },
+					{ q: 'So what is `$remote_addr` with `real_ip_recursive on`?', options: ['10.0.1.10', '198.51.100.23', '192.168.1.100', '10.0.2.20'], answer: 1, why: 'The walk skipped the trusted edge proxy and stopped at the first address that is not one of yours: the client.' }
+				]
+			},
+			{
+				title: 'Check the forged entry',
+				questions: [
+					{ q: 'Is 192.168.1.100 used with either setting?', options: ['Yes, with `real_ip_recursive on`', 'Yes, with `real_ip_recursive off`', 'Yes, with both', 'No: the walk stops before it gets there'], answer: 3, why: 'Both walks stop at or before 198.51.100.23, so the leftmost entry is never read.' },
+					{ q: 'Who wrote 192.168.1.100 into the header?', options: ['The edge nginx', 'The client', 'The inner nginx', 'The app'], answer: 1, why: 'Each proxy appends the peer it saw. The entry left of the client\'s real address can only come from the client.' },
+					{ q: 'An app reads the first `X-Forwarded-For` entry. What does it get?', options: ['192.168.1.100, which the client can change on every request', '198.51.100.23, the real client', '10.0.1.10, the edge proxy', '10.0.2.20, the inner peer'], answer: 0, why: 'That is the Litestar bug: each forged value became a new rate limit bucket.' },
+					{ q: 'Which setting fits this inner nginx, with two proxy hops?', options: ['`real_ip_recursive off`, so it reads one entry only', '`set_real_ip_from 0.0.0.0/0`, to trust every hop', '`real_ip_recursive on`, so it skips over its own proxies', 'No `set_real_ip_from`, to read the header as is'], answer: 2, why: 'With two trusted hops, `on` walks past the edge proxy and stops at the client. Trusting everything would let the client\'s entry win.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,26 @@ ngx_http_get_forwarded_addr_internal(ngx_http_request_t *r, ngx_addr_t *addr,
 			why: 'Each proxy appends the peer address it saw, so the last entry comes from your nginx and the client cannot change it. Everything before it was sent by the client and can be any text, as the Litestar advisory showed with 192.168.1.100, .101 and .102.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run an edge nginx and two inner nginx servers with realip, send forged `X-Forwarded-For` headers, and see which address wins.',
+		steps: [
+			'Create the config: `mkdir -p ~/rp-lab/conf && cd ~/rp-lab`, then put this one line in `conf/default.conf`. Port 8090 is the edge, 8091 an inner server with `real_ip_recursive off`, 8092 the same with `on`: `server { listen 8090; location / { proxy_pass http://127.0.0.1:8091; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; } } server { listen 8091; set_real_ip_from 127.0.0.1; set_real_ip_from 10.0.1.0/24; real_ip_header X-Forwarded-For; return 200 "remote_addr=$remote_addr xff=$http_x_forwarded_for\\n"; } server { listen 8092; set_real_ip_from 127.0.0.1; set_real_ip_from 10.0.1.0/24; real_ip_header X-Forwarded-For; real_ip_recursive on; return 200 "remote_addr=$remote_addr xff=$http_x_forwarded_for\\n"; }`',
+			'Start it: `docker run -d --rm --name rp-lab -p 8090:8090 -p 8091:8091 -v "$PWD/conf:/etc/nginx/conf.d:ro" nginx:1.27-alpine`.',
+			'Forge a header through the edge: `curl -s localhost:8090/ -H "X-Forwarded-For: 192.168.1.100"`. Then send the same header straight to the inner server: `curl -s localhost:8091/ -H "X-Forwarded-For: 192.168.1.100"`.',
+			'Replay the task from inside the container, where the peer is the trusted 127.0.0.1: `docker exec rp-lab wget -qO- --header "X-Forwarded-For: 192.168.1.100, 198.51.100.23, 10.0.1.10" http://127.0.0.1:8091/`, then the same with port 8092. Clean up with `docker rm -f rp-lab`.'
+		],
+		done: [
+			'Through the edge, `xff` ends with your Docker gateway address (for example `192.168.1.100, 172.17.0.1` on Linux), and `remote_addr` is that gateway address, not 192.168.1.100.',
+			'Straight to port 8091, `remote_addr` is the gateway address and the forged header is ignored.',
+			'Port 8091 from inside prints `remote_addr=10.0.1.10`, and port 8092 prints `remote_addr=198.51.100.23`.'
+		],
+		solution: [
+			'The edge appends the peer it saw with `$proxy_add_x_forwarded_for`. The inner server trusts 127.0.0.1, takes the last entry, and the forged first entry is never read.',
+			'From your host, the peer of port 8091 is the Docker gateway, which is not in `set_real_ip_from`. nginx ignores the header, so a client that skips your proxy cannot spoof anything.',
+			'With `off`, nginx takes one entry: the edge proxy 10.0.1.10. With `on`, it walks past the trusted 10.0.1.10 and stops at 198.51.100.23, the first untrusted address.'
+		]
+	},
 	recall: {
 		q: 'How does nginx\'s realip module pick the client address out of `X-Forwarded-For`, and what stops a forged entry?',
 		a: 'It starts from the TCP peer and reads the list from the right. It takes an entry only while the address it holds is in `set_real_ip_from`, and stops at the first untrusted one, so a forged first entry like 192.168.1.100 is never reached.'

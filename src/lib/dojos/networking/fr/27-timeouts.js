@@ -124,6 +124,44 @@ export default {
 			'Le service B n’a pas d’`IdleTimeout`, donc Go prend `ReadTimeout` : "If zero, the value of ReadTimeout is used." Il ferme les connexions inactives après 10 s, ce qui rend la course encore plus probable que chez A.',
 			'Le service C ferme après 120 s, plus tard que les 60 s du balancer. Le balancer ferme toujours en premier : C ne risque rien. Son `ReadHeaderTimeout` de 5 s ne limite que la lecture des en-têtes de chaque requête et ne joue aucun rôle ici.',
 			'Corrige A et B en mettant `IdleTimeout` au-dessus de 60 s, par exemple `IdleTimeout: 75 * time.Second`.'
+		],
+		steps: [
+			{
+				title: 'Trouve chaque idle timeout',
+				questions: [
+					{ q: 'Après combien de secondes d’inactivité le service A ferme-t-il une connexion ?', options: ['30 s', '60 s', 'Jamais : il n’a pas de limite', '120 s'], answer: 0, why: '`IdleTimeout: 30 * time.Second` est posé directement sur A.' },
+					{ q: 'Le service B n’a pas d’`IdleTimeout`. Que prend Go à la place ?', options: ['Aucune limite : les connexions inactives restent ouvertes pour de bon', '`ReadTimeout`, donc 10 s', 'Une valeur par défaut intégrée de 60 s', '`ReadHeaderTimeout`, que B ne pose pas'], answer: 1, why: 'Le commentaire dit : "If zero, the value of ReadTimeout is used." B a `ReadTimeout: 10 * time.Second`.' },
+					{ q: 'Après combien de secondes d’inactivité le service C ferme-t-il ?', options: ['5 s, via `ReadHeaderTimeout`', '60 s, comme le balancer', '120 s', '10 s, comme B'], answer: 2, why: 'C pose lui-même `IdleTimeout: 120 * time.Second`, donc aucun repli ne s’applique.' },
+					{ q: 'Que limite le `ReadHeaderTimeout` de 5 s de C ?', options: ['Le temps d’inactivité entre deux requêtes', 'Le temps d’écrire toute la réponse', 'La connexion TCP depuis le balancer', 'Le temps de lire les en-têtes de chaque requête'], answer: 3, why: 'Il ne couvre que la lecture des en-têtes de la requête. Il ne joue aucun rôle dans la course à l’inactivité.' }
+				]
+			},
+			{
+				title: 'Compare avec le balancer',
+				questions: [
+					{ q: 'Quel côté doit fermer une connexion inactive en premier ?', options: ['L’appli, pour que le balancer n’attende jamais', 'Le balancer, donc l’idle timeout de l’appli doit être plus long', 'L’un ou l’autre, tant que les deux restent sous 60 s', 'Aucun : il faut couper le keep-alive'], answer: 1, why: 'AWS recommande un idle timeout d’appli "larger than the idle timeout configured for the load balancer". Le balancer n’écrit alors jamais sur une connexion que l’appli a fermée.' },
+					{ q: 'Le service A peut-il produire la course aux 502 ?', options: ['Oui : il ferme à 30 s, et le balancer peut réutiliser la connexion jusqu’à 60 s', 'Non : 30 s est la moitié de 60 s, donc ils ne se croisent jamais', 'Non : Go retente la requête pour le balancer', 'Seulement quand l’appli est très chargée'], answer: 0, why: 'Entre 30 s et 60 s d’inactivité, le balancer croit la connexion utilisable alors que A l’a fermée.' },
+					{ q: 'Le service B peut-il la produire ?', options: ['Non : `ReadTimeout` ne couvre que la lecture d’une requête', 'Non : sans `IdleTimeout`, il ne ferme jamais', 'Seulement pour les requêtes POST', 'Oui : il ferme à 10 s, encore plus probable que A'], answer: 3, why: 'Le repli donne à B un idle timeout de 10 s. L’écart jusqu’aux 60 s du balancer est plus large que pour A.' },
+					{ q: 'Le service C peut-il la produire ?', options: ['Oui : 120 s, c’est trop long', 'Oui : `ReadHeaderTimeout` ferme les connexions inactives à 5 s', 'Non : le balancer ferme en premier, à 60 s', 'Seulement quand le balancer redémarre'], answer: 2, why: 'C garde les connexions inactives plus longtemps que le balancer, donc seul le balancer les ferme.' }
+				]
+			},
+			{
+				title: 'Visualise la course',
+				questions: [
+					{ q: 'Qu’est-ce qui se passe mal dans la course ?', options: ['Le balancer écrit une requête sur une connexion que l’appli vient de fermer', 'Le balancer ouvre plus de connexions que l’appli n’en accepte', 'L’appli met plus de 60 s à répondre', 'Le health check marque l’appli comme down'], answer: 0, why: 'Le FIN de l’appli est encore en route quand le balancer choisit la connexion inactive et écrit dessus.' },
+					{ q: 'Que reçoit le client ?', options: ['Un `504 Gateway Timeout` après 60 s', 'Un `200` en retard', 'Un `502 Bad Gateway`', 'Une connexion refusée'], answer: 2, why: 'La requête reçoit un RST ou un FIN au lieu d’une réponse, et le balancer en fait un 502.' },
+					{ q: 'Pourquoi le journal de l’appli est-il vide à ce moment-là ?', options: ['Ses journaux perdent des requêtes sous charge', 'Elle n’a jamais lu la requête', 'Elle a planté puis redémarré', 'La requête est partie vers une autre instance'], answer: 1, why: 'L’appli avait déjà fermé le socket. La requête n’a jamais atteint son code HTTP.' },
+					{ q: 'Pourquoi B risque-t-il la course plus que A ?', options: ['Il a un `ReadTimeout`, A non', 'Ses requêtes sont plus grosses', 'Il tourne sur une autre version de Go', 'Il ferme à 10 s, donc la fenêtre à risque jusqu’à 60 s fait 50 s au lieu de 30 s'], answer: 3, why: 'Toute réutilisation entre la fermeture par l’appli et les 60 s du balancer peut tomber dans la course. Plus l’appli ferme tôt, plus la fenêtre est large.' }
+				]
+			},
+			{
+				title: 'Corrige',
+				questions: [
+					{ q: 'Comment corriger A et B ?', options: ['Mettre l’idle timeout du balancer à 120 s', 'Mettre `ReadTimeout: 0` sur les deux', 'Mettre `IdleTimeout` au-dessus de 60 s, par exemple `75 * time.Second`', 'Ajouter un retry dans chaque client du balancer'], answer: 2, why: 'Un idle timeout d’appli au-dessus de celui du balancer veut dire que seul le balancer ferme les connexions inactives.' },
+					{ q: 'B a maintenant `IdleTimeout: 75 * time.Second`. Que fait encore son `ReadTimeout` de 10 s ?', options: ['Il limite toujours la lecture de chaque requête, mais ne fixe plus le temps d’inactivité', 'Il ferme toujours les connexions inactives à 10 s', 'Il faut le retirer, sinon il écrase `IdleTimeout`', 'Il passe lui aussi à 75 s'], answer: 0, why: 'Le repli ne s’applique que si `IdleTimeout` vaut zéro. Une fois posé, `ReadTimeout` ne couvre plus que la lecture de la requête.' },
+					{ q: 'Tu ajoutes nginx entre le balancer et l’appli. Que dois-tu ordonner en plus ?', options: ['Rien : nginx supprime la course', '`proxy_read_timeout` au-dessus de 60 s', 'Le timeout client de nginx égal à celui de l’appli', 'Le `keepalive_timeout` upstream de nginx (60 s par défaut) sous celui de l’appli'], answer: 3, why: 'nginx ajoute une seconde connexion, donc une seconde paire d’idle timeouts. Le côté qui réutilise les connexions doit fermer en premier.' },
+					{ q: 'Un client Go tombe dans la course avec un `GET` sur une connexion réutilisée. Que fait le `Transport` de Go ?', options: ['Il renvoie l’erreur à ton code', 'Il renvoie la requête sur une nouvelle connexion', 'Il attend 60 s, puis réessaie', 'Il réessaie sur la même connexion'], answer: 1, why: '`errServerClosedIdle` sur une connexion réutilisée donne lieu à un nouvel essai, et un `GET` est rejouable. Un `POST` simple ne le serait pas.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,27 @@ export default {
 			why: '`shouldRetryRequest` renvoie false pour une requête non rejouable avant d’arriver au cas `errServerClosedIdle`. `isReplayable` accepte GET, HEAD, OPTIONS, TRACE et QUERY, ou une requête avec `Idempotency-Key`. Sur une connexion neuve, `pc.isReused()` vaut false et la fonction renvoie false avant tous ces tests.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Mesurer quand un serveur Node.js ferme une connexion keep-alive inactive, relever cette limite, et voir un timeout total côté client couper un appel lent.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/timeout-lab && cd ~/timeout-lab`. Crée `server.js` avec cette ligne : `const s = require(\'http\').createServer((q, r) => { if (q.url === \'/slow\') setTimeout(() => r.end(\'slow\\n\'), 8000); else r.end(\'ok\\n\'); }); if (process.env.KA) s.keepAliveTimeout = Number(process.env.KA); s.listen(3000, () => console.log(\'keepAliveTimeout\', s.keepAliveTimeout));`',
+			'Crée `idle.js`, un client qui envoie une requête puis reste inactif : `const t = Date.now(); const c = require(\'net\').connect(3000, \'localhost\', () => c.write(\'GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\')); c.on(\'data\', () => {}); c.on(\'close\', () => { console.log(\'server closed the idle connection after\', ((Date.now() - t) / 1000).toFixed(1), \'s\'); process.exit(); }); setTimeout(() => { console.log(\'still open at 30 s\'); process.exit(); }, 30000);`',
+			'Lance `node server.js` dans un terminal et `node idle.js` dans un autre.',
+			'Appelle l’endpoint lent avec et sans timeout total : `curl -sS --max-time 5 localhost:3000/slow`, puis `curl -sS localhost:3000/slow -w "%{time_total}\\n"`.',
+			'Arrête le serveur, relance-le avec `KA=65000 node server.js`, et relance `node idle.js`.'
+		],
+		done: [
+			'Avec les valeurs par défaut, le serveur affiche `keepAliveTimeout 5000` et `idle.js` affiche `server closed the idle connection after` environ 6 s, par exemple `6.1 s` (environ 5 s avec un Node antérieur à 24.6).',
+			'`curl --max-time 5` échoue avec `curl: (28) Operation timed out after` environ 5000 millisecondes `with 0 bytes received`, et l’appel sans limite affiche `slow` après environ 8 s.',
+			'Avec `KA=65000`, `idle.js` affiche `still open at 30 s`.'
+		],
+		solution: [
+			'Node.js détruit un socket inactif après `keepAliveTimeout` plus `keepAliveTimeoutBuffer` : 5 s plus 1 s. Un balancer avec un idle timeout de 60 s continuerait d’utiliser cette connexion pendant 54 s : la fenêtre de la course.',
+			'`--max-time` est un timeout total comme le `Client.Timeout` de Go : il couvre tout l’appel, donc l’endpoint de 8 s échoue à 5 s.',
+			'65 s dépasse un balancer à 60 s, donc le balancer fermerait toujours en premier.'
+		]
+	},
 	recall: {
 		q: 'Quel idle timeout doit être le plus long, celui du load balancer ou celui de l’appli, et que se passe-t-il dans l’autre sens ?',
 		a: 'Celui de l’appli, par exemple 65 s contre 60 s pour le balancer. Si l’appli ferme en premier (Node.js : 5 s plus 1 s de marge par défaut), le balancer peut envoyer une requête sur une connexion que l’appli vient de fermer et renvoie un 502.'

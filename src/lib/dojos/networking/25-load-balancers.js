@@ -100,6 +100,44 @@ backend apiserverbackend
 			'(1) 8 connections in turn over 3 servers: 3, 3 and 2. Each server serves every request sent on its own connections, so a busy connection loads its server more.',
 			'(2) Nothing. All 8 connections already have a server, and `roundrobin` runs again only for a new connection. The 4th server waits until a caller restarts or a connection drops and reopens.',
 			'(3) In `mode http`, HAProxy picks a server for each request. The new server gets about a quarter of the requests as soon as it is up, with the same 8 client connections.'
+		],
+		steps: [
+			{
+				title: 'Count the connections',
+				questions: [
+					{ q: 'How many long-lived connections reach HAProxy?', options: ['8: 2 services with 4 each', '4: the two pools are shared', '2: one per service', '12: 4 for each server'], answer: 0, why: 'Each of the 2 services opens a pool of 4 connections at startup and keeps them.' },
+					{ q: 'In `mode tcp`, when does `roundrobin` pick a server?', options: ['For every request on the connection', 'Once, when a connection opens', 'At every health check', 'Each time a server is added'], answer: 1, why: 'In `mode tcp` HAProxy sees only addresses and ports, so it picks once per connection and then copies bytes.' },
+					{ q: 'How do the 8 connections spread over the 3 servers?', options: ['4, 2 and 2', '8, 0 and 0', '3, 3 and 2', '8 on each server'], answer: 2, why: '`roundrobin` hands out the 8 connections in turn: servers 1, 2, 3, 1, 2, 3, 1, 2.' },
+					{ q: 'Do the 3 servers then get the same share of requests?', options: ['Yes: `roundrobin` evens out the requests', 'Yes: HAProxy moves requests to the least busy server', 'No: the first server gets them all', 'No: each serves what its own connections carry, so a busy connection loads its server more'], answer: 3, why: 'HAProxy makes no new choice inside a connection. Load follows connections, not requests.' }
+				]
+			},
+			{
+				title: 'Add the 4th server',
+				questions: [
+					{ q: 'The 4th server passes its health check. How many of the 8 connections move to it?', options: ['None', '2 of them', 'All 8', 'Half of them'], answer: 0, why: 'Every connection already has a server, and nothing in `mode tcp` moves an open connection.' },
+					{ q: 'Why?', options: ['HAProxy waits for a warm-up period first', '`roundrobin` runs again only for a new connection', 'The health check needs a second pass', 'The config must be reloaded first'], answer: 1, why: 'The algorithm runs at connect time. No new connection means no new choice.' },
+					{ q: 'What finally sends traffic to the 4th server?', options: ['The next request on any connection', 'A switch to `balance source`', 'A caller that restarts, or a connection that drops and reopens', 'Its health check passing a second time'], answer: 2, why: 'Only a new connection runs `roundrobin` again and can land on the new server.' },
+					{ q: 'Which measurement in the hook shows the same effect?', options: ['`mode tcp`: 100 requests on one keep-alive connection went 100 to `web1`, 0 to `web2`', '`mode http`: 50 requests to each server', 'A new connection per request split 50/50', 'The kubeadm `/healthz` probe expects `200`'], answer: 0, why: 'One long connection stayed on one server. `web2` was up and got nothing, like the 4th server here.' }
+				]
+			},
+			{
+				title: 'Switch to `mode http`',
+				questions: [
+					{ q: 'In `mode http`, when does HAProxy pick a server?', options: ['Once per client connection', 'Once per minute', 'Only when a server is added', 'For each request'], answer: 3, why: 'In `mode http` HAProxy parses each request, and `balance` runs for each one.' },
+					{ q: 'How much traffic does the 4th server get once it is up?', options: ['None until a caller restarts', 'About a quarter of the requests, right away', 'Every new request, until it catches up', 'Half of the requests'], answer: 1, why: 'With 4 servers and a choice per request, `roundrobin` gives each about a quarter.' },
+					{ q: 'Do the 2 services need to change their 8 connections?', options: ['No: the same 8 client connections work, HAProxy picks per request', 'Yes: they must reconnect after each request', 'Yes: they must turn off keep-alive', 'Yes: they need one connection per server'], answer: 0, why: 'In the hook, one keep-alive connection was split 50/50 in `mode http`. The client side does not change.' },
+					{ q: 'What does `mode http` do with a request that is not RFC-compliant?', options: ['It forwards it as raw bytes', 'It sends it to the first server', 'It rejects it', 'It retries it on another server'], answer: 2, why: 'The manual says HAProxy rejects any request "which is not RFC-compliant" in `mode http`.' }
+				]
+			},
+			{
+				title: 'Weigh the cost',
+				questions: [
+					{ q: 'The API uses HTTPS. What must HAProxy do in `mode http`?', options: ['Nothing more than in `mode tcp`', 'Terminate TLS, so it holds the keys and decrypts', 'Ask each client for a certificate', 'Read the path from the SNI'], answer: 1, why: 'The request is inside the TLS stream. To parse it, HAProxy must decrypt it.' },
+					{ q: 'Would `balance source` in `mode tcp` fix the 4th server problem?', options: ['No: it still picks per connection, and a change in server count moves many clients', 'Yes: it spreads requests by source IP', 'Yes: it rebalances open connections', 'No: `balance source` only works in `mode http`'], answer: 0, why: 'It hashes the source at connect time. The manual warns that when the number of servers changes, many clients go to a different server.' },
+					{ q: 'Which is a real reason to keep `mode tcp`?', options: ['It spreads requests better than `mode http`', 'It can insert a persistence cookie', 'It can route on the request path', 'No certificate on the balancer: TLS passes through, as in kubeadm'], answer: 3, why: 'The kubeadm setup uses `mode tcp` so the TLS session runs from `kubectl` to the API server.' },
+					{ q: 'In `mode http`, how do you keep one user on one server if you need to?', options: ['With `balance source` only', 'You cannot in `mode http`', 'With a cookie, such as `cookie SRV insert indirect nocache`', 'With `mode tcp` on the backend'], answer: 2, why: 'HAProxy inserts a cookie in the first response, and later requests that carry it go to the same server.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -137,6 +175,27 @@ backend apiserverbackend
 			why: 'In `mode tcp` HAProxy copies the TLS stream without decrypting it, so the TLS session runs from the client to the API server. The same backend still runs a TLS `GET /healthz` probe with `http-check connect ssl`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run HAProxy in `mode tcp` and `mode http` in front of two servers, and count where 100 keep-alive requests land.',
+		steps: [
+			'Write the config: `mkdir -p ~/lb-lab && cd ~/lb-lab`, then `printf \'defaults\\n  timeout connect 5s\\n  timeout client 30s\\n  timeout server 30s\\nfrontend l4\\n  mode tcp\\n  bind :8401\\n  default_backend b4\\nbackend b4\\n  mode tcp\\n  balance roundrobin\\n  server web1 127.0.0.1:9001\\n  server web2 127.0.0.1:9002\\nfrontend l7\\n  mode http\\n  bind :8402\\n  default_backend b7\\nbackend b7\\n  mode http\\n  balance roundrobin\\n  server web1 127.0.0.1:9001\\n  server web2 127.0.0.1:9002\\n\' > haproxy.cfg`.',
+			'Start two servers that answer with their name, then HAProxy in the same network: `docker run -d --rm --name lb-web -p 8401:8401 -p 8402:8402 node:24-alpine node -e "for (const [p, n] of [[9001, \'web1\'], [9002, \'web2\']]) require(\'http\').createServer((q, r) => r.end(n + \'\\n\')).listen(p)"`, then `docker run -d --rm --name lb --network container:lb-web -v "$PWD/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0`.',
+			'Send 100 requests on one keep-alive connection through `mode tcp`. curl reuses the connection for a URL range: `curl -s "localhost:8401/[1-100]" | sort | uniq -c`.',
+			'Do the same through `mode http`: `curl -s "localhost:8402/[1-100]" | sort | uniq -c`.',
+			'Back on `mode tcp`, open a new connection for each request: `for i in $(seq 1 10); do curl -s localhost:8401/; done | sort | uniq -c`. Clean up with `docker rm -f lb lb-web`.'
+		],
+		done: [
+			'Port 8401 with one connection prints `100 web1` and no `web2` line.',
+			'Port 8402 prints `50 web1` and `50 web2`.',
+			'The loop on port 8401 prints `5 web1` and `5 web2`.'
+		],
+		solution: [
+			'`mode tcp` runs `roundrobin` once, when the connection opens, and then copies bytes. All requests on that connection reach the same server.',
+			'`mode http` parses each request and runs `balance` for each one, so one connection is split evenly.',
+			'With a new connection per request, `mode tcp` alternates too. That is why the 4th server in the task waits for new connections.'
+		]
+	},
 	recall: {
 		q: 'With `balance roundrobin`, when does HAProxy choose a server in `mode tcp`, and when in `mode http`?',
 		a: 'In `mode tcp`, once per TCP connection: 100 requests on one keep-alive connection all went to `web1`. In `mode http`, for each request: the same client was split 50/50.'

@@ -162,9 +162,9 @@ export default {
 			{
 				title: 'Arrête plus tôt',
 				questions: [
-					{ q: 'Quelle est la valeur par défaut de `max_iteration_per_run` dans OpenHands ?', options: ['30', '500', '6', 'Aucune : il n’y a pas de plafond'], answer: 1, why: 'Elle vaut 500, et 500 pas d’un agent bloqué font 500 appels au modèle, chacun renvoyant l’historique.' },
+					{ q: 'Chaque paire `run_tests` et `edit` de plus coûte plus que la précédente. Pourquoi ?', options: ['OpenHands augmente le prix après 3 répétitions', 'Chaque pas renvoie tout l’historique, qui grossit à chaque observation', 'Le modèle réfléchit plus longtemps quand il est bloqué', 'Les appels d’outils répétés sont facturés deux fois'], answer: 1, why: 'Chaque pas renvoie tout l’historique : l’entrée, et donc le prix de l’appel suivant, grossit à chaque observation.' },
 					{ q: 'Quel `max_iteration_per_run` convient mieux que la valeur par défaut pour corriger un seul test ?', options: ['5 000', '500, la valeur par défaut', 'Autour de 30', 'Aucun, pour le laisser finir'], answer: 2, why: 'Un plafond plus bas arrête une exécution bloquée bien avant 500 pas.' },
-					{ q: 'Quel réglage plafonne l’exécution en dollars ?', options: ['`max_budget_per_run`, désactivé par défaut', '`max_tokens`', '`max_iterations` dans le SDK', '`threshold`'], answer: 0, why: 'L’atteindre met `ERROR` avec `MaxBudgetReached`, quoi que décide le modèle.' },
+					{ q: 'L’exécution atteint ton plafond de 30 pas. Avec quel statut se termine-t-elle ?', options: ['`ERROR`, avec le code `MaxIterationsReached`', '`STUCK`', '`FINISHED`', '`PAUSED`'], answer: 0, why: 'La vérification d’itérations pose `ERROR` et émet `MaxIterationsReached`. `STUCK` ne vient que du détecteur de blocage, et `FINISHED` que du modèle.' },
 					{ q: 'Comment rendre moins probable que le modèle répète la même édition ?', options: ['Monter la température', 'Masquer la sortie des tests', 'Retirer l’outil `edit`', 'Faire renvoyer à `run_tests` l’assertion et le diff'], answer: 3, why: 'Une information nouvelle après chaque édition donne au modèle une raison de changer son prochain pas.' }
 				]
 			}

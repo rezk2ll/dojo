@@ -123,7 +123,7 @@ export default {
 				questions: [
 					{ q: 'Does `date.fromisoformat()` accept `strict=True` on Python 3.12?', options: ['Yes, since Python 3.11', 'No: it takes no keyword arguments', 'Yes, but only on dates', 'Only with `from __future__ import strict`'], answer: 1, why: 'The keyword does not exist, so this is an invented API.' },
 					{ q: 'What does the new line do with a valid date such as `"2024-02-01"`?', options: ['Returns `date(2024, 2, 1)`', 'Returns `None`', 'Raises `TypeError`', 'Raises `ValueError`'], answer: 2, why: 'The call fails on the keyword argument before it reads the string, so every input raises.' },
-					{ q: 'How do you check a new keyword argument in a review?', options: ['Trust it if the code reads well', 'Find its definition or its docs page', 'Ask the agent if it exists', 'Wait for users to report it'], answer: 1, why: 'For each new import, function, keyword argument or package, find its definition or docs page.' },
+					{ q: 'Which body of `parse_date(s)` fixes the issue on Python 3.12?', options: ['`return date.fromisoformat(s, strict=True)`', '`return date.fromisoformat(s)`', '`return datetime.strptime(s, "%Y-%m-%d") + 1`', '`return date(*map(int, s.split("-")), strict=True)`'], answer: 1, why: 'The standard call with no keyword already raises `ValueError` for `"2024-02-30"`, so the fix is shorter than the agent\'s.' },
 					{ q: 'What does `date.fromisoformat("2024-02-30")` already do on Python 3.12?', options: ['Returns a date in March', 'Returns `None`', 'Raises `TypeError`', 'Raises `ValueError: day is out of range for month`'], answer: 3, why: 'The real fix is shorter: the standard call already rejects that date.' }
 				]
 			},
@@ -133,7 +133,7 @@ export default {
 					{ q: 'Which exceptions does `pytest.raises(Exception)` accept?', options: ['Any subclass of `Exception`, including `TypeError`', 'Only `ValueError`', 'Only exceptions raised by `parse_date`', 'None until you name one'], answer: 0, why: 'Almost every error class inherits from `Exception`, so the test passes on the `TypeError` too.' },
 					{ q: 'Why is CI green?', options: ['The test checks the right behavior', 'CI skipped the new test', 'The `TypeError` satisfies `pytest.raises(Exception)`', 'Python 3.12 accepts `strict=True`'], answer: 2, why: 'The test expects any error, and the broken call raises one for every input.' },
 					{ q: 'How do you prove the test is hollow?', options: ['Read the test name', 'Run `parse_date("2024-02-01")` and see the same `TypeError`', 'Ask the agent to explain it', 'Run CI a second time'], answer: 1, why: 'A valid date fails the same way, so the test passes whether the code is right or broken.' },
-					{ q: 'What is the general way to check a test that guards a fix?', options: ['Count its assertions', 'Run it twice', 'Rename it', 'Undo the fix and run it: it must fail'], answer: 3, why: 'A test that stays green with the fix removed has not tested the fix.' }
+					{ q: 'You change the test to `pytest.raises(ValueError)` and keep the agent\'s `strict=True` line. Does the test pass?', options: ['Yes: any error still counts', 'Yes: `strict=True` raises `ValueError`', 'Only on Python 3.11', 'No: the call raises `TypeError`, which is not a `ValueError`'], answer: 3, why: 'With the precise exception, the test catches the invented keyword and turns red until the body is fixed.' }
 				]
 			},
 			{

@@ -136,7 +136,7 @@ export default {
 			{
 				title: 'Read the reply',
 				questions: [
-					{ q: 'What does `stop_reason: "tool_use"` tell you?', options: ['The model has finished its answer', 'The model waits for tool results from your code', 'Anthropic already ran the tools', 'The reply was cut off by `max_tokens`'], answer: 1, why: '`tool_use` means it waits for tool results. `end_turn` would mean it has finished.' },
+					{ q: 'Your script prints only `content[0]` of this reply. What does it show?', options: ['The weather in Paris', 'The text block, with no weather and no sum', 'The `tool_use` block for `toolu_A`', 'The sum, 42'], answer: 1, why: 'The first block is the text block. Like the script in the hook, it prints a sentence and no result, because no tool has run yet.' },
 					{ q: 'How many tools does your code have to run?', options: ['One: only the first `tool_use` counts', 'Three: one per content block', 'Two: `toolu_A` and `toolu_B`', 'None: the text block already answers'], answer: 2, why: 'The text block is not a call. The two `tool_use` blocks are.' },
 					{ q: 'Where does `get_weather` actually run?', options: ['In your process, with your credentials', 'On Anthropic\'s servers', 'Inside the model', 'In the user\'s browser'], answer: 0, why: 'For a client tool, the model only writes a request. Your code calls the function.' },
 					{ q: 'What does `calculate_sum` return for `{"a": 15, "b": 27}`?', options: ['`1527`', '`"15 + 27"`', 'An error, like the weather call', '`42`'], answer: 3, why: '15 plus 27 is 42. Only the weather service failed.' }
@@ -146,7 +146,7 @@ export default {
 				title: 'Append the assistant reply',
 				questions: [
 					{ q: 'What is the role of the first message you append?', options: ['`user`', '`assistant`', '`system`', '`tool`'], answer: 1, why: 'It is the model\'s own reply, so it goes back as an `assistant` message.' },
-					{ q: 'What content does it hold?', options: ['The three blocks of the reply, unchanged', 'Only the two `tool_use` blocks', 'Only the text block', 'A summary of the reply'], answer: 0, why: 'You append the assistant reply as it came back.' },
+					{ q: 'Which `id`s must that assistant message still carry?', options: ['`toolu_A` and `toolu_B`, so each result has a call to answer', 'Only `toolu_B`, since it succeeded', 'None: ids live only in the results', 'A new id that your code generates'], answer: 0, why: 'Each `tool_use_id` in your results must match a `tool_use` id in the assistant turn right before it.' },
 					{ q: 'Can you drop the text block to save tokens?', options: ['Yes: text blocks are ignored', 'Yes, if you keep the `id`s', 'Only on Opus 5.5', 'No: the assistant message goes back unchanged'], answer: 3, why: 'The results answer that exact reply, so you keep it as it was.' },
 					{ q: 'Where does the assistant message go in `messages`?', options: ['After the tool results', 'In a separate request', 'Right before the user message with the results', 'At the start of the history'], answer: 2, why: 'The results come right after the assistant turn they answer.' }
 				]
@@ -154,16 +154,16 @@ export default {
 			{
 				title: 'Write the two results',
 				questions: [
-					{ q: 'Which field ties a result to its call?', options: ['`tool_use_id`', '`name`', '`id`', '`stop_reason`'], answer: 0, why: 'Each `tool_use_id` matches the `id` of a `tool_use` block.' },
+					{ q: 'The weather call failed. Do you still send a `tool_result` for `toolu_A`?', options: ['Yes: every `tool_use` block gets a result, here one that reports the error', 'No: send only the sum', 'No: start a new request without tools', 'Only if the model asks for the weather again'], answer: 0, why: 'The model asked for two calls, so it waits for two results. A failed call still gets one, with the error in it.' },
 					{ q: 'What is the `content` of the result for `toolu_A`?', options: ['An empty string', '`"42"`', 'Nothing: you skip failed calls', 'The error text, such as "ConnectionError: weather service returned HTTP 500"'], answer: 3, why: 'The model needs to see what went wrong to tell the user.' },
-					{ q: 'Which field marks that the weather call failed?', options: ['`stop_reason: "error"`', '`is_error: true`', '`status: 500`', '`type: "tool_error"`'], answer: 1, why: 'A `tool_result` takes `is_error: true` when the tool failed.' },
+					{ q: 'What is the `content` of the result for `toolu_B`?', options: ['The input `{"a": 15, "b": 27}`', '`"42"`, the sum', 'The text block of the reply', 'The HTTP status of the weather call'], answer: 1, why: 'The result carries what your function returned. `calculate_sum` worked, so its result is the sum.' },
 					{ q: 'What error text helps the model most?', options: ['"Error"', 'An empty string', 'One that says what to try next, like "Retry after 60 seconds."', 'The full stack trace of your server'], answer: 2, why: 'An error that names a next step gives the model something to act on.' }
 				]
 			},
 			{
 				title: 'Package and send',
 				questions: [
-					{ q: 'How many user messages hold the two results?', options: ['Two, one per result', 'One, with both `tool_result` blocks', 'None: results go in the assistant message', 'Three, one per block of the reply'], answer: 1, why: 'All results of one reply go together in a single user message. Separate messages make parallel calls rarer.' },
+					{ q: 'What does the next request send?', options: ['Only the user message with the two results', 'The whole history with the two new messages, and the same `tools`', 'Only the two `tool_result` blocks, without `tools`', 'Only the assistant message'], answer: 1, why: 'Every round trip resends the whole history, plus the tool definitions and the tool system prompt.' },
 					{ q: 'You add a text block "Here are the results:" before the `tool_result` blocks. What happens?', options: ['The model reads it as a hint', 'The API drops the text', 'The model answers the text only', 'The request fails with a 400 error'], answer: 3, why: 'The `tool_result` blocks must come first in the user message.' },
 					{ q: 'Which of the two results carries `is_error: true`?', options: ['Only the one for `toolu_A`', 'Both, since one call failed', 'Only the one for `toolu_B`', 'Neither: HTTP 500 is a normal result'], answer: 0, why: 'Only the weather call failed. The sum is a normal result, `"42"`.' },
 					{ q: 'Which result can the model give the user right away?', options: ['The weather in Paris', 'Neither: one call failed', 'The sum, 42', 'Both'], answer: 2, why: 'The sum succeeded. For the weather, the docs say the model "will retry 2-3 times with corrections before apologizing to the user".' }

@@ -136,15 +136,15 @@ export default {
 				questions: [
 					{ q: 'What does "Restart the device after changing this value." leave out?', options: ['The product and the setting it is about', 'The verb', 'The error code only', 'Nothing: it is complete'], answer: 0, why: 'Like the ACME chunk, it never names what the user searches for.' },
 					{ q: 'Which context do you prepend?', options: ['"Restart the device."', '"This chunk is important."', '"This chunk is from the Model X200 router manual, section on the DNS cache timeout setting."', '"Answer only with the succinct context and nothing else."'], answer: 2, why: 'It names the product and the setting the chunk is about.' },
-					{ q: 'What does the model read to write that context?', options: ['Only the chunk', 'The user\'s question', 'The 20 retrieved chunks', 'The whole manual'], answer: 3, why: 'The model needs the whole document to say which product and setting a chunk is about.' },
-					{ q: 'Where does the context go?', options: ['Only into the BM25 index', 'In front of the chunk, for both the embeddings and the BM25 index', 'In the system prompt at query time', 'After the chunk, in the answer'], answer: 1, why: 'The context comes first, then the original chunk, and that combined text is indexed.' }
+					{ q: 'The X200 manual splits into 400 chunks. How many model calls does adding context take at indexing time?', options: ['One for the whole manual', '20, one per retrieved chunk', 'None: BM25 writes the context', '400, one per chunk'], answer: 3, why: 'The cookbook makes one model call per chunk. Prompt caching on the manual keeps the repeated document cheap.' },
+					{ q: 'Someone rewrites the DNS cache timeout section of the X200 manual. What do you redo?', options: ['Nothing: the old context still fits', 'Generate the context of that manual\'s chunks again, then reindex them', 'Retrain the embedding model', 'Rebuild the BM25 index only'], answer: 1, why: 'Each context is written from the whole document, so an edited document needs its chunk contexts written again.' }
 				]
 			},
 			{
 				title: 'Find "E-4012"',
 				questions: [
-					{ q: 'Which part of the retrieval finds "E-4012"?', options: ['The embedding search', 'BM25', 'The reranker alone', 'The model writing the answer'], answer: 1, why: 'BM25 matches exact strings, like an error code.' },
-					{ q: 'What may the embedding search return for "X200 error E-4012"?', options: ['Chunks about errors in general', 'Nothing at all', 'Only the exact chunk', 'Chunks from the ACME filings'], answer: 0, why: 'Embeddings capture meaning and can miss an exact identifier.' },
+					{ q: 'The query also has the word "X200", which the original chunk never names. Can BM25 match it on this chunk now?', options: ['No: BM25 indexes only the original chunk text', 'Yes: the prepended context names the Model X200, and BM25 indexes the combined text', 'Only the embedding search sees the context', 'No: BM25 skips product names'], answer: 1, why: 'The context and the chunk are indexed as one text, so a word that only the context holds is now an exact match.' },
+					{ q: 'Which chunks can BM25 match on "E-4012"?', options: ['Only those whose text, context included, holds the string "E-4012"', 'Any chunk about errors', 'Any chunk from the X200 manual', 'The chunks closest in meaning to the query'], answer: 0, why: 'BM25 scores exact word matches. A chunk that never contains "E-4012" gets no score for it, however close its topic.' },
 					{ q: 'What do you do with the two searches?', options: ['Keep only BM25', 'Keep only the embeddings', 'Run the embeddings only when BM25 finds nothing', 'Run both and merge the lists with rank fusion'], answer: 3, why: 'Each search finds what the other misses.' },
 					{ q: 'In Anthropic\'s tests, what came after the fusion?', options: ['A second BM25 pass', 'A summary of each chunk', 'A reranker that scored the top 150 chunks and kept 20', 'A larger embedding model'], answer: 2, why: 'With the reranker on top, missed chunks fell to 1.9%.' }
 				]
@@ -154,7 +154,7 @@ export default {
 				questions: [
 					{ q: 'Which block type do you send the chunks in?', options: ['`document`', '`tool_use`', '`thinking`', '`search_result`'], answer: 3, why: 'With citations enabled, each claim then points back to the chunk it came from.' },
 					{ q: 'What goes in `source`?', options: ['The chunk number', 'The manual\'s URL', 'The error code', 'The model name'], answer: 1, why: 'The answer then cites a page the user can open.' },
-					{ q: 'What does a citation in the answer hold?', options: ['The `source` and `title` you sent, and the `cited_text`', 'A confidence score per sentence', 'Only a chunk number', 'A link the API finds in the chunk'], answer: 0, why: 'A `search_result_location` citation copies `source` and `title` and adds `cited_text`.' },
+					{ q: 'The answer cites three manual chunks. Does their `cited_text` add to your output token bill?', options: ['No: `cited_text` does not count toward output tokens', 'Yes, at the output rate', 'Yes, at the input rate', 'Only past 20 citations'], answer: 0, why: '`cited_text` does not count toward output tokens, so citations cost no extra output.' },
 					{ q: 'Why not send 100 chunks to be safe?', options: ['The API caps a request at 20 blocks', 'Citations stop working past 20', '"More information can be distracting for models"', 'BM25 only ranks 20 chunks'], answer: 2, why: 'The post warns that passing more chunks is no fix.' }
 				]
 			}

@@ -146,7 +146,7 @@ def lint_python_compile(fname, code):
 					{ q: '(5) Flag personal data in 300 field names. Which approach fits?', options: ['Only a model, for all 300', 'Only rules, for all 300', 'Rules for the clear names, a model for the unclear ones', 'A person reads all 300'], answer: 2, why: 'Clear names need no judgment, and unclear ones such as `age` need context no rule has.' },
 					{ q: 'Which fields go to the rules?', options: ['`email`, `phone`, `birth_date`', '`age`, `id2`', 'All fields with a number in the name', 'Fields the model is unsure about'], answer: 0, why: 'Their names say what they hold, so a rule can match them every time.' },
 					{ q: 'Why does `age` go to the model?', options: ['It is the longest name', 'Rules cannot read three letters', 'Models are faster on short names', 'It can be a person\'s age or a cache time-to-live'], answer: 3, why: 'Telling those two apart takes context, which is the case Meta keeps the LLM for.' },
-					{ q: 'In Meta\'s funnel, what share of traffic do the rules resolve?', options: ['About 15%', 'Roughly 85%', 'About 50%', 'All of it'], answer: 1, why: 'Rules "resolve the large majority of traffic, roughly 85%, in single-digit milliseconds". The LLM handles the rest.' }
+					{ q: 'Why can no rule decide `id2`?', options: ['It contains a digit', 'Its name does not say what it holds', 'It is too short for a regex', 'Rules only handle numbers'], answer: 1, why: 'A rule needs a name that says what the field holds. `id2` could be anything, so it needs a model with context.' }
 				]
 			},
 			{
@@ -154,7 +154,7 @@ def lint_python_compile(fname, code):
 				questions: [
 					{ q: 'The model gives the same answer for a pattern many times. What do you do?', options: ['A person reviews the pattern and adds it as a rule', 'Let the model keep answering it', 'Remove the pattern from the scan', 'Ask a second model to confirm each time'], answer: 0, why: 'Meta distills what the LLM learns into rules, which shrinks its role over time.' },
 					{ q: 'Why should a person approve a rule that touches personal data?', options: ['Rules cannot run without a signature', 'The model cannot write rules', 'The rule could change how sensitive data is protected', 'It makes the rule faster'], answer: 2, why: 'Meta has a person approve each rule that could change how sensitive data is protected.' },
-					{ q: 'What does a new rule gain over the model path?', options: ['It handles new, unclear names', 'It needs no maintenance', 'It understands context better', 'Milliseconds instead of seconds, and the same answer on replay'], answer: 3, why: 'Meta\'s rules answer in single-digit milliseconds, while the LLM takes seconds and roughly 400 times the compute.' },
+					{ q: 'Before a candidate rule affects any decision, how does Meta test it?', options: ['It asks the LLM to approve it', 'It ships it and watches the error rate', 'It runs it once on today\'s traffic', 'On a held-out reviewed set, then in shadow mode'], answer: 3, why: 'Meta tests every candidate rule on a held-out reviewed set and in shadow mode first, which is part of what each rule costs in people\'s time.' },
 					{ q: 'You keep both paths. How do downstream systems stay simple?', options: ['They call the model again to check', 'Both paths return the same result format', 'They only read rule results', 'They store which path answered and branch on it'], answer: 1, why: 'Meta makes both return the same format, so downstream systems do not need to know which path answered.' }
 				]
 			}

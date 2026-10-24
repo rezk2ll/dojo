@@ -124,7 +124,7 @@ export default {
 			{
 				title: 'Retrouve les fusions apprises',
 				questions: [
-					{ q: 'Combien de fusions `train("aaabdaaabac", 259)` apprend-il ?', options: ['3', '259', '256', '11'], answer: 0, why: '`num_merges = vocab_size - 256` : 259 donne 3 fusions par-dessus les 256 identifiants d’octet.' },
+					{ q: 'Combien d’identifiants la liste contient-elle avant la première fusion de "aaabdaaabac" ?', options: ['11', '259', '3', '256'], answer: 0, why: 'Chacun des 11 caractères tient sur un octet UTF-8 : `list(text_bytes)` donne donc 11 identifiants entre 0 et 255.' },
 					{ q: 'Quelle paire devient l’identifiant 256 ?', options: ['(97, 98), « ab »', '(97, 97), « aa »', '(98, 100), « bd »', '(97, 99), « ac »'], answer: 1, why: '« aa » apparaît 4 fois dans le texte d’entraînement, plus que toute autre paire : il reçoit le premier nouvel identifiant.' },
 					{ q: 'Que construit la fusion 2 ?', options: ['257 = (256, 97), « aaa »', '257 = (100, 256), « daa »', '257 = (256, 256), « aaaa »', '257 = (256, 98), « aab »'], answer: 0, why: 'L’entraînement recompte les paires sur la nouvelle liste, 256 97 98 100 256 97 98 97 99. « aa » suivi de « a » apparaît deux fois et devient 257, comme dans le diagramme.' },
 					{ q: 'Que construit la fusion 3 ?', options: ['258 = (98, 100), « bd »', '258 = (97, 99), « ac »', '258 = (257, 98), « aaab »', '258 = (256, 97), « aaa »'], answer: 2, why: '« aaa » suivi de « b » vient ensuite. Puis l’entraînement s’arrête : on a demandé 3 fusions.' }

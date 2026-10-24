@@ -132,7 +132,7 @@ export default {
 				title: 'Name the bias',
 				questions: [
 					{ q: 'Which bias fits 85 `bug` answers?', options: ['Majority label bias: most examples are `feature`', 'Context rot from a long prompt', 'A hallucinated label', 'Recency bias: the last example is `bug`'], answer: 3, why: 'The model repeats the answer of the example placed last.' },
-					{ q: 'Which result from the 2021 study looks like this?', options: ['Positive, Positive, Positive, Negative gave nearly 90% Negative answers', 'Reordering the examples had no effect', 'More examples always raised accuracy', 'The model refused when the examples disagreed'], answer: 0, why: 'Same shape: three of one label, then one of the other, and the last one wins.' },
+					{ q: 'You only swap the last two examples: `feature`, `feature`, `bug`, `feature`. Which way does recency bias now push?', options: ['Toward `feature`', 'Toward `bug`', 'Nowhere: the labels are the same', 'Toward refusals'], answer: 0, why: 'Recency bias repeats the label of the last example, now `feature`. Majority label bias pushes the same way, so the model would likely miss bugs instead.' },
 					{ q: 'In that study, which bias won?', options: ['Majority label bias beat recency bias', 'Recency bias beat majority label bias', 'The two cancelled out', 'Neither showed up with only 4 examples'], answer: 1, why: 'The last example outweighed the other three.' },
 					{ q: 'In the same study, how far did accuracy move only by reordering the same examples?', options: ['Less than 1 point', 'From 74% to 94%', 'From 54% to 93%', 'From 85% to 90%'], answer: 2, why: 'Order alone can make or break a few-shot prompt. 74% to 94% is the cookbook’s retrieval result, not the order effect.' }
 				]
@@ -143,7 +143,7 @@ export default {
 					{ q: 'How many of each label go in the new set?', options: ['2 `bug` and 2 `feature`', '3 `bug` and 1 `feature`', '4 `feature`', '1 `bug` first, then 3 `feature`'], answer: 0, why: 'A balanced set takes away the pull of the majority label.' },
 					{ q: 'Which order do you test?', options: ['Only `feature`, `feature`, `bug`, `bug`', 'Only the first order you write', '`bug` last, since bugs are the majority', 'Several, such as `bug`, `feature`, `bug`, `feature` and the reverse'], answer: 3, why: 'One order cannot show a recency effect. Comparing a few orders can.' },
 					{ q: 'What should the examples look like?', options: ['All the same length and wording', 'Different in length and wording', 'Copied from the eval set', 'As short as possible'], answer: 1, why: 'The docs ask for examples that "vary enough that Claude doesn\'t pick up unintended patterns".' },
-					{ q: 'How do you mark the examples in the prompt?', options: ['As a bulleted list among the instructions', 'In capital letters', 'Wrapped in `<example>` tags', 'After the final question, with no tags'], answer: 2, why: 'Tags let Claude "distinguish them from instructions".' }
+					{ q: 'Each example pairs a ticket with its bare label. What does that teach the model besides which label to pick?', options: ['The temperature to use', 'How many tickets the eval set holds', 'The shape of the answer: a bare label your code can parse', 'Nothing: the model ignores the labels of examples'], answer: 2, why: 'The docs call examples "one of the most reliable ways to steer Claude\'s output format, tone, and structure". `rag_classify` asks for "just the label", and its examples show what one looks like.' }
 				]
 			},
 			{

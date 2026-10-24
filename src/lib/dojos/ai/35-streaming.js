@@ -128,7 +128,7 @@ asyncio.run(main())`,
 				questions: [
 					{ q: 'What is `partial_json` in an `input_json_delta`?', options: ['The full tool input, sent again each time', 'A fragment of the tool input as a string', 'A parsed Python dict of the new keys', 'The tool name and its schema'], answer: 1, why: 'The docs call the deltas "partial JSON strings": pieces of one JSON text.' },
 					{ q: 'Why does `json.loads(\'{"location":\')` raise?', options: ['`location` is not a known parameter', 'The SDK expects bytes, not a string', '`{"location":` alone is not valid JSON', 'The tool name is missing'], answer: 2, why: 'The piece stops after the key. The value and the closing brace come in later deltas.' },
-					{ q: 'When is the tool input valid JSON?', options: ['Once `content_block_stop` arrives for its block', 'At `content_block_start`, which carries `input: {}`', 'After the first non-empty delta', 'At `message_start`'], answer: 0, why: 'The input is complete only when its block closes.' },
+					{ q: 'Before the first `input_json_delta` of block 1, what does its `content_block_start` already carry?', options: ['The full input `{"location": "San Francisco, CA"}`', 'Nothing but the `index`', 'The tool name `get_weather`, with `input: {}`', 'The `stop_reason` of the response'], answer: 2, why: 'The block opens with the tool name and an empty input. The input itself arrives only in the deltas that follow.' },
 					{ q: 'What type does the final `tool_use.input` have?', options: ['A string', 'A list of deltas', 'A number', 'Always an object'], answer: 3, why: 'The docs say the final `tool_use.input` "is always an *object*", even though the deltas are strings.' }
 				]
 			},

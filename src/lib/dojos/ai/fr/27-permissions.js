@@ -126,7 +126,7 @@ export default {
 				title: 'Teste `git -C . push`',
 				questions: [
 					{ q: '`git -C . push origin main` correspond-il à `Bash(git push *)` ?', options: ['Oui, c’est quand même un push', 'Oui, Claude Code lit les options de git', 'Non, la règle compare le texte `git push`', 'Seulement en mode plan'], answer: 2, why: 'Une règle Bash porte sur le texte de la commande, et `git -C . push` ne commence pas par `git push`.' },
-					{ q: 'Aucune règle ne correspond. Qu’est-ce qui décide ?', options: ['La liste deny, par défaut', 'Le mode de permission', 'Le modèle, d’après CLAUDE.md', 'La dernière règle du fichier'], answer: 1, why: 'Quand aucune règle ne correspond à l’appel, c’est le mode de permission qui tranche.' },
+					{ q: 'Tu veux que `git -C . push origin main` demande aussi. Quelle règle ajoutes-tu ?', options: ['`Bash(git push -C *)` dans `ask`', '`Bash(git -C . push *)` dans `ask`', '`Bash(push *)` dans `ask`', 'Aucune : `Bash(git push *)` le couvre déjà'], answer: 1, why: 'Une règle Bash porte sur le texte de la commande, donc cette écriture demande sa propre règle. Tout ce qui précède le `*` doit correspondre tel quel.' },
 					{ q: 'En mode Manual, que devient ce push ?', options: ['Il te demande ton accord', 'Il tourne sans demande', 'Il est bloqué', 'Il est enregistré comme nouvelle règle'], answer: 0, why: '`default` ne lance que les lectures et demande pour le reste.' },
 					{ q: 'Quel autre push passe aussi à côté de `Bash(git push *)` ?', options: ['`git push origin main`', '`git push --force origin main`', '`git push origin dev`', '`git \'push\' origin main`'], answer: 3, why: 'Mettre le mot entre guillemets change le texte, donc la règle ne correspond plus.' }
 				]

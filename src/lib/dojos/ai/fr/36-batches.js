@@ -131,7 +131,7 @@ export default {
 					{ q: 'Combien de tokens d’entrée fait tout le travail ?', options: ['100 millions', '10 millions', '2,5 millions', '1 milliard'], answer: 0, why: '250 000 × 400 font 100 millions de tokens d’entrée.' },
 					{ q: 'À 2 $ par million en entrée et 10 $ par million en sortie, combien coûte le travail sans lots ?', options: ['200 $', '112,50 $', '250 $', '225 $'], answer: 3, why: '200 $ pour 100 millions de tokens d’entrée, plus 25 $ pour 2,5 millions de tokens de sortie.' },
 					{ q: 'Aux prix des lots, 1 $ et 5 $ par million, combien coûte-t-il ?', options: ['100 $', '112,50 $', '125 $', '225 $'], answer: 1, why: '100 $ pour l’entrée plus 12,50 $ pour la sortie. Tout l’usage en lot est facturé à 50 % des prix standard.' },
-					{ q: 'Quels résultats sont facturés ?', options: ['Tous', '`succeeded` et `errored`', 'Seulement `succeeded`', 'Seulement ceux que tu télécharges'], answer: 2, why: 'Les requêtes en erreur, annulées ou expirées ne coûtent rien.' }
+					{ q: 'Chaque avis ne reçoit que 10 tokens de sortie. Quelle part des 112,50 $ du lot vient de la sortie ?', options: ['12,50 $', '25 $', '100 $', '56,25 $'], answer: 0, why: '2,5 millions de tokens de sortie à 5 $ le million font 12,50 $. Les 100 $ restants viennent des 100 millions de tokens d’entrée.' }
 				]
 			},
 			{
@@ -139,8 +139,8 @@ export default {
 				questions: [
 					{ q: 'Quand peux-tu appeler `results()` sur un lot ?', options: ['Quand `processing_status` vaut `ended`', 'Dès que `create` répond', 'Quand `request_counts.processing` a baissé de moitié', 'Seulement après 24 heures'], answer: 0, why: 'Avant `ended`, `results_url` est vide et le SDK lève `AnthropicError`.' },
 					{ q: 'Comment lis-tu le fichier de résultats ?', options: ['Tu le télécharges en entier, puis tu l’analyses', 'En streaming, ligne par ligne', 'Tu demandes à l’API un résultat à la fois', 'Tu l’ouvres dans la console'], answer: 1, why: 'La doc conseille le streaming « because of the potentially large size of the results ».' },
-					{ q: 'Un résultat est `errored` avec `invalid_request_error`. Que fais-tu ?', options: ['Tu le renvoies tel quel', 'Tu l’abandonnes, puisqu’il n’est pas facturé', 'Tu attends qu’il passe en `succeeded`', 'Tu corriges le corps de la requête, puis tu la renvoies'], answer: 3, why: 'Le corps lui-même est faux, donc le renvoyer tel quel échoue encore.' },
-					{ q: 'Que fais-tu des requêtes `expired` ?', options: ['Tu corriges d’abord leurs `params`', 'Rien : elles tourneront dans les 24 heures suivantes', 'Tu les mets telles quelles dans un nouveau lot', 'Tu les paies et tu les ignores'], answer: 2, why: 'Elles n’ont jamais atteint le modèle, donc elles peuvent repartir telles quelles dans un nouveau lot.' }
+					{ q: 'Un résultat est `errored`, mais pas avec `invalid_request_error`. Que fais-tu ?', options: ['Tu réécris d’abord son prompt', 'Tu l’abandonnes, puisqu’il n’est pas facturé', 'Tu attends qu’il passe en `succeeded`', 'Tu le relances tel quel, dans un nouveau lot'], answer: 3, why: 'Seule une `invalid_request_error` demande un corps corrigé. Les autres erreurs peuvent être relancées telles quelles.' },
+					{ q: 'Ton script récupère le troisième lot 30 jours après sa création. Qu’obtient-il ?', options: ['Tous les résultats, au plein tarif', 'Seulement les résultats `succeeded`', 'Rien : les résultats sont gardés 29 jours', 'Les résultats des deux premiers lots'], answer: 2, why: 'Les résultats sont stockés 29 jours après la création, alors récupère chaque lot peu après sa fin.' }
 				]
 			}
 		]

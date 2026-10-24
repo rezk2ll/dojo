@@ -131,7 +131,7 @@ export default {
 					{ q: 'How many input tokens is the whole job?', options: ['100 million', '10 million', '2.5 million', '1 billion'], answer: 0, why: '250,000 × 400 is 100 million input tokens.' },
 					{ q: 'At $2 per million input and $10 per million output, what is the cost without batches?', options: ['$200', '$112.50', '$250', '$225'], answer: 3, why: '$200 for 100 million input tokens plus $25 for 2.5 million output tokens.' },
 					{ q: 'At the batch prices of $1 and $5 per million, what is the cost?', options: ['$100', '$112.50', '$125', '$225'], answer: 1, why: '$100 for input plus $12.50 for output. All batch usage is charged at 50% of the standard prices.' },
-					{ q: 'Which results are billed?', options: ['All of them', '`succeeded` and `errored`', 'Only `succeeded`', 'Only the ones you download'], answer: 2, why: 'Errored, canceled and expired requests cost nothing.' }
+					{ q: 'Each review gets only 10 output tokens. How much of the $112.50 batch cost is output?', options: ['$12.50', '$25', '$100', '$56.25'], answer: 0, why: '2.5 million output tokens at $5 per million is $12.50. The other $100 is the 100 million input tokens.' }
 				]
 			},
 			{
@@ -139,8 +139,8 @@ export default {
 				questions: [
 					{ q: 'When can you call `results()` on a batch?', options: ['When `processing_status` is `ended`', 'As soon as `create` returns', 'When `request_counts.processing` drops by half', 'Only after 24 hours'], answer: 0, why: 'Before `ended`, `results_url` is empty and the SDK raises `AnthropicError`.' },
 					{ q: 'How do you read the results file?', options: ['Download it whole, then parse it', 'Stream it line by line', 'Ask the API for one result at a time', 'Open it in the console'], answer: 1, why: 'The docs recommend streaming "because of the potentially large size of the results".' },
-					{ q: 'A result is `errored` with `invalid_request_error`. What do you do?', options: ['Resend it as it is', 'Drop it, since it is not billed', 'Wait for it to turn `succeeded`', 'Fix the request body, then resend it'], answer: 3, why: 'The body itself is wrong, so sending it again unchanged fails again.' },
-					{ q: 'What do you do with `expired` requests?', options: ['Fix their `params` first', 'Nothing: they will run in the next 24 hours', 'Put them in a new batch as they are', 'Pay for them and ignore them'], answer: 2, why: 'They never reached the model, so they can go in a new batch unchanged.' }
+					{ q: 'A result is `errored`, but not with `invalid_request_error`. What do you do?', options: ['Rewrite its prompt first', 'Drop it, since it is not billed', 'Wait for it to turn `succeeded`', 'Retry it as it is, in a new batch'], answer: 3, why: 'Only an `invalid_request_error` needs a fixed body. Other errors can be retried as they are.' },
+					{ q: 'Your script collects the third batch 30 days after you created it. What does it get?', options: ['Every result, at full price', 'Only the `succeeded` results', 'Nothing: results are kept for 29 days', 'The results of the first two batches'], answer: 2, why: 'Results are stored for 29 days after creation, so collect each batch soon after it ends.' }
 				]
 			}
 		]

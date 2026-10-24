@@ -124,7 +124,7 @@ export default {
 			{
 				title: 'Find the learned merges',
 				questions: [
-					{ q: 'How many merges does `train("aaabdaaabac", 259)` learn?', options: ['3', '259', '256', '11'], answer: 0, why: '`num_merges = vocab_size - 256`, so 259 gives 3 merges on top of the 256 byte ids.' },
+					{ q: 'How many ids does the list hold before the first merge of "aaabdaaabac"?', options: ['11', '259', '3', '256'], answer: 0, why: 'Each of the 11 characters is one UTF-8 byte, so `list(text_bytes)` gives 11 ids between 0 and 255.' },
 					{ q: 'Which pair becomes id 256?', options: ['(97, 98), "ab"', '(97, 97), "aa"', '(98, 100), "bd"', '(97, 99), "ac"'], answer: 1, why: '"aa" appears 4 times in the training text, more than any other pair, so it gets the first new id.' },
 					{ q: 'What does merge 2 build?', options: ['257 = (256, 97), "aaa"', '257 = (100, 256), "daa"', '257 = (256, 256), "aaaa"', '257 = (256, 98), "aab"'], answer: 0, why: 'Training counts pairs again on the new list, 256 97 98 100 256 97 98 97 99. "aa" followed by "a" appears twice and becomes 257, as in the diagram.' },
 					{ q: 'What does merge 3 build?', options: ['258 = (98, 100), "bd"', '258 = (97, 99), "ac"', '258 = (257, 98), "aaab"', '258 = (256, 97), "aaa"'], answer: 2, why: '"aaa" followed by "b" comes next. After it, training stops: 3 merges were asked for.' }

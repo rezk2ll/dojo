@@ -101,7 +101,7 @@ export default {
 					{ q: 'Que vaut le produit scalaire a · b, avec a = (3, 4) et b = (4, 3) ?', options: ['24', '25', '7', '0'], answer: 0, why: '3 × 4 + 4 × 3 = 12 + 12 = 24.' },
 					{ q: 'Quelle est la longueur de a = (3, 4) ?', options: ['7', '5', '25', '12'], answer: 1, why: 'La racine carrée de 3 × 3 + 4 × 4 = 25 vaut 5. b a la même longueur.' },
 					{ q: 'Que vaut `cos_sim(a, b)` ?', options: ['24', '1', '0.5', '0.96'], answer: 3, why: 'Le produit scalaire divisé par les deux longueurs : 24 / (5 × 5) = 0.96.' },
-					{ q: 'Que t’apprend 0.96 sur a et b ?', options: ['Ils vont presque dans le même sens', 'Ils sont à angle droit', 'Ils ont des longueurs différentes', 'Ils vont en sens opposé'], answer: 0, why: 'Un cosinus proche de 1 veut dire un petit angle entre les deux vecteurs.' }
+					{ q: 'Que vaut `cos_sim(b, a)`, avec les deux arguments inversés ?', options: ['0.96', '-0.96', '1', '24'], answer: 0, why: 'b · a = 4 × 3 + 3 × 4 = 24 et les deux longueurs valent toujours 5 : le score reste 0.96. L’ordre des arguments ne change pas un cosinus.' }
 				]
 			},
 			{
@@ -110,7 +110,7 @@ export default {
 					{ q: 'Que vaut a · c, avec c = (-3, -4) ?', options: ['25', '-25', '-7', '0'], answer: 1, why: '3 × -3 + 4 × -4 = -9 - 16 = -25.' },
 					{ q: 'Quelle est la longueur de c ?', options: ['5', '-5', '-25', '7'], answer: 0, why: 'Une longueur n’est jamais négative : (-3)² + (-4)² = 25, dont la racine vaut 5.' },
 					{ q: 'Que vaut `cos_sim(a, c)` ?', options: ['0', '1', '-1', '-0.96'], answer: 2, why: '-25 / (5 × 5) = -1, la valeur la plus basse qu’un cosinus puisse prendre.' },
-					{ q: 'Que veut dire -1 ?', options: ['Les vecteurs sont à angle droit', 'Le score est une erreur', 'Les textes n’ont rien en commun', 'Les vecteurs vont en sens opposé'], answer: 3, why: 'c est a retourné. 0 voudrait dire angle droit ; -1 veut dire exactement opposé.' }
+					{ q: 'c a donné -1. Que donne d = (-4, 3), à angle droit avec a, pour `cos_sim(a, d)` ?', options: ['-1', '0.96', '1', '0'], answer: 3, why: 'a · d = 3 × -4 + 4 × 3 = -12 + 12 = 0, donc le cosinus vaut 0. L’angle droit se situe à mi-chemin entre le même sens (1) et le sens opposé (-1).' }
 				]
 			},
 			{
@@ -127,7 +127,7 @@ export default {
 				questions: [
 					{ q: 'Après `normalize_embeddings`, que compare `cos_sim` ?', options: ['La direction seulement', 'La longueur seulement', 'La longueur et la direction', 'Le nombre de mots'], answer: 0, why: 'Normaliser donne une longueur de 1 à chaque vecteur : il ne reste que la direction à comparer.' },
 					{ q: 'Une note courte et une longue page parlent du même sujet. La longue page a-t-elle un meilleur score parce qu’elle est plus longue ?', options: ['Oui : son vecteur est plus long', 'Non : la longueur ne joue aucun rôle, une note courte peut faire aussi bien qu’une longue page', 'Non : la note courte a toujours un meilleur score', 'Oui : une longue page a toujours un score de 1'], answer: 1, why: 'La longueur du vecteur ne joue aucun rôle dans `cos_sim`, comme le montre `cos_sim(a, 10a)` = 1.' },
-					{ q: 'Que fait `normalize_embeddings` à chaque vecteur ?', options: ['Il arrondit chaque valeur sur 8 bits', 'Il trie les vecteurs par longueur', 'Il divise le vecteur par sa longueur', 'Il coupe le vecteur à 256 nombres'], answer: 2, why: 'Il appelle `torch.nn.functional.normalize(embeddings, p=2, dim=-1)`, ce qui donne une longueur de 1 à chaque vecteur.' },
+					{ q: 'Que deviennent a = (3, 4) et 10a = (30, 40) après `normalize_embeddings` ?', options: ['(0.3, 0.4) et (3, 4)', '(3, 4) et (30, 40)', '(0.6, 0.8) et (0.6, 0.8)', '(0.75, 1) et (7.5, 10)'], answer: 2, why: 'Diviser par les longueurs 5 et 50 donne (0.6, 0.8) les deux fois, de longueur 1. Une fois normalisés, les deux vecteurs sont identiques : le plus long n’a plus rien pour marquer plus de points.' },
 					{ q: 'La longue page dépasse 256 word pieces. Que fait `all-MiniLM-L6-v2` de la fin ?', options: ['Il encode la fin dans un second vecteur', 'Il allonge le vecteur pour la faire tenir', 'Il mélange la fin dans le premier vecteur', 'Il la coupe : la fin n’est jamais vue'], answer: 3, why: 'Par défaut, une entrée de plus de 256 word pieces est tronquée. Découpe les longues pages en morceaux avant l’encodage.' }
 				]
 			}

@@ -144,8 +144,8 @@ export default {
 				title: 'Make every push ask',
 				questions: [
 					{ q: 'Where do you put `Bash(git push *)`?', options: ['In allow', 'In ask', 'In deny', 'In `sandbox.network`'], answer: 1, why: 'The task wants a prompt before a push, not a block. That is an ask rule.' },
-					{ q: 'In which order does Claude Code check the rules?', options: ['Allow, then ask, then deny', 'In the order they appear in the file', 'Deny, then ask, then allow', 'Most specific rule first'], answer: 2, why: 'Deny, then ask, then allow, and the first match decides.' },
-					{ q: 'A later edit adds `Bash(git *)` to allow. Can it skip the push prompt?', options: ['No, ask is checked before allow', 'Yes, if it is written first in the file', 'Yes, the wider wildcard wins', 'Only in user settings'], answer: 0, why: 'The ask rule matches first, so no allow rule can approve the push silently.' },
+					{ q: 'Claude proposes `git push --force origin main`. Does `Bash(git push *)` match it?', options: ['No, `--force` needs its own rule', 'Only in Manual mode', 'No, the rule covers `git push` with no arguments', 'Yes, the `*` covers any arguments after `git push`'], answer: 3, why: 'The command text starts with `git push `, and the `*` matches whatever follows, flags included.' },
+					{ q: 'The push prompt appears. What does it show you before you answer?', options: ['The exact command, with Yes, "Yes, and don\'t ask again" and No', 'Only the tool name, `Bash`', 'A summary of the command written by the model', 'The diff of the last commit'], answer: 0, why: 'The permission prompt shows the full command, so you can read what will be pushed where before you say Yes.' },
 					{ q: 'Claude proposes `git -C . push`. Does the `Bash(git push *)` rule match it?', options: ['Yes, Claude Code parses git options', 'Yes, the sandbox rewrites the command', 'Only with `strictAllowlist` set', 'No, the rule matches the command text'], answer: 3, why: 'The docs: "A push written another way, such as `git -C . push`, isn\'t matched".' }
 				]
 			},

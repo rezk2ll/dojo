@@ -145,9 +145,9 @@ async with stdio_server() as (read_stream, write_stream):
 				title: 'Associe la recherche',
 				questions: [
 					{ q: 'Quelle primitive correspond à « le modèle cherche des tickets de lui-même » ?', options: ['Un outil', 'Une ressource', 'Un prompt', 'Un transport'], answer: 0, why: 'Le modèle décide quand l’appeler : c’est donc un outil.' },
-					{ q: 'Quelle requête le client envoie-t-il pour lancer la recherche ?', options: ['`resources/read`', '`prompts/get`', '`tools/list`', '`tools/call`'], answer: 3, why: '`tools/call` porte le nom de l’outil et ses arguments.' },
+					{ q: 'Le client envoie `tools/call` et la recherche de tickets échoue côté serveur. Que revient-il ?', options: ['Rien : le client attend jusqu’au délai d’expiration', 'Une nouvelle réponse `tools/list`', 'Une ligne d’erreur en texte brut sur stdout', 'Des blocs `content` qui décrivent l’erreur, avec `isError` posé'], answer: 3, why: 'Un appel d’outil renvoie des blocs `content` et `isError`. Du texte brut sur stdout casserait la règle de stdio, et le modèle peut lire un résultat d’erreur et réessayer.' },
 					{ q: 'Que porte cette requête ?', options: ['Une URI comme `tickets://PROJ-123`', '`name: "search_tickets"` et la recherche dans `arguments`', 'Seulement le numéro du sprint', 'La liste complète des outils'], answer: 1, why: 'Le serveur repère l’outil par `name` et lit la recherche dans `arguments`.' },
-					{ q: 'Comment le client apprend-il que `search_tickets` existe ?', options: ['Par `prompts/list`', 'Par le README du serveur', 'Par `tools/list`', 'Par l’entraînement du modèle'], answer: 2, why: 'Le client découvre les outils à l’exécution avec `tools/list`, chacun avec un `name`, une `description` et un `inputSchema`.' }
+					{ q: 'Une recherche trop large renvoie 30 000 tokens de tickets. Que fait Claude Code de ce résultat par défaut ?', options: ['Il passe les 30 000 tokens au modèle', 'Il jette le résultat et relance la recherche', 'Il avertit au-delà de 10 000 tokens et coupe la sortie à 25 000', 'Il range le résultat comme une ressource'], answer: 2, why: 'Chaque résultat d’outil MCP entre dans le contexte. Claude Code avertit au-dessus de 10 000 tokens et coupe à 25 000 par défaut : demande à `search_tickets` moins de résultats, plus courts.' }
 				]
 			},
 			{
@@ -162,9 +162,9 @@ async with stdio_server() as (read_stream, write_stream):
 			{
 				title: 'Associe le modèle et déclare',
 				questions: [
-					{ q: 'Quelle primitive correspond au modèle « résume ce sprint » ?', options: ['Un outil', 'Une ressource', 'Un prompt', 'Un modèle de ressource'], answer: 2, why: 'Un prompt est un modèle "user-controlled", affiché par exemple en commande slash.' },
+					{ q: 'Tu lances le modèle de sprint pour le sprint 42. Comment 42 arrive-t-il au serveur ?', options: ['Dans une URI, comme une ressource', 'Dans une entrée d’outil écrite par le modèle', 'Dans les `arguments` de la requête, qui remplissent le modèle', 'Impossible : les modèles ne prennent aucune entrée'], answer: 2, why: 'Un prompt peut prendre des arguments. Le serveur remplit le modèle avec eux et renvoie le texte à utiliser.' },
 					{ q: 'Comment le client trouve-t-il les modèles disponibles ?', options: ['Avec `prompts/list`', 'Avec `tools/list`', 'Avec `resources/read`', 'Avec la seule poignée de main `initialize`'], answer: 0, why: '`prompts/list` renvoie les prompts que le serveur propose.' },
-					{ q: 'Comment le client récupère-t-il le modèle de sprint ?', options: ['`tools/call` avec le numéro du sprint', '`resources/read` avec une URI de sprint', '`prompts/list` avec un filtre', '`prompts/get`, avec des arguments comme le numéro du sprint'], answer: 3, why: '`prompts/get` renvoie le modèle, rempli avec les arguments que tu passes.' },
+					{ q: 'Avec la révision 2026-07-28, que porte dans `_meta` chaque requête que le client envoie à ton serveur de tickets ?', options: ['La liste complète des outils du serveur', 'Un id de session issu d’une poignée de main `initialize`', 'Le mot de passe du système de tickets', 'La version du protocole et les capacités du client'], answer: 3, why: 'Dans cette révision, chaque requête porte la version du protocole et les capacités du client dans `_meta`. Les révisions précédentes ouvraient une session avec une poignée de main `initialize`.' },
 					{ q: 'Que doit déclarer le serveur pour que le client sache à quelles requêtes il répond ?', options: ['Seulement `tools`', 'Les capacités `tools`, `resources` et `prompts`', 'Un `readOnlyHint` sur chaque outil', 'Rien : le client essaie chaque requête'], answer: 1, why: 'Chaque primitive que le serveur offre demande sa capacité déclarée.' }
 				]
 			}

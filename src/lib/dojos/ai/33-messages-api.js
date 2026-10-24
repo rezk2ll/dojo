@@ -118,8 +118,8 @@ print(response2)`,
 			{
 				title: 'Read the bad response',
 				questions: [
-					{ q: 'Which field tells you why the model stopped?', options: ['`r.usage`', '`r.stop_reason`', '`r.role`', '`r.content[0].type`'], answer: 1, why: 'Every successful response carries a `stop_reason` that says why the model stopped.' },
-					{ q: 'For a summary cut mid-sentence, what does `r.stop_reason` show?', options: ['`"end_turn"`', '`"tool_use"`', '`"max_tokens"`', '`"refusal"`'], answer: 2, why: '`max_tokens` means the text stopped at your limit, often mid-sentence.' },
+					{ q: 'A summary that users find complete comes from the same code. What does its `r.stop_reason` show?', options: ['`"max_tokens"`', '`"end_turn"`', '`"stop_sequence"`', '`"tool_use"`'], answer: 1, why: '`end_turn` means the model reached a natural stopping point before the 200-token limit.' },
+					{ q: 'Summaries of short documents end cleanly, summaries of long ones are cut. What explains the difference?', options: ['Long documents return an HTTP error', 'The API truncates long input documents', 'A long document needs more than 200 tokens of summary, so it hits the limit', 'Long documents switch the model to another `stop_reason`'], answer: 2, why: '`max_tokens=200` caps the output, not the input. A summary that needs more room is cut at the limit.' },
 					{ q: 'What does `r.usage.output_tokens` show for those summaries?', options: ['200, the limit in the request', 'Less than 200, since the model stopped early', '0, since the response failed', 'The length of `doc`'], answer: 0, why: 'The model used every token you allowed and stopped at `max_tokens=200`.' },
 					{ q: 'Which HTTP status do those cut summaries come back with?', options: ['400', '500', '429', '200'], answer: 3, why: 'A stop reason is part of a successful response. A failed request returns a 4xx or 5xx status instead.' }
 				]

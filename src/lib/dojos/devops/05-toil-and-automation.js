@@ -112,6 +112,44 @@ export default {
 			'Tackle (c) first. Move it toward self-service: a form or a script that creates the account, falling back to a ticket only for special cases.',
 			'For (a), before scripting the cleanup, ask why `/tmp` fills up. Fixing the app or setting up a cleanup at the source removes the task entirely.',
 			'For (e), automate the renewal with an ACME client such as certbot, and alert on certificates close to expiry. It takes 30 minutes a quarter, and a forgotten renewal takes the site down.'
+		],
+		steps: [
+			{
+				title: 'Label each task',
+				questions: [
+					{ q: '(a) Clean `/tmp` on six web servers by hand, 40 min a week.', options: ['Toil', 'Overhead', 'Engineering', 'Neither: it is a one-off'], answer: 0, why: 'Manual, repetitive, automatable, and it leaves nothing better behind: every box on the SRE checklist.' },
+					{ q: '(b) The weekly team meeting, 60 min.', options: ['Toil', 'Overhead', 'Engineering', 'Neither: it is a one-off'], answer: 1, why: 'The SRE book counts meetings as overhead: administrative work not tied to running the service.' },
+					{ q: '(c) Create user accounts on request, about 10 tickets of 15 min, more with each hire.', options: ['Toil', 'Overhead', 'Engineering', 'Neither: it is a one-off'], answer: 0, why: 'Manual, reactive, repetitive, and it **grows with the company**: the textbook toil.' },
+					{ q: '(d) Write an Ansible role for nginx, about 6 hours, once.', options: ['Toil', 'Overhead', 'Engineering', 'Neither: it is a one-off'], answer: 2, why: 'A one-off that leaves a lasting improvement is engineering, even when it is tedious.' }
+				]
+			},
+			{
+				title: 'Measure it',
+				questions: [
+					{ q: 'How much time does (c) take per week today?', options: ['About 15 min', 'About 40 min', 'About 150 min', 'About 600 min'], answer: 2, why: '10 tickets × 15 min is 150 min, and it goes up with headcount.' },
+					{ q: '(e), renewing a TLS certificate by hand for 30 min a quarter, is about how much per week?', options: ['About 2 min', 'About 30 min', 'About 10 min', 'About 1 hour'], answer: 0, why: '30 min over 13 weeks is a little over 2 min a week.' },
+					{ q: 'Which task gets bigger as the company grows, even if nobody changes anything?', options: ['(a) the `/tmp` cleanup', '(c) the account tickets', '(e) the certificate renewal', '(b) the meeting'], answer: 1, why: 'Every hire adds tickets. Toil that scales with the service is the one to watch.' },
+					{ q: 'Why measure in minutes per week before choosing?', options: ['To compare the cost of automating with the time it saves', 'Because the SRE book caps toil at 10 minutes a week', 'To decide who on the team should do the task', 'Because only tasks over an hour count as toil'], answer: 0, why: 'The SRE workbook asks you to weigh the cost of building and maintaining automation against the time it saves.' }
+				]
+			},
+			{
+				title: 'Pick what comes first',
+				questions: [
+					{ q: 'Which task do you tackle first?', options: ['(c) the account tickets', '(a) the `/tmp` cleanup', '(e) the certificate renewal', '(d) the Ansible role'], answer: 0, why: 'It is the largest toil today and the only one that grows with the company.' },
+					{ q: '(e) is only about 2 min a week. Why still fix it soon?', options: ['A forgotten renewal takes the whole site down', 'Certificates must be renewed every week', 'It is overhead, and overhead goes first', 'It cannot be automated, so it needs a process'], answer: 0, why: 'Small but risky: the cost of missing it once is an outage, not a few minutes.' },
+					{ q: 'Before you script the `/tmp` cleanup, what do you ask first?', options: ['Why `/tmp` fills up at all', 'Which shell the script should use', 'Whether to run it daily or weekly', 'Who will run the script by hand'], answer: 0, why: 'Removing a task at the source beats automating it. Something writes those files.' },
+					{ q: 'What does the SRE workbook say to consider first for a toil-heavy task?', options: ['Rejecting it: weigh doing it against not doing it', 'Designing one system that removes all toil at once', 'Giving it to the newest team member', 'Doing it faster by skipping checks'], answer: 0, why: 'Rejecting the toil is the first option the workbook names.' }
+				]
+			},
+			{
+				title: 'Say how',
+				questions: [
+					{ q: 'How do you get rid of (c)?', options: ['A self-service form or script, with a ticket only for special cases', 'A shared document with the steps, so anyone can do it', 'A second person to review each ticket', 'Batch the tickets and do them on Fridays'], answer: 0, why: 'Self-service removes the human from the loop for the common case. A runbook still leaves the hands-on time.' },
+					{ q: 'How do you get rid of (e)?', options: ['An ACME client such as certbot, plus an alert on certificates close to expiry', 'A calendar reminder every quarter', 'Buy certificates valid for ten years', 'A script you run by hand when the reminder fires'], answer: 0, why: 'Automatic renewal removes the task, and the alert catches the day it breaks.' },
+					{ q: 'You turn the weekly cleanup into a script that you still run by hand. Is that time still toil?', options: ['Yes: hands-on time running a script is still toil', 'No: a script makes it automated work', 'No: it is now engineering', 'Only if the script fails'], answer: 0, why: 'The SRE book is explicit: only taking the human out of the loop removes the toil.' },
+					{ q: 'Your account script has admin rights. What does it need before it runs on its own?', options: ['Safety checks and a way to stop it and call a human', 'Nothing: scripts do not make mistakes', 'A rewrite in a compiled language', 'A run every minute, so mistakes get fixed fast'], answer: 0, why: 'Automation with admin powers can cause outages fast, so it needs guard rails and a stop button.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,27 @@ export default {
 			why: 'The workbook says rejecting a toil-intensive task should be the first option you consider. It also warns against trying to design the perfect system, and recommends starting small.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Turn a by-hand cleanup into one that runs on its own, with a guard rail.',
+		steps: [
+			'Make a scratch folder with old and new files: `mkdir -p ~/toil-lab && cd ~/toil-lab && touch -t 202001010000 old-{1..5}.log && touch new-{1..3}.log`.',
+			'Do the cleanup by hand once and time it: list what is older than 7 days with `find . -name "*.log" -mtime +7`, then delete those files.',
+			'Recreate the files, then write `cleanup.sh`: it takes the folder as its argument, runs the same `find` with `-delete`, and stops with an error for any folder other than `~/toil-lab`.',
+			'Run it with `bash -x cleanup.sh ~/toil-lab` to see every command, then schedule it: `crontab -e` and add `0 3 * * * bash ~/toil-lab/cleanup.sh ~/toil-lab`.'
+		],
+		done: [
+			'`ls ~/toil-lab/*.log` shows only the three `new-*.log` files after the script runs.',
+			'`bash cleanup.sh /tmp` refuses to delete anything.',
+			'`crontab -l` lists the nightly line.'
+		],
+		solution: [
+			'`#!/usr/bin/env bash`, then `set -euo pipefail`.',
+			'`dir=$(cd "$1" && pwd -P); [ "$dir" = "$(cd ~/toil-lab && pwd -P)" ] || { echo "refusing to clean $1" >&2; exit 1; }`',
+			'`find "$dir" -maxdepth 1 -name "*.log" -mtime +7 -print -delete`: `-print` leaves a trace in the cron mail of what was removed.',
+			'Then ask the lesson\'s question: what writes these files? A log rotation setting at the source would make the script unnecessary.'
+		]
+	},
 	recall: {
 		q: 'You run a cleanup script by hand every week. Is that time toil, and what does the SRE workbook say to consider first for a toil-heavy task?',
 		a: 'Yes, the hands-on time running a script is still toil. The first option is to reject the task: weigh the cost of doing it against the cost of not doing it.'

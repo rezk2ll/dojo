@@ -14,6 +14,7 @@
 	import Cube from '#lib/components/cube.svelte';
 	import Timer from '#lib/components/timer.svelte';
 	import DrillRep from '#lib/components/drill-rep.svelte';
+	import YourTurn from '#lib/components/your-turn.svelte';
 	import { chaptersIn } from '#lib/content.js';
 	import { lang, link, t } from '#lib/i18n.svelte.js';
 	import Maximize from '@lucide/svelte/icons/maximize-2';
@@ -46,6 +47,7 @@
 		...(c.tradeoff ? [{ id: 'tradeoff', label: t().tradeoff }] : []),
 		...(c.task ? [{ id: 'task', label: t().task }] : []),
 		...c.quiz.map((_, i) => ({ id: `q${i}`, label: t().question(i + 1), quiz: `${c.slug}#${i}` })),
+		...(c.lab ? [{ id: 'lab', label: t().lab }] : []),
 		{ id: 'wrap', label: t().wrap }
 	]);
 
@@ -53,6 +55,7 @@
 	let step = $state(0);
 	let showHint = $state(false);
 	let showAnswer = $state(false);
+	let showSolution = $state(false);
 	let showRecall = $state(false);
 	let picked = $derived(progress.picks[c.slug] ?? {});
 	let guess = $derived(picked.hunt);
@@ -74,7 +77,10 @@
 		if (s.id === 'hunt') return 90;
 		if (s.id === 'fix') return words(...(c.bug?.notes ?? [])) / READ + 30;
 		if (s.id === 'tradeoff' && c.tradeoff) return words(...c.tradeoff.gain, ...c.tradeoff.cost) / READ;
+		if (s.id === 'task' && c.task?.steps) return words(c.task.prompt) / READ + 20 * c.task.steps.flatMap((x) => x.questions).length;
 		if (s.id === 'task' && c.task) return words(c.task.prompt, ...c.task.answer) / READ + 90;
+		// Optional, so it does not count toward the time left.
+		if (s.id === 'lab') return 0;
 		if (s.id === 'outcome') return words(...(c.incident?.outcome ?? [])) / READ;
 		if (s.id === 'brief' && c.kata) return c.kata.minutes * 60;
 		if (s.id === 'check' && c.kata) return words(...c.kata.checklist) / READ + 60;
@@ -165,7 +171,7 @@
 			at = resume();
 			step = 0;
 			scene = undefined;
-			showHint = showAnswer = showRecall = false;
+			showHint = showAnswer = showSolution = showRecall = false;
 		});
 	});
 
@@ -545,6 +551,10 @@
 						</Card.Content>
 					</Card.Root>
 				</div>
+			{:else if current.id === 'task' && c.task?.steps}
+				{#key c.slug}
+					<YourTurn task={c.task} {picked} onpick={(key, value) => savePick(dojo, c.slug, key, value)} />
+				{/key}
 			{:else if current.id === 'task' && c.task}
 				<div class="max-w-3xl space-y-4">
 					<p class="text-muted-foreground">{t().taskIntro}</p>
@@ -600,6 +610,30 @@
 			{:else if current.quiz !== undefined && current.id.startsWith('q')}
 				<p class="text-muted-foreground mb-4">{t().quizIntro}</p>
 				{@render question(c.quiz[Number(current.id.slice(1))])}
+			{:else if current.id === 'lab' && c.lab}
+				<div class="max-w-3xl space-y-5">
+					<p class="text-muted-foreground">{t().labIntro(c.lab.minutes)}</p>
+					<p class="text-lg leading-relaxed font-semibold">{@html fmt(c.lab.goal)}</p>
+					<ol class="list-decimal space-y-2 pl-5 text-base leading-relaxed">
+						{#each c.lab.steps as s, i (i)}<li>{@html fmt(s)}</li>{/each}
+					</ol>
+					<div class="bg-card space-y-2 rounded-2xl p-4">
+						<p class="text-muted-foreground font-mono text-xs uppercase">{t().labDone}</p>
+						<ul class="list-disc space-y-1 pl-5">{#each c.lab.done as d, i (i)}<li>{@html fmt(d)}</li>{/each}</ul>
+					</div>
+					{#if c.lab.solution}
+						{#if showSolution}
+							<Alert.Root>
+								<Alert.Title>{t().oneSolution}</Alert.Title>
+								<Alert.Description class="text-base">
+									<ul class="list-disc space-y-1 pl-5">{#each c.lab.solution as a, i (i)}<li>{@html fmt(a)}</li>{/each}</ul>
+								</Alert.Description>
+							</Alert.Root>
+						{:else}
+							<Button variant="secondary" onclick={() => (showSolution = true)}>{t().showSolution}</Button>
+						{/if}
+					{/if}
+				</div>
 			{:else if current.id === 'wrap'}
 				<div class="max-w-3xl space-y-6">
 					{#if c.recall}

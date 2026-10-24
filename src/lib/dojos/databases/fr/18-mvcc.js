@@ -136,6 +136,44 @@ export default {
 			'C : visible. 104 compte, et la suppression par 105 est dans la liste des transactions en cours, donc elle ne compte pas encore.',
 			'D : invisible, insérée par 105, encore en cours pour ce snapshot. E : invisible, 107 est à 106 ou au-dessus, même s’il a committé. F : invisible, 102 a été annulée.',
 			'Pour le voir en vrai : ouvre deux sessions `psql`, lance `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;` dans l’une, modifie une ligne dans l’autre, puis refais le SELECT dans la première. Elle voit toujours l’ancienne version.'
+		],
+		steps: [
+			{
+				title: 'Lis le snapshot',
+				questions: [
+					{ q: 'Dans `103:106:105`, que veut dire 103 ?', options: ['Le XID de ta propre transaction', 'Tout XID sous 103 est terminé', 'Tout XID sous 103 est invisible', 'Le nombre de lignes du snapshot'], answer: 1, why: 'Le premier nombre est le xmin du snapshot : toute transaction plus ancienne a committé ou a été annulée.' },
+					{ q: 'Que veut dire 106 ?', options: ['Tout XID à partir de 106 a committé', '106 est la prochaine version de ligne', 'Tout XID à partir de 106 est invisible', '106 tourne encore'], answer: 2, why: 'Le deuxième nombre est le xmax du snapshot : un snapshot « can never see the effects of XIDs >= xmax ».' },
+					{ q: 'Que veut dire le 105 à la fin ?', options: ['105 tournait encore quand le snapshot a été pris', '105 a été annulée', '105 est le dernier XID qui a committé', '105 est ta propre transaction'], answer: 0, why: 'La liste après le deuxième deux-points contient les transactions en cours. Leur travail est invisible pour ce snapshot.' },
+					{ q: 'La transaction 104 est entre 103 et 106, absente de la liste, et a committé. Son travail compte-t-il ?', options: ['Non, tout ce qui est au-dessus de 103 est invisible', 'Seulement pour les lignes qu’elle a insérées', 'Seulement après un VACUUM', 'Oui, elle a fini avant le snapshot'], answer: 3, why: 'Un snapshot voit tous les XID sous son xmax, sauf ceux de sa liste des transactions en cours.' }
+				]
+			},
+			{
+				title: 'Vérifie A, B et C',
+				questions: [
+					{ q: 'A (xmin 90, xmax 0) ?', options: ['Visible', 'Invisible : l’insertion ne compte pas', 'Invisible : la suppression compte', 'Visible, mais seulement quand 105 aura committé'], answer: 0, why: '90 est sous 103 et a committé, et personne ne l’a supprimée.' },
+					{ q: 'B (xmin 101, xmax 104) ?', options: ['Visible', 'Invisible : l’insertion ne compte pas', 'Invisible : la suppression compte', 'Visible, mais seulement quand 105 aura committé'], answer: 2, why: '101 compte, et 104 a committé avant le snapshot, donc la suppression compte aussi.' },
+					{ q: 'C (xmin 104, xmax 105) ?', options: ['Visible', 'Invisible : l’insertion ne compte pas', 'Invisible : la suppression compte', 'Visible, mais seulement quand 105 aura committé'], answer: 0, why: '104 compte, et la suppression par 105 est dans la liste des transactions en cours, donc elle ne compte pas encore.' },
+					{ q: 'Pourquoi C reste-t-elle visible alors que 105 a posé son xmax ?', options: ['Parce que xmax est ignoré sur les lignes committées', 'Parce que la suppression est encore en cours pour ce snapshot', 'Parce que C est gelée', 'Parce que VACUUM n’est pas encore passé'], answer: 1, why: 'Seule une suppression committée avant le snapshot cache une version. 105 est dans la liste des transactions en cours.' }
+				]
+			},
+			{
+				title: 'Vérifie D, E et F',
+				questions: [
+					{ q: 'D (xmin 105, xmax 0) ?', options: ['Visible', 'Invisible : l’insertion ne compte pas', 'Invisible : la suppression compte', 'Visible, mais seulement après un VACUUM'], answer: 1, why: 'D a été insérée par 105, encore en cours pour ce snapshot.' },
+					{ q: 'E (xmin 107, xmax 0), et 107 a committé ?', options: ['Visible, puisque 107 a committé', 'Visible, mais seulement après un VACUUM', 'Invisible : la suppression compte', 'Invisible : l’insertion ne compte pas'], answer: 3, why: '107 est à 106 ou au-dessus, le xmax du snapshot. Committer plus tard ne change pas un snapshot déjà pris.' },
+					{ q: 'F (xmin 102, xmax 0) ?', options: ['Invisible : l’insertion ne compte pas', 'Visible', 'Invisible : la suppression compte', 'Visible, mais seulement après un VACUUM'], answer: 0, why: '102 a été annulée, donc sa version ne devient jamais visible pour personne.' },
+					{ q: '102 est sous 103, donc terminée. Pourquoi F ne compte-t-elle toujours pas ?', options: ['Parce que F n’est pas encore gelée', 'Parce que 102 est dans la liste des transactions en cours', 'Parce que terminée inclut annulée, et une insertion annulée ne compte jamais', 'Parce que les lignes sous 103 sont toujours cachées'], answer: 2, why: 'Sous xmin veut dire committée ou annulée. Le test de visibilité demande quand même laquelle des deux.' }
+				]
+			},
+			{
+				title: 'Regarde-le en vrai',
+				questions: [
+					{ q: 'Quel niveau garde un seul snapshot pour toute ta transaction dans `psql` ?', options: ['Read Committed', 'L’autocommit', 'Repeatable Read', 'Aucun : les snapshots sont par instruction'], answer: 2, why: '`BEGIN ISOLATION LEVEL REPEATABLE READ` garde le snapshot de la première instruction jusqu’à la fin.' },
+					{ q: 'Quelle fonction affiche ton snapshot ?', options: ['`pg_current_snapshot()`', '`pg_current_wal_lsn()`', '`txid_status()`', '`pg_stat_activity`'], answer: 0, why: '`pg_current_snapshot()` l’affiche sous la forme `xmin:xmax:liste en cours`.' },
+					{ q: 'L’autre session modifie une ligne et committe. Tu refais le SELECT dans la première. Que vois-tu ?', options: ['La nouvelle version, puisqu’elle a committé', 'Une erreur, puisque la ligne a changé', 'L’ancienne version', 'Les deux versions'], answer: 2, why: 'Ton snapshot a été pris avant ce commit, donc la transaction qui a modifié la ligne reste en cours ou invisible pour toi.' },
+					{ q: 'Que montre maintenant la colonne `xmax` de l’ancienne version ?', options: ['0, puisque ton snapshot ne voit pas l’update', 'Ton propre XID', 'Le XID de la transaction suivante', 'Le XID de la transaction qui l’a modifiée'], answer: 3, why: 'Un UPDATE pose son propre XID comme xmax sur l’ancienne version, et c’est rangé sur la ligne pour tout le monde.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ export default {
 			why: 'Une suppression committée qui compte pour ton snapshot cacherait la ligne. Une ligne visible avec un xmax non nul veut dire que la transaction de suppression tourne encore, a été annulée, ou n’a pris qu’un verrou de ligne.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lire `xmin`, `xmax` et un snapshot en vrai, et voir une ancienne version de ligne survivre à l’update qui l’a remplacée.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` dans deux terminaux : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres` dans chacun.',
+			'Dans le terminal 1 : `CREATE TABLE accounts (id int primary key, balance int not null); INSERT INTO accounts VALUES (1, 100), (2, 50);` puis `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;`',
+			'Dans le terminal 2 : `BEGIN; SELECT pg_current_xact_id(); UPDATE accounts SET balance = balance - 10 WHERE id = 1; SELECT xmin, xmax, * FROM accounts; COMMIT;`',
+			'Dans le terminal 1, relance le même `SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;`, puis `COMMIT;` et `SELECT xmin, xmax, * FROM accounts;`',
+			'Dans le terminal 2, annule un changement : `BEGIN; UPDATE accounts SET balance = 0 WHERE id = 2; ROLLBACK;` puis `SELECT xmin, xmax, * FROM accounts;`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Dans le terminal 2, la ligne 1 affiche `balance` 90 et un `xmin` égal au XID de `pg_current_xact_id()`.',
+			'De retour dans le terminal 1, avant le `COMMIT`, la ligne 1 affiche toujours 100, avec maintenant `xmax` égal à ce même XID. Le snapshot n’a pas changé.',
+			'Après le rollback, la ligne 2 affiche 50 avec un `xmax` non nul.'
+		],
+		solution: [
+			'L’UPDATE a écrit une nouvelle version (xmin = son XID) et posé son XID comme xmax sur l’ancienne. Les deux versions sont sur disque.',
+			'La transaction du terminal 2 a reçu son XID après la prise du snapshot du terminal 1, donc ce XID est au xmax du snapshot ou au-dessus, et son travail est invisible. L’ancienne version reste visible pour le terminal 1 jusqu’à la fin de sa transaction.',
+			'Une ligne visible avec un xmax non nul veut dire que la suppression tourne encore, a été annulée, ou n’a fait que verrouiller la ligne. Ici, elle a été annulée.'
+		]
+	},
 	recall: {
 		q: 'Un rapport de vingt minutes additionne `orders` pendant que les paiements modifient des lignes. Comment obtient-il un total cohérent sans les faire attendre ?',
 		a: 'Chaque version de ligne note xmin (la transaction qui l’a insérée) et xmax (celle qui l’a supprimée). Le snapshot du rapport dit quels XID comptent : il lit les versions committées à son début, pendant que les paiements écrivent de nouvelles versions.'

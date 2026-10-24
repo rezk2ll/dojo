@@ -136,6 +136,44 @@ export default {
 			'`disputed` n’y est pas : il reste 1 - (0.90 + 0.06 + 0.03) - 0 = 0,01, partagé entre 5 - 3 = 2 autres valeurs distinctes, soit 0,005, ou 5 000 lignes. La vérification du code la garde sous la plus petite part des MCV (0,03), ce qui est déjà le cas. Si `disputed` n’existe pas du tout, l’estimation reste 5 000.',
 			'Deux colonnes : 1/50 × 1/20 = 1/1 000, donc environ 1 000 lignes. Mais FR implique EUR, donc la condition sur la devise n’enlève rien : le vrai nombre est proche de 1/50, environ 20 000 lignes. Le planificateur est 20 fois trop bas.',
 			'Correction : `CREATE STATISTICS invoices_country_currency (dependencies) ON country, currency FROM invoices; ANALYZE invoices;`. Dans un test où le code postal décide entièrement la ville, l’estimation est passée de 10 lignes à 995 pour 1 000 réelles.'
+		],
+		steps: [
+			{
+				title: 'Lis les statistiques',
+				questions: [
+					{ q: 'Que te dit `most_common_freqs = {0.90,0.06,0.03}` ?', options: ['Combien de fois chaque valeur a été mise à jour', 'La part des lignes de chaque valeur fréquente', 'La part de l’échantillon qui était NULL', 'L’ordre dans lequel les valeurs ont été insérées'], answer: 1, why: 'Chaque fréquence est la part des lignes qui ont la valeur correspondante de `most_common_vals` : 90 % `paid`, 6 % `refunded`, 3 % `pending`.' },
+					{ q: 'Avec `n_distinct = 5` et trois valeurs dans la liste MCV, combien de valeurs distinctes restent hors de la liste ?', options: ['5', '3', '0', '2'], answer: 3, why: '5 valeurs distinctes moins les 3 fréquentes, il en reste 2.' },
+					{ q: 'Quelle part des lignes les MCV et les NULL laissent-ils à ces autres valeurs ?', options: ['0,01', '0,03', '0,10', '0,99'], answer: 0, why: '1 - (0.90 + 0.06 + 0.03) - 0 = 0,01. `null_frac` vaut 0, donc rien d’autre ne s’enlève.' },
+					{ q: 'D’où viennent ces chiffres ?', options: ['D’un comptage de toutes les lignes, tenu à jour à chaque écriture', 'Des index sur la colonne, lus au moment de planifier', 'D’`ANALYZE`, à partir d’un échantillon de 30 000 lignes par défaut', 'Du dernier `EXPLAIN ANALYZE` lancé sur la table'], answer: 2, why: '`ANALYZE` tire 300 lignes par point de cible de statistiques, 30 000 par défaut, et range le résultat dans `pg_statistic`.' }
+				]
+			},
+			{
+				title: 'Estime une valeur',
+				questions: [
+					{ q: 'Combien de lignes le planificateur attend-il pour `status = \'refunded\'` ?', options: ['200 000', '5 000', '60 000', '1 000 000'], answer: 2, why: '`refunded` est dans la liste MCV avec 0,06, donc 1 000 000 × 0,06 = 60 000.' },
+					{ q: 'Pourquoi peut-il prendre 0,06 directement ?', options: ['La valeur est dans la liste MCV, donc `var_eq_const` prend sa part mesurée', 'Le planificateur compte les lignes remboursées avant de planifier', 'Chaque valeur reçoit 1 divisé par `n_distinct`', 'Un index unique couvre la colonne'], answer: 0, why: 'Une correspondance dans la liste MCV donne la part « as exactly as ANALYZE could calculate it » (aussi exacte qu’ANALYZE a pu la mesurer).' },
+					{ q: 'Combien de lignes attend-il pour `status = \'disputed\'`, absente de la liste ?', options: ['10 000', '5 000', '30 000', '200 000'], answer: 1, why: 'Le reste de 0,01 est partagé entre 2 autres valeurs : 0,005 × 1 000 000 = 5 000. Ça reste sous la plus petite part des MCV, 0,03.' },
+					{ q: '`disputed` n’existe pas du tout dans la table. Qu’attend le planificateur ?', options: ['0 ligne, puisque l’échantillon ne l’a jamais vue', '1 ligne, le minimum pour toute condition', '10 000 lignes, toute la part restante', '5 000 lignes, comme avant'], answer: 3, why: 'Une valeur rare et une valeur absente reçoivent la même estimation : la part restante divisée par les autres valeurs distinctes.' }
+				]
+			},
+			{
+				title: 'Estime deux colonnes',
+				questions: [
+					{ q: 'Comment le planificateur estime-t-il `country = \'FR\' AND currency = \'EUR\'` ?', options: ['1/50 × 1/20 = 1/1 000 des lignes', '1/50 + 1/20 des lignes', 'La plus petite valeur entre 1/50 et 1/20', '1/50 seul, puisque la devise suit le pays'], answer: 0, why: 'Sans statistiques étendues, il multiplie les sélectivités des deux conditions.' },
+					{ q: 'Pourquoi les multiplie-t-il ?', options: ['Il lit les deux index et fait leur intersection', 'Il prend toujours le pire cas par prudence', 'Il sait que chaque pays utilise une seule devise', 'Il suppose que les deux colonnes sont indépendantes'], answer: 3, why: 'Le produit n’est juste que « if they have independent probabilities » (si les probabilités sont indépendantes), dit l’en-tête de `clausesel.c`.' },
+					{ q: 'Chaque pays utilise une seule devise. De quoi la vraie réponse est-elle proche ?', options: ['1/1 000 des lignes, comme estimé', '1/20 des lignes', '1/50 des lignes', 'Toutes les lignes'], answer: 2, why: 'FR implique EUR, donc la condition sur la devise n’enlève rien. Seul le 1/50 du pays compte.' },
+					{ q: 'De combien le planificateur se trompe-t-il ?', options: ['Il est exact', 'Il est 20 fois trop bas', 'Il est 50 fois trop haut', 'Il est 1 000 fois trop bas'], answer: 1, why: 'Il attend 1/1 000 des lignes alors qu’environ 1/50 correspondent : 20 fois trop peu.' }
+				]
+			},
+			{
+				title: 'Corrige l’estimation',
+				questions: [
+					{ q: 'Qu’est-ce qui corrige l’estimation ?', options: ['Un index composite sur `(country, currency)`', '`CREATE STATISTICS ... (dependencies) ON country, currency FROM invoices`, puis `ANALYZE`', 'Réécrire la condition avec OR', 'Lancer `VACUUM FULL invoices`'], answer: 1, why: 'Un objet `dependencies` mesure à quel point une colonne décide l’autre. Le planificateur ajuste ensuite l’estimation de chaque condition.' },
+					{ q: 'Quand le nouvel objet de statistiques commence-t-il à aider ?', options: ['Après le prochain `ANALYZE` de la table', 'Tout de suite, dès sa création', 'Après le prochain checkpoint', 'Seulement après un redémarrage du serveur'], answer: 0, why: 'Les statistiques étendues sont remplies par `ANALYZE`, comme celles par colonne.' },
+					{ q: 'Une collègue propose plutôt de monter la cible de statistiques des deux colonnes. Ça corrige l’erreur ?', options: ['Oui, un plus gros échantillon trouve le lien entre les colonnes', 'Oui, mais seulement avec une cible de 10000', 'Non, chaque colonne a de meilleurs chiffres, et ils sont toujours multipliés', 'Non, la cible ne s’applique qu’aux index'], answer: 2, why: 'L’erreur vient de la multiplication de deux sélectivités comme si les colonnes étaient indépendantes. De plus gros échantillons par colonne n’y changent rien.' },
+					{ q: 'Quelle condition l’objet `dependencies` peut-il améliorer ?', options: ['`country > \'F\' AND currency = \'EUR\'`', '`country LIKE \'F%\' AND currency = \'EUR\'`', '`country <> \'FR\' AND currency <> \'EUR\'`', '`country = \'FR\' AND currency = \'EUR\'`'], answer: 3, why: 'Les dépendances fonctionnelles n’aident que pour `=` et `IN` sur des constantes.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ export default {
 			why: 'L’erreur vient du produit de deux sélectivités, comme si les colonnes étaient indépendantes. Des échantillons plus gros par colonne n’y changent rien. Un index accélère le parcours mais ne dit pas au planificateur que les colonnes sont corrélées. Un objet de statistiques `dependencies`, si.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir le planificateur sous-estimer deux colonnes corrélées, puis corriger avec `CREATE STATISTICS`.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres`.',
+			'Construis la table de l’accroche, où chaque code postal appartient à une seule ville : `CREATE TABLE shipments (id bigint generated always as identity, city text not null, zip text not null);` puis `INSERT INTO shipments (city, zip) SELECT \'city\' || (i % 1000) % 100, \'zip\' || i % 1000 FROM generate_series(1, 1000000) i; ANALYZE shipments;`',
+			'Lis ce qu’`ANALYZE` a rangé : `SELECT attname, n_distinct, array_length(most_common_vals, 1) AS mcvs FROM pg_stats WHERE tablename = \'shipments\' AND attname IN (\'city\', \'zip\');`',
+			'Compare l’estimation et la réalité : `EXPLAIN ANALYZE SELECT * FROM shipments WHERE city = \'city7\' AND zip = \'zip107\';`',
+			'Déclare le lien et relance : `CREATE STATISTICS shipments_city_zip (dependencies) ON city, zip FROM shipments; ANALYZE shipments;`, puis le même `EXPLAIN ANALYZE`. Lis la dépendance mesurée avec `SELECT dependencies FROM pg_stats_ext WHERE statistics_name = \'shipments_city_zip\';`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'`pg_stats` affiche `n_distinct` 100 pour `city` et 1000 pour `zip`.',
+			'Avant l’objet de statistiques, le nœud du haut estime environ 10 lignes et en rend 1000.',
+			'Après lui et un nouvel `ANALYZE`, l’estimation est proche de 1000, et `pg_stats_ext` affiche une dépendance de `1.000000`.'
+		],
+		solution: [
+			'Chaque condition seule est bien estimée : 1/100 pour la ville, 1/1000 pour le code postal. Le planificateur les multiplie et obtient 1/100 000, donc 10 lignes.',
+			'Toutes les lignes avec `zip107` sont dans `city7`, donc la vraie part est 1/1000. La dépendance de 1,0 dit que le code postal décide entièrement la ville.',
+			'Ici le plan reste un parcours séquentiel, faute d’index. L’estimation compte dès qu’une jointure ou le choix d’un index en dépend, comme la boucle imbriquée de l’accroche sur 1 000 lignes qu’il croyait être 10.'
+		]
+	},
 	recall: {
 		q: 'Comment le planificateur estime-t-il `city = \'city7\' AND zip = \'zip107\'` quand chaque code postal appartient à une seule ville, et qu’est-ce qui corrige l’estimation ?',
 		a: 'Il multiplie les deux sélectivités, 1/100 × 1/1000, et attend 10 lignes au lieu de 1 000. `CREATE STATISTICS (dependencies) ON city, zip`, rempli par le prochain `ANALYZE`, ramène l’estimation à 995.'

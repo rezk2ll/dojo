@@ -128,6 +128,44 @@ export default {
 			'Pour la facturation, l’index GIN n’aide pas : `settings->>\'plan\'` est une expression. Solution rapide : `CREATE INDEX ON customers ((settings->>\'plan\'))`, un B-tree sur exactement cette expression.',
 			'Meilleure solution : on filtre sur `plan` et ses valeurs sont fixes, donc promeus-le. Ajoute `plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'))`, remplis-le depuis `settings` par lots, bascule le code, puis retire la clé (expand et contract).',
 			'Vérifie avec `EXPLAIN` (jour 12) que chaque requête montre bien un index scan ou un bitmap index scan sur l’index prévu.'
+		],
+		steps: [
+			{
+				title: 'Lis chaque requête',
+				questions: [
+					{ q: 'Comment écris-tu la recherche du support sur les réglages qui contiennent `{"beta": true}` ?', options: ['`settings @> \'{"beta": true}\'`', '`settings ? \'beta\'`', '`settings::text LIKE \'%beta%\'`', '`settings->\'beta\' IS NOT NULL`'], answer: 0, why: 'Le containment vérifie la clé et sa valeur, à cet endroit. `?` et `IS NOT NULL` vérifient seulement que la clé est là.' },
+					{ q: 'Que compare le filtre de facturation `settings->>\'plan\' = \'pro\'` ?', options: ['Le document entier avec une valeur jsonb', 'Une valeur texte tirée de la colonne par une expression', 'Une colonne `plan` typée', 'Les clés du document'], answer: 1, why: '`->>` renvoie le champ en texte. La comparaison porte sur cette expression, pas sur la colonne elle-même.' },
+					{ q: 'Pourquoi la page de facturation lit-elle aujourd’hui toutes les lignes de la table ?', options: ['`pro` est trop courant pour un index', 'On ne peut pas filtrer des valeurs jsonb', 'Aucun index ne stocke la valeur de `settings->>\'plan\'`', 'Les index GIN cessent de marcher sur les grosses tables'], answer: 2, why: 'Sans rien d’indexé sur cette expression, le plan retombe sur un parcours séquentiel.' },
+					{ q: 'Comment un client s’est-il retrouvé avec `"plan": "Pro"` ?', options: ['jsonb change la casse des valeurs', 'Des clés en double ont été fusionnées à l’entrée', 'L’index GIN a réécrit la valeur', 'La base ne vérifie aucun type ni aucune règle dans le document'], answer: 3, why: 'PostgreSQL voit le document comme une seule valeur. Aucun CHECK ni NOT NULL n’atteint les clés à l’intérieur, sauf si tu en ajoutes.' }
+				]
+			},
+			{
+				title: 'Indexe la recherche du support',
+				questions: [
+					{ q: 'Quel index sert `settings @> \'{"beta": true}\'` ?', options: ['`CREATE INDEX ON customers USING GIN (settings jsonb_path_ops)`', '`CREATE INDEX ON customers (settings)`, un B-tree', '`CREATE INDEX ON customers ((settings->>\'beta\'))`', '`CREATE INDEX ON customers USING HASH (settings)`'], answer: 0, why: 'Un index GIN sur la colonne sert le containment sur n’importe quelle clé du document.' },
+					{ q: 'Pourquoi choisir `jsonb_path_ops` plutôt que `jsonb_ops`, le défaut ?', options: ['Seul `jsonb_path_ops` supporte `@>`', 'Il est en général bien plus petit et plus précis, et aucune requête ici n’a besoin de `?`', 'Il sert aussi les filtres `->>`', 'Il n’a pas besoin de revérifier les lignes'], answer: 1, why: 'La doc dit qu’un index `jsonb_path_ops` est en général bien plus petit sur les mêmes données. Sa seule limite, pas de `?`, ne coûte rien ici.' },
+					{ q: 'Qu’est-ce qu’un index `jsonb_path_ops` ne sait pas servir ?', options: ['`@>`', '`@?`', '`?`, l’existence d’une clé seule', '`@@`'], answer: 2, why: 'Il stocke un hash par chemin vers une valeur, donc il ne sait pas dire si une clé existe toute seule.' },
+					{ q: 'Comment PostgreSQL répond-il à la recherche du support avec cet index ?', options: ['Il lit chaque document et analyse le JSON', 'Il parcourt un B-tree de valeurs texte', 'Il lit une copie en cache du dernier résultat', 'Il hache les chemins de la requête, les cherche dans le GIN, puis revérifie les lignes'], answer: 3, why: 'GIN est un index inversé : les entrées renvoient vers les lignes, et les lignes trouvées sont revérifiées.' }
+				]
+			},
+			{
+				title: 'Corrige le filtre de facturation',
+				questions: [
+					{ q: 'Le nouvel index GIN accélère-t-il `settings->>\'plan\' = \'pro\'` ?', options: ['Non : l’opérateur s’applique à une expression, pas à la colonne indexée', 'Oui, le GIN couvre toutes les clés', 'Oui, une fois `ANALYZE` lancé', 'Seulement avec `jsonb_ops`'], answer: 0, why: 'Un opérateur n’utilise l’index que s’il est appliqué directement à la colonne indexée.' },
+					{ q: 'Quel index corrige le filtre de facturation tel qu’il est écrit ?', options: ['Un deuxième index GIN en `jsonb_ops`', 'Un B-tree sur `settings`', '`CREATE INDEX ON customers ((settings->>\'plan\'))`', '`CREATE INDEX ON customers USING GIN ((settings->\'plan\'))`'], answer: 2, why: 'Un index sur expression stocke exactement `settings->>\'plan\'`, la valeur que le filtre compare.' },
+					{ q: 'Quelles requêtes cet index sur expression peut-il servir ?', options: ['N’importe quel filtre sur `settings`', 'Seulement les filtres sur exactement `settings->>\'plan\'`', 'Les requêtes de containment avec `@>`', 'N’importe quelle clé lue avec `->>`'], answer: 1, why: 'Il indexe une seule expression. Chaque clé chaude demande la sienne, signe que la clé veut une colonne.' },
+					{ q: 'Quelle réécriture laisserait plutôt l’index GIN de l’étape 2 servir la facturation ?', options: ['`settings->\'plan\' = \'"pro"\'`', '`lower(settings->>\'plan\') = \'pro\'`', '`settings::text LIKE \'%"pro"%\'`', '`settings @> \'{"plan": "pro"}\'`'], answer: 3, why: 'Le containment s’applique à la colonne elle-même, donc l’index GIN sait y répondre.' }
+				]
+			},
+			{
+				title: 'Promeus `plan` en colonne',
+				questions: [
+					{ q: 'Pourquoi donner à `plan` sa propre colonne ?', options: ['On filtre dessus et ses valeurs sont fixes, donc il lui faut un type, une règle et un B-tree', 'Les colonnes sont toujours plus rapides que jsonb', 'jsonb ne peut pas contenir plus de quelques clés', 'L’index GIN ne se construit pas avec `plan` dedans'], answer: 0, why: 'Si tu filtres, tries ou imposes une règle sur une valeur, donne-lui une vraie colonne. Ne garde en jsonb que la partie dont la forme varie.' },
+					{ q: 'Quelle définition de colonne bloque `"Pro"` et les plans absents ?', options: ['`plan jsonb`', '`plan text`, validé par l’application', '`plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'))`', '`plan text UNIQUE`'], answer: 2, why: 'NOT NULL, un défaut et un CHECK sont appliqués par la base à chaque écriture. Une vérification côté application seule peut être contournée.' },
+					{ q: 'Dans quel ordre fais-tu le changement ?', options: ['Retirer la clé, puis ajouter la colonne', 'Ajouter la colonne, la remplir par lots, basculer le code, puis retirer la clé', 'Basculer le code d’abord, puis ajouter la colonne', 'Ajouter, remplir et retirer dans une seule longue transaction'], answer: 1, why: 'Expand et contract : l’ancien et le nouveau code marchent à chaque étape, et le remplissage par lots garde les verrous courts.' },
+					{ q: 'Comment vérifies-tu que chaque requête utilise l’index prévu ?', options: ['En comptant les lignes renvoyées', 'En la chronométrant sur un portable', 'En lisant la taille de l’index', '`EXPLAIN` montre un index scan ou un bitmap index scan dessus'], answer: 3, why: '`EXPLAIN` (jour 12) nomme l’index dans le plan. Une exécution rapide sur peu de données ne prouve rien.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,31 @@ export default {
 			why: 'Une colonne typée a un B-tree pour filtrer et trier, et une contrainte CHECK que la base applique à chaque écriture. La validation côté app seule peut être contournée et peut subir une course (jour 22).'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Indexer une colonne jsonb `customers.settings` en local, voir quels filtres utilisent quel index, et promouvoir `plan` en colonne vérifiée.',
+		steps: [
+			'Lance PostgreSQL et ouvre `psql` : `docker run -d --name doc-lab -e POSTGRES_PASSWORD=lab postgres:16`, attends quelques secondes, puis `docker exec -it doc-lab psql -U postgres`.',
+			'Charge 200 000 clients, puis casse-en deux comme dans l’accroche : `CREATE TABLE customers (id bigint PRIMARY KEY, settings jsonb); INSERT INTO customers SELECT g, jsonb_build_object(\'plan\', (ARRAY[\'free\',\'free\',\'free\',\'pro\',\'team\'])[1 + g % 5], \'beta\', g % 50 = 0, \'theme\', \'dark\') FROM generate_series(1, 200000) g; UPDATE customers SET settings = settings || \'{"plan": "Pro"}\' WHERE id = 7; UPDATE customers SET settings = settings - \'plan\' WHERE id = 8;`',
+			'Ajoute l’index GIN, nommé `customers_settings_gin`, et lance `ANALYZE customers;`. Puis `EXPLAIN (COSTS OFF)` sur les deux requêtes : `SELECT id FROM customers WHERE settings @> \'{"beta": true}\';` et `SELECT id FROM customers WHERE settings->>\'plan\' = \'pro\';`.',
+			'Ajoute l’index sur expression pour `plan`, relance `ANALYZE`, et refais l’`EXPLAIN` de la facturation. Puis regarde les données : `SELECT settings->>\'plan\' AS plan, count(*) FROM customers GROUP BY 1 ORDER BY 1;`.',
+			'Promeus `plan` : ajoute la colonne vérifiée, puis remplis-la avec `UPDATE customers SET plan = settings->>\'plan\' WHERE settings->>\'plan\' IS NOT NULL;`. Lis l’erreur, corrige le remplissage, ajoute un B-tree sur `plan`, et essaie `INSERT INTO customers (id, settings, plan) VALUES (0, \'{}\', \'Pro\');`.',
+			'Quand tu as fini : `docker rm -f doc-lab`.'
+		],
+		done: [
+			'Le plan du `@>` montre `Bitmap Index Scan on customers_settings_gin`.',
+			'Avant l’index sur expression, le plan du `->>` montre un `Seq Scan` avec un `Filter`. Après, il montre un bitmap index scan sur l’index sur expression.',
+			'Le `GROUP BY` liste `Pro` et un plan vide à côté de `free`, `pro` et `team`.',
+			'Le premier remplissage échoue avec `violates check constraint "customers_plan_check"` sur la ligne 7, et l’insert de `\'Pro\'` échoue de la même façon.',
+			'`EXPLAIN SELECT id FROM customers WHERE plan = \'pro\';` utilise le B-tree sur `plan`.'
+		],
+		solution: [
+			'`CREATE INDEX customers_settings_gin ON customers USING GIN (settings jsonb_path_ops);` et `CREATE INDEX customers_plan_expr ON customers ((settings->>\'plan\'));`',
+			'`ALTER TABLE customers ADD COLUMN plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'));` La ligne 8, sans clé, garde le défaut `free`.',
+			'Remplissage corrigé : `UPDATE customers SET plan = lower(settings->>\'plan\') WHERE settings->>\'plan\' IS NOT NULL;`, puis `CREATE INDEX ON customers (plan);`. Sur une vraie table, fais le remplissage par lots.',
+			'Les mauvaises valeurs étaient dans le document depuis le début. La colonne les a transformées en erreurs dès la première écriture.'
+		]
+	},
 	recall: {
 		q: 'Quel filtre jsonb un index GIN sur la colonne peut-il servir, et de quoi un filtre `->>` a-t-il besoin à la place ?',
 		a: 'Du containment appliqué à la colonne elle-même, comme `settings @> \'{"beta": true}\'`. Un filtre `->>` demande un index d’expression sur exactement cette expression, ou la clé déplacée dans une colonne typée avec un B-tree.'

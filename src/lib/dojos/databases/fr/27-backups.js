@@ -121,6 +121,44 @@ export default {
 			'Il rejoue de dimanche à mercredi 14:03:00 et se met en pause. Vérifie : `SELECT count(*), max(created_at) FROM orders;`. Si la dernière commande est trop ancienne, mets une cible plus tardive et redémarre ; le rejeu continue. Si tu as dépassé la suppression, recommence depuis la base backup.',
 			'Recopie la table : `pg_dump -t orders` depuis le serveur récupéré, chargé dans le primaire. Seules les lignes écrites entre 14:03:00 et la suppression sont perdues.',
 			'Avec le seul dump de 02:00 : la même recopie, mais toutes les commandes de 02:00 à 14:03 sont perdues, environ douze heures.'
+		],
+		steps: [
+			{
+				title: 'Choisis la sauvegarde et l’endroit',
+				questions: [
+					{ q: 'Quelle base backup restaures-tu ?', options: ['N’importe laquelle, puisque le WAL peut rejouer en arrière', 'Celle de dimanche 01:00 : la plus récente terminée avant 14:03:10', 'La base backup suivante, prise après la suppression', 'Aucune : rejoue l’archive WAL seule'], answer: 1, why: 'Le rejeu part d’une base backup et ne va que vers l’avant. Le point d’arrêt doit être après la fin de la sauvegarde.' },
+					{ q: 'Où la restaures-tu ?', options: ['Par-dessus le primaire, pour tout ramener en arrière', 'Sur un réplica en lecture qui suit le primaire', 'Sur un nouveau serveur ou un nouveau répertoire de données, pendant que le primaire tourne', 'Dans un nouveau schéma du primaire'], answer: 2, why: 'D’autres tables ont reçu des écritures après 14:03. Ramener tout le cluster en arrière les perdrait.' },
+					{ q: 'Pourquoi ne peux-tu pas restaurer seulement la table `orders` depuis la base backup ?', options: ['Elle restaure un cluster entier ou rien', 'Les tables sont stockées dans le WAL, pas dans la sauvegarde', 'pgBackRest chiffre chaque table à part', 'Tu peux, avec `--table=orders`'], answer: 0, why: 'La doc : la méthode « can only support restoration of an entire database cluster, not a subset » (ne restaure qu’un cluster entier, pas une partie). Donc tu récupères ailleurs et tu recopies la table.' },
+					{ q: 'Que doit contenir l’archive pour que ça marche ?', options: ['Seulement le WAL de mercredi', 'Seulement le dernier segment avant la suppression', 'Le WAL du répertoire `pg_wal` du primaire', 'Chaque segment depuis la sauvegarde de dimanche jusqu’à 14:03, sans trou'], answer: 3, why: 'La récupération exige « a continuous sequence of archived WAL files » (une suite continue de fichiers WAL archivés). Un seul segment manquant arrête le rejeu là.' }
+				]
+			},
+			{
+				title: 'Écris les réglages de récupération',
+				questions: [
+					{ q: 'Que fait `restore_command` ?', options: ['Elle met la base backup en place', 'Elle récupère chaque segment WAL archivé, `%f` le nom du fichier, `%p` où le copier', 'Elle écrit les segments WAL dans l’archive', 'Elle arrête le rejeu à la cible'], answer: 1, why: 'La récupération lance cette commande shell pour chaque segment dont elle a besoin. pgBackRest en écrit une qui appelle son propre `archive-get`.' },
+					{ q: 'Quelle cible règles-tu ?', options: ['`recovery_target_time = \'2026-10-14 14:03:00+00\'`', '`recovery_target_time = \'14:03:10\'`', '`recovery_target = \'immediate\'`', '`recovery_target_time = \'2026-10-14 14:04:00+00\'`'], answer: 0, why: 'Juste avant la suppression, avec la date de mercredi et le fuseau. 14:04 rejouerait aussi la suppression.' },
+					{ q: 'Que se passe-t-il à la cible si tu laisses `recovery_target_action` tel quel ?', options: ['Le serveur est promu tout de suite', 'Le serveur s’arrête', 'Le rejeu continue jusqu’à la fin du WAL', 'Le serveur se met en pause, pour que tu puisses interroger d’abord'], answer: 3, why: 'La valeur par défaut est `pause`. Tu vérifies les lignes avant de terminer la récupération.' },
+					{ q: 'Qu’est-ce qui dit à PostgreSQL de récupérer au démarrage ?', options: ['Un fichier `recovery.conf` avec `standby_mode = on`', 'Le lancer avec `--recover`', 'Un fichier `recovery.signal` vide dans le répertoire de données', 'Le réglage `restore_command` seul'], answer: 2, why: 'pgBackRest crée aussi `recovery.signal`. Sans lui, le serveur démarre normalement et ignore la cible.' }
+				]
+			},
+			{
+				title: 'Vérifie avant de reprendre',
+				questions: [
+					{ q: 'Le rejeu est en pause. Que lances-tu d’abord ?', options: ['`SELECT count(*), max(created_at) FROM orders;`', '`SELECT pg_wal_replay_resume();`', '`DROP TABLE orders;`', 'Un `pg_basebackup` du nouveau serveur'], answer: 0, why: 'Le compte et la commande la plus récente montrent si tu t’es arrêté au bon moment.' },
+					{ q: 'La commande la plus récente date de 13:40, trop tôt. Et maintenant ?', options: ['Recommencer depuis la sauvegarde de dimanche', 'Mettre une cible plus tardive et redémarrer : le rejeu continue', 'Accepter la perte', 'Lancer `pg_wal_replay_resume()`'], answer: 1, why: 'Le rejeu ne va que vers l’avant, et il n’a pas encore dépassé la suppression, donc une cible plus tardive le fait juste continuer.' },
+					{ q: 'Tu as mis la cible trop tard et la table a de nouveau disparu. Et maintenant ?', options: ['Mettre une cible plus tôt et redémarrer', 'Lancer `pg_rewind`', 'Annuler la suppression avec `ROLLBACK`', 'Recommencer depuis la base backup'], answer: 3, why: '« PostgreSQL can only play forward, not backward. » Une fois la suppression passée, seule une nouvelle restauration revient avant.' },
+					{ q: 'Les lignes sont bonnes et tu appelles `pg_wal_replay_resume()`. Que se passe-t-il ?', options: ['Le rejeu continue jusqu’à la fin de l’archive', 'Le serveur s’arrête proprement', 'La récupération se termine et une nouvelle timeline commence', 'Le primaire reçoit les lignes restaurées'], answer: 2, why: 'Le nouvel identifiant de timeline entre dans les noms des fichiers WAL, donc le WAL écrit après la restauration n’écrase jamais l’ancien historique.' }
+				]
+			},
+			{
+				title: 'Ramène `orders` et compte la perte',
+				questions: [
+					{ q: 'Comment `orders` revient-elle en production ?', options: ['Promouvoir le serveur récupéré et y brancher l’appli', '`pg_dump -t orders` depuis le serveur récupéré, chargé dans le primaire', 'Copier ses fichiers de données dans le répertoire du primaire', 'Rejouer l’archive sur le primaire'], answer: 1, why: 'Un dump logique d’une table se recopie proprement dans le primaire en marche, et les autres tables gardent leurs écritures.' },
+					{ q: 'Quelles lignes sont perdues avec cette récupération ?', options: ['Seulement celles écrites entre 14:03:00 et la suppression', 'Tout depuis dimanche 01:00', 'Aucune', 'Toutes les commandes de mercredi'], answer: 0, why: 'Le rejeu s’est arrêté à 14:03:00, donc il ne manque que les secondes avant la suppression.' },
+					{ q: 'Avec seulement un `pg_dump` à 02:00, que t’aurait coûté l’accident ?', options: ['Les mêmes quelques secondes, grâce à l’archive WAL', 'Rien, le dump a toutes les commandes', 'Toutes les commandes de 02:00 à 14:03, environ douze heures', 'Toutes les commandes depuis dimanche'], answer: 2, why: 'Un dump est une photo d’un seul moment, et rien ne peut être rejoué par-dessus.' },
+					{ q: 'Pourquoi ne peux-tu pas rejouer le WAL par-dessus le dump de 02:00 ?', options: ['Le WAL est effacé à chaque checkpoint', 'pg_dump arrête l’écriture du WAL pendant qu’il tourne', 'Le rejeu ne marche que pour les tables avec une clé primaire', 'Un dump est logique, et le rejeu du WAL exige les fichiers de données'], answer: 3, why: 'Le WAL décrit des changements de pages, il lui faut donc une base backup au niveau fichiers pour les appliquer.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,31 @@ export default {
 			why: 'La doc : « Upon getting a zero result, PostgreSQL will assume that the file has been successfully archived, and will remove or recycle it. » La chaîne a maintenant un trou, et tu l’apprends pendant la restauration. Un code de sortie non nul est l’échec sans danger : PostgreSQL réessaie.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Supprimer une table, puis la ramener telle qu’elle était quelques secondes avant, avec une base backup, une archive WAL et `recovery_target_time`.',
+		steps: [
+			'Lance un primaire qui archive son WAL dans un volume : `docker volume create dojo-archive` puis `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo -v dojo-archive:/archive postgres:17 -c archive_mode=on -c "archive_command=test ! -f /archive/%f && cp %p /archive/%f"`. Attends `docker exec dojo-pg pg_isready`, puis `docker exec dojo-pg chown postgres /archive`.',
+			'Prends la base backup : `docker exec -u postgres dojo-pg pg_basebackup -D /archive/base`.',
+			'Écris après la sauvegarde : `docker exec dojo-pg psql -U postgres -c "CREATE TABLE orders (id serial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now())" -c "INSERT INTO orders (created_at) SELECT now() FROM generate_series(1, 100)"`. Puis note l’heure : `docker exec dojo-pg psql -U postgres -At -c "SELECT now()"`.',
+			'Attends quelques secondes, puis l’accident : `docker exec dojo-pg psql -U postgres -c "INSERT INTO orders (created_at) SELECT now() FROM generate_series(1, 5)" -c "DROP TABLE orders" -c "SELECT pg_switch_wal()"`. Le switch pousse le segment courant dans l’archive. Vérifie avec `docker exec dojo-pg ls /archive`.',
+			'Prépare la restauration à côté du primaire : `docker exec -u postgres dojo-pg cp -a /archive/base /archive/restore`. Puis ajoute les réglages, avec ton heure de l’étape 3 : `docker exec -u postgres dojo-pg sh -c "echo \\"restore_command = \'cp /archive/%f %p\'\\" >> /archive/restore/postgresql.auto.conf && echo \\"recovery_target_time = \'<ton heure>\'\\" >> /archive/restore/postgresql.auto.conf && touch /archive/restore/recovery.signal"`',
+			'Démarre un second serveur sur le répertoire restauré : `docker run -d --name dojo-restore -e PGDATA=/archive/restore -v dojo-archive:/archive postgres:17`. Lis `docker logs dojo-restore`, puis vérifie : `docker exec dojo-restore psql -U postgres -c "SELECT pg_get_wal_replay_pause_state()" -c "SELECT count(*), max(created_at) FROM orders"`.',
+			'Ramène la table : `docker exec dojo-restore pg_dump -U postgres -t orders | docker exec -i dojo-pg psql -U postgres`. Puis termine la récupération : `docker exec dojo-restore psql -U postgres -c "SELECT pg_wal_replay_resume()"`.'
+		],
+		done: [
+			'`ls /archive` liste des segments WAL, un fichier `.backup` et `base`.',
+			'Les logs de la restauration montrent `restored log file ... from archive`, `recovery stopping before commit` et `pausing at the end of recovery`.',
+			'Sur `dojo-restore`, l’état de pause vaut `paused` et `orders` a 100 lignes : les 5 écrites après ta cible n’y sont pas.',
+			'Sur `dojo-pg`, `SELECT count(*) FROM orders;` renvoie 100, et `docker logs dojo-restore` montre maintenant `selected new timeline ID: 2` et `archive recovery complete`.'
+		],
+		solution: [
+			'Le rejeu est parti de la base backup, a récupéré chaque segment avec `restore_command`, et s’est arrêté au premier commit après la cible. Ce commit était l’INSERT des 5 lignes, donc le DROP n’a pas été rejoué non plus.',
+			'La valeur par défaut de `recovery_target_action` est `pause`, c’est pourquoi tu as pu compter les lignes avant de décider. Si le compte était faux, une cible plus tardive et un redémarrage continueraient.',
+			'Le primaire a tourné tout du long. Seule `orders` est revenue, par `pg_dump`, donc les autres tables gardent leurs écritures plus récentes.',
+			'Nettoie avec `docker rm -f dojo-restore dojo-pg` et `docker volume rm dojo-archive`.'
+		]
+	},
 	recall: {
 		q: 'Un `DELETE` a frappé `orders` à 14:03. De quoi as-tu besoin pour retrouver les lignes telles qu’à 14:02:59, et pourquoi un `pg_dump` nocturne ne t’y amène-t-il pas ?',
 		a: 'D’une base backup terminée avant 14:03, plus chaque segment de WAL archivé depuis, rejoués avec `recovery_target_time`. Le rejeu du WAL a besoin des fichiers de données : il ne peut pas tourner par-dessus un dump logique.'

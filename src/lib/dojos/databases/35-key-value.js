@@ -141,6 +141,44 @@ try_fsync:
 			'(2) Sessions: losing them logs everyone out. Run `appendonly yes` with `everysec` and keep RDB for backups. Keep `noeviction` and leave memory headroom: a `volatile-*` policy would evict exactly the keys with a TTL, your sessions. Accept that about a second of writes can be lost, or keep sessions in PostgreSQL if that is not acceptable.',
 			'(3) Rate limiter: `INCR rate:203.0.113.7:2026-10-17T10:42` then, if the result is 1, `EXPIRE rate:203.0.113.7:2026-10-17T10:42 60`. `INCR` leaves the TTL in place, so later increments keep it. Never rewrite the counter with a plain `SET`: that clears the TTL and the key lives forever.',
 			'Losing the counters in a restart only resets the limits for a minute, so (3) can run without persistence, on the same instance as (1) if you accept that eviction may drop a counter early.'
+		],
+		steps: [
+			{
+				title: 'Ask what a restart breaks',
+				questions: [
+					{ q: 'Redis restarts empty. What does losing the product fragments (1) cost?', options: ['A refill from the database', 'Every user is logged out', 'The rate limits reset', 'Orders are lost for good'], answer: 0, why: 'A cache can lose everything and refill. That is what makes it a cache.' },
+					{ q: 'What does losing the sessions (2) cost?', options: ['Pages render slower for a minute', 'Everyone is logged out', 'The rate limits reset', 'Nothing: sessions rebuild themselves'], answer: 1, why: 'Redis holds the only copy of a session. Without it, the user must log in again.' },
+					{ q: 'What does losing the rate limiter counters (3) cost?', options: ['Everyone is logged out', 'Every IP is blocked until a human steps in', 'The limits reset for at most a minute', 'Nothing, ever'], answer: 2, why: 'Each counter covers one minute. An empty Redis just starts counting again.' },
+					{ q: 'Out of the box, what does `redis.conf` persist?', options: ['Every write, fsynced before the reply', 'An AOF with `everysec`', 'Nothing at all', 'RDB snapshots at save points, with AOF off'], answer: 3, why: 'It ships with `appendonly no` and RDB save points at 1 hour, 5 minutes and 60 seconds, so minutes of writes can be lost.' }
+				]
+			},
+			{
+				title: 'Pick the persistence',
+				questions: [
+					{ q: 'Which persistence fits the product fragments (1)?', options: ['Off, or RDB only', '`appendfsync always`', 'AOF with `everysec` plus RDB', 'A copy in PostgreSQL'], answer: 0, why: 'Losing the cache costs a refill, so there is no reason to pay for an fsync on every write.' },
+					{ q: 'Which persistence fits the sessions (2)?', options: ['Off: sessions are short-lived', 'RDB snapshots only', '`appendonly yes` with `everysec`, and RDB for backups', '`no-appendfsync-on-rewrite yes` for speed'], answer: 2, why: 'The docs recommend both RDB and AOF for a degree of data safety close to PostgreSQL. RDB alone can drop minutes.' },
+					{ q: 'With `appendfsync everysec`, what can a power cut lose?', options: ['Nothing, every write is on disk', 'About one second of writes, more if an fsync was slow', 'Everything since the last RDB snapshot', 'Only the keys that have a TTL'], answer: 1, why: 'The fsync runs once a second in the background, and Redis postpones writes up to two seconds when an fsync is slow.' },
+					{ q: 'The business cannot accept losing even a second of sessions. What do you do?', options: ['Switch the sessions to RDB only', 'Turn on `no-appendfsync-on-rewrite`', 'Give each session a longer TTL', 'Keep the sessions in PostgreSQL'], answer: 3, why: 'The other three lose more, not less. If Redis\'s window is too wide, store the data where commits are durable.' }
+				]
+			},
+			{
+				title: 'Pick the eviction',
+				questions: [
+					{ q: 'Which memory settings fit the product fragments (1)?', options: ['`noeviction` and no `maxmemory`', '`maxmemory` with `allkeys-lru`, and a TTL on each fragment', '`volatile-ttl` with no TTLs set', 'No `maxmemory`, so nothing is ever dropped'], answer: 1, why: 'A cache should evict the least recently used entries when full, and the TTLs clean up old fragments with no job.' },
+					{ q: 'Which eviction policy fits the sessions (2)?', options: ['`noeviction`, with memory headroom', '`allkeys-lru`', '`volatile-lru`', '`allkeys-random`'], answer: 0, why: 'A session must not vanish because memory is tight. A full Redis then refuses writes, so you watch memory and leave room.' },
+					{ q: 'Why is a `volatile-*` policy the wrong choice for sessions?', options: ['It ignores the TTL of every key', 'It refuses every write when full', 'It evicts exactly the keys with a TTL, which are the sessions', 'It needs AOF to be turned off'], answer: 2, why: 'Sessions have TTLs, so `volatile-*` picks them first, the very keys you wanted to keep.' },
+					{ q: 'A Redis with `noeviction` reaches `maxmemory`. What happens to a new `SET`?', options: ['Redis evicts the oldest key to make room', 'Redis writes old keys to disk', 'Redis deletes every key with a TTL first', 'Redis rejects it with an error, and reads still work'], answer: 3, why: '`noeviction` is the default: commands that need more memory fail, nothing is dropped.' }
+				]
+			},
+			{
+				title: 'Write the rate limiter',
+				questions: [
+					{ q: 'Which commands count a request so the counter ends after a minute?', options: ['`INCR` the key, then `EXPIRE` it for 60 seconds if the result is 1', '`SET key 1 EX 60` on every request', '`GET` the key, add one in the app, then `SET` it', '`EXPIRE` the key for 60 seconds, then `INCR` it'], answer: 0, why: '`INCR` creates the key at 1 the first time, and that is when it gets its timeout.' },
+					{ q: 'Why set the TTL only when `INCR` returns 1?', options: ['`EXPIRE` fails on a key above 1', 'The key was just created, and later `INCR` calls keep its TTL', '`INCR` clears the TTL each time', 'Redis allows one `EXPIRE` per key'], answer: 1, why: 'Commands that alter a value in place, like `INCR`, leave the timeout alone, so one `EXPIRE` covers the minute.' },
+					{ q: 'A script resets a counter with a plain `SET rate:... 0`. What happens?', options: ['The TTL is kept', 'The TTL goes back to 60 seconds', 'The key is deleted at once', 'The TTL is cleared, and the key lives forever'], answer: 3, why: 'Commands that overwrite the key, like `SET`, clear its timeout. Use `SET ... EX` or `KEEPTTL` if you must rewrite it.' },
+					{ q: 'Where can the rate limiter (3) run?', options: ['Only on the sessions instance, with `appendfsync always`', 'On its own instance with AOF', 'Without persistence, even on the cache instance, if a counter evicted early is acceptable', 'Only in PostgreSQL'], answer: 2, why: 'A lost counter only resets a limit for a minute. Sharing with the cache means `allkeys-lru` may drop one early.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -178,6 +216,30 @@ try_fsync:
 			why: 'The default is noeviction: commands that need more memory fail, reads still work. A cache should set an `allkeys-*` policy explicitly; a store that must not lose keys keeps noeviction and watches memory.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build the rate limiter in a local Redis, watch `SET` clear a TTL, and see `noeviction` and `allkeys-lru` behave when memory is full.',
+		steps: [
+			'Start Redis and open the CLI: `docker run -d --name kv-lab redis:7`, then `docker exec -it kv-lab redis-cli`.',
+			'Read the defaults: `CONFIG GET appendonly`, `CONFIG GET save`, `CONFIG GET maxmemory-policy`.',
+			'Count two requests from one IP: `INCR rate:203.0.113.7:2026-10-17T10:42`, then `EXPIRE rate:203.0.113.7:2026-10-17T10:42 60` because the result was 1, then `INCR` again and `TTL` on the key. Now overwrite it with `SET rate:203.0.113.7:2026-10-17T10:42 5` and run `TTL` again.',
+			'Rewrite a session two ways: `SET session:9 x EX 3600`, then `SET session:9 y KEEPTTL`, then `TTL session:9`.',
+			'Fill memory: `FLUSHALL`, then `EVAL "for i=1,20000 do redis.call(\'SET\',\'junk:\'..i,string.rep(\'x\',100)) end" 0`, then `CONFIG SET maxmemory 2mb`. Try `SET one more` and `GET junk:5`. Then `CONFIG SET maxmemory-policy allkeys-lru`, try `SET one more` again, and run `DBSIZE`.',
+			'Leave the CLI and clean up: `docker rm -f kv-lab`.'
+		],
+		done: [
+			'The defaults print `appendonly no`, save points `3600 1 300 100 60 10000`, and `noeviction`.',
+			'After the second `INCR`, `TTL` shows about 60. After the plain `SET`, `TTL` shows `-1`: no timeout, the key lives forever.',
+			'With `KEEPTTL`, `TTL session:9` still shows about 3600.',
+			'Under `noeviction`, `SET one more` fails with `OOM command not allowed when used memory > \'maxmemory\'`, and `GET junk:5` still answers.',
+			'Under `allkeys-lru`, the same `SET` returns `OK`, and `DBSIZE` is far below 20,000: Redis dropped keys to fit.'
+		],
+		solution: [
+			'Rate limiter, per request: `INCR rate:<ip>:<minute>`. If the reply is `1`, `EXPIRE rate:<ip>:<minute> 60`. Never rewrite the counter with a plain `SET`.',
+			'Cache instance (1) and (3): `maxmemory` set, `maxmemory-policy allkeys-lru`, persistence off or RDB only.',
+			'Sessions instance (2): `appendonly yes`, `appendfsync everysec`, RDB kept for backups, `maxmemory-policy noeviction`, and memory alerts with headroom.'
+		]
+	},
 	recall: {
 		q: 'Redis holds the only copy of your shopping carts. Which settings do you set, and how much can a power cut still lose?',
 		a: '`appendonly yes` with `appendfsync everysec`, RDB snapshots for backups, and `noeviction`. A power cut can still lose about one second of acknowledged writes, more if an fsync was slow.'

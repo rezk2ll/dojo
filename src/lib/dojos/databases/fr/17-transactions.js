@@ -122,6 +122,44 @@ export default {
 			'Toute instruction suivante, même un `SELECT`, échoue avec « current transaction is aborted ». `COMMIT;` répond `ROLLBACK`. Alice a toujours 50, Bob toujours 0.',
 			'Sans `BEGIN`, l’autocommit aurait committé le crédit de Bob tout seul, et le débit raté aurait laissé 100 sortis de nulle part.',
 			'En Django : `with transaction.atomic():` autour des deux appels à `update()`. L’IntegrityError sort du bloc, Django annule, et tu attrapes l’erreur en dehors du bloc pour afficher un message.'
+		],
+		steps: [
+			{
+				title: 'Crédite Bob d’abord',
+				questions: [
+					{ q: 'Quelle instruction ouvre la transaction dans `psql` ?', options: ['`BEGIN;`', '`SAVEPOINT start;`', '`SET autocommit = off;` sur le serveur', 'Rien : psql en ouvre une pour toi'], answer: 0, why: 'Sans `BEGIN`, PostgreSQL exécute chaque instruction dans sa propre transaction et la committe.' },
+					{ q: 'Tu lances `UPDATE accounts SET balance = balance + 100 WHERE name = \'Bob\';`. Que se passe-t-il ?', options: ['Ça échoue, parce qu’Alice n’a pas encore été débitée', 'Ça réussit, et Bob affiche 100 dans cette session seulement', 'Ça réussit, et toutes les sessions voient Bob à 100', 'Ça attend que le débit passe'], answer: 1, why: 'L’update est valide à lui seul. Les autres sessions n’en voient rien avant le COMMIT.' },
+					{ q: 'Un deuxième `psql` lit le solde de Bob maintenant. Que voit-il ?', options: ['100', '50', 'Une erreur, puisque la ligne est verrouillée', '0'], answer: 3, why: 'Les changements d’une transaction restent invisibles aux autres jusqu’à sa fin, donc la deuxième session lit toujours le 0 committé.' },
+					{ q: 'Sans `BEGIN`, qu’aurait fait ce même UPDATE ?', options: ['Il aurait attendu l’instruction suivante', 'Il aurait échoué, puisque l’autocommit demande deux instructions', 'Il aurait été committé tout de suite, tout seul', 'Il aurait ouvert un savepoint'], answer: 2, why: 'En autocommit, chaque instruction est sa propre transaction, committée si elle réussit.' }
+				]
+			},
+			{
+				title: 'Débite Alice',
+				questions: [
+					{ q: 'Tu lances `UPDATE accounts SET balance = balance - 100 WHERE name = \'Alice\';`. Que se passe-t-il ?', options: ['Ça réussit et Alice passe à -50', 'Ça réussit et Alice passe à 0', 'Ça échoue : la contrainte CHECK refuse -50', 'Ça attend que l’update de Bob soit committé'], answer: 2, why: '`check (balance >= 0)` refuse la nouvelle valeur, donc l’instruction lève une erreur.' },
+					{ q: 'Dans quel état est la transaction maintenant ?', options: ['En échec', 'Committée jusqu’à l’update de Bob', 'Normale, moins l’instruction ratée', 'Revenue au dernier savepoint'], answer: 0, why: 'Après une erreur dans une transaction, PostgreSQL refuse toutes les instructions suivantes jusqu’au rollback.' },
+					{ q: 'Tu tapes `SELECT * FROM accounts;`. Que répond PostgreSQL ?', options: ['Alice 50, Bob 100', 'Alice 50, Bob 0', 'Il attend un COMMIT', 'Une erreur : « current transaction is aborted »'], answer: 3, why: 'Même un SELECT échoue avec « current transaction is aborted, commands ignored until end of transaction block ».' },
+					{ q: 'Qu’est-ce qui aurait permis à la transaction de continuer après l’erreur ?', options: ['Lancer le SELECT deux fois', 'Un `ROLLBACK TO` vers un savepoint pris avant le débit', 'Un `COMMIT`, puis le débit de nouveau', 'Monter la limite du CHECK dans la transaction'], answer: 1, why: 'À part tout annuler, un savepoint est le seul moyen de continuer une transaction en échec.' }
+				]
+			},
+			{
+				title: 'Termine et lis les soldes',
+				questions: [
+					{ q: 'Tu tapes `COMMIT;`. Qu’affiche `psql` ?', options: ['`COMMIT`', '`ROLLBACK`', 'Une erreur, et la transaction reste ouverte', '`COMMIT 1`'], answer: 1, why: 'Une transaction en échec ne peut pas être committée. PostgreSQL la termine par un rollback et le dit.' },
+					{ q: 'Quels sont les soldes à la fin ?', options: ['Alice 50, Bob 0', 'Alice 50, Bob 100', 'Alice -50, Bob 100', 'Alice 0, Bob 50'], answer: 0, why: 'Le rollback a annulé le crédit de Bob. Rien n’a changé.' },
+					{ q: 'Les deux mêmes UPDATE sans `BEGIN`. Quel est l’état final ?', options: ['Alice 50, Bob 0', 'Alice -50, Bob 100', 'Alice 50, Bob 100 : 100 sortis de nulle part', 'Les deux instructions échouent'], answer: 2, why: 'L’autocommit committe le crédit de Bob tout seul, puis le débit échoue seul.' },
+					{ q: 'Le serveur plante après le crédit de Bob, avant le `COMMIT`. Qu’y a-t-il dans la base après le redémarrage ?', options: ['Bob à 100, puisque l’update a été journalisé', 'Alice à -50', 'La transaction, qui attend un COMMIT', 'Alice 50, Bob 0 : la transaction non committée n’a aucun effet'], answer: 3, why: 'Après un crash et un redémarrage, une transaction non committée n’a aucun effet.' }
+				]
+			},
+			{
+				title: 'Écris la version Django',
+				questions: [
+					{ q: 'Comment lies-tu les deux updates en Django ?', options: ['`with transaction.atomic():` autour des deux appels à `update()`', 'Appeler `update()` deux fois de suite, Django les regroupe', 'Mettre `autocommit = True` sur la connexion', 'Mettre chaque `update()` dans son propre bloc `atomic()`'], answer: 0, why: '`atomic` ouvre une transaction, donc les deux updates sont committés ensemble ou pas du tout.' },
+					{ q: 'Où attrapes-tu l’`IntegrityError` ?', options: ['Dans le bloc, juste après le débit', 'Dans la méthode `save()` du modèle', 'En dehors du bloc `atomic`', 'Nulle part : Django la cache'], answer: 2, why: 'L’erreur sort du bloc, Django annule, et tu affiches un message à l’extérieur.' },
+					{ q: 'Pourquoi ne pas l’attraper dans le bloc ?', options: ['Django ne lève pas d’erreur dans `atomic`', 'Après une erreur de base, la transaction est cassée, et les requêtes suivantes échouent', 'L’erreur serait attrapée deux fois', 'Python n’autorise pas `try` dans un `with`'], answer: 1, why: 'La doc : « Avoid catching exceptions inside atomic! » PostgreSQL fait ensuite échouer chaque instruction.' },
+					{ q: 'Tu veux aussi envoyer un email à Bob pour le virement. Comment ?', options: ['L’envoyer dans le bloc, avant le débit', 'L’envoyer dans un bloc `atomic` imbriqué', 'L’envoyer avant le début du bloc', 'L’enregistrer avec `on_commit`'], answer: 3, why: 'Les callbacks `on_commit` tournent après un commit réussi et sont jetés en cas de rollback.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,26 @@ export default {
 			why: 'ROLLBACK n’annule que les changements en base. Les callbacks `on_commit` tournent après un commit réussi et sont jetés en cas de rollback, donc l’email ne part que si la commande existe vraiment.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Tomber sur une transaction en échec, puis utiliser un savepoint pour sauter un insert raté et garder le reste.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` dans deux terminaux : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres` dans chacun.',
+			'Dans le terminal 1 : `CREATE TABLE tags (name text primary key); INSERT INTO tags VALUES (\'sql\');`',
+			'Sans savepoint : `BEGIN; INSERT INTO tags VALUES (\'db\');`. Dans le terminal 2, lance `SELECT name FROM tags;`. De retour dans le terminal 1 : `INSERT INTO tags VALUES (\'sql\'); SELECT count(*) FROM tags; COMMIT;` puis `SELECT name FROM tags ORDER BY name;`',
+			'Avec un savepoint : `BEGIN; INSERT INTO tags VALUES (\'db\'); SAVEPOINT before_dup; INSERT INTO tags VALUES (\'sql\');` puis `ROLLBACK TO SAVEPOINT before_dup; INSERT INTO tags VALUES (\'wal\'); COMMIT;` et `SELECT name FROM tags ORDER BY name;`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Le terminal 2 ne voit que `sql` pendant que le terminal 1 a `db` non committé.',
+			'Sans savepoint, le doublon échoue, le `SELECT` échoue avec `current transaction is aborted`, `COMMIT` affiche `ROLLBACK`, et la table ne contient toujours que `sql`.',
+			'Avec le savepoint, `COMMIT` affiche `COMMIT` et la table contient `db`, `sql` et `wal`.'
+		],
+		solution: [
+			'Une seule erreur met toute la transaction en échec : même le bon insert de `db` est perdu à la fin.',
+			'`ROLLBACK TO SAVEPOINT` n’annule que ce qui vient après le savepoint et sort de l’état d’échec, donc la transaction continue.',
+			'C’est ce que fait un `transaction.atomic()` imbriqué dans Django : un SAVEPOINT à l’entrée, un retour à lui en cas d’erreur.'
+		]
+	},
 	recall: {
 		q: 'Django tourne en autocommit. Une vue enregistre une commande, puis la mise à jour du stock échoue. Comment empêcher que la commande soit committée seule ?',
 		a: 'Mets les deux écritures dans `transaction.atomic()`. L’erreur annule toute la transaction, donc aucune des deux lignes n’est committée. Attrape l’erreur en dehors du bloc.'

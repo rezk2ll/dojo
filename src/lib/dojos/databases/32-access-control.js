@@ -114,6 +114,44 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			'Policy: `CREATE POLICY tenant_isolation ON invoices TO app_user USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint);`. With no `WITH CHECK`, the `USING` expression also checks inserted rows, so an insert with `tenant_id = 7` fails.',
 			'If the setting is missing, `current_setting` returns NULL, the comparison is NULL, not true (day 6), and no rows pass. A request that skipped `SET LOCAL` sees no invoices.',
 			'Test it: `SET ROLE app_user; BEGIN; SET LOCAL app.tenant_id = \'42\'; SELECT count(*) FROM invoices;` must count only tenant 42. Then run the same `SELECT` as the table owner and see that it counts everything: that is why the app must not be the owner.'
+		],
+		steps: [
+			{
+				title: 'Grant the commands',
+				questions: [
+					{ q: 'Which grant matches "read and insert, never delete"?', options: ['`GRANT SELECT, INSERT ON invoices TO app_user;`', '`GRANT ALL ON invoices TO app_user;`', '`GRANT SELECT, INSERT, DELETE ON invoices TO app_user;`', '`GRANT USAGE ON invoices TO app_user;`'], answer: 0, why: 'Grant each role only the commands it needs. Here that is `SELECT` and `INSERT`, nothing more.' },
+					{ q: 'Does `app_user` get any other right on `invoices` without asking?', options: ['Yes: PUBLIC gets `SELECT` on every new table', 'No: tables grant nothing to PUBLIC by default', 'Yes: every role can read tables in `public`', 'Only `DELETE`, which you must revoke'], answer: 1, why: 'Tables grant nothing to PUBLIC by default, so the grant above is all `app_user` has. Functions are different: they get `EXECUTE` for PUBLIC.' },
+					{ q: '`app_user` runs `DELETE FROM invoices`. What happens?', options: ['It deletes its own tenant\'s rows only', 'It returns `DELETE 0` and changes nothing', 'It fails with `permission denied`', 'It deletes every row of the table'], answer: 2, why: 'With no `DELETE` grant, the command fails before any row is read, whatever the policy says.' },
+					{ q: 'The policy will filter rows. Why still keep the grants tight?', options: ['Policies cannot apply to `DELETE`', 'Grants decide which commands, the policy decides which rows', 'Grants make the policy run faster', 'RLS cannot be turned on without a grant'], answer: 1, why: 'They are two levels. A low-privilege role also limits what a SQL injection can do: no `DROP`, no tables it was never granted.' }
+				]
+			},
+			{
+				title: 'Turn on row-level security',
+				questions: [
+					{ q: 'Which statement turns it on for the table?', options: ['`ALTER ROLE app_user ENABLE ROW LEVEL SECURITY;`', '`GRANT ROW LEVEL SECURITY ON invoices TO app_user;`', '`ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;`', '`CREATE POLICY ON invoices ENABLE;`'], answer: 2, why: 'RLS is a per-table switch, set with `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.' },
+					{ q: 'RLS is on and no policy exists yet. What does `app_user` see?', options: ['No rows, and no error', 'Every row, until a policy exists', 'An error saying a policy is missing', 'Only the rows it inserted itself'], answer: 0, why: 'With no policy, a default-deny policy applies. The only symptom is an empty result.' },
+					{ q: 'Why does it matter that `app_user` does not own the table?', options: ['The owner cannot insert rows', 'Only the owner may run `SET LOCAL`', 'Policies apply only to the owner', 'The owner skips the policies by default'], answer: 3, why: 'The table owner, superusers and `BYPASSRLS` roles skip row security. An app that connects as the owner sees every tenant.' },
+					{ q: 'In another app, the role that ran the migrations owns the table and the app connects with it. What makes the policies apply to it?', options: ['Adding a `WITH CHECK` clause', 'Granting it `BYPASSRLS`', 'Using `SET` instead of `SET LOCAL`', '`ALTER TABLE invoices FORCE ROW LEVEL SECURITY;`'], answer: 3, why: '`FORCE ROW LEVEL SECURITY` makes the owner go through the policies too. A separate app role is the other fix.' }
+				]
+			},
+			{
+				title: 'Write the policy',
+				questions: [
+					{ q: 'Which `USING` expression keeps only the request\'s tenant?', options: ['`tenant_id = current_user`', '`tenant_id = 42`', '`tenant_id = current_setting(\'app.tenant_id\', true)::bigint`', '`tenant_id IS NOT NULL`'], answer: 2, why: 'Each request sets `app.tenant_id` with `SET LOCAL`. The policy reads it and casts it to the column\'s type.' },
+					{ q: 'The policy has `USING` and no `WITH CHECK`. What happens on `INSERT`?', options: ['Inserts are never checked', 'The `USING` expression also checks the new row', 'The row is inserted, then hidden', 'The insert needs a second policy to run at all'], answer: 1, why: 'Without `WITH CHECK`, the `USING` expression is used for both cases, so new rows must match the tenant too.' },
+					{ q: 'With the tenant set to 42, `app_user` inserts a row with `tenant_id = 7`. What happens?', options: ['The row is stored with `tenant_id = 42` instead', 'The row is stored but nobody can see it', 'A warning is logged and the row goes in', 'The check fails and the command aborts'], answer: 3, why: 'A failed check aborts the command. Nobody can write a row for another tenant.' },
+					{ q: 'What does `TO app_user` do in `CREATE POLICY tenant_isolation ON invoices TO app_user ...`?', options: ['It applies the policy to that role', 'It grants `app_user` the table', 'It makes `app_user` the owner', 'It makes the policy restrictive'], answer: 0, why: 'A policy can target roles. Here only `app_user` goes through it. Rights still come from `GRANT`.' }
+				]
+			},
+			{
+				title: 'Test it',
+				questions: [
+					{ q: 'As `app_user`, inside `BEGIN; SET LOCAL app.tenant_id = \'42\';`, what does `SELECT count(*) FROM invoices` count?', options: ['Every invoice', 'Only tenant 42\'s invoices', 'Zero, until you commit', 'An error, since there is no `WHERE`'], answer: 1, why: 'The policy is added to every query, so a query with no `WHERE` still sees only the tenant\'s rows.' },
+					{ q: 'On a fresh connection that never set `app.tenant_id`, a request forgets the `SET LOCAL`. What does the same query return?', options: ['An error about an unknown setting', 'Every invoice', 'Zero rows', 'The rows of the last tenant on that connection'], answer: 2, why: 'With `true` as the second argument, `current_setting` returns NULL. `tenant_id = NULL` is not true, so no row passes.' },
+					{ q: 'Why `SET LOCAL` and not a plain `SET`?', options: ['`SET` cannot hold a custom setting', '`SET LOCAL` is faster to read in a policy', '`SET` only works for superusers', '`SET LOCAL` ends with the transaction, so a pooled connection does not leak the tenant'], answer: 3, why: 'A plain `SET` stays on the session, and the next request on that pooled connection would inherit tenant 42.' },
+					{ q: 'You run the same `SELECT` as the table owner and it counts every tenant. What does that show?', options: ['The owner skips the policies, so the app must not connect as it', 'The policy is wrong and needs `WITH CHECK`', '`SET LOCAL` did not apply', 'RLS turned itself off'], answer: 0, why: 'This is the bypass at work. It is why the app uses `app_user` and not the role that owns the table.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,32 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			why: 'Table owners, superusers and BYPASSRLS roles skip row security. Apps often connect as the role that ran the migrations, which owns the tables. Use a separate role, or FORCE ROW LEVEL SECURITY.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lock a local `invoices` table so `app_user` sees and writes only its tenant\'s rows, and watch the owner skip the policy.',
+		steps: [
+			'Start PostgreSQL and open `psql` as the superuser: `docker run -d --name rls-lab -e POSTGRES_PASSWORD=lab postgres:16`, wait a few seconds, then `docker exec -it rls-lab psql -U postgres`.',
+			'Create the table and two tenants: `CREATE TABLE invoices (id bigserial PRIMARY KEY, tenant_id bigint NOT NULL, amount numeric NOT NULL); INSERT INTO invoices (tenant_id, amount) VALUES (42, 100), (42, 250), (7, 999); CREATE ROLE app_user;`.',
+			'Write the grants. The `bigserial` column also needs `GRANT USAGE ON SEQUENCE invoices_id_seq TO app_user;` for inserts. Check with `SET ROLE app_user; SELECT count(*) FROM invoices; RESET ROLE;`.',
+			'Turn on RLS, run the same check, then write the tenant policy and run the check again, before any `SET LOCAL`.',
+			'Test as `app_user` inside a transaction: `SET ROLE app_user; BEGIN; SET LOCAL app.tenant_id = \'42\';`, then a `SELECT count(*)`, an insert for tenant 7, an insert for tenant 42, and a `DELETE FROM invoices`. After each error, run `ROLLBACK;`, then `BEGIN; SET LOCAL app.tenant_id = \'42\';` again before the next statement.',
+			'`RESET ROLE;` and count again as `postgres`. When you are done: `docker rm -f rls-lab`.'
+		],
+		done: [
+			'Before RLS, `app_user` counts 3. With RLS on and no policy, it counts 0.',
+			'Right after the policy, before any `SET LOCAL`, `app_user` counts 0. With `SET LOCAL app.tenant_id = \'42\'`, it counts 2, tenant 42\'s rows.',
+			'The insert for tenant 7 fails with `new row violates row-level security policy for table "invoices"`, and the insert for tenant 42 works.',
+			'`DELETE FROM invoices` fails with `permission denied for table invoices`.',
+			'As `postgres`, `SELECT count(*) FROM invoices` counts every tenant.'
+		],
+		solution: [
+			'`GRANT SELECT, INSERT ON invoices TO app_user; GRANT USAGE ON SEQUENCE invoices_id_seq TO app_user;`',
+			'`ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;`',
+			'`CREATE POLICY tenant_isolation ON invoices TO app_user USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint);`',
+			'Once the session has set `app.tenant_id`, the setting comes back as an empty string after the transaction, not NULL, so a later query without `SET LOCAL` fails with `invalid input syntax for type bigint: ""`. Either way, no row leaks.',
+			'`postgres` is a superuser, so it skips every policy. The app must connect as a role like `app_user`, never as the owner or a superuser.'
+		]
+	},
 	recall: {
 		q: 'What stops a query that forgot `WHERE tenant_id = ?` from reading other tenants\' rows, and which roles skip it?',
 		a: 'A row-level security policy, such as `USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint)`, filters every query. The table owner, superusers and `BYPASSRLS` roles skip it, so the app connects as a separate role.'

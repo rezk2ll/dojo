@@ -134,6 +134,44 @@ export default {
 			'`CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);` outside any transaction. A failed build leaves an `INVALID` index: run `DROP INDEX CONCURRENTLY orders_customer_id_idx;` and build it again.',
 			'`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;` takes `SHARE ROW EXCLUSIVE` on both tables, but only for an instant, since no row is scanned. Then `ALTER TABLE orders VALIDATE CONSTRAINT orders_customer_fk;` scans under `SHARE UPDATE EXCLUSIVE` while writes go on.',
 			'Same two steps for the check: `ADD CONSTRAINT orders_total_check CHECK (total >= 0) NOT VALID;`, then `VALIDATE CONSTRAINT orders_total_check;`. Put each step in its own migration, so a lock timeout retries one step and leaves the others done.'
+		],
+		steps: [
+			{
+				title: 'Spot the forms that block',
+				questions: [
+					{ q: 'What does a plain `CREATE INDEX ON orders (customer_id)` do to the app?', options: ['Nothing: index builds never lock the table', 'It blocks reads but not writes', 'It blocks writes for the whole build on 50 million rows', 'It blocks only other index builds'], answer: 2, why: 'strong_migrations\' message says it: "Adding an index non-concurrently blocks writes".' },
+					{ q: 'A plain `ADD FOREIGN KEY` takes which lock?', options: ['`ACCESS SHARE` on `orders` only', '`SHARE ROW EXCLUSIVE` on both tables, while it scans every row', '`SHARE UPDATE EXCLUSIVE` on `customers` only', 'No lock: constraints are checked later'], answer: 1, why: 'The docs say it takes `SHARE ROW EXCLUSIVE` on the table and the referenced table. The check of existing rows happens under that lock.' },
+					{ q: 'A report is reading `orders` when your `ALTER TABLE` asks for `ACCESS EXCLUSIVE`. What happens to the app\'s plain SELECTs?', options: ['They run, since reads never conflict with reads', 'They fail at once with a lock error', 'They jump ahead of the migration', 'They queue behind the waiting migration'], answer: 3, why: 'A request is granted only if it conflicts with no held lock and no waiting one. The waiting ALTER blocks everyone who comes after it.' },
+					{ q: 'So what must each step of the migration avoid?', options: ['Holding a strong lock during a long scan, or waiting for one with no limit', 'Running outside a transaction', 'Touching more than one table', 'Taking any lock at all'], answer: 0, why: 'Long scans must run under a lock that lets writes through. Strong locks are fine only for an instant.' }
+				]
+			},
+			{
+				title: 'Guard the session first',
+				questions: [
+					{ q: 'What is the first statement of the migration session?', options: ['`BEGIN;`', '`LOCK TABLE orders;`', '`SET lock_timeout = \'5s\';`', '`SET statement_timeout = 0;`'], answer: 2, why: 'Any step that cannot get its lock quickly fails, instead of queueing the app behind it.' },
+					{ q: 'What does `lock_timeout = 0` mean?', options: ['The statement waits for its lock with no limit', 'The statement fails if the lock is not free at once', 'The statement takes no lock', 'The default of 5 seconds applies'], answer: 0, why: '0 is the default, and it means no limit. That is how a migration waited a minute in the hook.' },
+					{ q: 'The ALTER hits the 5 second limit. What does the app see?', options: ['A minute of 502 errors', 'About five seconds of slow pages, then normal service', 'Nothing at all', 'A table left half altered'], answer: 1, why: 'The migration aborts, the queue behind it drains, and you retry later.' },
+					{ q: 'What does strong_migrations do when `SHOW lock_timeout` returns zero outside dev and test?', options: ['It sets 10 seconds for you', 'It refuses to run any migration', 'It retries every statement three times', 'It warns "DANGER: No lock timeout set"'], answer: 3, why: 'The README calls a short lock timeout "extremely important". The adapter checks for it and warns.' }
+				]
+			},
+			{
+				title: 'Build the index',
+				questions: [
+					{ q: 'Which statement builds the index without blocking writes?', options: ['`CREATE INDEX orders_customer_id_idx ON orders (customer_id);`', '`CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);`', '`REINDEX TABLE orders;`', '`ALTER TABLE orders ADD INDEX (customer_id);`'], answer: 1, why: 'The concurrent build takes `SHARE UPDATE EXCLUSIVE`, which lets reads and writes through.' },
+					{ q: 'Where must that statement run?', options: ['Outside any transaction block', 'Inside `BEGIN ... COMMIT`, so it can roll back', 'In the same transaction as the foreign key', 'Only on a replica'], answer: 0, why: 'PostgreSQL refuses `CREATE INDEX CONCURRENTLY` inside a transaction block. Rails needs `disable_ddl_transaction!` for it.' },
+					{ q: 'The concurrent build fails halfway. What is left?', options: ['Nothing: PostgreSQL rolls it back', 'A valid index that covers half the rows', 'A lock on `orders` until you restart', 'An `INVALID` index that still costs on every write'], answer: 3, why: 'Run `DROP INDEX CONCURRENTLY orders_customer_id_idx;` and build it again.' },
+					{ q: 'What is the price of building it concurrently?', options: ['It blocks reads for a moment', 'It needs a superuser', 'Two table scans, more time, and extra CPU and I/O', 'It cannot be used by queries until a restart'], answer: 2, why: 'The docs say it takes "significantly longer". It scans twice and waits for older transactions.' }
+				]
+			},
+			{
+				title: 'Add the constraints in two steps',
+				questions: [
+					{ q: 'Which statement adds the foreign key without a long lock?', options: ['`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;`', '`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id);`', '`CREATE INDEX CONCURRENTLY ON customers (id);`', '`ALTER TABLE customers ADD CONSTRAINT orders_customer_fk NOT VALID;`'], answer: 0, why: 'It still takes `SHARE ROW EXCLUSIVE` on both tables, but only for an instant, since no row is scanned.' },
+					{ q: 'Right after `CHECK (total >= 0) NOT VALID` commits, what is checked?', options: ['Nothing until you validate', 'Old rows, in the background', 'New inserts and updates; old rows wait for `VALIDATE CONSTRAINT`', 'Every row, at once'], answer: 2, why: 'The docs: the constraint is applied to later writes, but not assumed for all rows until it is validated.' },
+					{ q: 'Which lock does `VALIDATE CONSTRAINT` take while it scans?', options: ['`ACCESS EXCLUSIVE`', '`SHARE ROW EXCLUSIVE`', '`ROW EXCLUSIVE`', '`SHARE UPDATE EXCLUSIVE`, so writes go on'], answer: 3, why: 'The long scan happens under a lock that lets reads and writes through.' },
+					{ q: 'Why put each step in its own migration?', options: ['Rails allows one statement per migration', 'A lock timeout then retries one step and leaves the others done', 'Each migration gets a fresh `lock_timeout` default of 5s', 'PostgreSQL needs a commit between two ALTERs'], answer: 1, why: 'The steps run outside one transaction, so a failure halfway leaves a state you would otherwise clean up by hand.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,31 @@ export default {
 			why: 'The ALTER TABLE docs: "The constraint will still be applied against subsequent inserts or updates", but the database "will not assume that the constraint holds for all rows in the table, until it is validated". `VALIDATE CONSTRAINT` does that scan later, under `SHARE UPDATE EXCLUSIVE` (day 22).'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Watch a waiting `ALTER TABLE` freeze plain reads, cut it short with `lock_timeout`, then add an index, a foreign key and a check without blocking writes.',
+		steps: [
+			'Start PostgreSQL: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`. Open three terminals, each with `docker exec -it dojo-pg psql -U postgres`: report, migration and app.',
+			'In report: `CREATE TABLE customers (id bigint PRIMARY KEY); INSERT INTO customers SELECT g FROM generate_series(1, 1000) g;` then `CREATE TABLE orders (id bigserial PRIMARY KEY, customer_id bigint NOT NULL, total int NOT NULL); INSERT INTO orders (customer_id, total) SELECT 1 + g % 1000, g % 500 FROM generate_series(1, 200000) g;`',
+			'In report, play the long report: `BEGIN; SELECT count(*) FROM orders;` and leave the transaction open.',
+			'In migration: `ALTER TABLE orders ADD COLUMN note text;`. In app: `SELECT count(*) FROM orders;`. Both hang. In a fourth shell, look: `docker exec dojo-pg psql -U postgres -c "SELECT pid, mode, granted FROM pg_locks WHERE relation = \'orders\'::regclass"`. Then `COMMIT;` in report.',
+			'Again with a guard. In report: `BEGIN; SELECT count(*) FROM orders;`. In migration: `SET lock_timeout = \'5s\';` then `ALTER TABLE orders ADD COLUMN note2 text;`. After it fails, `COMMIT;` in report.',
+			'The safe way, in migration: `CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);`, then `ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;` and `ALTER TABLE orders VALIDATE CONSTRAINT orders_customer_fk;`, then the same two steps for `CHECK (total >= 0)` named `orders_total_check`.',
+			'Try the index inside a transaction: `BEGIN; CREATE INDEX CONCURRENTLY orders_total_idx ON orders (total);` then `ROLLBACK;`'
+		],
+		done: [
+			'In step 4, `pg_locks` shows a granted `AccessShareLock` for the report, a waiting `AccessExclusiveLock` for the migration, and a waiting `AccessShareLock` for the app\'s SELECT.',
+			'In step 5, the ALTER fails after five seconds with `canceling statement due to lock timeout`, and a SELECT in app answers at once right after, while the report is still open.',
+			'After step 6, `\\d orders` lists `orders_customer_id_idx`, `orders_customer_fk` and `orders_total_check`, and `INSERT INTO orders (customer_id, total) VALUES (1, -1);` fails on `orders_total_check`.',
+			'Step 7 fails with `CREATE INDEX CONCURRENTLY cannot run inside a transaction block`.'
+		],
+		solution: [
+			'The app\'s SELECT does not conflict with the report. It conflicts with the `AccessExclusiveLock` already waiting, and a request is granted only if it conflicts with no held and no waiting lock.',
+			'`lock_timeout` makes the migration give up, so the queue behind it drains. Retry when the report is done.',
+			'`NOT VALID` takes its strong lock only for an instant, and `VALIDATE CONSTRAINT` scans under `SHARE UPDATE EXCLUSIVE`. To see it, run the VALIDATE inside `BEGIN` and look at `pg_locks` from another shell: an INSERT still goes through.',
+			'Clean up with `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'A migration waits for `ACCESS EXCLUSIVE` behind a long report. Why do plain `SELECT`s on the table hang too, and which setting limits how long?',
 		a: 'A new request waits if it conflicts with a held lock or with one still waiting, so each `SELECT` queues behind the waiting migration. `SET lock_timeout = \'5s\'` makes the migration give up after 5 seconds.'

@@ -113,6 +113,44 @@ export default {
 			'`id = 2`, same page, no checkpoint in between: `WAL: records=2 bytes=127`. The page already has a full image in the WAL after the last checkpoint, so only the small change is logged.',
 			'`id = 3` after a new `CHECKPOINT`: `fpi=1 bytes=8342`. The checkpoint resets the rule, and the first change to the page pays for a full image again.',
 			'The docs warn that a smaller checkpoint interval "increases the volume of output to the WAL". The images let recovery rebuild a page that was half written when the power went out.'
+		],
+		steps: [
+			{
+				title: 'Set up the test',
+				questions: [
+					{ q: 'Why run `CHECKPOINT` before the first update?', options: ['To empty the WAL so the numbers start at zero', 'To make the updates run faster', 'So the next change to each page is the first one since a checkpoint', 'So the table is locked during the test'], answer: 2, why: 'The full-page rule counts from the last checkpoint. Right after one, every page you touch pays for an image.' },
+					{ q: 'Which command prints the WAL each update wrote?', options: ['`EXPLAIN (ANALYZE, WAL) UPDATE ...`', '`EXPLAIN (BUFFERS) UPDATE ...`', '`SELECT * FROM pg_wal`', '`SHOW wal_level`'], answer: 0, why: 'The `WAL` option adds a `WAL:` line with records, full-page images and bytes to each node.' },
+					{ q: 'What does a checkpoint do?', options: ['It flushes the WAL of every open transaction and commits them', 'It writes every dirty page to the data files and marks where recovery may start', 'It copies the data files into a backup that recovery starts from', 'It removes the dead rows of every table and frees their space'], answer: 1, why: 'Recovery starts from the last checkpoint, and WAL before that point can be recycled.' },
+					{ q: 'In the `WAL:` line, what does `fpi` count?', options: ['Failed page inserts that the server retried', 'Fsync calls the commit made to flush the WAL', 'Free pages left in the table after the update', 'Full-page images: whole 8 kB pages copied into the WAL'], answer: 3, why: '`fpi` is the number of full-page images the statement logged.' }
+				]
+			},
+			{
+				title: 'Read the first update',
+				questions: [
+					{ q: 'What does `id = 1`, right after the checkpoint, show on PostgreSQL 18?', options: ['`WAL: records=2 bytes=127`', '`WAL: records=4 fpi=3 bytes=19737`', '`WAL: records=1 fpi=1 bytes=8342`', 'No WAL line, since nothing is written until commit'], answer: 1, why: 'Four records, three full-page images, about 19.7 kB for a change of a few bytes.' },
+					{ q: 'Why so many bytes for one small change?', options: ['Three pages are touched for the first time since the checkpoint, and each logs a full image', 'The update rewrites every row of the table, and each row is logged', 'The WAL stores the full SQL text and the result of the statement', 'The checkpoint is still running and adds its own records to the line'], answer: 0, why: 'Each page touched for the first time since the checkpoint has its whole image logged: three images here.' },
+					{ q: 'About how big is one full-page image?', options: ['127 bytes', '1 GB', '8 kB, one whole page', '19.7 kB'], answer: 2, why: 'An image is a copy of the whole 8 kB page. Three of them account for most of the 19,737 bytes.' },
+					{ q: 'Why log a whole page instead of just the change?', options: ['To make commits faster', 'To let replicas skip the data files', 'Because the WAL cannot store small records', 'So a page torn by a crash mid-write can be rebuilt'], answer: 3, why: 'If the power goes out while a page is half written, the image in the WAL lets recovery rebuild it.' }
+				]
+			},
+			{
+				title: 'Compare the next two',
+				questions: [
+					{ q: 'What does `id = 2`, on the same page with no checkpoint in between, show?', options: ['`WAL: records=4 fpi=3 bytes=19737`', '`WAL: records=1 fpi=1 bytes=8342`', '`WAL: records=2 bytes=127`', '`WAL: records=0 bytes=0`'], answer: 2, why: 'No full-page image: only the small change is logged.' },
+					{ q: 'Why no full-page image this time?', options: ['Updates of id 2 are never logged', 'The page already has a full image in the WAL since the last checkpoint', 'The first update is still holding the page', 'The WAL buffers were full'], answer: 1, why: 'The image is needed once per page per checkpoint. The update of `id = 1` already paid for it.' },
+					{ q: 'What does `id = 3`, after a new `CHECKPOINT`, show?', options: ['`fpi=1 bytes=8342`', '`fpi=0 bytes=127`', '`fpi=3 bytes=19737`', '`fpi=2 bytes=16000`'], answer: 0, why: 'One full-page image, about 8 kB, plus the change itself.' },
+					{ q: 'What made `id = 3` pay for an image again?', options: ['A different row on a new page', 'A bigger change than the first two', 'Autovacuum running in between', 'The new checkpoint reset the rule'], answer: 3, why: 'The checkpoint resets the rule, and the first change to the page after it logs a full image again.' }
+				]
+			},
+			{
+				title: 'Explain the difference',
+				questions: [
+					{ q: 'You lower `checkpoint_timeout`. What happens to the WAL?', options: ['It grows: more first changes after a checkpoint log a full image', 'It shrinks: each checkpoint deletes WAL', 'Nothing: full images do not depend on checkpoints', 'Commits stop writing to it'], answer: 0, why: 'The docs warn that a smaller checkpoint interval "increases the volume of output to the WAL".' },
+					{ q: 'What does a longer checkpoint interval cost instead?', options: ['Slower commits', 'Less durable commits', 'A longer replay after a crash', 'More full-page images'], answer: 2, why: 'Rare checkpoints mean less I/O, but recovery has more WAL to replay.' },
+					{ q: 'When the `UPDATE` of `id = 1` commits, what is on disk for sure?', options: ['The changed page in the data file', 'The WAL up to the commit record', 'Nothing until the next checkpoint', 'Only the full-page images'], answer: 1, why: 'With `synchronous_commit = on`, the commit waits for the WAL flush. The data page can stay dirty in memory.' },
+					{ q: 'After a crash, how does PostgreSQL get that change back?', options: ['From a copy of the change the client keeps until it is written', 'From the replica, which sends back the pages it already has', 'By rerunning the SQL statements found in the server log', 'By replaying the WAL from the last checkpoint onto each page'], answer: 3, why: 'Redo reads the WAL from the last checkpoint and reapplies each record, skipping pages whose LSN shows the change is already there.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ export default {
 			why: 'With full_page_writes on, the first change to each page after a checkpoint logs the whole page. More checkpoints means more of those images and more page writes. Commits still wait only for the WAL flush, and the WAL-before-data rule does not change.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Kill PostgreSQL mid-work and watch the WAL bring back the committed changes, and only those.',
+		steps: [
+			'Start PostgreSQL 18 without `--rm`, so its data survives a kill: `docker run -d --name pg-wal -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-wal psql -U postgres`.',
+			'Create the table and note the WAL position: `CREATE TABLE accounts (id int primary key, balance int not null); INSERT INTO accounts SELECT i, 100 FROM generate_series(1, 100000) i; CHECKPOINT; SELECT pg_current_wal_lsn();`',
+			'Commit a transfer and look again: `BEGIN; UPDATE accounts SET balance = balance - 10 WHERE id = 1; UPDATE accounts SET balance = balance + 10 WHERE id = 2; COMMIT; SELECT pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn());`. In another terminal, list the WAL files: `docker exec pg-wal ls /var/lib/postgresql/18/docker/pg_wal`.',
+			'In a second `psql` (`docker exec -it pg-wal psql -U postgres`), start a change and do not commit: `BEGIN; UPDATE accounts SET balance = 0 WHERE id <= 50;`',
+			'Pull the plug: `docker kill pg-wal` (no clean shutdown), then `docker start pg-wal`, wait a few seconds, and read the log: `docker logs pg-wal 2>&1 | grep -E "not properly shut down|redo"`. Reconnect and run `SELECT id, balance FROM accounts WHERE id <= 2;` and `SELECT count(*) FROM accounts WHERE balance = 0;`. Clean up with `docker rm -f pg-wal`.'
+		],
+		done: [
+			'The LSN after the transfer is higher than the one after the checkpoint.',
+			'The log shows `database system was not properly shut down; automatic recovery in progress`, then `redo starts at` and `redo done at`.',
+			'After the restart, accounts 1 and 2 hold 90 and 110, and the count of `balance = 0` is 0.'
+		],
+		solution: [
+			'`COMMIT` waited for the WAL to reach the disk, not for the data pages. The changed pages may still have been only in memory when the kill came.',
+			'On restart, redo replayed the WAL from the last checkpoint and reapplied the transfer to its pages.',
+			'The uncommitted update has no commit record in the WAL, so its row versions stay invisible: no account is at 0.'
+		]
+	},
 	recall: {
 		q: 'With default settings, what is on disk when the client receives `COMMIT`, and how does PostgreSQL get the changed pages back after a crash?',
 		a: 'The WAL up to the commit record, flushed by `XLogFlush`. The changed pages may still be in memory. After a crash, redo replays the WAL from the last checkpoint and reapplies each record to its page.'

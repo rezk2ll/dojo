@@ -108,6 +108,44 @@ export default {
 			'`ALTER TABLE bookings ADD CONSTRAINT price_positive CHECK (price_cents > 0);` and `ALTER TABLE bookings ADD FOREIGN KEY (room_id) REFERENCES rooms (id);` plus `CREATE INDEX ON bookings (room_id);`, since the foreign key does not index it.',
 			'10:00 to 11:00 succeeds. 11:00 to 12:00 also succeeds: with `[)` bounds the first range ends just before 11:00, so the two only touch.',
 			'10:30 to 11:30 overlaps both and fails with `conflicting key value violates exclusion constraint "no_double_booking"`, SQLSTATE `23P01`. Two sessions inserting it at once cannot both win. The later one waits for the first to finish, then fails. If both insert before either checks, the deadlock detector aborts one of them, so the error you see may be a deadlock instead.'
+		],
+		steps: [
+			{
+				title: 'Match each rule to a constraint',
+				questions: [
+					{ q: '"A room is never booked twice at the same time." Which constraint fits?', options: ['A CHECK on `during`', 'A UNIQUE index on `(room_id, during)`', 'An exclusion constraint with `=` on `room_id` and `&&` on `during`', 'A foreign key from `during` to `rooms`'], answer: 2, why: 'The rule compares one row with other rows by overlap. UNIQUE only catches equal values, and two overlapping ranges are not equal.' },
+					{ q: '"The price is positive." Which constraint fits?', options: ['`CHECK (price_cents > 0)`', 'An exclusion constraint on `price_cents`', 'A UNIQUE index on `price_cents`', 'A foreign key to a `prices` table'], answer: 0, why: 'The rule looks at one row only, which is exactly what a CHECK sees.' },
+					{ q: '"Every booking has a real room." Which constraint fits?', options: ['`CHECK (room_id > 0)`', 'A UNIQUE index on `room_id`', '`NOT NULL` on `room_id` alone', 'A foreign key from `room_id` to `rooms (id)`'], answer: 3, why: 'Only a foreign key checks that the value exists in another table. `NOT NULL` only says a value is there.' },
+					{ q: 'Why not check for an overlap in the app with a SELECT before the INSERT?', options: ['A SELECT cannot compare ranges', 'Another request can insert between the SELECT and the INSERT', 'PostgreSQL forbids a SELECT on a table with constraints', 'The SELECT would lock the whole `bookings` table'], answer: 1, why: 'That is the check-then-act race. The constraint checks inside the write, under its own locks.' }
+				]
+			},
+			{
+				title: 'Write the no-overlap rule',
+				questions: [
+					{ q: 'What must run before the exclusion constraint can be created?', options: ['`CREATE EXTENSION btree_gist;`', '`CREATE INDEX ON bookings (during);`', '`SET CONSTRAINTS ALL DEFERRED;`', '`CREATE EXTENSION pg_trgm;`'], answer: 0, why: 'Comparing a plain bigint with `=` in a GiST index needs `btree_gist`. OpenProject installs it for the same reason.' },
+					{ q: 'Which statement adds the rule?', options: ['`ALTER TABLE bookings ADD CONSTRAINT no_double_booking UNIQUE (room_id, during);`', '`ALTER TABLE bookings ADD CONSTRAINT no_double_booking CHECK (NOT during && during);`', '`ALTER TABLE bookings ADD CONSTRAINT no_double_booking EXCLUDE USING btree (room_id WITH =, during WITH &&);`', '`ALTER TABLE bookings ADD CONSTRAINT no_double_booking EXCLUDE USING gist (room_id WITH =, during WITH &&);`'], answer: 3, why: 'Two rows conflict when the room is equal and the ranges overlap. GiST is the index that can answer `&&`.' },
+					{ q: 'How does PostgreSQL read `room_id WITH =, during WITH &&`?', options: ['Two rows conflict if any one of the comparisons is true', 'Two rows conflict only if every comparison is true', 'Each row is checked against itself', 'The second comparison runs only when the first is false'], answer: 1, why: 'The docs: at least one comparison must return false or null. So a conflict needs the same room and an overlap.' },
+					{ q: 'Why can a CHECK not enforce this rule?', options: ['A CHECK sees only the row being written', 'A CHECK cannot use the `&&` operator', 'A CHECK is skipped inside transactions', 'A CHECK runs before the row has an id'], answer: 0, why: 'The rule compares rows with each other. A CHECK sees one row, and a subquery inside it is not supported.' }
+				]
+			},
+			{
+				title: 'Add the other two rules',
+				questions: [
+					{ q: 'Which statement adds the price rule?', options: ['`ALTER TABLE bookings ADD CONSTRAINT price_positive CHECK (price_cents >= 0);`', '`ALTER TABLE bookings ADD CONSTRAINT price_positive CHECK (price_cents > 0);`', '`ALTER TABLE bookings ALTER price_cents SET DEFAULT 1;`', '`ALTER TABLE bookings ADD CONSTRAINT price_positive UNIQUE (price_cents);`'], answer: 1, why: 'Positive means strictly above zero. `>= 0` would still let a free booking through.' },
+					{ q: 'You add `FOREIGN KEY (room_id) REFERENCES rooms (id)`. What else do you add?', options: ['Nothing: the foreign key indexes `room_id` for you', 'A UNIQUE index on `rooms (id)`, since the key needs it', '`CREATE INDEX ON bookings (room_id);`', 'A CHECK that `room_id` is positive'], answer: 2, why: 'PostgreSQL does not index the referencing side of a foreign key. You create that index yourself.' },
+					{ q: 'Would `CHECK (price_cents > 0)` pass a row whose price is NULL?', options: ['Yes: a CHECK that evaluates to NULL passes, which is why the column is also `not null`', 'No: NULL is never greater than zero', 'No: CHECK implies NOT NULL', 'Only if the row is written inside a transaction'], answer: 0, why: 'A CHECK rejects only false. Here `price_cents int not null` closes that gap.' },
+					{ q: 'A booking for room 2 arrives, and `rooms` has no row 2. What happens?', options: ['The insert succeeds, and the room is created later', 'The insert fails on the CHECK constraint', 'The insert fails on the exclusion constraint', 'The insert fails on the foreign key'], answer: 3, why: 'The foreign key checks that `rooms` holds the id. Rails maps that error to `InvalidForeignKey`.' }
+				]
+			},
+			{
+				title: 'Predict the three inserts',
+				questions: [
+					{ q: 'First insert for room 1: 10:00 to 11:00. What happens?', options: ['It fails: the room has no bookings yet', 'It waits for the exclusion index to build', 'It succeeds', 'It fails on the CHECK'], answer: 2, why: 'Nothing else is booked, so nothing overlaps.' },
+					{ q: 'Second insert: 11:00 to 12:00. What happens?', options: ['It succeeds: with `[)` bounds the first range ends just before 11:00', 'It fails: both ranges contain 11:00', 'It fails: two bookings cannot share a boundary', 'It succeeds only if you write `[]` bounds'], answer: 0, why: '`tstzrange(a, b)` includes the start and excludes the end. The two ranges touch without overlapping.' },
+					{ q: 'Third insert: 10:30 to 11:30. What does it get?', options: ['`23505`, a duplicate key error', '`23514`, a check violation', 'Success, since it does not match either range exactly', '`23P01`, a conflict on `no_double_booking`'], answer: 3, why: 'It overlaps both bookings. `23P01` is the SQLSTATE for an exclusion violation.' },
+					{ q: 'Two sessions insert 10:30 to 11:30 for room 1 at the same moment, in an empty table. What happens?', options: ['Both succeed, since neither sees the other', 'The later one waits for the first to finish, then fails', 'PostgreSQL keeps the shorter booking', 'Both fail with `23P01`'], answer: 1, why: 'The second insert waits on the first one\'s index entry. If both insert before either checks, the deadlock detector aborts one instead.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,31 @@ export default {
 			why: 'The rule compares a row with other rows. A CHECK sees one row, and a subquery inside it is not supported. An exclusion constraint compares the new row with existing ones through its index.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Let PostgreSQL refuse a double booking, a free booking and a booking for a room that does not exist.',
+		steps: [
+			'Start PostgreSQL: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`, then open `docker exec -it dojo-pg psql -U postgres`.',
+			'Create the tables: `CREATE TABLE rooms (id bigint PRIMARY KEY); INSERT INTO rooms VALUES (1);` then `CREATE TABLE bookings (id bigint PRIMARY KEY, room_id bigint NOT NULL, during tstzrange NOT NULL, price_cents int NOT NULL);`',
+			'Try the overlap rule first without the extension: `ALTER TABLE bookings ADD CONSTRAINT no_double_booking EXCLUDE USING gist (room_id WITH =, during WITH &&);`. Read the error, run `CREATE EXTENSION btree_gist;` and send the same ALTER again.',
+			'Add the other rules: `ALTER TABLE bookings ADD CONSTRAINT price_positive CHECK (price_cents > 0);`, `ALTER TABLE bookings ADD FOREIGN KEY (room_id) REFERENCES rooms (id);` and `CREATE INDEX ON bookings (room_id);`',
+			'Run `\\set VERBOSITY verbose` so errors show their SQLSTATE. Then insert the three bookings: `INSERT INTO bookings VALUES (1, 1, tstzrange(\'2026-11-02 10:00+00\', \'2026-11-02 11:00+00\'), 9000);`, the same with id 2 and 11:00 to 12:00, and with id 3 and 10:30 to 11:30.',
+			'Break the other two rules: an insert with `price_cents` 0, and one for `room_id` 2.',
+			'Race it: open a second terminal with the same `psql` command. In the first, `BEGIN;` and insert room 1 on another day, 10:00 to 11:00. In the second, insert the same slot with a new id. Then `COMMIT;` in the first.'
+		],
+		done: [
+			'Without `btree_gist`, the ALTER fails with `data type bigint has no default operator class for access method "gist"`.',
+			'Bookings 1 and 2 print `INSERT 0 1`. Booking 3 fails with `23P01` and `conflicting key value violates exclusion constraint "no_double_booking"`.',
+			'The free booking fails on `price_positive`, and room 2 fails on `bookings_room_id_fkey`.',
+			'In the race, the second insert hangs until the first commits, then fails on `no_double_booking`.'
+		],
+		solution: [
+			'11:00 to 12:00 passes because `tstzrange` uses `[)` bounds: 10:00 to 11:00 ends just before 11:00.',
+			'The DETAIL line of the `23P01` error names both keys: the new booking and the one it conflicts with.',
+			'The second session waits on the first one\'s index entry, so a SELECT-then-INSERT in the app could never give the same guarantee.',
+			'Clean up with `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Two sign-ups with the same email arrive 40 ms apart, and the model has `validates :email, uniqueness: true`. What stops the duplicate, and what does the second request get?',
 		a: 'A unique index on `email`. The second INSERT fails with SQLSTATE `23505`, Rails raises `ActiveRecord::RecordNotUnique`, and the app rescues it to show "email already taken".'

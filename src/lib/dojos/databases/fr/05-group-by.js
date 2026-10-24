@@ -119,6 +119,44 @@ export default {
 			'(2) `SELECT visit_id, count(*) AS views FROM website_event WHERE event_type = 1 GROUP BY visit_id HAVING count(*) > 5;` WHERE garde les pages vues, HAVING garde les grosses visites. Les inverser échoue : `aggregate functions are not allowed in WHERE`.',
 			'(3) Regroupe deux fois : `SELECT avg(CASE WHEN views = 1 THEN 1.0 ELSE 0 END) FROM (SELECT visit_id, count(*) FILTER (WHERE event_type = 1) AS views FROM website_event GROUP BY visit_id) v WHERE views > 0;` La requête interne fait une ligne par visite. `FILTER` est l’écriture standard du `sum(case ...)` d’Umami.',
 			'(4) `SELECT date_trunc(\'day\', created_at) AS day, count(*) AS views, sum(count(*)) OVER (ORDER BY date_trunc(\'day\', created_at)) AS running FROM website_event WHERE event_type = 1 GROUP BY 1 ORDER BY 1;` La fenêtre passe après GROUP BY, donc elle additionne les comptes du jour.'
+		],
+		steps: [
+			{
+				title: 'Compte les vues par jour',
+				questions: [
+					{ q: 'Dans (1), que représente une ligne de sortie ?', options: ['Un événement', 'Une visite', 'Un jour', 'Toute la semaine'], answer: 2, why: 'Tu regroupes par jour, donc chaque ligne de sortie est un jour avec son compte.' },
+					{ q: 'Où va `event_type = 1` ?', options: ['Dans WHERE, pour que seules les pages vues arrivent dans les groupes', 'Dans HAVING, une fois le compte connu', 'Dans ORDER BY', 'Dans `date_trunc`'], answer: 0, why: 'Il filtre des lignes, pas des groupes. WHERE « selects input rows before groups and aggregates are computed ».' },
+					{ q: 'Vers quoi pointe `GROUP BY 1` ?', options: ['La première colonne de la table', 'La valeur 1, donc toutes les lignes forment un seul groupe', 'Les lignes où `event_type` vaut 1', 'Le premier élément de la liste SELECT, le jour'], answer: 3, why: 'La doc accepte « the name or ordinal number of an output column » (le nom ou le numéro d’une colonne de sortie). Umami écrit `group by 1, 2` de la même façon.' },
+					{ q: 'Tu ajoutes `visit_id` à la liste SELECT de (1) sans rien changer d’autre. Que se passe-t-il ?', options: ['PostgreSQL choisit une visite par jour', 'Ça échoue : `must appear in the GROUP BY clause or be used in an aggregate function`', 'Ça rend une ligne par visite à la place', 'La colonne revient à NULL'], answer: 1, why: 'Chaque ligne de sortie est un jour, et un jour a beaucoup de visites. PostgreSQL ne devine pas laquelle tu voulais.' }
+				]
+			},
+			{
+				title: 'Garde les grosses visites',
+				questions: [
+					{ q: 'Dans (2), par quoi regroupes-tu ?', options: ['`visit_id`', '`event_type`', '`created_at`', 'Rien, un seul groupe suffit'], answer: 0, why: 'La question porte sur les visites, donc une ligne de sortie est une visite.' },
+					{ q: 'Où va `count(*) > 5` ?', options: ['Dans WHERE', 'Dans ORDER BY', 'Dans HAVING', 'Dans la liste SELECT'], answer: 2, why: 'HAVING filtre les groupes après le calcul des agrégats.' },
+					{ q: 'Tu écris `WHERE count(*) > 5` à la place. Que dit PostgreSQL ?', options: ['Il rend toutes les visites en ignorant le filtre', '`aggregate functions are not allowed in WHERE`', '`column "count" does not exist`', 'Ça marche, mais plus lentement'], answer: 1, why: 'WHERE passe avant que les groupes existent, donc il n’y a pas encore de compte à comparer.' },
+					{ q: 'Pourquoi garder `event_type = 1` dans WHERE et pas dans HAVING ?', options: ['HAVING ne sait pas comparer des nombres', 'WHERE est toujours plus rapide pour n’importe quel filtre', 'HAVING n’accepte que `count`', 'C’est un test sur des lignes, et `event_type` n’est pas une colonne regroupée'], answer: 3, why: 'Les filtres sur les lignes vont dans WHERE, ceux sur les groupes dans HAVING. Dans HAVING, `event_type` demanderait un GROUP BY ou un agrégat.' }
+				]
+			},
+			{
+				title: 'Regroupe deux fois pour les rebonds',
+				questions: [
+					{ q: 'Pourquoi le taux de rebond demande-t-il deux niveaux de regroupement ?', options: ['Un rebond est un fait sur une visite, mais chaque ligne est un événement', 'PostgreSQL n’accepte qu’un agrégat par requête', 'HAVING a besoin d’une sous-requête pour tourner', 'On ne peut pas calculer de moyenne sur des événements'], answer: 0, why: 'Replie d’abord les événements en visites, puis les visites en une seule part.' },
+					{ q: 'Que rend la requête interne ?', options: ['Une ligne par événement, avec son numéro', 'Une ligne avec le total', 'Une ligne par jour', 'Une ligne par visite, avec ses pages vues'], answer: 3, why: 'Elle regroupe par `visit_id` et compte les pages vues de chacune.' },
+					{ q: 'Quel compte interne correspond au `sum(case when ... then 1 else 0 end)` d’Umami ?', options: ['`count(event_type)`', '`count(*) FILTER (WHERE event_type = 1)`', '`count(DISTINCT event_type)`', '`max(event_type = 1)`'], answer: 1, why: '`FILTER` est l’écriture standard : il ne compte que les lignes qui passent sa condition.' },
+					{ q: 'Que retire le `WHERE views > 0` externe ?', options: ['Les visites d’une seule page vue', 'Les jours sans trafic', 'Les visites faites seulement d’événements personnalisés', 'Les visites des utilisateurs connectés'], answer: 2, why: 'Une visite sans page vue n’est pas une visite pour le tableau de bord. Umami la retire avec `HAVING ... > 0`.' }
+				]
+			},
+			{
+				title: 'Ajoute le cumul',
+				questions: [
+					{ q: 'Quel outil garde une ligne par jour et ajoute un cumul ?', options: ['Un second GROUP BY', 'Une fonction de fenêtrage avec `OVER (ORDER BY ...)`', 'HAVING avec `sum`', 'Une auto-jointure sur le jour'], answer: 1, why: 'Les fonctions de fenêtrage « do not cause rows to become grouped into a single output row ». Chaque jour garde sa ligne.' },
+					{ q: 'Pourquoi (4) écrit-il `sum(count(*)) OVER (...)` ?', options: ['La fenêtre passe après GROUP BY, donc elle additionne les comptes du jour', '`count(*)` ne peut pas tourner seul avec une fenêtre', 'Il compte chaque événement deux fois exprès', 'Sans lui, les jours reviennent dans le désordre'], answer: 0, why: '`count(*)` donne son compte à chaque jour, puis le `sum` de la fenêtre additionne ces comptes dans l’ordre des jours.' },
+					{ q: 'Quelle différence entre `count(*) ... GROUP BY visit_id` et `count(*) OVER (PARTITION BY visit_id)` ?', options: ['Aucune', 'Le premier est plus rapide sur toute table', 'Le second compte les visites distinctes', 'Le second garde chaque ligne d’événement, chacune avec le total de sa visite'], answer: 3, why: 'GROUP BY replie les lignes. Avec une fenêtre, « the rows retain their separate identities ».' },
+					{ q: 'La semaine n’a eu aucun événement. Que rend `sum` sur zéro ligne ?', options: ['0', 'Aucune ligne', 'NULL', 'Une erreur'], answer: 2, why: 'La doc : « sum of no rows returns null, not zero as one might expect ». `count` rend 0, c’est pourquoi Umami n’entoure que les sommes de `coalesce`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,31 @@ export default {
 			why: 'GROUP BY replie les lignes de chaque visite en une seule. Une fonction de fenêtrage calcule le même compte, mais « the rows retain their separate identities », donc chaque ligne d’événement porte le total de sa visite.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Calculer un petit tableau de bord d’audience en SQL : les vues par jour, les grosses visites, le taux de rebond et un cumul.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-group -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-group psql -U postgres`.',
+			'Crée la table : `CREATE TABLE website_event (session_id int, visit_id int, event_type int, created_at timestamptz);`',
+			'Ajoute 40 visites de 0 à 7 pages vues chacune, sur trois jours : `INSERT INTO website_event SELECT v / 2, v, 1, timestamptz \'2024-03-01\' + (v % 3) * interval \'1 day\' + n * interval \'1 minute\' FROM generate_series(1, 40) v, generate_series(1, 7) n WHERE n <= v % 8;`. Puis un événement personnalisé une visite sur cinq : `INSERT INTO website_event SELECT v / 2, v, 2, timestamptz \'2024-03-01\' + (v % 3) * interval \'1 day\' FROM generate_series(5, 40, 5) v;`',
+			'Écris les quatre requêtes de l’exercice une par une. Pour (2), essaie d’abord `WHERE count(*) > 5` et lis l’erreur.',
+			'Vérifie le cas vide : `SELECT sum(x) FROM (SELECT 1 AS x WHERE false) t;` et `SELECT count(*) FROM website_event WHERE event_type = 9;`. Quitte avec `\\q` et nettoie avec `docker rm -f pg-group`.'
+		],
+		done: [
+			'(1) rend trois jours avec 49, 47 et 44 vues.',
+			'`WHERE count(*) > 5` échoue avec `aggregate functions are not allowed in WHERE`, et la version HAVING rend 10 visites.',
+			'(3) rend environ `0.1428` : 5 visites d’une seule page vue sur 35 qui ont une page vue. Avec la règle d’Umami (aucun événement personnalisé non plus), on tombe à environ `0.1143`.',
+			'(4) affiche un cumul de 49, 96, puis 140.',
+			'La `sum` vide affiche une case vide (NULL), le `count` vide affiche `0`.'
+		],
+		solution: [
+			'(1) `SELECT date_trunc(\'day\', created_at) AS day, count(*) AS views FROM website_event WHERE event_type = 1 GROUP BY 1 ORDER BY 1;`',
+			'(2) `SELECT visit_id, count(*) AS views FROM website_event WHERE event_type = 1 GROUP BY visit_id HAVING count(*) > 5;`',
+			'(3) `SELECT avg(CASE WHEN views = 1 THEN 1.0 ELSE 0 END) FROM (SELECT visit_id, count(*) FILTER (WHERE event_type = 1) AS views FROM website_event GROUP BY visit_id) v WHERE views > 0;`. La visite 40 n’a qu’un événement personnalisé, donc le WHERE externe la retire.',
+			'Pour Umami, un rebond n’a pas non plus d’événement personnalisé, et la visite 25 a une page vue plus un événement personnalisé. Ajoute `max(CASE WHEN event_type = 2 THEN 1 ELSE 0 END) AS custom` à la requête interne et `AND custom = 0` au CASE : 4 rebonds sur 35.',
+			'(4) `SELECT date_trunc(\'day\', created_at) AS day, count(*) AS views, sum(count(*)) OVER (ORDER BY date_trunc(\'day\', created_at)) AS running FROM website_event WHERE event_type = 1 GROUP BY 1 ORDER BY 1;`'
+		]
+	},
 	recall: {
 		q: 'Pourquoi le compte des rebonds d’Umami demande-t-il deux niveaux de regroupement, et quelle clause écarte les visites sans page vue ?',
 		a: 'Un rebond décrit une visite : une seule vue et aucun événement personnalisé. La requête interne regroupe les événements par `session_id, visit_id`, et `HAVING sum(...) > 0` écarte les visites sans vue. La requête externe compte ensuite les rebonds sur ces visites.'

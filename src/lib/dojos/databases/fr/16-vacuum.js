@@ -108,6 +108,44 @@ export default {
 			'`events` : 50 + 0,2 × 1 000 000 000 = 200 000 050, au-dessus du plafond, donc 100 000 000 lignes mortes.',
 			'Dans `psql` : `SELECT relname, n_live_tup, n_dead_tup, last_autovacuum FROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 10;`',
 			'Pour `events`, baisse son propre facteur d’échelle : `ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.01);` met le seuil à 10 000 050. Et cherche les transactions qui restent ouvertes des heures : aucun réglage n’aide tant que l’une d’elles retient les vieilles lignes.'
+		],
+		steps: [
+			{
+				title: 'Rappelle la règle',
+				questions: [
+					{ q: 'Avec les réglages par défaut, quand autovacuum passe-t-il sur une table ?', options: ['Chaque nuit à heure fixe', 'Quand ses lignes mortes dépassent 50 + 20 % de ses lignes, plafonné à 100 000 000', 'Quand la table atteint 1 GB sur disque', 'Tous les 1 000 updates, quelle que soit la taille de la table'], answer: 1, why: 'Seuil de base 50, facteur d’échelle 0,2, et `autovacuum_vacuum_max_threshold` à 100 000 000.' },
+					{ q: 'Quelles lignes comptent comme mortes ?', options: ['Les lignes que personne n’a lues depuis un mois', 'Les lignes avec un NULL dans la clé primaire', 'Les lignes qui ont échoué à une contrainte CHECK', 'Les anciennes versions laissées par un UPDATE ou un DELETE'], answer: 3, why: 'Un UPDATE écrit une nouvelle version et laisse l’ancienne. Un DELETE laisse la ligne en place. Les deux sont mortes une fois remplacées ou supprimées.' },
+					{ q: 'À quelle fréquence un worker d’autovacuum visite-t-il chaque base ?', options: ['Toutes les `autovacuum_naptime`, 1 minute par défaut', 'Une fois par checkpoint', 'Seulement quand tu lances `ANALYZE`', 'Toutes les secondes'], answer: 0, why: 'Le lanceur démarre un worker pour chaque base toutes les `autovacuum_naptime`, et ce worker vérifie chaque table.' },
+					{ q: 'Au maximum, combien de lignes mortes une table attend-elle avec les réglages par défaut ?', options: ['200 050', '2 050', '100 000 000', 'Il n’y a pas de limite'], answer: 2, why: 'Le plafond, `autovacuum_vacuum_max_threshold`, est de 100 000 000 lignes mortes.' }
+				]
+			},
+			{
+				title: 'Calcule chaque table',
+				questions: [
+					{ q: '`sessions` a 10 000 lignes. Combien de lignes mortes avant autovacuum ?', options: ['10 050', '50', '2 050', '200 050'], answer: 2, why: '50 + 0,2 × 10 000 = 2 050.' },
+					{ q: '`orders` a 1 000 000 de lignes. Combien de lignes mortes avant autovacuum ?', options: ['200 050', '1 000 050', '100 050', '20 050'], answer: 0, why: '50 + 0,2 × 1 000 000 = 200 050, bien sous le plafond.' },
+					{ q: '`events` a 1 000 000 000 de lignes. Combien de lignes mortes avant autovacuum ?', options: ['200 000 050', '1 000 000 050', '10 000 050', '100 000 000'], answer: 3, why: 'La formule donne 200 000 050, au-dessus du plafond, donc c’est le plafond qui s’applique : 100 000 000.' },
+					{ q: 'Quelle table passe au VACUUM après le moins de changements ?', options: ['`events`, parce que c’est la plus grosse', '`sessions`, la plus petite', '`orders`, celle du milieu', 'Les trois au même nombre'], answer: 1, why: 'Le seuil grandit avec la table, donc une petite table passe au VACUUM après quelques milliers de changements.' }
+				]
+			},
+			{
+				title: 'Trouve les lignes mortes',
+				questions: [
+					{ q: 'Quelle vue contient le nombre de lignes mortes de chaque table ?', options: ['`pg_stats`', '`pg_stat_user_tables`', '`pg_locks`', '`pg_class`'], answer: 1, why: 'Les statistiques cumulées de chaque table sont dans `pg_stat_user_tables`.' },
+					{ q: 'Quelle colonne lis-tu ?', options: ['`n_live_tup`', '`last_analyze`', '`n_dead_tup`', '`seq_scan`'], answer: 2, why: '`n_dead_tup` est le nombre qu’autovacuum compare au seuil.' },
+					{ q: 'Comment obtiens-tu les dix pires tables ?', options: ['`ORDER BY n_dead_tup DESC LIMIT 10`', '`ORDER BY n_dead_tup LIMIT 10`', '`WHERE n_dead_tup > 10`', '`GROUP BY n_dead_tup LIMIT 10`'], answer: 0, why: 'Trie par lignes mortes, la plus grosse d’abord, et garde-en dix.' },
+					{ q: 'À quel point `n_dead_tup` est-il exact ?', options: ['Exact, compté par VACUUM à chaque passage', 'Exact, lu dans les pages de la table', 'Une estimation du planificateur', 'Un compte « eventually-consistent » mis à jour par chaque UPDATE, DELETE et INSERT'], answer: 3, why: 'C’est ainsi que la doc le décrit. Il suffit pour décider quand passer le VACUUM.' }
+				]
+			},
+			{
+				title: 'Change events',
+				questions: [
+					{ q: 'Quel changement fait passer autovacuum plus tôt sur `events` ?', options: ['`ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.01);`', '`ALTER TABLE events SET (autovacuum_enabled = false);`', 'Lancer `VACUUM FULL events` chaque nuit', 'Monter le facteur d’échelle global à 0,5'], answer: 0, why: 'Un facteur d’échelle propre à la table ne change le seuil que pour `events`.' },
+					{ q: 'Quel est le nouveau seuil pour `events` ?', options: ['100 000 000', '1 000 050', '10 000 050', '200 000 050'], answer: 2, why: '50 + 0,01 × 1 000 000 000 = 10 000 050, sous le plafond.' },
+					{ q: 'Que cherches-tu d’autre, puisque ça bloque le nettoyage quels que soient les réglages ?', options: ['Les index jamais utilisés', 'Les transactions qui restent ouvertes des heures', 'Les lignes avec de très longs textes', 'Les tables sans clé primaire'], answer: 1, why: 'Une transaction ouverte peut encore voir les anciennes versions, donc VACUUM ne peut pas les retirer, quel que soit le seuil.' },
+					{ q: 'Tu veux aussi que le fichier de `events` rétrécisse sur disque. Qu’est-ce qu’il faut ?', options: ['Un `VACUUM` simple, lancé deux fois', 'Une `autovacuum_naptime` plus basse', 'Un `CHECKPOINT` juste après VACUUM', '`VACUUM FULL`, qui demande un verrou ACCESS EXCLUSIVE et la place pour une nouvelle copie'], answer: 3, why: 'Un VACUUM simple marque la place libre pour la réutiliser, mais la rend rarement. VACUUM FULL réécrit la table et bloque toute lecture et toute écriture pendant qu’il tourne.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ export default {
 			why: 'Les XID font le tour après environ deux milliards de transactions. Pour que les vieilles lignes ne passent pas pour des lignes du futur, autovacuum force un passage de gel dès que `relfrozenxid` est plus vieux que `autovacuum_freeze_max_age`, même si autovacuum est coupé pour cette table.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Voir les lignes mortes s’accumuler, une transaction ouverte bloquer VACUUM, et quel VACUUM fait rétrécir le fichier.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` dans deux terminaux : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres` dans chacun.',
+			'Dans le terminal 1, crée une table de jobs sans autovacuum, pour décider toi-même quand il passe : `CREATE TABLE jobs (id int primary key, state text not null) WITH (autovacuum_enabled = false); INSERT INTO jobs SELECT i, \'queued\' FROM generate_series(1, 10000) i; SELECT pg_size_pretty(pg_relation_size(\'jobs\'));`',
+			'Fais passer chaque job par ses états deux fois : `UPDATE jobs SET state = \'running\'; UPDATE jobs SET state = \'done\'; UPDATE jobs SET state = \'queued\'; UPDATE jobs SET state = \'running\'; UPDATE jobs SET state = \'done\';` Attends une seconde, puis `SELECT n_live_tup, n_dead_tup FROM pg_stat_user_tables WHERE relname = \'jobs\';` et la taille de nouveau. Ensuite `VACUUM jobs;`.',
+			'Dans le terminal 2, ouvre une transaction et laisse-la : `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM jobs;`. Dans le terminal 1 : `UPDATE jobs SET state = \'queued\'; VACUUM (VERBOSE) jobs;` et lis la ligne `tuples:`.',
+			'Dans le terminal 2, lance `COMMIT;`. Dans le terminal 1, relance `VACUUM (VERBOSE) jobs;`, puis `SELECT pg_size_pretty(pg_relation_size(\'jobs\'));`, puis `VACUUM FULL jobs;` et la taille encore une fois. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Après les cinq updates, `n_dead_tup` vaut environ 50 000 pour 10 000 lignes vivantes, et la table est passée d’environ 440 kB à environ 2,5 MB.',
+			'Avec le terminal 2 ouvert, `VACUUM (VERBOSE)` affiche `10000 are dead but not yet removable`.',
+			'Après le `COMMIT`, il affiche `10000 removed`, la taille reste vers 2,5 MB, et seul `VACUUM FULL` la ramène vers 440 kB.'
+		],
+		solution: [
+			'Chaque UPDATE écrit une nouvelle version de chaque ligne et laisse l’ancienne en place : cinq updates, environ cinq versions mortes par ligne.',
+			'Le snapshot Repeatable Read du terminal 2 peut encore avoir besoin des anciennes versions, donc VACUUM doit les garder jusqu’à sa fin.',
+			'Un VACUUM simple marque la place libre pour de nouvelles lignes de la même table. VACUUM FULL écrit une nouvelle copie sous un verrou ACCESS EXCLUSIVE, et c’est pour ça que tu l’évites sur une table chargée.'
+		]
+	},
 	recall: {
 		q: 'Un UPDATE laisse l’ancienne version de la ligne dans la table. Avec les réglages par défaut, quand autovacuum la retire-t-il ?',
 		a: 'Quand les lignes mortes de la table dépassent 50 + 20 % de ses lignes (200 050 pour un million de lignes), et seulement quand plus aucune transaction ouverte ne peut voir l’ancienne version.'

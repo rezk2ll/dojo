@@ -136,6 +136,44 @@ export default {
 			'C: visible. 104 counts, and the deleter 105 is in the running list, so the delete does not count yet.',
 			'D: invisible, inserted by 105, which is still running for this snapshot. E: invisible, 107 is at or above 106, even though it committed. F: invisible, 102 aborted.',
 			'To watch it live: open two `psql` sessions, run `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;` in one, update a row in the other, then select again in the first. It still sees the old version.'
+		],
+		steps: [
+			{
+				title: 'Read the snapshot',
+				questions: [
+					{ q: 'In `103:106:105`, what does 103 mean?', options: ['The XID of your own transaction', 'Every XID below 103 is finished', 'Every XID below 103 is invisible', 'The number of rows in the snapshot'], answer: 1, why: 'The first number is the snapshot\'s xmin: every older transaction has committed or aborted.' },
+					{ q: 'What does 106 mean?', options: ['Every XID from 106 has committed', '106 is the next row version', 'Every XID from 106 on is invisible', '106 is still running'], answer: 2, why: 'The second number is the snapshot\'s xmax: a snapshot "can never see the effects of XIDs >= xmax".' },
+					{ q: 'What does the 105 at the end mean?', options: ['105 was still running when the snapshot was taken', '105 aborted', '105 is the last XID that committed', '105 is your own transaction'], answer: 0, why: 'The list after the second colon holds the transactions in progress. Their work is invisible to this snapshot.' },
+					{ q: 'Transaction 104 is between 103 and 106, not in the list, and committed. Does its work count?', options: ['No, everything above 103 is invisible', 'Only for rows it inserted', 'Only after a VACUUM', 'Yes, it finished before the snapshot'], answer: 3, why: 'A snapshot sees every XID below its xmax except those in its running list.' }
+				]
+			},
+			{
+				title: 'Check A, B and C',
+				questions: [
+					{ q: 'A (xmin 90, xmax 0)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 0, why: '90 is below 103 and committed, and nobody deleted it.' },
+					{ q: 'B (xmin 101, xmax 104)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 2, why: '101 counts, and 104 committed before the snapshot, so the delete counts too.' },
+					{ q: 'C (xmin 104, xmax 105)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 0, why: '104 counts, and the deleter 105 is in the running list, so the delete does not count yet.' },
+					{ q: 'Why is C still visible although 105 has stamped its xmax?', options: ['Because xmax is ignored on committed rows', 'Because the deleter is still running for this snapshot', 'Because C is frozen', 'Because VACUUM has not run yet'], answer: 1, why: 'Only a deleter that committed before the snapshot hides a version. 105 is in the running list.' }
+				]
+			},
+			{
+				title: 'Check D, E and F',
+				questions: [
+					{ q: 'D (xmin 105, xmax 0)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once VACUUM runs'], answer: 1, why: 'D was inserted by 105, which is still running for this snapshot.' },
+					{ q: 'E (xmin 107, xmax 0), and 107 has committed?', options: ['Visible, since 107 committed', 'Visible, but only once VACUUM runs', 'Invisible: the deleter counts', 'Invisible: the inserter does not count'], answer: 3, why: '107 is at or above 106, the snapshot\'s xmax. Committing later does not change a snapshot already taken.' },
+					{ q: 'F (xmin 102, xmax 0)?', options: ['Invisible: the inserter does not count', 'Visible', 'Invisible: the deleter counts', 'Visible, but only once VACUUM runs'], answer: 0, why: '102 aborted, so its version never becomes visible to anyone.' },
+					{ q: '102 is below 103, so it is finished. Why does F still not count?', options: ['Because F is not frozen yet', 'Because 102 is in the running list', 'Because finished includes aborted, and an aborted insert never counts', 'Because rows below 103 are always hidden'], answer: 2, why: 'Below xmin means committed or aborted. The visibility check still asks which one it was.' }
+				]
+			},
+			{
+				title: 'Watch it live',
+				questions: [
+					{ q: 'Which level keeps one snapshot for your whole transaction in `psql`?', options: ['Read Committed', 'Autocommit', 'Repeatable Read', 'No level: snapshots are per statement'], answer: 2, why: '`BEGIN ISOLATION LEVEL REPEATABLE READ` keeps the first statement\'s snapshot until the end.' },
+					{ q: 'Which function prints your snapshot?', options: ['`pg_current_snapshot()`', '`pg_current_wal_lsn()`', '`txid_status()`', '`pg_stat_activity`'], answer: 0, why: '`pg_current_snapshot()` prints it as `xmin:xmax:running list`.' },
+					{ q: 'The other session updates a row and commits. You select again in the first session. What do you see?', options: ['The new version, since it committed', 'An error, since the row changed', 'The old version', 'Both versions'], answer: 2, why: 'Your snapshot was taken before that commit, so the updater still counts as running or invisible for you.' },
+					{ q: 'What does the old version show in its `xmax` column now?', options: ['0, since your snapshot does not see the update', 'Your own XID', 'The XID of the next transaction', 'The XID of the transaction that updated it'], answer: 3, why: 'An UPDATE stamps its own XID as xmax on the old version, and that is stored on the row for everyone.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ export default {
 			why: 'A committed delete that counts for your snapshot would hide the row. A visible row with a nonzero xmax means the deleter is still running, rolled back, or only took a row lock.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Read `xmin`, `xmax` and a snapshot live, and see an old row version outlive the update that replaced it.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql` in two terminals: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres` in each.',
+			'In terminal 1: `CREATE TABLE accounts (id int primary key, balance int not null); INSERT INTO accounts VALUES (1, 100), (2, 50);` then `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;`',
+			'In terminal 2: `BEGIN; SELECT pg_current_xact_id(); UPDATE accounts SET balance = balance - 10 WHERE id = 1; SELECT xmin, xmax, * FROM accounts; COMMIT;`',
+			'In terminal 1, run the same `SELECT pg_current_snapshot(), xmin, xmax, * FROM accounts;` again, then `COMMIT;` and `SELECT xmin, xmax, * FROM accounts;`',
+			'In terminal 2, roll back a change: `BEGIN; UPDATE accounts SET balance = 0 WHERE id = 2; ROLLBACK;` then `SELECT xmin, xmax, * FROM accounts;`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'In terminal 2, row 1 shows `balance` 90 and an `xmin` equal to the XID from `pg_current_xact_id()`.',
+			'Back in terminal 1, before `COMMIT`, row 1 still shows 100, now with `xmax` set to that same XID. The snapshot is unchanged.',
+			'After the rollback, row 2 shows 50 with a nonzero `xmax`.'
+		],
+		solution: [
+			'The UPDATE wrote a new version (xmin = its XID) and stamped its XID as xmax on the old one. Both versions are on disk.',
+			'The updater got its XID after terminal 1 took its snapshot, so that XID is at or above the snapshot\'s xmax and its work is invisible. The old version stays visible to terminal 1 until its transaction ends.',
+			'A visible row with a nonzero xmax means the deleter is still running, rolled back, or only locked the row. Here it rolled back.'
+		]
+	},
 	recall: {
 		q: 'A twenty-minute report sums `orders` while checkouts update rows. How does it get a consistent total without making them wait?',
 		a: 'Each row version records xmin (its inserter) and xmax (its deleter). The report\'s snapshot says which XIDs count, so it reads the versions committed when it started, while checkouts write new versions.'

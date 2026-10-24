@@ -119,6 +119,44 @@ LOOP
 			'`CREATE TABLE events_p2026_10 PARTITION OF events FOR VALUES FROM (\'2026-10-01\') TO (\'2026-11-01\');` and the same for November. `CREATE TABLE events_default PARTITION OF events DEFAULT;`',
 			'(a) is pruned: the range fits inside October, so `EXPLAIN` (day 12) leaves out November and shows `events_p2026_10`. (b) reads every partition: the filter says nothing about `created_at`. An index on `user_id` helps inside each partition, but every partition is still visited.',
 			'Removal: `ALTER TABLE events DETACH PARTITION events_p2026_09 CONCURRENTLY;`, back it up if you need to, then `DROP TABLE events_p2026_09;`. Fast whatever the row count, and nothing for vacuum to clean.'
+		],
+		steps: [
+			{
+				title: 'Create the parent table',
+				questions: [
+					{ q: 'Which primary key does PostgreSQL accept on `events`?', options: ['`PRIMARY KEY (id)`', '`PRIMARY KEY (id, created_at)`', '`PRIMARY KEY (user_id)`', 'None: a partitioned table cannot have one'], answer: 1, why: 'A unique constraint on a partitioned table must include the partition key, because each partition\'s index only sees its own rows.' },
+					{ q: 'Which clause makes the table partitioned by month on `created_at`?', options: ['`PARTITION BY LIST (created_at)`', '`PARTITION BY HASH (id)`', '`PARTITION BY RANGE (created_at)`', '`CLUSTER BY created_at`'], answer: 2, why: 'Months are ranges of timestamps. List fits a region or a tenant, not a timestamp.' },
+					{ q: 'What does the parent `events` store itself?', options: ['Nothing: each row is routed to a partition', 'A copy of every row, for safety', 'Only the rows that fit no partition', 'Only the indexes of the partitions'], answer: 0, why: 'The parent has no storage. The app writes to `events`, and PostgreSQL routes each row by its `created_at`.' },
+					{ q: 'With `PRIMARY KEY (id, created_at)`, what does the database no longer enforce?', options: ['That `id` is not NULL', 'That each `(id, created_at)` pair is unique', 'That rows arrive in time order', 'That `id` is unique across the whole table'], answer: 3, why: 'Two partitions could hold the same `id` with different dates. Global uniqueness of `id` is now up to you.' }
+				]
+			},
+			{
+				title: 'Add the partitions',
+				questions: [
+					{ q: 'Which bounds give October 2026?', options: ['`FROM (\'2026-10-01\') TO (\'2026-10-31\')`', '`FROM (\'2026-10-01\') TO (\'2026-11-01\')`', '`FROM (\'2026-09-30\') TO (\'2026-10-31\')`', '`FROM (\'2026-10-02\') TO (\'2026-11-01\')`'], answer: 1, why: 'The upper bound is excluded, so `TO (\'2026-11-01\')` covers the whole of October 31 and nothing of November.' },
+					{ q: 'A row has `created_at` exactly at midnight on November 1. Where does it go?', options: ['October', 'November', 'The default partition', 'Both, as a copy'], answer: 1, why: 'A range partition includes its lower bound and excludes its upper one. Midnight is November\'s lower bound.' },
+					{ q: 'Which statement creates the default partition?', options: ['`CREATE TABLE events_default PARTITION OF events DEFAULT;`', '`ALTER TABLE events SET DEFAULT PARTITION;`', '`CREATE TABLE events_default (LIKE events);`', '`CREATE DEFAULT PARTITION ON events;`'], answer: 0, why: '`PARTITION OF ... DEFAULT` attaches a catch-all for rows that fit no other partition.' },
+					{ q: 'Without the default partition, a row arrives for December 2. What happens?', options: ['PostgreSQL creates a December partition', 'The row goes into November', 'The insert fails with an error', 'The row waits in the parent table'], answer: 2, why: 'A row that maps to no partition is an error. That is why pg_partman pre-creates partitions and adds a default one.' }
+				]
+			},
+			{
+				title: 'Check the pruning',
+				questions: [
+					{ q: 'Which partitions does query (a), one day in October, read?', options: ['Only `events_p2026_10`', 'October and November', 'Every partition', 'Only the default partition'], answer: 0, why: 'The range fits inside October\'s bounds, so the planner proves the others cannot match and leaves them out.' },
+					{ q: 'Which partitions does query (b), `WHERE user_id = 42`, read?', options: ['Only the newest one', 'Every partition', 'Only the default partition', 'None, it uses the primary key'], answer: 1, why: 'The filter says nothing about `created_at`, so no partition can be ruled out.' },
+					{ q: 'How do you see which partitions a query reads?', options: ['`SELECT count(*)` on the query', '`VACUUM VERBOSE events`', '`pg_dump` of the parent', '`EXPLAIN` the query'], answer: 3, why: '`EXPLAIN` (day 12) lists only the partitions left in the plan.' },
+					{ q: 'You add an index on `user_id`. What changes for (b)?', options: ['Each partition is searched faster, but all are still visited', 'The query is pruned to one partition', 'Nothing: partitioned tables cannot have indexes', 'Only the default partition is searched'], answer: 0, why: 'An index helps inside each partition. Pruning still needs a filter on the partition key.' }
+				]
+			},
+			{
+				title: 'Remove September',
+				questions: [
+					{ q: 'September is past retention. What is the cheapest way to remove it?', options: ['`DELETE FROM events WHERE created_at < \'2026-10-01\'`', 'Detach the partition, then drop it', '`TRUNCATE events`, then copy back October and November', 'Delete it in batches of 10,000 rows'], answer: 1, why: 'Dropping a partition removes all its rows at once, whatever their number.' },
+					{ q: 'Why does a dropped partition leave vacuum nothing to do?', options: ['No row is deleted one by one, so there are no dead rows', 'Vacuum skips partitioned tables', 'The rows move to the default partition', 'Drop runs a `VACUUM FULL` first'], answer: 0, why: 'A big `DELETE` leaves millions of dead rows for autovacuum (day 16). A `DROP TABLE` removes the file.' },
+					{ q: 'Which lock does `DROP TABLE` on a partition take on the parent?', options: ['`SHARE UPDATE EXCLUSIVE`', 'No lock at all', '`ACCESS EXCLUSIVE`', 'A row lock on each row'], answer: 2, why: 'So a long query on `events` makes the drop wait, and every query behind it waits too, as on day 26.' },
+					{ q: 'Why detach first instead of dropping straight away?', options: ['`DROP TABLE` refuses an attached partition', 'Detach deletes the rows faster than drop', 'Retention only works on detached tables', 'The detached table stays on disk, so you can back it up first'], answer: 3, why: 'A detached partition becomes a plain table. The PostgreSQL docs suggest a `COPY` or `pg_dump` at that point, then the drop.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,31 @@ LOOP
 			why: 'Dropping or detaching a partition removes its rows without touching them one by one, and leaves no dead rows for vacuum (day 16). The partition that is only partly older than 90 days stays until it is wholly past the limit.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a table partitioned by month, watch pruning in `EXPLAIN`, and remove a month with one `DROP TABLE`.',
+		steps: [
+			'Start PostgreSQL and open `psql`: `docker run -d --name part-lab -e POSTGRES_PASSWORD=lab postgres:16`, wait a few seconds, then `docker exec -it part-lab psql -U postgres`.',
+			'Try the naive key first: `CREATE TABLE events (id bigint PRIMARY KEY, user_id bigint, created_at timestamptz NOT NULL, payload jsonb) PARTITION BY RANGE (created_at);`. Read the error, then create it with the key PostgreSQL accepts.',
+			'Create September, October and November 2026 with `CREATE TABLE events_p2026_09 PARTITION OF events FOR VALUES FROM (\'2026-09-01\') TO (\'2026-10-01\');` and the same for the next two months. Insert a December row: `INSERT INTO events VALUES (1, 1, \'2026-12-02\', \'{}\');`.',
+			'Add the default partition, run the same insert again, then load data: `INSERT INTO events SELECT g, g % 100, timestamptz \'2026-09-01\' + (g % 91) * interval \'1 day\', \'{}\' FROM generate_series(2, 30000) g;`. See where the rows went: `SELECT tableoid::regclass AS partition, count(*) FROM events GROUP BY 1 ORDER BY 1;`.',
+			'Run `EXPLAIN (COSTS OFF)` on `SELECT * FROM events WHERE created_at >= \'2026-10-05\' AND created_at < \'2026-10-06\';` and on `SELECT * FROM events WHERE user_id = 42;`.',
+			'Remove September: try `ALTER TABLE events DETACH PARTITION events_p2026_09 CONCURRENTLY;`, then run it without `CONCURRENTLY`, then `DROP TABLE events_p2026_09;` and count per partition again. When you are done: `docker rm -f part-lab`.'
+		],
+		done: [
+			'`PRIMARY KEY (id)` fails with `unique constraint on partitioned table must include all partitioning columns`.',
+			'The December insert fails with `no partition of relation "events" found for row` before the default partition exists, and lands in `events_default` after.',
+			'The October query plan shows only `events_p2026_10`. The `user_id` plan has an `Append` over all four partitions.',
+			'`DETACH ... CONCURRENTLY` fails with `cannot detach partitions concurrently when a default partition exists`, and the plain `DETACH` works.',
+			'After the drop, the count per partition no longer lists `events_p2026_09`.'
+		],
+		solution: [
+			'`CREATE TABLE events (id bigint, user_id bigint, created_at timestamptz NOT NULL, payload jsonb, PRIMARY KEY (id, created_at)) PARTITION BY RANGE (created_at);`',
+			'`CREATE TABLE events_p2026_10 PARTITION OF events FOR VALUES FROM (\'2026-10-01\') TO (\'2026-11-01\');`, the same with `11` and `12` for November, and `CREATE TABLE events_default PARTITION OF events DEFAULT;`.',
+			'`ALTER TABLE events DETACH PARTITION events_p2026_09;` then `DROP TABLE events_p2026_09;`. Between the two, the detached table is a plain table you can back up with `COPY` or `pg_dump`.',
+			'The plain `DETACH` takes a stronger lock than `CONCURRENTLY`. With a default partition in place, PostgreSQL refuses the concurrent form, so plan the detach for a quiet moment.'
+		]
+	},
 	recall: {
 		q: '`events` is partitioned by month on `created_at`. How do you remove rows older than 90 days, and which partitions go?',
 		a: 'Detach and drop each partition whose whole range is older than 90 days: `DETACH PARTITION ... CONCURRENTLY`, then `DROP TABLE`. A partition with some newer rows stays, and no dead rows are left for vacuum.'

@@ -136,6 +136,44 @@ export default {
 			'`disputed` is not: what is left is 1 - (0.90 + 0.06 + 0.03) - 0 = 0.01, shared by 5 - 3 = 2 other distinct values, so 0.005, or 5,000 rows. The cross-check in the code keeps it below the smallest MCV share (0.03), which it already is. If `disputed` does not exist at all, the estimate is still 5,000.',
 			'Two columns: 1/50 × 1/20 = 1/1,000, so about 1,000 rows. But FR implies EUR, so the currency condition removes nothing: the real count is close to 1/50, about 20,000 rows. The planner is 20 times low.',
 			'Fix: `CREATE STATISTICS invoices_country_currency (dependencies) ON country, currency FROM invoices; ANALYZE invoices;`. In a test with a zip code that fully decides the city, the estimate went from 10 rows to 995 for 1,000 real ones.'
+		],
+		steps: [
+			{
+				title: 'Read the statistics',
+				questions: [
+					{ q: 'What does `most_common_freqs = {0.90,0.06,0.03}` tell you?', options: ['How many times each value was updated', 'The share of rows each common value has', 'The share of the sample that was NULL', 'The order in which the values were inserted'], answer: 1, why: 'Each frequency is the share of rows with the matching value in `most_common_vals`: 90% `paid`, 6% `refunded`, 3% `pending`.' },
+					{ q: 'With `n_distinct = 5` and three values in the MCV list, how many distinct values are left outside it?', options: ['5', '3', '0', '2'], answer: 3, why: '5 distinct values minus the 3 common ones leaves 2 other values.' },
+					{ q: 'What share of rows do the MCVs and the NULLs leave for those other values?', options: ['0.01', '0.03', '0.10', '0.99'], answer: 0, why: '1 - (0.90 + 0.06 + 0.03) - 0 = 0.01. `null_frac` is 0, so nothing more comes off.' },
+					{ q: 'Where do these numbers come from?', options: ['A count of every row, kept up to date on each write', 'The indexes on the column, read at planning time', '`ANALYZE`, from a random sample of 30,000 rows by default', 'The last `EXPLAIN ANALYZE` run on the table'], answer: 2, why: '`ANALYZE` samples 300 rows per point of statistics target, 30,000 by default, and stores the result in `pg_statistic`.' }
+				]
+			},
+			{
+				title: 'Estimate one value',
+				questions: [
+					{ q: 'How many rows does the planner expect for `status = \'refunded\'`?', options: ['200,000', '5,000', '60,000', '1,000,000'], answer: 2, why: '`refunded` is in the MCV list with 0.06, so 1,000,000 × 0.06 = 60,000.' },
+					{ q: 'Why can it use 0.06 directly?', options: ['The value is in the MCV list, so `var_eq_const` takes its measured share', 'The planner counts the refunded rows before it plans', 'Every value gets 1 divided by `n_distinct`', 'A unique index covers the column'], answer: 0, why: 'A match in the MCV list gives the share "as exactly as ANALYZE could calculate it".' },
+					{ q: 'How many rows does it expect for `status = \'disputed\'`, which is not in the list?', options: ['10,000', '5,000', '30,000', '200,000'], answer: 1, why: 'The leftover 0.01 is shared by 2 other values: 0.005 × 1,000,000 = 5,000. It stays below the smallest MCV share, 0.03.' },
+					{ q: '`disputed` does not exist in the table at all. What does the planner expect?', options: ['0 rows, since the sample never saw it', '1 row, the minimum for any condition', '10,000 rows, the whole leftover share', '5,000 rows, the same as before'], answer: 3, why: 'A rare value and a missing value get the same estimate: the leftover share divided by the other distinct values.' }
+				]
+			},
+			{
+				title: 'Estimate two columns',
+				questions: [
+					{ q: 'How does the planner estimate `country = \'FR\' AND currency = \'EUR\'`?', options: ['1/50 × 1/20 = 1/1,000 of the rows', '1/50 + 1/20 of the rows', 'The smaller of 1/50 and 1/20', '1/50 alone, since currency follows country'], answer: 0, why: 'With no extended statistics, it multiplies the selectivities of the two conditions.' },
+					{ q: 'Why does it multiply them?', options: ['It reads the two indexes and intersects them', 'It always picks the worst case for safety', 'It knows each country uses one currency', 'It assumes the two columns are independent'], answer: 3, why: 'The product is "only right if they have independent probabilities", says the header of `clausesel.c`.' },
+					{ q: 'Each country uses one currency. What is the real answer close to?', options: ['1/1,000 of the rows, as estimated', '1/20 of the rows', '1/50 of the rows', 'All the rows'], answer: 2, why: 'FR implies EUR, so the currency condition removes nothing. Only the 1/50 for the country counts.' },
+					{ q: 'By how much is the planner off?', options: ['It is exact', 'It is 20 times too low', 'It is 50 times too high', 'It is 1,000 times too low'], answer: 1, why: 'It expects 1/1,000 of the rows where about 1/50 match: 20 times too few.' }
+				]
+			},
+			{
+				title: 'Fix the estimate',
+				questions: [
+					{ q: 'What fixes the estimate?', options: ['A composite index on `(country, currency)`', '`CREATE STATISTICS ... (dependencies) ON country, currency FROM invoices`, then `ANALYZE`', 'Rewriting the condition with OR', 'Running `VACUUM FULL invoices`'], answer: 1, why: 'A `dependencies` object measures how far one column decides the other. The planner then adjusts the per-condition estimates.' },
+					{ q: 'When does the new statistics object start to help?', options: ['After the next `ANALYZE` of the table', 'At once, when it is created', 'After the next checkpoint', 'Only after a server restart'], answer: 0, why: 'Extended statistics are filled by `ANALYZE`, like the per-column ones.' },
+					{ q: 'A teammate suggests raising the statistics target of both columns instead. Does it fix the error?', options: ['Yes, a bigger sample finds the link between the columns', 'Yes, but only with a target of 10000', 'No, each column gets better numbers, and they are still multiplied', 'No, the target only applies to indexes'], answer: 2, why: 'The error comes from multiplying two selectivities as if the columns were independent. Bigger per-column samples do not change that.' },
+					{ q: 'Which condition can the `dependencies` object improve?', options: ['`country > \'F\' AND currency = \'EUR\'`', '`country LIKE \'F%\' AND currency = \'EUR\'`', '`country <> \'FR\' AND currency <> \'EUR\'`', '`country = \'FR\' AND currency = \'EUR\'`'], answer: 3, why: 'Functional dependencies help only with `=` and `IN` on constants.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ export default {
 			why: 'The error comes from multiplying two selectivities as if the columns were independent. Bigger per-column samples do not change that. An index speeds up the scan but does not tell the planner the columns are correlated. A `dependencies` statistics object does.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch the planner underestimate two correlated columns, then fix it with `CREATE STATISTICS`.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql`: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres`.',
+			'Build the hook\'s table, where each zip belongs to one city: `CREATE TABLE shipments (id bigint generated always as identity, city text not null, zip text not null);` then `INSERT INTO shipments (city, zip) SELECT \'city\' || (i % 1000) % 100, \'zip\' || i % 1000 FROM generate_series(1, 1000000) i; ANALYZE shipments;`',
+			'Read what `ANALYZE` stored: `SELECT attname, n_distinct, array_length(most_common_vals, 1) AS mcvs FROM pg_stats WHERE tablename = \'shipments\' AND attname IN (\'city\', \'zip\');`',
+			'Compare estimate and reality: `EXPLAIN ANALYZE SELECT * FROM shipments WHERE city = \'city7\' AND zip = \'zip107\';`',
+			'Declare the link and run it again: `CREATE STATISTICS shipments_city_zip (dependencies) ON city, zip FROM shipments; ANALYZE shipments;`, then the same `EXPLAIN ANALYZE`. Read the measured dependency with `SELECT dependencies FROM pg_stats_ext WHERE statistics_name = \'shipments_city_zip\';`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'`pg_stats` shows `n_distinct` 100 for `city` and 1000 for `zip`.',
+			'Before the statistics object, the top node estimates about 10 rows and returns 1000.',
+			'After it and a new `ANALYZE`, the estimate is close to 1000, and `pg_stats_ext` shows a dependency of `1.000000`.'
+		],
+		solution: [
+			'Each condition alone is estimated well: 1/100 for the city, 1/1000 for the zip. The planner multiplies them and gets 1/100,000, so 10 rows.',
+			'Every row with `zip107` is in `city7`, so the real share is 1/1000. The dependency of 1.0 says the zip fully decides the city.',
+			'The plan here stays a sequential scan, since there is no index. The estimate matters once a join or an index choice depends on it, like the nested loop over 1,000 rows it thought were 10 in the hook.'
+		]
+	},
 	recall: {
 		q: 'How does the planner estimate `city = \'city7\' AND zip = \'zip107\'` when each zip belongs to one city, and what fixes the estimate?',
 		a: 'It multiplies the two selectivities, 1/100 × 1/1000, and expects 10 rows instead of 1,000. `CREATE STATISTICS (dependencies) ON city, zip`, filled by the next `ANALYZE`, brings the estimate to 995.'

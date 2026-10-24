@@ -114,6 +114,44 @@ export default {
 			'(b) `WHERE message_id = 123456` saute la première colonne. Sur PostgreSQL 18, ça a tourné en skip scan : `Index Searches: 5001` et environ 15 000 buffers pour une seule ligne. Avec moins d’utilisateurs, ce serait bon marché ; ici, il faut un index à part sur `message_id`.',
 			'(c) Avant : un Bitmap Index Scan sur l’index unique pour les 400 lignes de l’utilisateur 42, `Rows Removed by Filter: 382`, puis un `Sort`. Après `CREATE INDEX ON usermessage (user_profile_id, message_id) WHERE flags & 1 = 0` : un `Index Only Scan` sur l’index partiel, 18 lignes, pas de filtre, pas de tri, 5 buffers. Il fait 1,8 MB contre 60 MB pour l’index complet.',
 			'Préparée avec `flags & $2 = 0` et un plan générique, le planificateur revient à l’index unique plus un filtre : à la planification, `$2` peut valoir n’importe quoi, donc il ne peut pas prouver que la requête ne veut que des non-lus. Garde la constante dans le texte SQL, comme le fait le `where_unread()` de Zulip.'
+		],
+		steps: [
+			{
+				title: 'Prédis (a), les 50 derniers',
+				questions: [
+					{ q: 'Comment l’index unique sur `(user_profile_id, message_id)` est-il trié ?', options: ['Par id de message, puis par utilisateur pour un même message', 'Par utilisateur, puis par id de message pour un même utilisateur', 'Dans l’ordre d’insertion des lignes', 'Par le hash des deux colonnes'], answer: 1, why: 'Un index composite est trié par sa première colonne, puis par la deuxième quand la première est égale.' },
+					{ q: 'Quelle requête demande (a) ?', options: ['`WHERE message_id > 0 ORDER BY user_profile_id LIMIT 50`', '`WHERE user_profile_id = 42 LIMIT 50`', '`ORDER BY message_id DESC LIMIT 50`', '`WHERE user_profile_id = 42 ORDER BY message_id DESC LIMIT 50`'], answer: 3, why: 'Égalité sur l’utilisateur, puis les messages les plus récents d’abord, puis arrêt à 50.' },
+					{ q: 'Quel plan obtiens-tu pour (a) ?', options: ['`Limit` au-dessus d’un `Index Only Scan Backward` sur l’index unique', '`Sort` au-dessus d’un `Seq Scan` de la table', '`Limit` au-dessus d’un `Bitmap Heap Scan`', '`Index Scan` sur la clé primaire, puis un `Sort`'], answer: 0, why: 'Le parcours lit la tranche de l’utilisateur 42 depuis la fin, dans l’ordre de `message_id`, et le `Limit` s’arrête après 50 entrées.' },
+					{ q: 'Pourquoi n’y a-t-il pas de nœud Sort ?', options: ['PostgreSQL saute le tri quand le LIMIT vaut 50 lignes ou moins', 'Le planificateur trie les 50 lignes dans le nœud Limit lui-même', 'L’égalité sur la première colonne laisse une tranche déjà triée par la deuxième', 'La table est rangée dans l’ordre de `message_id`'], answer: 2, why: 'Pour un même utilisateur, les entrées sont dans l’ordre de `message_id`. Les lire à l’envers donne le `DESC` gratuitement.' }
+				]
+			},
+			{
+				title: 'Prédis (b), un id de message',
+				questions: [
+					{ q: 'Quel est le problème de `WHERE message_id = 123456` avec cet index ?', options: ['`message_id` ne fait pas partie de l’index', 'Elle saute la première colonne, donc les correspondances sont réparties chez tous les utilisateurs', 'Un index unique ne sert pas une égalité', 'La valeur est trop grande pour l’index'], answer: 1, why: 'Sans `user_profile_id`, les entrées qui correspondent peuvent être dans la tranche de n’importe quel utilisateur.' },
+					{ q: 'Comment PostgreSQL 18 l’a-t-il exécutée ?', options: ['En skip scan : `Index Searches: 5001`', 'En Seq Scan avec un filtre', 'En une seule recherche d’index sur `message_id`', 'En Bitmap Index Scan sur la clé primaire'], answer: 0, why: 'Le skip scan lance une recherche B-tree par valeur de la première colonne : une par utilisateur ici.' },
+					{ q: 'Pourquoi ce skip scan coûte-t-il cher ici ?', options: ['Le skip scan lit la table en plus de l’index', 'Il doit d’abord trier les 5 000 utilisateurs', 'Il verrouille chaque page qu’il lit', 'Avec 5 000 utilisateurs, il lui faut environ 15 000 buffers pour une ligne'], answer: 3, why: 'Le skip scan est rentable avec une poignée de valeurs en tête. Avec des milliers, c’est une recherche par valeur.' },
+					{ q: 'De quoi (b) a-t-elle besoin ?', options: ['D’une cible de statistiques plus haute sur `message_id`', 'D’un index partiel sur les non-lus', 'D’un index à elle sur `message_id`', 'D’un `LIMIT 1` à la fin'], answer: 2, why: 'Une requête qui ne contraint pas la première colonne a besoin d’un index qui commence par la colonne qu’elle contraint.' }
+				]
+			},
+			{
+				title: 'Règle (c) avec un index partiel',
+				questions: [
+					{ q: 'Avant l’index partiel, comment (c) s’exécute-t-elle ?', options: ['Un Index Only Scan sur l’index unique, sans tri', 'Un Seq Scan de toute la table', 'Un Bitmap Index Scan pour les 400 lignes de l’utilisateur 42, `Rows Removed by Filter: 382`, puis un `Sort`', 'Un Index Scan sur la clé primaire, puis un filtre'], answer: 2, why: 'L’index unique trouve tous les messages de l’utilisateur 42, le filtre jette les lus, et le bitmap perd l’ordre, d’où le Sort.' },
+					{ q: 'Quel index partiel sert (c) ?', options: ['`CREATE INDEX ON usermessage (user_profile_id, message_id) WHERE flags & 1 = 0`', '`CREATE INDEX ON usermessage (flags) WHERE user_profile_id = 42`', '`CREATE INDEX ON usermessage (user_profile_id, message_id, flags)`', '`CREATE INDEX ON usermessage (message_id) WHERE flags = 1`'], answer: 0, why: 'Même clé et même ordre que la requête, et il ne contient que les lignes non lues, celles que (c) demande.' },
+					{ q: 'Que fait (c) avec l’index partiel ?', options: ['Le même Bitmap Index Scan, un peu plus vite', 'Un skip scan sur tous les utilisateurs', 'Un Seq Scan, parce que l’index est trop petit', 'Un `Index Only Scan` dessus, 18 lignes, pas de filtre, pas de tri, 5 buffers'], answer: 3, why: 'L’index ne contient que des lignes non lues, déjà dans l’ordre de `message_id` pour chaque utilisateur.' },
+					{ q: 'L’index partiel fait 1,8 MB, le complet 60 MB. Pourquoi ?', options: ['Les index partiels sont compressés', 'Il ne contient que les 3 % de lignes non lues', 'Il laisse de côté la colonne `message_id`', 'Il est construit sans les niveaux hauts de l’arbre'], answer: 1, why: 'Un index partiel ne contient que les lignes qui vérifient son `WHERE`, et 97 % des lignes sont lues.' }
+				]
+			},
+			{
+				title: 'Essaie la requête préparée',
+				questions: [
+					{ q: 'Préparée avec `flags & $2 = 0` et un plan générique, quel index (c) utilise-t-elle ?', options: ['L’index partiel, comme avec la constante', 'L’index unique plus un filtre', 'Aucun index : un Seq Scan', 'Les deux index dans un BitmapAnd'], answer: 1, why: 'Le planificateur revient à l’index unique et filtre les lignes lues.' },
+					{ q: 'Pourquoi le planificateur ne peut-il pas utiliser l’index partiel ici ?', options: ['Les requêtes préparées n’utilisent jamais d’index, quelle que soit sa définition', 'Les index partiels ne marchent que pour les requêtes lancées dans une transaction', 'À la planification, `$2` peut valoir n’importe quoi, donc il ne peut pas prouver que la requête ne veut que des non-lus', 'Le paramètre rend la requête trop longue'], answer: 2, why: 'La correspondance avec un index partiel « takes place at query planning time », donc « parameterized query clauses do not work with a partial index ».' },
+					{ q: 'Comment gardes-tu l’index partiel en service ?', options: ['Garde la constante dans le texte SQL, comme le `where_unread()` de Zulip', 'Ajoute `flags` aux colonnes de l’index', 'Lance `ANALYZE` avant chaque appel', 'Monte la cible de statistiques de `flags`'], answer: 0, why: 'Zulip écrit `flags & 1 = 0` en SQL littéral, pour que le prédicat soit visible quand la requête est planifiée.' },
+					{ q: 'Quelle clause WHERE peut utiliser l’index partiel ?', options: ['`user_profile_id = 42 AND flags & $1 = 0`', '`user_profile_id = 42`', '`user_profile_id = 42 AND flags <> 1`', '`user_profile_id = 42 AND flags & 1 = 0`'], answer: 3, why: 'Seule une requête dont la condition implique le prédicat de l’index à la planification peut l’utiliser. Le littéral `flags & 1 = 0` lui correspond exactement.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,27 @@ export default {
 			why: 'Les colonnes INCLUDE ne sont rangées que dans les feuilles et ne font pas partie de la clé. Un index unique vérifie alors l’unicité sur les colonnes de la clé seulement, et les niveaux hauts de l’arbre restent petits. Les colonnes de la clé peuvent aussi sortir d’un index-only scan, et la table garde toutes les colonnes.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Comparer les deux ordres de colonnes d’un index composite, puis faire du bon un index couvrant.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres`.',
+			'Crée un million d’événements pour 500 clients, un par seconde : `CREATE TABLE events (id bigint generated always as identity primary key, tenant_id int not null, created_at timestamptz not null, kind text not null);` puis `INSERT INTO events (tenant_id, created_at, kind) SELECT (random()*500)::int, timestamptz \'2026-01-01\' + i * interval \'1 second\', \'k\' || i % 10 FROM generate_series(1, 1000000) i;`',
+			'Indexe d’abord le temps : `CREATE INDEX events_created_tenant ON events (created_at, tenant_id); VACUUM ANALYZE events;` puis `EXPLAIN (ANALYZE, BUFFERS) SELECT id, created_at FROM events WHERE tenant_id = 7 AND created_at >= \'2026-01-05\' AND created_at < \'2026-01-06\' ORDER BY created_at;`',
+			'Indexe d’abord le client : `CREATE INDEX events_tenant_created ON events (tenant_id, created_at);` et relance le même `EXPLAIN`. Compare les buffers du nœud de parcours d’index.',
+			'Rends-le couvrant : `CREATE INDEX events_tenant_created_cov ON events (tenant_id, created_at) INCLUDE (id); VACUUM events;` puis `EXPLAIN (ANALYZE, BUFFERS) SELECT id, created_at FROM events WHERE tenant_id = 7 ORDER BY created_at DESC LIMIT 20;`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Avec `(created_at, tenant_id)`, le parcours d’index touche quelques centaines de buffers (environ 480 dans un test) pour environ 170 lignes.',
+			'Avec `(tenant_id, created_at)`, le `Bitmap Index Scan on events_tenant_created` lit environ 4 buffers.',
+			'La dernière requête montre `Index Only Scan Backward using events_tenant_created_cov`, `Heap Fetches: 0`, et aucun nœud Sort.'
+		],
+		solution: [
+			'Le temps d’abord : le parcours traverse toutes les entrées de la journée, des 500 clients, et vérifie `tenant_id` sur chacune. Le client d’abord : égalité sur la première colonne, puis un intervalle sur la suivante, donc une seule tranche courte.',
+			'`INCLUDE (id)` range `id` dans les feuilles, donc la requête trouve toutes ses colonnes dans l’index et saute la table une fois que `VACUUM` a marqué les pages visibles pour tous.',
+			'Le prix : chaque index est écrit à chaque insert. Supprime ceux dont aucune requête n’a besoin, ici `events_created_tenant`.'
+		]
+	},
 	recall: {
 		q: 'Dans quel ordre mets-tu les colonnes d’un index pour `WHERE realm_id = 2 AND recipient_id = 9 ORDER BY id`, et pourquoi ?',
 		a: '`(realm_id, recipient_id, id)` : les colonnes d’égalité d’abord, puis la colonne de tri. Le parcours lit une seule tranche continue, déjà dans l’ordre des `id`, donc il n’y a pas de nœud de tri et un `LIMIT` s’arrête tôt.'

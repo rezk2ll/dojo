@@ -131,6 +131,44 @@ export default {
 			'`customer` is single-valued, so `select_related("customer")` joins it into the first query: `SELECT orders.*, customers.* FROM orders JOIN customers ON ...`. No extra query for customers.',
 			'`items` is a "many" relation, which `select_related` cannot follow. `prefetch_related("items")` runs one more query: `SELECT * FROM items WHERE order_id IN (...)` with the 20 order ids, and matches the items to orders in Python.',
 			'Result: `Order.objects.select_related("customer").prefetch_related("items")[:20]` runs 2 queries instead of 41. Check it in a test with `assertNumQueries(2)`, or with the query count in your logs (day 30).'
+		],
+		steps: [
+			{
+				title: 'Count the queries as written',
+				questions: [
+					{ q: 'The view loads 20 orders. How many queries does the list itself take?', options: ['One', 'Twenty', 'Two', 'Forty-one'], answer: 0, why: 'One `SELECT` brings back the 20 order rows. The extra queries come later, from the template.' },
+					{ q: 'The template reads `order.customer.name` for each order. How many queries does that add?', options: ['None: the customer comes with the order', 'One for all the customers', '20, one lazy load per order', '40, two per order'], answer: 2, why: 'Django loads a foreign key lazily by default. Each order reads its customer once, so each one runs its own query.' },
+					{ q: 'The template loops over `order.items.all()`. How many queries does that add?', options: ['One for all the items', '20, one per order', 'One per item', 'None: the items are columns of orders'], answer: 1, why: 'Each `order.items.all()` runs one `SELECT ... WHERE order_id = ?`, so one query per order, whatever the number of items.' },
+					{ q: 'What is the total as written?', options: ['21', '40', '41', '2'], answer: 2, why: '1 for the list, 20 for the customers, 20 for the items: 41 queries, each fast, the page waiting for all of them in a row.' }
+				]
+			},
+			{
+				title: 'Pick a method per relation',
+				questions: [
+					{ q: 'What kind of relation is `customer` on an order?', options: ['Many: several customers per order', 'Single-valued: one customer per order', 'Many-to-many', 'Reverse foreign key'], answer: 1, why: 'A foreign key points at one row. That makes it single-valued, the kind `select_related` can follow.' },
+					{ q: 'Which call loads the customers with no extra query at all?', options: ['`prefetch_related("customer")`', '`only("customer")`', '`defer("customer")`', '`select_related("customer")`'], answer: 3, why: '`select_related` joins the related table into the first query. `prefetch_related` would work too, but with a second query.' },
+					{ q: 'Why can `select_related` not follow `items`?', options: ['It is limited to single-valued relationships', 'It only works on the first 10 rows', 'The items table has no primary key', 'It needs strict loading turned on first'], answer: 0, why: 'The Django docs say `select_related` "is limited to single-valued relationships". `items` is a reverse foreign key, many rows per order.' },
+					{ q: 'Which call removes the N+1 on `items`?', options: ['`select_related("items")`', '`prefetch_related("items")`', '`only("items")`', '`order.items.all()` in the view'], answer: 1, why: '`prefetch_related` does a separate lookup for the relation and does the "joining" in Python.' }
+				]
+			},
+			{
+				title: 'Write the SQL',
+				questions: [
+					{ q: 'What does `select_related("customer")` change in the SQL?', options: ['It adds a second `SELECT * FROM customers WHERE id IN (...)`', 'It runs one `SELECT` per customer, but in parallel', 'It adds a subquery to each order row', 'It adds `JOIN customers ON ...` to the orders query'], answer: 3, why: 'The first query becomes `SELECT orders.*, customers.* FROM orders JOIN customers ON ...`, so the customer columns come along.' },
+					{ q: 'What SQL does `prefetch_related("items")` send?', options: ['`SELECT * FROM items WHERE order_id IN (...)` with the 20 order ids', '`SELECT * FROM items WHERE order_id = ?` once per order', '`SELECT * FROM orders JOIN items ON ...`', '`SELECT * FROM items` with no filter'], answer: 0, why: 'It collects the order ids from the first query and sends them all in one `IN` list.' },
+					{ q: 'Where are the items matched to their orders?', options: ['In the database, with a join', 'In the template, with a filter', 'In Python, after the second query', 'In a view the ORM creates'], answer: 2, why: 'The second query returns a flat list of items. Django groups them by `order_id` in memory.' },
+					{ q: 'Why not join the items into the first query too?', options: ['PostgreSQL cannot join more than two tables', 'A join over a "many" relation repeats the order columns on every item row', 'A join cannot be combined with `[:20]`', 'Django runs one query per table anyway'], answer: 1, why: 'Rails says it too: a join "can result in many rows that contain redundant data". The parent rows multiply with their children.' }
+				]
+			},
+			{
+				title: 'Count again and lock it in',
+				questions: [
+					{ q: 'How many queries does `Order.objects.select_related("customer").prefetch_related("items")[:20]` run?', options: ['1', '3', '21', '2'], answer: 3, why: 'One joined query for orders and customers, one `IN` query for the items. 2 instead of 41.' },
+					{ q: 'The page grows to 200 orders. How many queries now?', options: ['Still 2', '201', '401', '3'], answer: 0, why: 'The count no longer depends on the number of rows. Only the `IN` list gets longer.' },
+					{ q: 'How do you stop the N+1 from coming back?', options: ['A timer that fails the test above 2 seconds', 'A test that counts rows in the result', '`assertNumQueries(2)` in a test that renders the page', 'Printing `queryset.query` in the view'], answer: 2, why: 'A query count fails the test as soon as someone adds a lazy read to the template. A timer would pass on a laptop with five orders.' },
+					{ q: 'What cost is left with the prefetch on a page of thousands of orders?', options: ['One query per order comes back', 'The customer columns repeat on every item', 'Nothing: the cost stays flat', 'Thousands of ids in one large `IN` list'], answer: 3, why: 'The Django docs warn that a large queryset can make "a large \'IN\' clause", which has a cost of its own.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ export default {
 			why: 'In `:n_plus_one_only` mode, loading one association from one record is allowed. The Rails guide shows the error on `user.comments.first.likes.to_a`, the access that would repeat for every comment in a loop.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Count the queries of an N+1 loop, then bring them down to 2 with a join and an `IN` query.',
+		steps: [
+			'Make a folder and a SQLite database with 50 customers, 200 orders and 3 items per order: `mkdir -p ~/n1-lab && cd ~/n1-lab && sqlite3 shop.db "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INT REFERENCES customers); CREATE TABLE items(id INTEGER PRIMARY KEY, order_id INT REFERENCES orders, sku TEXT); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200) INSERT INTO customers SELECT i, \'customer \'||i FROM n WHERE i<=50; WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200) INSERT INTO orders SELECT i, 1+i%50 FROM n; INSERT INTO items(order_id, sku) SELECT id, \'sku-\'||k FROM orders, (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3);"`.',
+			'Write `page.py`, the lazy version: open `shop.db` with `sqlite3.connect`, set `log = []` and `con.set_trace_callback(log.append)` so every statement is recorded, load `SELECT id, customer_id FROM orders LIMIT ?` with the limit from `sys.argv[1]`, then for each order run `SELECT name FROM customers WHERE id = ?` and `SELECT sku FROM items WHERE order_id = ?`. Print `len(log)`.',
+			'Run `python3 page.py 20`, then `python3 page.py 200`, and write down both counts.',
+			'Write `fixed.py`: one query that joins customers into the orders query, then one `SELECT order_id, sku FROM items WHERE order_id IN (?,?,...)` with all the order ids, grouped by `order_id` in a dict. Print `len(log)` and `log[-1]`.',
+			'Run `python3 fixed.py 20` and `python3 fixed.py 200`.'
+		],
+		done: [
+			'`python3 page.py 20` prints 41, and `python3 page.py 200` prints 401.',
+			'`python3 fixed.py 20` and `python3 fixed.py 200` both print 2.',
+			'The last statement `fixed.py` prints starts with `SELECT order_id, sku FROM items WHERE order_id IN (1,2,3,`.'
+		],
+		solution: [
+			'`page.py`: `import sqlite3, sys`, `con = sqlite3.connect("shop.db")`, `log = []`, `con.set_trace_callback(log.append)`, `orders = con.execute("SELECT id, customer_id FROM orders LIMIT ?", (int(sys.argv[1]),)).fetchall()`, then a `for order_id, customer_id in orders:` loop with the two per-row queries, then `print(len(log))`.',
+			'`fixed.py`, first query: `SELECT orders.id, customers.name FROM orders JOIN customers ON customers.id = orders.customer_id LIMIT ?`. This is what `select_related` does.',
+			'Second query: `ids = [o[0] for o in orders]`, `marks = ",".join("?" * len(ids))`, then `con.execute(f"SELECT order_id, sku FROM items WHERE order_id IN ({marks})", ids)` and `items.setdefault(order_id, []).append(sku)` for each row. This is what `prefetch_related` does.',
+			'Look at `log[-1]` at 200: the count stays 2, but the `IN` list now holds 200 ids. That is the cost the Django docs warn about.'
+		]
+	},
 	recall: {
 		q: 'A loop over 50 orders reads `order.customer.name`. How many queries run, and which Rails and Django calls bring it down?',
 		a: '51: one for the list, then one lazy load per order. A join (`eager_load`, `select_related`) runs 1 query, and a preload (`preload`, `prefetch_related`) runs 2, with the customer ids in one `IN` list.'

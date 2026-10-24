@@ -122,6 +122,44 @@ export default {
 			'Any next statement, even a `SELECT`, fails with "current transaction is aborted". `COMMIT;` answers `ROLLBACK`. Alice still has 50, Bob still has 0.',
 			'Without `BEGIN`, autocommit would have committed Bob\'s credit on its own, and the failed debit would leave 100 created from nothing.',
 			'In Django: `with transaction.atomic():` around both `update()` calls. The IntegrityError leaves the block, Django rolls back, and you catch the error outside the block to show a message.'
+		],
+		steps: [
+			{
+				title: 'Credit Bob first',
+				questions: [
+					{ q: 'Which statement opens the transaction in `psql`?', options: ['`BEGIN;`', '`SAVEPOINT start;`', '`SET autocommit = off;` on the server', 'Nothing: psql opens one for you'], answer: 0, why: 'Without `BEGIN`, PostgreSQL runs each statement in its own transaction and commits it.' },
+					{ q: 'You run `UPDATE accounts SET balance = balance + 100 WHERE name = \'Bob\';`. What happens?', options: ['It fails, because Alice has not been debited yet', 'It succeeds, and Bob shows 100 inside this session only', 'It succeeds, and every session sees Bob at 100', 'It waits until the debit runs'], answer: 1, why: 'The update is valid on its own. Other sessions see none of it until COMMIT.' },
+					{ q: 'A second `psql` reads Bob\'s balance now. What does it see?', options: ['100', '50', 'An error, since the row is locked', '0'], answer: 3, why: 'Changes in a transaction are invisible to others until it completes, so the second session still reads the committed 0.' },
+					{ q: 'Without `BEGIN`, what would that same UPDATE have done?', options: ['Waited for the next statement', 'Failed, since autocommit needs two statements', 'Committed at once, on its own', 'Opened a savepoint'], answer: 2, why: 'In autocommit, each statement is its own transaction and is committed if it succeeds.' }
+				]
+			},
+			{
+				title: 'Debit Alice',
+				questions: [
+					{ q: 'You run `UPDATE accounts SET balance = balance - 100 WHERE name = \'Alice\';`. What happens?', options: ['It succeeds and Alice goes to -50', 'It succeeds and Alice goes to 0', 'It fails: the CHECK constraint rejects -50', 'It waits for Bob\'s update to commit'], answer: 2, why: '`check (balance >= 0)` refuses the new value, so the statement raises an error.' },
+					{ q: 'What state is the transaction in now?', options: ['Aborted', 'Committed up to Bob\'s update', 'Still normal, minus the failed statement', 'Rolled back to the last savepoint'], answer: 0, why: 'After an error inside a transaction, PostgreSQL refuses every further statement until you roll back.' },
+					{ q: 'You type `SELECT * FROM accounts;`. What does PostgreSQL answer?', options: ['Alice 50, Bob 100', 'Alice 50, Bob 0', 'It waits for a COMMIT', 'An error: "current transaction is aborted"'], answer: 3, why: 'Even a SELECT fails with "current transaction is aborted, commands ignored until end of transaction block".' },
+					{ q: 'What would have let the transaction go on after the error?', options: ['Running the SELECT twice', 'A `ROLLBACK TO` a savepoint taken before the debit', 'A `COMMIT`, then the debit again', 'Raising the CHECK limit inside the transaction'], answer: 1, why: 'Short of rolling back everything, a savepoint is the only way to continue an aborted transaction.' }
+				]
+			},
+			{
+				title: 'End it and read the balances',
+				questions: [
+					{ q: 'You type `COMMIT;`. What does `psql` print?', options: ['`COMMIT`', '`ROLLBACK`', 'An error, and the transaction stays open', '`COMMIT 1`'], answer: 1, why: 'An aborted transaction cannot commit. PostgreSQL ends it with a rollback and says so.' },
+					{ q: 'What are the balances at the end?', options: ['Alice 50, Bob 0', 'Alice 50, Bob 100', 'Alice -50, Bob 100', 'Alice 0, Bob 50'], answer: 0, why: 'The rollback cancelled Bob\'s credit. Nothing changed.' },
+					{ q: 'Same two UPDATEs without `BEGIN`. What is the end state?', options: ['Alice 50, Bob 0', 'Alice -50, Bob 100', 'Alice 50, Bob 100: 100 created from nothing', 'Both statements fail'], answer: 2, why: 'Autocommit commits Bob\'s credit on its own, then the debit fails alone.' },
+					{ q: 'The server crashes after Bob\'s credit, before `COMMIT`. What is in the database after restart?', options: ['Bob at 100, since the update was logged', 'Alice at -50', 'The transaction, waiting for a COMMIT', 'Alice 50, Bob 0: the uncommitted transaction has no effect'], answer: 3, why: 'After a crash and restart, an uncommitted transaction has no effect.' }
+				]
+			},
+			{
+				title: 'Write the Django version',
+				questions: [
+					{ q: 'How do you tie the two updates together in Django?', options: ['`with transaction.atomic():` around both `update()` calls', 'Call `update()` twice in a row, Django groups them', 'Set `autocommit = True` on the connection', 'Put each `update()` in its own `atomic()` block'], answer: 0, why: '`atomic` opens a transaction, so both updates commit together or not at all.' },
+					{ q: 'Where do you catch the `IntegrityError`?', options: ['Inside the block, right after the debit', 'In the model\'s `save()` method', 'Outside the `atomic` block', 'Nowhere: Django hides it'], answer: 2, why: 'The error leaves the block, Django rolls back, and you show a message outside.' },
+					{ q: 'Why not catch it inside the block?', options: ['Django does not raise errors inside `atomic`', 'After a database error the transaction is broken, and later queries fail', 'The error would be caught twice', 'Python does not allow `try` inside `with`'], answer: 1, why: 'The docs: "Avoid catching exceptions inside atomic!" PostgreSQL then fails every next statement.' },
+					{ q: 'You also want to email Bob about the transfer. How?', options: ['Send it inside the block, before the debit', 'Send it in a nested `atomic` block', 'Send it before the block starts', 'Register it with `on_commit`'], answer: 3, why: '`on_commit` callbacks run after a successful commit and are discarded on rollback.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,26 @@ export default {
 			why: 'ROLLBACK only undoes database changes. `on_commit` callbacks run after a successful commit and are discarded on rollback, so the email goes out only if the order really exists.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Hit an aborted transaction, then use a savepoint to skip one failed insert and keep the rest.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql` in two terminals: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres` in each.',
+			'In terminal 1: `CREATE TABLE tags (name text primary key); INSERT INTO tags VALUES (\'sql\');`',
+			'Without a savepoint: `BEGIN; INSERT INTO tags VALUES (\'db\');`. In terminal 2, run `SELECT name FROM tags;`. Back in terminal 1: `INSERT INTO tags VALUES (\'sql\'); SELECT count(*) FROM tags; COMMIT;` then `SELECT name FROM tags ORDER BY name;`',
+			'With a savepoint: `BEGIN; INSERT INTO tags VALUES (\'db\'); SAVEPOINT before_dup; INSERT INTO tags VALUES (\'sql\');` then `ROLLBACK TO SAVEPOINT before_dup; INSERT INTO tags VALUES (\'wal\'); COMMIT;` and `SELECT name FROM tags ORDER BY name;`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'Terminal 2 sees only `sql` while terminal 1 has `db` uncommitted.',
+			'Without a savepoint, the duplicate fails, the `SELECT` fails with `current transaction is aborted`, `COMMIT` prints `ROLLBACK`, and the table still holds only `sql`.',
+			'With the savepoint, `COMMIT` prints `COMMIT` and the table holds `db`, `sql` and `wal`.'
+		],
+		solution: [
+			'One error aborts the whole transaction: even the good `db` insert is lost when it ends.',
+			'`ROLLBACK TO SAVEPOINT` undoes only what came after the savepoint and clears the aborted state, so the transaction goes on.',
+			'This is what a nested `transaction.atomic()` does in Django: a SAVEPOINT on the way in, a rollback to it on an error.'
+		]
+	},
 	recall: {
 		q: 'Django runs in autocommit. A view saves an order, then the stock update fails. How do you keep the order from being committed alone?',
 		a: 'Wrap both writes in `transaction.atomic()`. The error rolls back the whole transaction, so neither row is committed. Catch the error outside the block.'

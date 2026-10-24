@@ -126,6 +126,44 @@ export default {
 			'Écritures à couvrir : ajouter un avis (+1, +note), en supprimer un (-1, -note), et changer une note (ajouter la différence). Fais-le dans la même transaction que l’écriture de l’avis, en un seul `UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + $1 WHERE id = $2`.',
 			'Réparation : `UPDATE products p SET reviews_count = x.n, rating_sum = x.s FROM (SELECT p2.id, count(r.id) AS n, COALESCE(sum(r.rating), 0) AS s FROM products p2 LEFT JOIN reviews r ON r.product_id = p2.id GROUP BY p2.id) x WHERE x.id = p.id AND (p.reviews_count <> x.n OR p.rating_sum <> x.s)`.',
 			'Lance-la à intervalles réguliers, et journalise le nombre de lignes corrigées. Ce nombre devrait être zéro. Quand il ne l’est pas, un chemin d’écriture a oublié la copie, et le journal te dit depuis quand.'
+		],
+		steps: [
+			{
+				title: 'Choisis les colonnes',
+				questions: [
+					{ q: 'Quelles colonnes ajoutes-tu à `products` ?', options: ['`avg_rating numeric`', '`reviews_count int` et `rating_sum int`', '`last_rating int`', '`review_ids int[]`'], answer: 1, why: 'Un compte et une somme suffisent pour afficher « 4,5 étoiles, 2 avis » sans jointure.' },
+					{ q: 'Pourquoi ranger une somme et un compte plutôt que la moyenne elle-même ?', options: ['Une somme et un compte s’ajustent à chaque insertion ou suppression', 'PostgreSQL ne sait pas ranger une colonne numeric', 'Une moyenne prend plus de place que deux entiers', 'Les moyennes sont toujours calculées par l’app'], answer: 0, why: 'Ajouter ou retirer un avis, c’est +1 et +note. La moyenne se calcule à partir d’eux à l’affichage de la fiche.' },
+					{ q: 'Comment la fiche calcule-t-elle les étoiles ?', options: ['`avg(rating)` sur `reviews`', '`rating_sum / reviews_count`, deux entiers', '`rating_sum::numeric / NULLIF(reviews_count, 0)`', '`reviews_count / rating_sum`'], answer: 2, why: 'La conversion garde les décimales, donc 9 sur 2 affiche 4,5 et pas 4.' },
+					{ q: 'Pourquoi le `NULLIF(reviews_count, 0)` ?', options: ['Pour arrondir le résultat', 'Pour cacher les produits à un seul avis', 'Pour rendre la colonne nullable', 'Un produit sans avis diviserait par zéro'], answer: 3, why: '`NULLIF` change le 0 en NULL, et diviser par NULL donne NULL au lieu d’une erreur.' }
+				]
+			},
+			{
+				title: 'Liste les écritures',
+				questions: [
+					{ q: 'Quelqu’un poste un avis à 4 étoiles. Qu’est-ce qui change sur le produit ?', options: ['`reviews_count + 1`, `rating_sum + 4`', '`reviews_count + 4`', '`rating_sum + 1`', 'Rien jusqu’à la tâche de la nuit'], answer: 0, why: 'Un avis de plus, quatre étoiles de plus dans la somme.' },
+					{ q: 'Un avis à 5 étoiles est supprimé. Qu’est-ce qui change ?', options: ['`reviews_count - 1` seulement', '`rating_sum - 5` seulement', 'Rien, les suppressions sont rares', '`reviews_count - 1`, `rating_sum - 5`'], answer: 3, why: 'Les deux copies viennent des mêmes lignes, donc les deux reculent.' },
+					{ q: 'Un auteur passe sa note de 3 à 5. Qu’est-ce qui change ?', options: ['`reviews_count + 1`, `rating_sum + 5`', '`rating_sum + 2`, le compte ne bouge pas', '`rating_sum + 5`, le compte ne bouge pas', 'Rien, la ligne d’avis est la même'], answer: 1, why: 'Ajoute la différence. Le nombre d’avis n’a pas changé.' },
+					{ q: 'Quand la mise à jour du produit tourne-t-elle ?', options: ['Dans la même transaction que l’écriture de l’avis', 'Dans une tâche de fond une minute plus tard', 'Seulement quand la fiche est affichée', 'Une fois par jour, avec la réparation'], answer: 0, why: 'Ainsi l’avis et les compteurs sont validés ensemble, comme les callbacks Rails dans la transaction du save.' }
+				]
+			},
+			{
+				title: 'Écris la mise à jour sans risque',
+				questions: [
+					{ q: 'Quelle instruction met les compteurs à jour pour un nouvel avis ?', options: ['`UPDATE products SET reviews_count = 3, rating_sum = 13 WHERE id = $2`, avec des valeurs lues avant', '`UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + $1 WHERE id = $2`', '`INSERT INTO products (reviews_count) VALUES (1)`', '`UPDATE products SET reviews_count = count(*) WHERE id = $2`'], answer: 1, why: 'La base ajoute à la valeur actuelle, comme Rails avec `update_counters`, au lieu que l’app réécrive un nombre lu plus tôt.' },
+					{ q: 'Un script de nettoyage supprime les avis spam avec un seul `DELETE` brut. Qu’arrive-t-il aux compteurs ?', options: ['Ils baissent tout de suite, PostgreSQL les suit', 'La suppression échoue', 'Ils gardent leurs anciennes valeurs, sans erreur', 'Ils repassent à 0'], answer: 2, why: 'La copie n’est juste que si chaque écriture passe par le code qui la met à jour. Un correctif en SQL brut le contourne.' },
+					{ q: 'Un produit populaire reçoit beaucoup d’avis en même temps. Que coûte le compteur ?', options: ['Rien, les compteurs sont gratuits', 'Chaque avis met à jour la même ligne, et ces mises à jour attendent les verrous les unes des autres', 'La table des avis grossit deux fois plus vite', 'Les lecteurs voient un compte NULL'], answer: 1, why: 'Un compteur sur une ligne parente chargée est un point chaud.' },
+					{ q: 'Quelle donnée gagne quand le compteur et `reviews` ne sont pas d’accord ?', options: ['Le compteur, il est plus récent', 'Celle écrite en dernier', 'L’app décide à chaque fois', '`reviews`, la source de vérité'], answer: 3, why: 'La source gagne et la copie est reconstruite à partir d’elle.' }
+				]
+			},
+			{
+				title: 'Trouve et corrige la dérive',
+				questions: [
+					{ q: 'À partir de quoi la requête de réparation recompte-t-elle ?', options: ['`reviews`, avec une `LEFT JOIN` depuis `products`', '`products` seule', 'Les journaux de l’app', 'Une vue matérialisée de `products`'], answer: 0, why: 'Le recomptage lit la source de vérité et la compare à la copie.' },
+					{ q: 'Pourquoi une `LEFT JOIN` et `COALESCE(sum(r.rating), 0)` ?', options: ['Pour accélérer la requête', 'Pour sauter les produits sans avis', 'Pour qu’un produit qui a perdu son dernier avis repasse à 0', 'Parce que `sum` ne tourne pas sur une jointure interne'], answer: 2, why: 'Avec une jointure interne, ce produit n’a aucune ligne dans le recomptage et garde ses nombres périmés. `sum` de rien vaut NULL, donc `COALESCE` donne 0.' },
+					{ q: 'Pourquoi finir par `AND (p.reviews_count <> x.n OR p.rating_sum <> x.s)` ?', options: ['Pour éviter une division par zéro', 'Pour ne réécrire que les produits qui ont dérivé', 'Pour sauter les lignes verrouillées', '`UPDATE ... FROM` a besoin d’une inégalité'], answer: 1, why: 'PostgreSQL écrit une nouvelle version de ligne même pour la même valeur, donc le filtre garde un recomptage complet bon marché.' },
+					{ q: 'La réparation planifiée journalise le nombre de lignes corrigées. Quel nombre attends-tu ?', options: ['Le nombre de produits', 'Le nombre de nouveaux avis du jour', 'À peu près la moitié des produits', 'Zéro'], answer: 3, why: 'Tout autre nombre veut dire qu’un chemin d’écriture a oublié la copie, et le journal te dit depuis quand.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,26 @@ export default {
 			why: 'PostgreSQL range le résultat de la vue, qui ne change qu’au `REFRESH`. Ce `REFRESH` remplace tout son contenu. Sans `CONCURRENTLY`, ce refresh peut bloquer les lecteurs ; avec, la vue a besoin d’un index unique.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Tenir un compteur d’avis sur `products`, le faire dériver avec une seule suppression brute, et le réparer par un recomptage.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-denorm -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-denorm psql -U postgres`.',
+			'Crée les tables avec la copie : `CREATE TABLE products (id int PRIMARY KEY, name text, reviews_count int NOT NULL DEFAULT 0, rating_sum int NOT NULL DEFAULT 0); CREATE TABLE reviews (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, product_id int REFERENCES products, rating int); INSERT INTO products (id, name) VALUES (1, \'mug\'), (2, \'tea\');`',
+			'Poste deux avis pour le mug comme il faut, chacun dans une transaction : `BEGIN; INSERT INTO reviews (product_id, rating) VALUES (1, 5); UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + 5 WHERE id = 1; COMMIT;` puis pareil avec la note 4. Affiche la fiche : `SELECT name, reviews_count, rating_sum::numeric / NULLIF(reviews_count, 0) AS stars FROM products ORDER BY id;`',
+			'Fais-le dériver comme le ferait un script de nettoyage : `DELETE FROM reviews WHERE rating = 4;` et affiche de nouveau la fiche.',
+			'Lance deux fois de suite la requête de réparation de l’exercice, puis affiche la fiche une dernière fois. Quitte avec `\\q` et nettoie avec `docker rm -f pg-denorm`.'
+		],
+		done: [
+			'Avant la suppression, le mug affiche `2` avis et `4.5000000000000000` étoiles, et le thé une case d’étoiles vide (NULL).',
+			'Après la suppression brute, le mug affiche toujours `2` avis : la copie a dérivé sans erreur.',
+			'La première réparation affiche `UPDATE 1`, la seconde `UPDATE 0`, et le mug affiche maintenant `1` avis et `5.0000000000000000` étoiles.'
+		],
+		solution: [
+			'Réparation : `UPDATE products p SET reviews_count = x.n, rating_sum = x.s FROM (SELECT p2.id, count(r.id) AS n, COALESCE(sum(r.rating), 0) AS s FROM products p2 LEFT JOIN reviews r ON r.product_id = p2.id GROUP BY p2.id) x WHERE x.id = p.id AND (p.reviews_count <> x.n OR p.rating_sum <> x.s);`',
+			'Le second passage ne corrige rien, grâce au filtre `<>`. En production, journalise ce nombre : tout autre chose que zéro veut dire qu’un chemin d’écriture a oublié la copie.'
+		]
+	},
 	recall: {
 		q: 'Un script supprime des lignes avec `delete_all`. Pourquoi le `tags.public_topic_count` de Discourse est-il faux ensuite, et qu’est-ce qui le corrige ?',
 		a: '`delete_all` ne lance aucun callback, donc le `-1` ne s’exécute jamais. La tâche `EnsureDbConsistency` recompte depuis `topic_tags` toutes les 12 heures et réécrit les tags dont le compte diffère.'

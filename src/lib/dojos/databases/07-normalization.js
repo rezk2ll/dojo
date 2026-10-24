@@ -130,6 +130,44 @@ CREATE TABLE federation_blocklist (
 			'`customer_id` and `shipped_to` depend on `order_id` alone (2NF): move them to `orders(order_id, customer_id, shipped_to)`.',
 			'`customer_email` depends on `customer_id`, a non-key column of the order (a 3NF break): move it to `customers(customer_id, email)`. The invoice bug from the hook disappears.',
 			'Keep `unit_price` on the line, and `shipped_to` on the order, on purpose: they record what was true at the time of the order, which the current product price or customer address cannot tell you.'
+		],
+		steps: [
+			{
+				title: 'Say what each column is about',
+				questions: [
+					{ q: 'What is `quantity` a fact about?', options: ['The order alone', 'The product alone', 'The customer', 'The whole key: this product in this order'], answer: 3, why: 'The same product can come in different quantities in different orders. It needs both parts of the key.' },
+					{ q: 'What is `product_name` a fact about?', options: ['`product_id` alone', 'The whole key', '`order_id` alone', '`customer_id`'], answer: 0, why: 'A product has one name, whatever order it is in.' },
+					{ q: 'What is `customer_id` a fact about?', options: ['`product_id` alone', '`order_id` alone', 'The whole key', '`customer_email`'], answer: 1, why: 'An order has one customer, so every line of the order repeats the same value.' },
+					{ q: 'What is `customer_email` a fact about?', options: ['`order_id` alone', 'The whole key', '`customer_id`, a column outside the key', '`product_id` alone'], answer: 2, why: 'A customer has one email. It depends on the order only through `customer_id`.' }
+				]
+			},
+			{
+				title: 'Name the broken rule',
+				questions: [
+					{ q: '`product_name` depends on part of the key. Which form does it break?', options: ['1NF', '2NF', '3NF', 'None'], answer: 1, why: '2NF: with a composite key, no column is a fact about only part of the key.' },
+					{ q: 'Say you first move the order facts to `orders(order_id, customer_id, customer_email)`. There, `customer_email` depends on `customer_id`, which is not the key. Which form does that break?', options: ['3NF', '1NF', '2NF', 'None'], answer: 0, why: '3NF: no column outside the key is a fact about another such column. In the flat table, the email also hangs on `order_id` alone, so the 3NF break only shows once the order facts have their own table.' },
+					{ q: 'The customer changes their email, and the next invoice goes to the old one. Which anomaly is that?', options: ['An insert anomaly', 'A delete anomaly', 'A lost update', 'An update anomaly'], answer: 3, why: 'One fact stored in many rows, changed in only some of them.' },
+					{ q: 'You add a new product nobody has ordered yet. Where does its name go in this table?', options: ['On a line with a NULL `order_id`', 'Nowhere: no row exists to carry it', 'In `shipped_to`', 'On the newest order'], answer: 1, why: 'That is an insert anomaly: a fact cannot be stored until another row exists. `order_id` is part of the key, so it cannot be NULL.' }
+				]
+			},
+			{
+				title: 'Split the table',
+				questions: [
+					{ q: 'What stays in `order_lines`?', options: ['`(order_id, product_id, quantity, unit_price)`', '`(order_id, product_id, quantity, product_name)`', '`(order_id, customer_id, quantity)`', '`(order_id, product_id, customer_email)`'], answer: 0, why: 'Only the facts about the whole key stay, plus the price of the moment, kept on purpose.' },
+					{ q: 'Where does `product_name` go?', options: ['`orders(order_id, product_name)`', '`customers(customer_id, product_name)`', '`products(product_id, name, price)`', 'It stays on the line'], answer: 2, why: 'A table keyed by product holds facts about the product, once.' },
+					{ q: 'Where do `customer_id` and `shipped_to` go?', options: ['`customers(customer_id, shipped_to)`', '`orders(order_id, customer_id, shipped_to)`', '`products(product_id, customer_id)`', 'They stay on the line'], answer: 1, why: 'They depend on `order_id` alone, so they live on a table keyed by order.' },
+					{ q: 'Where does `customer_email` go?', options: ['`orders(order_id, customer_email)`', 'It stays on the line', '`products(product_id, customer_email)`', '`customers(customer_id, email)`'], answer: 3, why: 'Keyed by customer, the email is stored once. The invoice bug from the hook disappears.' }
+				]
+			},
+			{
+				title: 'Keep the facts of the moment',
+				questions: [
+					{ q: 'Why keep `unit_price` on the line when `products` has a price?', options: ['It saves a join on every read', 'It records the price at the time of the order', 'Prices are part of the key', 'It is a 2NF requirement'], answer: 1, why: 'The current price cannot tell you what this customer paid. The two are different facts.' },
+					{ q: 'Why keep `shipped_to` on the order and not on `customers`?', options: ['The address the order went to is a different fact from the customer\'s current one', 'Addresses are too long for the customers table', '3NF forbids addresses on customers', 'It makes orders faster to insert'], answer: 0, why: 'When the customer moves, an old order must still say where it was shipped.' },
+					{ q: 'After the split, the customer changes their email. How many rows change?', options: ['One per order', 'One per order line', 'None, emails are read-only', 'One, in `customers`'], answer: 3, why: 'Each fact is stored in one place, so one UPDATE is enough and no two rows can disagree.' },
+					{ q: 'What does the split cost?', options: ['A screen that shows lines with the customer email now joins several tables', 'The database can no longer check the email', 'Each line is now wider', 'Updates touch more rows'], answer: 0, why: 'Normalized tables are narrow and checked, but reading them back together takes joins.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -167,6 +205,28 @@ CREATE TABLE federation_blocklist (
 			why: 'The customer\'s current address and the address an invoice was sent to are two facts. When the customer moves, the old invoice must not change. Each of the two facts is stored once, so the table is normalized even though the two addresses are often equal.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Cause the hook\'s update anomaly in a flat table, find it with a query, and split the table so the database refuses it.',
+		steps: [
+			'Make the flat table in SQLite: `mkdir -p ~/db-lab && cd ~/db-lab && sqlite3 shop.db "CREATE TABLE order_lines (order_id int, product_id int, quantity int, product_name text, unit_price numeric, customer_id int, customer_email text, shipped_to text, PRIMARY KEY (order_id, product_id)); INSERT INTO order_lines VALUES (1, 100, 2, \'Mug\', 8, 7, \'Ana@x.io\', \'1 Main St\'), (1, 101, 1, \'Tea\', 5, 7, \'Ana@x.io\', \'1 Main St\'), (2, 100, 1, \'Mug\', 9, 7, \'Ana@x.io\', \'9 New Rd\');"`',
+			'Cause the anomaly: the app updates the email only on the newest order. `sqlite3 shop.db "UPDATE order_lines SET customer_email = \'[REDACTED-EMAIL-cba73a69]\' WHERE order_id = 2;"`',
+			'Find facts that now have two values: `sqlite3 shop.db "SELECT customer_id, count(DISTINCT customer_email) FROM order_lines GROUP BY customer_id HAVING count(DISTINCT customer_email) > 1;"`, then `sqlite3 shop.db "SELECT product_id, count(DISTINCT product_name) AS names, count(DISTINCT unit_price) AS prices FROM order_lines GROUP BY product_id;"`.',
+			'Create a `customers` table keyed by customer and fill it from the flat table: `sqlite3 shop.db "CREATE TABLE customers (customer_id int PRIMARY KEY, email text NOT NULL); INSERT INTO customers SELECT DISTINCT customer_id, customer_email FROM order_lines;"`',
+			'Fix the data with `UPDATE order_lines SET customer_email = \'[REDACTED-EMAIL-cba73a69]\' WHERE customer_id = 7;`, rerun the insert, then create and fill `products`, `orders` and `lines` the same way.'
+		],
+		done: [
+			'Step 3 lists customer `7` with 2 emails, and product `100` with 1 name but 2 prices.',
+			'Step 4 fails with `UNIQUE constraint failed: customers.customer_id`.',
+			'After step 5, `sqlite3 shop.db "SELECT * FROM customers;"` prints one row, `7|[REDACTED-EMAIL-cba73a69]`.'
+		],
+		solution: [
+			'`CREATE TABLE products (product_id int PRIMARY KEY, name text NOT NULL); INSERT INTO products SELECT DISTINCT product_id, product_name FROM order_lines;`',
+			'`CREATE TABLE orders (order_id int PRIMARY KEY, customer_id int NOT NULL REFERENCES customers, shipped_to text); INSERT INTO orders SELECT DISTINCT order_id, customer_id, shipped_to FROM order_lines;`',
+			'`CREATE TABLE lines (order_id int REFERENCES orders, product_id int REFERENCES products, quantity int, unit_price numeric, PRIMARY KEY (order_id, product_id)); INSERT INTO lines SELECT order_id, product_id, quantity, unit_price FROM order_lines;`',
+			'Two prices for product 100 is not a bug: `unit_price` records what was paid at the time, so it stays on the line. Two emails for one customer was the bug, and the key on `customers` now makes it impossible.'
+		]
+	},
 	recall: {
 		q: 'In `inventory(part, warehouse, quantity, warehouse_address)` with key `(part, warehouse)`, which column breaks 2NF, and where does it go?',
 		a: '`warehouse_address`: it depends on `warehouse` alone, part of the key. It moves to `warehouse(warehouse, address)`, one row per warehouse.'

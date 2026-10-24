@@ -140,6 +140,44 @@ export default {
 			'B est rapide d’habitude mais prend parfois des secondes : moyenne 1,8 ms, écart type 40 ms. Ce profil indique une attente, pas un calcul lent. Pendant un pic, regarde `pg_stat_activity` pour `wait_event_type = \'Lock\'` : deux requêtes qui modifient la même ligne de panier (jour 20). Un nouvel index n’y changera rien.',
 			'C tourne 30 fois. Déplace-le sur un réplica (jour 28) ou dans une vue matérialisée rafraîchie la nuit (jour 8), et règle `log_min_duration_statement` avec `auto_explain` pour garder son plan s’il se dégrade.',
 			'Après chaque correction, `SELECT pg_stat_statements_reset();` (ou garde un relevé) pour que la lecture suivante montre le nouvel état, pas celui de la semaine dernière.'
+		],
+		steps: [
+			{
+				title: 'Classe-les par temps total',
+				questions: [
+					{ q: 'Dans quel ordre t’occupes-tu des trois lignes ?', options: ['C, puis B, puis A', 'A, puis B, puis C', 'B, puis A, puis C', 'C, puis A, puis B'], answer: 1, why: 'Le temps total, c’est là où le serveur passe son temps : 2 160 s, 1 620 s, puis 240 s.' },
+					{ q: 'Quelle part des trois totaux pèse le rapport C, à peu près ?', options: ['Environ 60 %', 'Environ 25 %', 'Environ 6 %', 'Environ 40 %'], answer: 2, why: '240 s sur 4 020 s, c’est environ 6 %. C’est la vedette du log des lentes, pas du CPU.' },
+					{ q: 'Pourquoi trier par `total_exec_time` plutôt que par `mean_exec_time` ?', options: ['La moyenne cache les requêtes rapides lancées très souvent', 'La moyenne n’est calculée que pour les requêtes lentes', 'Le total coûte moins cher à calculer', 'La moyenne repart de zéro chaque heure'], answer: 0, why: 'Une requête de 0,9 ms appelée 2,4 millions de fois coûte plus qu’un rapport de 8 secondes lancé 30 fois.' },
+					{ q: 'Avec `log_min_duration_statement = 250ms`, pourquoi le log des lentes montre-t-il C mais jamais A ?', options: ['Le log des lentes ignore les SELECT', 'A et B tournent dans des transactions', 'Le log des lentes n’échantillonne qu’une requête sur dix', 'Il regarde une exécution à la fois, et aucune exécution de A n’atteint 250 ms'], answer: 3, why: 'Chaque exécution de C dépasse 250 ms, et les rares pics de 4 s de B aussi. A, jamais, aussi souvent qu’elle tourne.' }
+				]
+			},
+			{
+				title: 'Lis la ligne A',
+				questions: [
+					{ q: 'La ligne A est rapide à chaque fois. Quel est son problème ?', options: ['Un index manquant', 'Une attente de verrou', 'Le nombre d’appels', 'Un mauvais plan'], answer: 2, why: '0,9 ms, c’est bien. 2,4 millions de fois, non.' },
+					{ q: 'Où cherches-tu la cause ?', options: ['Dans l’appli : une boucle qui charge un produit par ligne', 'Dans `pg_locks`', 'Dans les réglages du planificateur', 'Dans l’archive WAL'], answer: 0, why: 'Une requête par id appelée aussi souvent vient en général d’un code qui charge les lignes une par une.' },
+					{ q: 'Quelle est la correction ?', options: ['Un index sur `products(id)`', 'Charger les produits en une requête : `WHERE id = ANY($1)`', 'Augmenter `shared_buffers`', 'La passer à `auto_explain`'], answer: 1, why: 'Une seule requête pour toute la liste remplace beaucoup d’allers-retours. `id` est la clé primaire, donc déjà indexé.' },
+					{ q: 'Quels chiffres confirment que ce n’est pas un problème d’index ?', options: ['Un `stddev_exec_time` élevé', 'Un `max_exec_time` élevé', 'Un petit nombre de `calls`', '`rows / calls` vaut 1 et le hit percent est élevé'], answer: 3, why: 'Une ligne par appel, lue dans des pages en cache : chaque exécution travaille peu. Beaucoup de lectures de blocs par appel pointeraient vers un index manquant.' }
+				]
+			},
+			{
+				title: 'Lis la ligne B',
+				questions: [
+					{ q: 'Moyenne 1,8 ms, écart type 40 ms, max 4 000 ms. Que dit ce profil ?', options: ['Chaque appel est lent', 'La requête a besoin d’un nouvel index', 'La plupart des appels sont rapides et quelques-uns attendent quelque chose', 'Les compteurs sont faux'], answer: 2, why: 'Un grand écart veut dire que la plupart des exécutions sont rapides et quelques-unes très lentes : un plan qui bascule, ou une attente de verrou.' },
+					{ q: 'Où regardes-tu pendant un pic ?', options: ['`pg_stat_activity`, pour `wait_event_type = \'Lock\'`', '`pg_stat_replication`', 'La colonne `rows`', '`shared_blks_read`'], answer: 0, why: 'Une attente de verrou se voit en direct sur le backend qui attend.' },
+					{ q: 'Quelle est la cause probable pour `UPDATE carts SET updated_at = $1 WHERE id = $2` ?', options: ['Un parcours séquentiel de `carts`', 'Deux requêtes qui modifient la même ligne de panier', 'Un disque lent', 'Trop d’index sur `carts`'], answer: 1, why: 'Deux updates sur une ligne : le second attend que le premier valide (jour 20).' },
+					{ q: 'Un nouvel index corrigera-t-il B ?', options: ['Oui, sur `updated_at`', 'Oui, sur `id`', 'Seulement un index GIN', 'Non : le temps passe à attendre, pas à travailler'], answer: 3, why: 'L’update trouve déjà sa ligne vite. La correction est dans la façon dont l’appli écrit le même panier en même temps.' }
+				]
+			},
+			{
+				title: 'Traite C, puis mesure à nouveau',
+				questions: [
+					{ q: 'Où va le rapport nocturne ?', options: ['Sur un réplica ou dans une vue matérialisée rafraîchie la nuit', 'Dans une boucle de petites requêtes', 'Dans `pg_stat_statements_reset()`', 'Nulle part : supprime-le'], answer: 0, why: 'Il tourne 30 fois. Le sortir du primaire suffit (jours 28 et 8).' },
+					{ q: 'Comment gardes-tu son plan s’il se dégrade ?', options: ['Lancer EXPLAIN à la main chaque matin', 'Augmenter `pg_stat_statements.max`', 'Régler `log_min_duration_statement` et `auto_explain`', 'Activer `track_io_timing`'], answer: 2, why: 'auto_explain écrit le plan de l’exécution lente elle-même, qui peut différer de celui que tu obtiens plus tard dans `psql`.' },
+					{ q: 'Tu as corrigé A. Pourquoi est-elle encore en tête la semaine suivante ?', options: ['La correction n’a pas marché', 'Les compteurs s’additionnent depuis la dernière remise à zéro', 'pg_stat_statements garde l’ancien plan en cache', 'La normalisation garde l’ancien texte'], answer: 1, why: 'Les sommes incluent chaque appel depuis la dernière remise à zéro. Les anciens appels gardent A en tête.' },
+					{ q: 'Que lances-tu après chaque correction ?', options: ['`VACUUM FULL`', 'Un redémarrage du serveur', '`DROP EXTENSION pg_stat_statements`', '`SELECT pg_stat_statements_reset();`, ou garde un relevé'], answer: 3, why: 'Ainsi la lecture suivante montre le nouvel état, pas celui de la semaine dernière.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,30 @@ export default {
 			why: 'La doc : « per-plan-node timing occurs for all statements executed, whether or not they run long enough to actually get logged. » Le code active les minuteurs dans `ExecutorStart` et vérifie la durée dans `ExecutorEnd`. Désactiver `auto_explain.log_timing` réduit ce coût.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Faire peser une requête rapide et fréquente plus lourd qu’un rapport lent, la trouver avec `pg_stat_statements`, et attraper le rapport avec le log des lentes et `auto_explain`.',
+		steps: [
+			'Lance PostgreSQL avec les deux modules chargés : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17 -c shared_preload_libraries=pg_stat_statements,auto_explain -c log_min_duration_statement=250ms -c auto_explain.log_min_duration=250ms`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`.',
+			'Crée la vue et des données : `docker exec dojo-pg psql -U postgres -c "CREATE EXTENSION pg_stat_statements" -c "CREATE TABLE products (id int PRIMARY KEY, name text)" -c "INSERT INTO products SELECT g, \'p\' || g FROM generate_series(1, 10000) g"`',
+			'Écris un fichier `fast.sql` de deux lignes : `\\set id random(1, 10000)` et `SELECT * FROM products WHERE name = \'p\' || :id;`. Copie-le : `docker cp fast.sql dojo-pg:/tmp/fast.sql`.',
+			'Pars de zéro, puis lance la requête rapide 5 000 fois : `docker exec dojo-pg psql -U postgres -c "SELECT pg_stat_statements_reset()"` puis `docker exec dojo-pg pgbench -U postgres -n -f /tmp/fast.sql -t 5000 postgres`.',
+			'Lance le « rapport » une fois : `docker exec dojo-pg psql -U postgres -c "SELECT count(*) FROM products a, products b WHERE a.id % 7 = b.id % 5"`',
+			'Lis le classement : `docker exec dojo-pg psql -U postgres -c "SELECT calls, round(total_exec_time::numeric) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms, shared_blks_hit / calls AS hits_per_call, left(query, 45) AS query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 3"`. Puis le log : `docker logs dojo-pg 2>&1 | grep -A4 "duration:"`.',
+			'Corrige la requête rapide et mesure à nouveau : `docker exec dojo-pg psql -U postgres -c "CREATE INDEX ON products (name)" -c "SELECT pg_stat_statements_reset()"`, puis relance pgbench et le classement.'
+		],
+		done: [
+			'À l’étape 6, la requête rapide est en tête avec `calls` à 5000 et une moyenne sous la milliseconde, au-dessus du rapport à `calls` 1. Son texte est `WHERE name = $1 || $2`.',
+			'Le log montre le rapport deux fois, une fois avec `plan:` et son `Query Text`, et jamais la requête rapide.',
+			'Après l’étape 7, le `hits_per_call` de la requête rapide passe de plusieurs dizaines à quelques-uns, et son total tombe très en dessous de celui du rapport à l’étape 6.'
+		],
+		solution: [
+			'Chaque exécution rapide reste loin sous 250 ms, donc le log des lentes ne la voit jamais. Seule la somme dans `pg_stat_statements` montre qu’elle a pris plus de temps que le rapport.',
+			'La normalisation a replié 5 000 noms différents en une ligne, avec les constantes remplacées par `$1` et `$2`.',
+			'Des dizaines de hits de buffer par appel pour une recherche d’une ligne pointent vers un parcours : ici un index manquant sur `name`. Dans la ligne A du chapitre, la recherche se faisait déjà par clé primaire, donc la correction était moins d’appels, pas un index.',
+			'Nettoie avec `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Une requête de 3 ms tourne 40 000 fois par minute. Où la vois-tu, et pourquoi `log_min_duration_statement = 250ms` ne l’écrit-il jamais ?',
 		a: 'Dans `pg_stat_statements` trié par `total_exec_time` : 40 000 × 3 ms font deux minutes de temps de base par minute. `log_min_duration_statement` regarde une exécution à la fois, et aucune n’atteint 250 ms.'

@@ -135,6 +135,44 @@ export default {
 			'Correction 1 : élargir la fenêtre, `delay: 10.seconds`. Simple, mais plus de lectures tapent le primaire, et ça reste un pari sur le pire retard.',
 			'Correction 2 : suivre la position dans le WAL comme GitLab. Après l’écriture, stocke `pg_current_wal_lsn()` pour l’utilisateur ; avant d’utiliser un réplica, vérifie `pg_wal_lsn_diff(stored, pg_last_wal_replay_lsn()) <= 0` sur lui. Exact, au prix d’une requête de plus et d’un endroit où stocker la position.',
 			'Correction 3, pour les rares écritures qui comptent : `SET LOCAL synchronous_commit = remote_apply` dans cette transaction, avec un standby synchrone. Le commit attend que le standby montre le changement. Ça coûte de la latence sur ces commits, et ils bloquent si le standby est tombé.'
+		],
+		steps: [
+			{
+				title: 'Compare le retard à la fenêtre',
+				questions: [
+					{ q: 'Quelle colonne de `pg_stat_replication` te dit quand une lecture sur le réplica verra l’écriture ?', options: ['`write_lag`', '`flush_lag`', '`replay_lag`', '`sync_state`'], answer: 2, why: 'Une requête sur le réplica ne voit une ligne qu’après le rejeu. Du WAL écrit ou flushé n’est pas encore visible.' },
+					{ q: 'En temps normal : retard de 0,4 s, fenêtre de 2 s. Que voit l’utilisateur qui a enregistré ?', options: ['Le nouveau nom : son GET va sur le primaire', 'L’ancien nom pendant 0,4 s', 'L’ancien nom pendant 2 s', 'Une erreur jusqu’à ce que le réplica rattrape'], answer: 0, why: 'Il a écrit il y a moins de 2 s, donc Rails lit sur le primaire. Le retard tient dans la fenêtre.' },
+					{ q: 'Pendant l’import, le retard est de 6 s. La fenêtre de 2 s couvre-t-elle encore celui qui a écrit ?', options: ['Oui, la fenêtre grandit avec le retard', 'Oui, Rails attend le réplica', 'Seulement s’il recharge deux fois', 'Non : de 2 s à 6 s après Enregistrer, il lit un réplica qui n’a pas rejoué l’écriture'], answer: 3, why: 'La fenêtre est un minuteur fixe. Une fois finie, les lectures repartent vers un réplica encore en retard.' },
+					{ q: 'Qui d’autre voit des données périmées, et de quel âge ?', options: ['Personne, la fenêtre de celui qui a écrit couvre tout le site', 'Tous les autres : jusqu’à 0,4 s en temps normal, 6 s pendant l’import', 'Seulement les utilisateurs du même pod', 'Seulement ceux qui ont aussi écrit récemment'], answer: 1, why: 'La fenêtre est par session. Rails « doesn\'t guarantee "read a recent write" » pour les autres utilisateurs.' }
+				]
+			},
+			{
+				title: 'Corrige avec une fenêtre plus longue',
+				questions: [
+					{ q: 'Quelle est la première correction ?', options: ['Supprimer les réplicas', 'Activer `remote_apply` pour chaque commit', 'Élargir la fenêtre, par exemple `delay: 10.seconds`', 'Baisser `max_connections`'], answer: 2, why: 'Une fenêtre plus longue garde celui qui a écrit sur le primaire au-delà du pire retard vu jusqu’ici.' },
+					{ q: 'Que coûte-t-elle ?', options: ['Plus de lectures tapent le primaire, et ça reste un pari sur le pire retard', 'Chaque commit attend un aller-retour réseau', 'Les utilisateurs perdent leur session après une écriture', 'Rien'], answer: 0, why: 'Un minuteur ne connaît pas le vrai retard. Un import plus gros pourrait encore dépasser 10 s.' },
+					{ q: 'Une fenêtre plus longue aide-t-elle les autres utilisateurs ?', options: ['Oui, tout le monde lit le primaire pendant la fenêtre', 'Oui, le réplica accélère', 'Seulement pour les requêtes GET', 'Non : elle ne couvre que la session qui a écrit'], answer: 3, why: 'Chaque utilisateur a son propre horodatage `last_write`. Les autres lisent toujours le réplica.' },
+					{ q: 'Où Rails garde-t-il l’heure de la dernière écriture ?', options: ['Dans un cache côté serveur', 'Dans la session de l’utilisateur, sous `session[:last_write]`', 'Dans une colonne de la table `users`', 'Dans `pg_stat_replication`'], answer: 1, why: 'La `Session` du resolver la stocke en millisecondes. C’est pourquoi la fenêtre est par utilisateur et par navigateur.' }
+				]
+			},
+			{
+				title: 'Corrige par la position dans le WAL',
+				questions: [
+					{ q: 'Après l’écriture, que stocke l’appli pour l’utilisateur ?', options: ['`pg_current_wal_lsn()` du primaire', '`now()` du réplica', 'Le `replay_lag` du réplica', 'L’id de la ligne écrite'], answer: 0, why: 'GitLab garde « the latest WAL pointer from the primary » (le dernier pointeur WAL du primaire). Il marque exactement ce que le réplica doit avoir rejoué.' },
+					{ q: 'Avant d’utiliser un réplica, que vérifie l’appli dessus ?', options: ['`SELECT pg_is_in_recovery()`', '`now() - pg_last_xact_replay_timestamp() < 2 seconds`', '`pg_wal_lsn_diff(stored, pg_last_wal_replay_lsn()) <= 0`', '`SELECT count(*) FROM pg_stat_replication`'], answer: 2, why: 'Une différence nulle ou négative veut dire que le réplica a rejoué au-delà de l’écriture de l’utilisateur.' },
+					{ q: 'Pourquoi ne pas tester avec `now() - pg_last_xact_replay_timestamp()` ?', options: ['Ça ne marche que sur le primaire', 'Sur un primaire calme, ça grandit même quand le réplica ne rate rien', 'Ça renvoie des octets, pas des secondes', 'Ça exige un standby synchrone'], answer: 1, why: 'L’horodatage est celui du dernier commit rejoué. Sans nouveaux commits, le nombre continue de monter.' },
+					{ q: 'Que coûte la correction par position WAL ?', options: ['Un redémarrage du réplica', 'Chaque commit attend le rejeu', 'Une fenêtre plus large pour tout le monde', 'Une requête de plus et un endroit où stocker la position'], answer: 3, why: 'Elle est exacte, mais l’appli doit garder le LSN par utilisateur et interroger le réplica avant chaque lecture.' }
+				]
+			},
+			{
+				title: 'Pèse le commit synchrone',
+				questions: [
+					{ q: 'Quel réglage fait attendre un commit jusqu’à ce que le standby montre le changement ?', options: ['`synchronous_commit = on`', '`synchronous_commit = remote_apply`', '`synchronous_commit = remote_write`', '`synchronous_commit = off`'], answer: 1, why: '`on` attend le flush et `remote_write` l’écriture. Seul `remote_apply` attend le rejeu, ce que voient les lectures.' },
+					{ q: 'Où le règles-tu, pour les rares écritures qui comptent ?', options: ['`SET LOCAL synchronous_commit = remote_apply` dans cette transaction', 'Dans `postgresql.conf` pour chaque commit', 'Sur le réplica', 'Dans l’option `delay` de Rails'], answer: 0, why: '`SET LOCAL` limite le coût aux transactions qui en ont besoin.' },
+					{ q: 'Que paie chacun de ces commits ?', options: ['Rien, les réplicas sont rapides', 'Un verrou de table', 'Un aller-retour réseau et le temps de rejeu du standby', 'Un segment WAL entier'], answer: 2, why: 'Le commit ne répond qu’une fois que le standby l’a rejoué.' },
+					{ q: 'Le seul standby synchrone meurt. Qu’arrive-t-il à ces commits ?', options: ['Ils repassent en asynchrone', 'Ils échouent tout de suite avec une erreur', 'Ils sont validés et rejoués au redémarrage', 'Ils attendent, et peuvent ne jamais finir tant qu’un autre standby ne prend pas le relais'], answer: 3, why: 'La doc prévient exactement de ça. Désigne plusieurs standbys possibles dans `synchronous_standby_names`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -172,6 +210,31 @@ export default {
 			why: 'La doc prévient que ces commits « may never be completed if any one of the synchronous standbys should crash », et conseille de désigner plusieurs standbys synchrones possibles dans `synchronous_standby_names` pour qu’un autre prenne le relais.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Monter un primaire et un réplica en streaming, lire une ligne périmée sur le réplica, la détecter par position WAL, puis faire attendre un commit jusqu’au rejeu.',
+		steps: [
+			'Lance le primaire : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`. Puis `docker exec dojo-pg psql -U postgres -c "CREATE TABLE users (id int PRIMARY KEY, name text)" -c "INSERT INTO users VALUES (1, \'Ada\')"`.',
+			'Lance un réplica dans l’espace réseau du primaire, sur le port 5433 : `docker run -d --name dojo-replica --network container:dojo-pg -u postgres postgres:17 sh -c \'pg_basebackup -h localhost -U postgres -D /tmp/replica -R -X stream && exec postgres -D /tmp/replica -c port=5433\'`. Attends que `docker logs dojo-replica` affiche `started streaming WAL from primary`.',
+			'Vérifie le flux depuis le primaire : `docker exec dojo-pg psql -U postgres -c "SELECT application_name, state, sync_state, replay_lag FROM pg_stat_replication"`. Lis depuis le réplica : `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_is_in_recovery(), name FROM users"`.',
+			'Crée du retard exprès : `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_wal_replay_pause()"`. Sur le primaire : `docker exec dojo-pg psql -U postgres -At -c "UPDATE users SET name = \'Grace\' WHERE id = 1" -c "SELECT pg_current_wal_lsn()"` et note le LSN.',
+			'Lis le réplica, et vérifie-le à la manière de GitLab avec ton LSN : `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT name FROM users" -c "SELECT pg_wal_lsn_diff(\'<ton lsn>\', pg_last_wal_replay_lsn())"`',
+			'Rends le réplica synchrone : `docker exec dojo-pg psql -U postgres -c "ALTER SYSTEM SET synchronous_standby_names = \'walreceiver\'" -c "SELECT pg_reload_conf()"`. Puis, le rejeu toujours en pause : `docker exec dojo-pg psql -U postgres -c "SET synchronous_commit = remote_apply" -c "UPDATE users SET name = \'Lovelace\' WHERE id = 1"`.',
+			'Dans un second terminal, pendant que ce commit attend : `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_wal_replay_resume()"`.'
+		],
+		done: [
+			'À l’étape 3, `pg_stat_replication` montre une ligne `walreceiver`, `streaming` et `async`, et le réplica répond `t` et `Ada`.',
+			'À l’étape 5, le réplica dit encore `Ada`, et `pg_wal_lsn_diff` est au-dessus de zéro.',
+			'Après l’étape 6, `pg_stat_replication` montre `sync_state` à `sync`, et l’UPDATE en `remote_apply` reste bloqué.',
+			'À l’étape 7, l’UPDATE répond dès que le rejeu reprend, et le réplica lit `Lovelace`.'
+		],
+		solution: [
+			'Le primaire a validé `Grace` sans demander au réplica : c’est la réplication asynchrone. Une lecture sur le réplica ne voit une ligne qu’après le rejeu, donc elle a servi l’ancien nom.',
+			'Un `pg_wal_lsn_diff` au-dessus de zéro dit que le réplica n’a pas rejoué jusqu’à l’écriture de l’utilisateur. Une appli enverrait cette lecture au primaire.',
+			'Avec `remote_apply`, le commit attend le rejeu sur le standby synchrone. Le rejeu en pause, il pourrait attendre sans fin, comme le fait un standby mort pour ces commits.',
+			'Nettoie avec `docker rm -f dojo-replica dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Pendant combien de temps Rails envoie-t-il au primaire les lectures d’un utilisateur qui vient d’écrire, et quand voit-il quand même des données périmées ?',
 		a: 'Pendant 2 secondes (`delay`), mesurées dans la session de cet utilisateur. Si le retard de rejeu dépasse la fenêtre, comme les 6 s pendant un import, ses lectures repartent vers un réplica qui n’a pas encore rejoué l’écriture.'

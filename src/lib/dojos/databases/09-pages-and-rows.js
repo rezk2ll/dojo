@@ -131,6 +131,44 @@ struct HeapTupleHeaderData
 			'Each row costs 40 + 4 = 44 bytes of the page. (8192 - 24) / 44 = 185.6, so 185 rows per page.',
 			'In `psql`: id 185 is at `(0,185)` and id 186 at `(1,1)`, the first slot of page 1. 1000 rows need 6 pages, so `pg_relation_size` is 49152 bytes.',
 			'Run `UPDATE t SET qty = qty + 1 WHERE id = 1` and look at its `ctid` again: it moved to a free slot at the end of the table, because the update wrote a new tuple.'
+		],
+		steps: [
+			{
+				title: 'Size one tuple',
+				questions: [
+					{ q: 'The row has no NULLs. How many bytes come before the first column?', options: ['23', '24', '28', '32'], answer: 1, why: 'The 23-byte header is padded to 24, so the column data starts aligned.' },
+					{ q: 'Why is there no null bitmap in this tuple?', options: ['Bitmaps are only for text columns', 'The table is too small', 'It is not stored when the tuple has no NULLs', 'It lives in the page header instead'], answer: 2, why: 'The source: the bitmap "is *not* stored if t_infomask shows that there are no nulls in the tuple".' },
+					{ q: 'How many bytes of column data does `(bigint, int, boolean)` take?', options: ['13', '16', '12', '24'], answer: 0, why: '8 for the `bigint`, 4 for the `int`, 1 for the `boolean`.' },
+					{ q: 'Header plus data is 37 bytes. What does the tuple take with 8-byte alignment?', options: ['37', '38', '48', '40'], answer: 3, why: '37 rounded up to the next multiple of 8 is 40.' }
+				]
+			},
+			{
+				title: 'Fill the page',
+				questions: [
+					{ q: 'What does each row cost of the page, line pointer included?', options: ['40 bytes', '44 bytes', '41 bytes', '48 bytes'], answer: 1, why: '40 for the tuple, plus a 4-byte line pointer at the top of the page.' },
+					{ q: 'How much space is left after the page header?', options: ['8192 bytes', '8000 bytes', '8168 bytes', '8144 bytes'], answer: 2, why: '8192 minus the 24-byte page header.' },
+					{ q: 'So how many rows fit in one page?', options: ['185', '186', '204', '630'], answer: 0, why: '8168 / 44 = 185.6. A tuple cannot span pages, so the page holds 185.' },
+					{ q: 'Of those 44 bytes per row, how many are your data?', options: ['44', '40', '24', '13'], answer: 3, why: 'The rest is header, padding and the line pointer. On a table this narrow, overhead outweighs the data.' }
+				]
+			},
+			{
+				title: 'Check it in psql',
+				questions: [
+					{ q: 'After inserting ids 1 to 1000, where is id 186?', options: ['`(0,186)`', '`(1,1)`', '`(1,186)`', '`(0,1)`'], answer: 1, why: 'Page 0 is full after 185 rows, so id 186 takes the first slot of page 1.' },
+					{ q: 'What does a `ctid` of `(1,1)` name?', options: ['Page 1, line pointer 1', 'Byte 1 of row 1', 'Transaction 1, command 1', 'Index entry 1 of page 1'], answer: 0, why: 'The address names the page and the slot, not a byte offset, so tuples can move inside the page.' },
+					{ q: 'How many pages do 1000 rows need?', options: ['5', '4', '8', '6'], answer: 3, why: '1000 / 185 is about 5.4, so a sixth page holds the last rows.' },
+					{ q: 'So what does `pg_relation_size(\'t\')` return in bytes?', options: ['8192', '40960', '49152', '44000'], answer: 2, why: 'Six pages of 8192 bytes. The file grows in whole pages.' }
+				]
+			},
+			{
+				title: 'Watch an update move the row',
+				questions: [
+					{ q: 'You run `UPDATE t SET qty = qty + 1 WHERE id = 1`. Where does the new version go?', options: ['It overwrites `(0,1)` in place', 'Into a free slot at the end of the table', 'Into the TOAST table', 'Into the WAL only, until VACUUM'], answer: 1, why: 'An UPDATE writes a new tuple. Page 0 is full, so it lands where there is room, like `(5,76)` in the diagram.' },
+					{ q: 'What stays at `(0,1)` right after the update?', options: ['Nothing, the slot is freed at once', 'The new version', 'An empty tuple with only a header', 'The old version, with `t_xmax` set and `t_ctid` pointing to the new one'], answer: 3, why: 'Readers who started earlier may still need it. It stays until VACUUM removes it.' },
+					{ q: 'You delete half the rows. What does `pg_relation_size` say?', options: ['The same 49152 bytes', 'About half, 24576 bytes', '0, until VACUUM runs', 'More, because of the deletes'], answer: 0, why: 'A delete marks tuples, it does not shrink the file. That is the hook\'s 35 MB that stays 35 MB.' },
+					{ q: 'Which column of the old tuple says which transaction updated it?', options: ['`t_xmin`', '`t_hoff`', '`t_xmax`', '`t_bits`'], answer: 2, why: '`t_xmin` is the inserting transaction, `t_xmax` the one that deleted or locked it.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ struct HeapTupleHeaderData
 			why: 'A tuple cannot span pages. Above about 2 kB, TOAST compresses large fields and, if the row is still too wide, moves them to the table\'s TOAST table in chunks. The heap row keeps a pointer.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Check the 185-rows-per-page math on a real table, read a tuple header with `pageinspect`, and see that a delete does not shrink the file.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-pages -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-pages psql -U postgres`.',
+			'Create and fill the table: `CREATE TABLE t (id bigint, qty int, flag boolean); INSERT INTO t SELECT g, 1, true FROM generate_series(1, 1000) g;`',
+			'Check the math: `SELECT ctid, id FROM t WHERE id IN (185, 186);` and `SELECT pg_relation_size(\'t\') / 8192 AS pages, pg_relation_size(\'t\') AS bytes;`',
+			'Look inside page 0 while an update is still open: `CREATE EXTENSION pageinspect;` then `BEGIN; UPDATE t SET qty = qty + 1 WHERE id = 1; SELECT lp, lp_len, t_xmin, t_xmax, t_ctid FROM heap_page_items(get_raw_page(\'t\', 0)) LIMIT 2; SELECT ctid FROM t WHERE id = 1; COMMIT;`',
+			'Delete half the rows and measure again: `DELETE FROM t WHERE id % 2 = 0;` then `SELECT pg_relation_size(\'t\');`. Quit with `\\q` and clean up with `docker rm -f pg-pages`.'
+		],
+		done: [
+			'id 185 is at `(0,185)` and id 186 at `(1,1)`; the table is 6 pages, 49152 bytes.',
+			'`heap_page_items` shows `lp_len` 37 for each tuple: the 24-byte header plus 13 bytes of data, before alignment.',
+			'Line pointer 1 has a `t_xmax` that is not 0 and a `t_ctid` that matches the new `ctid` of id 1.',
+			'After deleting 500 rows, `pg_relation_size` still prints `49152`.'
+		],
+		solution: [
+			'The 37 bytes round up to 40 on the page, plus 4 for the line pointer: 44 bytes a row, and 8168 / 44 gives 185 rows.',
+			'The old version of id 1 stays on page 0 with the updating transaction in `t_xmax`, and its `t_ctid` points to the new tuple. The new `ctid` is on the last page, where there was room.',
+			'A delete only marks the tuples, so every page stays in the file. Dead tuples pile up until VACUUM removes them (day 16).'
+		]
+	},
 	recall: {
 		q: 'What does `ctid = (0,3)` point to, and what happens to it when you UPDATE that row?',
 		a: 'Page 0, line pointer 3, in the table\'s 8 KB pages. The UPDATE writes a new tuple at another ctid, and the old tuple\'s `t_ctid` points to it until VACUUM removes the old one.'

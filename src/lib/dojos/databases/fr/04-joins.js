@@ -125,6 +125,44 @@ export default {
 			'(2) Agrège avant de joindre : `SELECT t.id, coalesce(p.n, 0) AS posts, coalesce(g.n, 0) AS tags FROM topics t LEFT JOIN (SELECT topic_id, count(*) AS n FROM posts GROUP BY topic_id) p ON p.topic_id = t.id LEFT JOIN (SELECT topic_id, count(*) AS n FROM tags GROUP BY topic_id) g ON g.topic_id = t.id;` Chaque sous-requête donne une ligne par sujet, donc rien ne se multiplie.',
 			'(2, raccourci) `count(DISTINCT p.id)` et `count(DISTINCT g.name)` donnent les mêmes nombres ici, mais la jointure construit quand même 3 x 2 lignes pour le sujet 1 avant de compter.',
 			'(3) `SELECT t.id FROM topics t WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id);` ou `SELECT t.id FROM topics t LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL;` Vérifie les deux sur tes données : seulement le sujet 3.'
+		],
+		steps: [
+			{
+				title: 'Compte les messages par sujet',
+				questions: [
+					{ q: 'Quelle jointure garde le sujet 3, qui n’a aucun message ?', options: ['`topics t JOIN posts p ON p.topic_id = t.id`', '`posts p JOIN topics t ON p.topic_id = t.id`', '`topics t LEFT JOIN posts p ON p.topic_id = t.id`', '`topics t, posts p WHERE p.topic_id = t.id`'], answer: 2, why: 'Une jointure gauche garde chaque ligne de la table de gauche, avec ou sans correspondance. Les trois autres sont des jointures internes.' },
+					{ q: 'Dans la jointure gauche, que valent les colonnes posts de la ligne du sujet 3 ?', options: ['NULL', '0', 'Les valeurs du dernier message', 'Une chaîne vide'], answer: 0, why: 'Quand B n’a pas de correspondance, les colonnes de B valent NULL. La ligne est quand même là, une fois.' },
+					{ q: 'Pourquoi `count(p.id)` et pas `count(*)` ?', options: ['`count(*)` est plus lent sur les grosses tables', '`count(*)` compterait 1 pour la ligne sans correspondance du sujet 3', '`count(*)` ne peut pas suivre un GROUP BY', '`count(p.id)` compte aussi les tags'], answer: 1, why: '`count(*)` compte les lignes, et le sujet 3 en a une. `count(p.id)` saute les NULL, donc le sujet 3 affiche 0.' },
+					{ q: 'Avec une jointure interne à la place, qu’arrive-t-il au sujet 3 ?', options: ['Il affiche un compte de 0', 'Il affiche un compte NULL', 'La requête échoue', 'Il disparaît du résultat'], answer: 3, why: 'Une jointure interne ne garde que les paires où la condition est vraie. Un sujet sans message n’a aucune paire.' }
+				]
+			},
+			{
+				title: 'Repère la démultiplication',
+				questions: [
+					{ q: 'Tu ajoutes `LEFT JOIN tags g ON g.topic_id = t.id` à (1). Le sujet 1 a 3 messages et 2 tags. Que dit `count(p.id)` ?', options: ['3', '5', '2', '6'], answer: 3, why: 'Chacune des 3 lignes de message rencontre les deux tags : 3 x 2 = 6 lignes, chacune avec un `p.id` non NULL.' },
+					{ q: 'Que représente une ligne de ce résultat joint ?', options: ['Un message et un tag du même sujet', 'Un sujet', 'Un message', 'Un tag'], answer: 0, why: 'Les deux jointures partent du sujet, donc le résultat associe chaque message à chaque tag de son sujet.' },
+					{ q: 'Que dit PostgreSQL de ce comptage en trop ?', options: ['Il lève un avertissement sur les lignes en double', 'Il refuse la requête sans DISTINCT', 'Rien : il rend ce que la requête a demandé', 'Il ne compte que la première jointure'], answer: 2, why: 'Une jointure associe des lignes, et `count` compte des lignes. Les nombres sont faux sans la moindre erreur.' },
+					{ q: 'Et `count(g.name)` pour le sujet 1 dans la même requête ?', options: ['2, car il y a 2 tags', '6, car chaque tag rencontre 3 messages', '3, car il y a 3 messages', '1, car les tags sont regroupés'], answer: 1, why: 'La démultiplication joue des deux côtés. Chaque tag est répété une fois par message.' }
+				]
+			},
+			{
+				title: 'Agrège avant de joindre',
+				questions: [
+					{ q: 'Comment compter messages et tags sans compter trop ?', options: ['Compter chaque table dans sa propre sous-requête groupée par `topic_id`, puis joindre les totaux en jointure gauche', 'Ajouter `ORDER BY t.id` pour que les lignes soient groupées', 'Prendre une jointure interne pour les tags et une jointure gauche pour les messages', 'Déplacer la jointure des tags dans la clause WHERE'], answer: 0, why: 'Agrège d’abord, joins ensuite. C’est la correction que le chapitre préfère à `DISTINCT`.' },
+					{ q: 'Pourquoi rien ne peut-il se multiplier dans cette version ?', options: ['Une sous-requête rend toujours une seule ligne', 'GROUP BY retire les messages en double', 'Chaque sous-requête donne au plus une ligne par sujet', 'Une jointure gauche ne répète jamais une ligne'], answer: 2, why: 'Un sujet rencontre maintenant une seule ligne de totaux de chaque côté, donc aucune paire ne se multiplie.' },
+					{ q: 'Pourquoi entourer les totaux de `coalesce(p.n, 0)` ?', options: ['Pour transformer du texte en nombre', 'Un sujet sans message reçoit NULL de la jointure gauche, pas 0', 'Pour que la sous-requête tourne en premier', 'Parce que `count(*)` peut rendre NULL'], answer: 1, why: 'La sous-requête n’a pas de ligne pour le sujet 3, donc la jointure gauche met `p.n` à NULL. `coalesce` l’affiche comme 0.' },
+					{ q: 'Que coûte `count(DISTINCT p.id)` par rapport aux sous-requêtes ?', options: ['Il donne de faux nombres ici', 'Il ne s’utilise pas avec GROUP BY', 'Rien, c’est le même plan', 'La jointure construit quand même les 3 x 2 lignes avant de compter'], answer: 3, why: '`DISTINCT` masque la démultiplication mais ne l’empêche pas. Les lignes en trop sont quand même fabriquées d’abord.' }
+				]
+			},
+			{
+				title: 'Trouve les sujets sans message',
+				questions: [
+					{ q: 'Quelle requête est la forme `NOT EXISTS` ?', options: ['`... WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id)`', '`... WHERE NOT EXISTS (SELECT 1 FROM posts)`', '`... WHERE t.id NOT EXISTS posts.topic_id`', '`... WHERE EXISTS (SELECT 1 FROM posts p WHERE p.topic_id <> t.id)`'], answer: 0, why: 'La sous-requête doit chercher les messages de ce sujet. Sans le lien vers `t.id`, elle demande s’il existe un message tout court.' },
+					{ q: 'Laquelle est la forme jointure gauche ?', options: ['`... JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL`', '`... LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id = NULL`', '`... LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL`', '`... LEFT JOIN posts p ON p.id IS NULL`'], answer: 2, why: 'La jointure gauche garde le sujet sans correspondance avec des colonnes posts à NULL, et `IS NULL` ne garde que celles-là. `= NULL` n’est jamais vrai.' },
+					{ q: 'Avec les données du chapitre, que doivent rendre les deux ?', options: ['Les sujets 2 et 3', 'Seulement le sujet 3', 'Seulement le sujet 1', 'Aucune ligne'], answer: 1, why: 'Le sujet 1 a trois messages et le sujet 2 en a un. Seul le sujet 3 n’en a aucun.' },
+					{ q: 'Pourquoi `NOT EXISTS` reste-t-il bon marché sur un sujet qui a beaucoup de messages ?', options: ['Il ne lit la table posts qu’une fois par jour', 'Il met la réponse en cache pour tous les sujets', 'Il utilise toujours un index hash', 'La sous-requête s’arrête à la première ligne trouvée'], answer: 3, why: 'La doc : la sous-requête tourne « only long enough to determine whether at least one row is returned » (juste le temps de savoir si une ligne existe).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,27 @@ export default {
 			why: 'La jointure gauche produit la ligne avec des colonnes posts à NULL, puis la jointure interne exige `posts.topic_id = topics.id`, jamais vrai pour NULL. La ligne a disparu avant même WHERE. Les comparaisons avec NULL ont leur propre chapitre (jour 6).'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire compter trop une jointure exprès, la corriger, et trouver le sujet sans message de deux façons.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-joins -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-joins psql -U postgres`.',
+			'Charge les données du chapitre : `CREATE TABLE topics (id int PRIMARY KEY); CREATE TABLE posts (id int PRIMARY KEY, topic_id int); CREATE TABLE tags (topic_id int, name text); INSERT INTO topics VALUES (1), (2), (3); INSERT INTO posts VALUES (10, 1), (11, 1), (12, 1), (20, 2); INSERT INTO tags VALUES (1, \'x\'), (1, \'y\');`',
+			'Compare `count(*)` et `count(p.id)` : `SELECT t.id, count(*) AS star, count(p.id) AS posts FROM topics t LEFT JOIN posts p ON p.topic_id = t.id GROUP BY t.id ORDER BY t.id;`',
+			'Ajoute la jointure des tags et regarde la démultiplication : `SELECT t.id, count(p.id) AS posts, count(g.name) AS tags FROM topics t LEFT JOIN posts p ON p.topic_id = t.id LEFT JOIN tags g ON g.topic_id = t.id GROUP BY t.id ORDER BY t.id;`. Puis écris la version qui agrège avant de joindre.',
+			'Trouve les sujets sans message avec `NOT EXISTS`, puis avec une jointure gauche, et mets `EXPLAIN` devant la version `NOT EXISTS`. Quitte avec `\\q` et nettoie avec `docker rm -f pg-joins`.'
+		],
+		done: [
+			'À l’étape 3, le sujet 3 affiche `star` à 1 et `posts` à 0.',
+			'À l’étape 4, le sujet 1 affiche 6 messages et 6 tags ; ta version corrigée affiche 3 et 2.',
+			'Les deux anti-jointures rendent seulement le sujet 3, et la sortie d’`EXPLAIN` contient un nœud `Anti Join`.'
+		],
+		solution: [
+			'Comptes corrigés : `SELECT t.id, coalesce(p.n, 0) AS posts, coalesce(g.n, 0) AS tags FROM topics t LEFT JOIN (SELECT topic_id, count(*) AS n FROM posts GROUP BY topic_id) p ON p.topic_id = t.id LEFT JOIN (SELECT topic_id, count(*) AS n FROM tags GROUP BY topic_id) g ON g.topic_id = t.id ORDER BY t.id;`',
+			'`SELECT t.id FROM topics t WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id);`',
+			'`SELECT t.id FROM topics t LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL;`'
+		]
+	},
 	recall: {
 		q: 'Un sujet a 3 messages et 2 tags. Pourquoi une requête qui fait une jointure gauche vers les deux tables compte-t-elle 6 messages, et comment obtenir 3 ?',
 		a: 'Chaque ligne de message s’associe à chaque tag, donc la jointure produit 3 x 2 = 6 lignes. Compte les messages par sujet dans une sous-requête avant la jointure, ou utilise `count(DISTINCT p.id)`.'

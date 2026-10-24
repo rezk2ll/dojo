@@ -107,6 +107,44 @@ Execution time: 297.334 ms`,
 			'Avec l’index : `Index Only Scan using orders_customer_id_idx ... rows=49.00 loops=1`, `Heap Fetches: 0`, `Buffers: shared hit=1 read=3`. De 6 434 pages à 4. Les heap fetches sont à 0 parce que `VACUUM` vient de marquer chaque page comme visible pour tous.',
 			'`status = \'paid\'` garde un Parallel Seq Scan même avec l’index : la condition touche environ 95 % des lignes, donc lire la table dans l’ordre coûte moins cher que sauter par l’index pour chacune.',
 			'`status = \'refunded\'` (environ 5 %) passe à `Index Scan using orders_status_idx`. Même index, même colonne : le planificateur a choisi selon le nombre de lignes estimé, et c’est le sujet du jour 13.'
+		],
+		steps: [
+			{
+				title: 'Lis le premier plan',
+				questions: [
+					{ q: 'Sans index, le nœud de parcours affiche `rows=16.33 loops=3`. Combien de lignes a-t-il trouvées pour le client 42 ?', options: ['16 lignes, la valeur affichée sur le nœud', '3 lignes, une par boucle', 'Environ 49 lignes : 16,33 × 3', 'Environ 333 317 lignes'], answer: 2, why: 'Les lignes réelles sont une moyenne par boucle. Multiplie par `loops` pour avoir le total : 16,33 × 3 fait environ 49.' },
+					{ q: 'Le nœud du haut affiche `Buffers: shared hit=6434`. Qu’est-ce que ça couvre ?', options: ['Toute la table, lue pour trouver environ 49 lignes', 'Seulement les pages qui contiennent le client 42', 'Les pages de l’index de clé primaire', 'Les pages lues par le planificateur pour construire le plan'], answer: 0, why: 'Un parcours séquentiel lit toutes les pages. 6 434 pages de 8 kB pour rendre environ 49 lignes.' },
+					{ q: 'Que veut dire `hit` dans cette ligne Buffers ?', options: ['Les pages qui passent le filtre', 'Les pages trouvées dans le cache de PostgreSQL', 'Les pages lues sur le disque', 'Les pages modifiées par la requête'], answer: 1, why: '`hit` compte les pages trouvées dans le cache de PostgreSQL. `read` compte celles qu’il a dû demander à l’OS ou au disque.' },
+					{ q: 'Quelle ligne est le signe classique qu’un index pourrait aider ?', options: ['`Planning Time: 0.1 ms`', '`loops=3` sur le nœud de parcours', 'Un coût qui commence à `0.00`', 'Un énorme `Rows Removed by Filter` sous un parcours qui rend peu de lignes'], answer: 3, why: 'Le parcours a lu environ un million de lignes et en a gardé 49. Un index pourrait aller droit à ces lignes.' }
+				]
+			},
+			{
+				title: 'Ajoute l’index sur customer_id',
+				questions: [
+					{ q: 'Après `CREATE INDEX ON orders (customer_id)`, quel nœud remplace le Parallel Seq Scan ?', options: ['`Bitmap Heap Scan on orders`', '`Index Only Scan using orders_customer_id_idx`', '`Index Scan using orders_pkey`', '`Parallel Seq Scan`, avec un filtre plus petit'], answer: 1, why: 'Un comptage n’a besoin d’aucune autre colonne, donc le planificateur ne lit que l’index : un index-only scan.' },
+					{ q: 'Le plan affiche maintenant `rows=49.00 loops=1`. Combien de lignes en tout ?', options: ['49 × 3, puisqu’il y avait trois boucles avant', '1, le nombre de boucles', '49', 'Ça dépend des buffers'], answer: 2, why: 'Avec une seule boucle, la moyenne par boucle est le total : 49 lignes, la même réponse qu’avant.' },
+					{ q: 'Combien de buffers le nouveau plan touche-t-il ?', options: ['Environ 6 434, comme avant', 'Environ 3 000, la moitié de la table', 'Environ 49, un par ligne', '4 : `hit=1 read=3`'], answer: 3, why: 'De 6 434 pages à 4. La baisse des buffers, c’est le travail économisé, quel que soit le contenu du cache.' },
+					{ q: 'Pourquoi `Heap Fetches: 0` ?', options: ['`VACUUM` vient de marquer chaque page comme visible pour tous', 'L’index contient toutes les colonnes de la table', 'La table est vide après le comptage', 'Les heap fetches ne sont comptés qu’avec `TIMING OFF`'], answer: 0, why: 'Un index-only scan ne va dans la table que pour les pages non marquées visibles pour tous. Le `VACUUM` d’avant le test les a toutes marquées.' }
+				]
+			},
+			{
+				title: 'Indexe status et compare',
+				questions: [
+					{ q: 'Avec un index sur `status`, comment PostgreSQL exécute-t-il `sum(total)` pour `\'paid\'` ?', options: ['Index Scan using orders_status_idx', 'Index Only Scan, puisque status est indexé', 'Parallel Seq Scan, comme sans l’index', 'Bitmap Heap Scan sur l’index de status'], answer: 2, why: 'L’index est là, et le planificateur lit quand même la table dans l’ordre.' },
+					{ q: 'Pourquoi ignore-t-il l’index pour `\'paid\'` ?', options: ['`paid` fait environ 95 % des lignes, donc lire la table dans l’ordre coûte moins cher', 'L’index sur status n’est construit qu’au prochain VACUUM', 'Un index ne peut pas servir une colonne de texte', 'L’agrégat `sum` force toujours un parcours séquentiel'], answer: 0, why: 'Sauter par l’index pour presque chaque ligne coûte plus qu’un seul passage sur la table.' },
+					{ q: 'Et pour `\'refunded\'`, environ 5 % des lignes ?', options: ['Parallel Seq Scan, comme pour `\'paid\'`', '`Index Scan using orders_status_idx`', 'Index Only Scan avec `Heap Fetches: 0`', 'Un Hash Join sur l’index de status'], answer: 1, why: 'Même index, même colonne, moins de lignes : cette fois l’index est le chemin le moins cher.' },
+					{ q: 'Qu’est-ce qui a fait choisir le planificateur différemment pour les deux valeurs ?', options: ['L’ordre dans lequel tu as lancé les deux requêtes', 'La taille de la colonne `total`', 'Les pages qui étaient en cache', 'Son estimation du nombre de lignes qui correspondent'], answer: 3, why: 'Le planificateur a choisi selon le nombre de lignes estimé. Le jour 13 montre d’où vient cette estimation.' }
+				]
+			},
+			{
+				title: 'Dis ce que tu as appris',
+				questions: [
+					{ q: 'Quel chiffre compares-tu entre deux plans de la même requête ?', options: ['Le temps d’exécution de chaque passage', 'Les buffers du nœud du haut', 'Le temps de planification', 'Le coût du nœud du haut, en millisecondes'], answer: 1, why: 'Le temps bouge avec le cache et la charge. Les buffers comptent les pages touchées, c’est-à-dire le travail lui-même.' },
+					{ q: 'Pourquoi la ligne Buffers du nœud du haut résume-t-elle tout le plan ?', options: ['Les buffers d’un parent incluent ceux de ses enfants', 'Seul le nœud du haut lit des pages', 'Le nœud du haut est le plus lent', 'PostgreSQL arrondit les buffers en haut du plan'], answer: 0, why: 'Chaque nœud ajoute ses pages à celles de ses enfants, donc la ligne du haut est le total.' },
+					{ q: 'Tu veux le plan d’un `UPDATE` avec de vrais chiffres. Que fais-tu ?', options: ['Un `EXPLAIN` seul, qui donne aussi les lignes réelles', 'Un `EXPLAIN ANALYZE` seul, puisqu’il ne fait que simuler', 'Un `EXPLAIN ANALYZE` entre `BEGIN` et `ROLLBACK`', 'Lancer l’`UPDATE` deux fois et comparer'], answer: 2, why: 'Avec `ANALYZE`, l’instruction est vraiment exécutée. Le rollback annule l’écriture.' },
+					{ q: 'Pourquoi lancer `VACUUM ANALYZE orders` avant le premier plan ?', options: ['Pour compresser la table et qu’elle tienne dans le cache', 'Pour verrouiller la table pendant que tu lis les plans', 'Pour construire l’index sur `customer_id` à ta place', 'Pour que le planificateur ait des statistiques et que les pages soient marquées visibles pour tous'], answer: 3, why: '`ANALYZE` donne au planificateur ses estimations de lignes, et `VACUUM` marque les pages visibles pour tous, d’où le `Heap Fetches: 0` de l’index-only scan.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -144,6 +182,27 @@ Execution time: 297.334 ms`,
 			why: 'Le temps bouge avec l’état du cache et la charge. Les buffers comptent les pages que la requête a dû toucher, c’est-à-dire le travail lui-même. Le coût est en unités du planificateur, pas en millisecondes, et les chiffres d’ANALYZE sont mesurés, pas estimés.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir qu’`EXPLAIN ANALYZE` exécute vraiment une écriture, et lire `loops` sur une boucle imbriquée.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres`.',
+			'Crée deux tables : `CREATE TABLE customers (id int primary key, name text); CREATE TABLE orders (id bigint generated always as identity primary key, customer_id int not null, total numeric not null);` puis `INSERT INTO customers SELECT i, \'c\' || i FROM generate_series(1, 20000) i; INSERT INTO orders (customer_id, total) SELECT 1 + (random()*19999)::int, (random()*100)::numeric(6,2) FROM generate_series(1, 200000); VACUUM ANALYZE customers, orders;`',
+			'Lance l’explain d’une écriture avec `ANALYZE` : `EXPLAIN ANALYZE UPDATE orders SET total = -1 WHERE id <= 10;` puis `SELECT count(*) FROM orders WHERE total = -1;`',
+			'Fais-le sans risque : `BEGIN; EXPLAIN ANALYZE DELETE FROM orders WHERE id <= 1000; ROLLBACK;` puis `SELECT count(*) FROM orders;`',
+			'Lance l’explain d’une jointure : `EXPLAIN (ANALYZE, BUFFERS) SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id <= 36;`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Après l’`EXPLAIN ANALYZE UPDATE`, le comptage de `total = -1` vaut 10 : la mise à jour a vraiment eu lieu.',
+			'Après le `DELETE` entre `BEGIN` et `ROLLBACK`, `count(*)` vaut toujours 200000.',
+			'Le plan de la jointure montre `Index Scan using customers_pkey` avec `rows=1.00 loops=36`.'
+		],
+		solution: [
+			'`EXPLAIN ANALYZE` exécute l’instruction et ses effets de bord ont lieu. Entoure toute écriture de `BEGIN` et `ROLLBACK`.',
+			'Le côté interne de la boucle imbriquée tourne une fois par ligne externe : 36 boucles d’une ligne font 36 lignes en tout, pas 1.',
+			'Ses buffers (environ 108) sont additionnés sur les 36 boucles, et les buffers du nœud du haut les incluent.'
+		]
+	},
 	recall: {
 		q: 'Un nœud de parcours affiche `rows=16.33 loops=3`. Combien de lignes a-t-il rendues, et quel chiffre compares-tu entre deux versions d’une requête ?',
 		a: 'Environ 49 lignes, car rows est une moyenne par boucle : 16,33 × 3. Tu compares les buffers (les pages de 8 kB touchées), car le temps change avec ce qui est en cache.'

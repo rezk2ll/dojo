@@ -131,6 +131,44 @@ export default {
 			'`customer` est à valeur unique, donc `select_related("customer")` le joint dans la première requête : `SELECT orders.*, customers.* FROM orders JOIN customers ON ...`. Aucune requête de plus pour les clients.',
 			'`items` est une relation « plusieurs », que `select_related` ne sait pas suivre. `prefetch_related("items")` lance une requête de plus : `SELECT * FROM items WHERE order_id IN (...)` avec les 20 ids de commande, et rattache les lignes aux commandes en Python.',
 			'Résultat : `Order.objects.select_related("customer").prefetch_related("items")[:20]` lance 2 requêtes au lieu de 41. Vérifie-le dans un test avec `assertNumQueries(2)`, ou avec le nombre de requêtes dans tes logs (jour 30).'
+		],
+		steps: [
+			{
+				title: 'Compte les requêtes telles quelles',
+				questions: [
+					{ q: 'La vue charge 20 commandes. Combien de requêtes prend la liste elle-même ?', options: ['Une', 'Vingt', 'Deux', 'Quarante et une'], answer: 0, why: 'Un seul `SELECT` ramène les 20 commandes. Les requêtes en plus viennent après, du template.' },
+					{ q: 'Le template lit `order.customer.name` pour chaque commande. Combien de requêtes ça ajoute ?', options: ['Aucune : le client arrive avec la commande', 'Une pour tous les clients', '20, un chargement paresseux par commande', '40, deux par commande'], answer: 2, why: 'Django charge une clé étrangère en paresseux par défaut. Chaque commande lit son client une fois, donc chacune lance sa propre requête.' },
+					{ q: 'Le template parcourt `order.items.all()`. Combien de requêtes ça ajoute ?', options: ['Une pour toutes les lignes', '20, une par commande', 'Une par ligne', 'Aucune : les lignes sont des colonnes de orders'], answer: 1, why: 'Chaque `order.items.all()` lance un `SELECT ... WHERE order_id = ?`, donc une requête par commande, quel que soit le nombre de lignes.' },
+					{ q: 'Quel est le total tel quel ?', options: ['21', '40', '41', '2'], answer: 2, why: '1 pour la liste, 20 pour les clients, 20 pour les lignes : 41 requêtes, chacune rapide, et la page les attend l’une après l’autre.' }
+				]
+			},
+			{
+				title: 'Choisis une méthode par relation',
+				questions: [
+					{ q: 'Quel genre de relation est `customer` sur une commande ?', options: ['« Plusieurs » : plusieurs clients par commande', 'À valeur unique : un client par commande', 'Many-to-many', 'Clé étrangère inverse'], answer: 1, why: 'Une clé étrangère pointe vers une seule ligne. Elle est donc à valeur unique, le genre de relation que `select_related` sait suivre.' },
+					{ q: 'Quel appel charge les clients sans aucune requête de plus ?', options: ['`prefetch_related("customer")`', '`only("customer")`', '`defer("customer")`', '`select_related("customer")`'], answer: 3, why: '`select_related` joint la table liée dans la première requête. `prefetch_related` marcherait aussi, mais avec une deuxième requête.' },
+					{ q: 'Pourquoi `select_related` ne sait-il pas suivre `items` ?', options: ['Il se limite aux relations à valeur unique', 'Il ne marche que sur les 10 premières lignes', 'La table items n’a pas de clé primaire', 'Il faut d’abord activer le strict loading'], answer: 0, why: 'La doc Django dit que `select_related` "is limited to single-valued relationships". `items` est une clé étrangère inverse, plusieurs lignes par commande.' },
+					{ q: 'Quel appel supprime le N+1 sur `items` ?', options: ['`select_related("items")`', '`prefetch_related("items")`', '`only("items")`', '`order.items.all()` dans la vue'], answer: 1, why: '`prefetch_related` fait une requête séparée pour la relation et la jointure en Python.' }
+				]
+			},
+			{
+				title: 'Écris le SQL',
+				questions: [
+					{ q: 'Que change `select_related("customer")` dans le SQL ?', options: ['Il ajoute un deuxième `SELECT * FROM customers WHERE id IN (...)`', 'Il lance un `SELECT` par client, mais en parallèle', 'Il ajoute une sous-requête à chaque ligne de commande', 'Il ajoute `JOIN customers ON ...` à la requête des commandes'], answer: 3, why: 'La première requête devient `SELECT orders.*, customers.* FROM orders JOIN customers ON ...`, et les colonnes du client arrivent avec.' },
+					{ q: 'Quel SQL envoie `prefetch_related("items")` ?', options: ['`SELECT * FROM items WHERE order_id IN (...)` avec les 20 ids de commande', '`SELECT * FROM items WHERE order_id = ?` une fois par commande', '`SELECT * FROM orders JOIN items ON ...`', '`SELECT * FROM items` sans filtre'], answer: 0, why: 'Il collecte les ids de commande de la première requête et les envoie tous dans une seule liste `IN`.' },
+					{ q: 'Où les lignes sont-elles rattachées à leurs commandes ?', options: ['Dans la base, avec une jointure', 'Dans le template, avec un filtre', 'En Python, après la deuxième requête', 'Dans une vue que l’ORM crée'], answer: 2, why: 'La deuxième requête renvoie une liste plate de lignes. Django les regroupe par `order_id` en mémoire.' },
+					{ q: 'Pourquoi ne pas joindre aussi les lignes dans la première requête ?', options: ['PostgreSQL ne sait pas joindre plus de deux tables', 'Une jointure sur une relation « plusieurs » répète les colonnes de la commande sur chaque ligne', 'Une jointure ne se combine pas avec `[:20]`', 'Django lance de toute façon une requête par table'], answer: 1, why: 'Rails le dit aussi : une jointure "can result in many rows that contain redundant data". Les lignes parentes se multiplient avec leurs enfants.' }
+				]
+			},
+			{
+				title: 'Recompte et verrouille',
+				questions: [
+					{ q: 'Combien de requêtes lance `Order.objects.select_related("customer").prefetch_related("items")[:20]` ?', options: ['1', '3', '21', '2'], answer: 3, why: 'Une requête avec jointure pour les commandes et les clients, une requête `IN` pour les lignes. 2 au lieu de 41.' },
+					{ q: 'La page passe à 200 commandes. Combien de requêtes maintenant ?', options: ['Toujours 2', '201', '401', '3'], answer: 0, why: 'Le nombre ne dépend plus du nombre de lignes. Seule la liste `IN` s’allonge.' },
+					{ q: 'Comment empêcher le N+1 de revenir ?', options: ['Un chrono qui fait échouer le test au-delà de 2 secondes', 'Un test qui compte les lignes du résultat', '`assertNumQueries(2)` dans un test qui affiche la page', 'Afficher `queryset.query` dans la vue'], answer: 2, why: 'Un compte de requêtes fait échouer le test dès que quelqu’un ajoute une lecture paresseuse au template. Un chrono passerait sur un portable avec cinq commandes.' },
+					{ q: 'Quel coût reste-t-il avec le prefetch sur une page de milliers de commandes ?', options: ['Une requête par commande revient', 'Les colonnes du client se répètent sur chaque ligne', 'Aucun : le coût reste plat', 'Des milliers d’ids dans une grosse liste `IN`'], answer: 3, why: 'La doc Django prévient qu’un gros queryset peut produire "a large \'IN\' clause", qui a son propre coût.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ export default {
 			why: 'En mode `:n_plus_one_only`, charger une association depuis un seul enregistrement est permis. Le guide Rails montre l’erreur sur `user.comments.first.likes.to_a`, l’accès qui se répéterait pour chaque commentaire dans une boucle.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Compter les requêtes d’une boucle N+1, puis les ramener à 2 avec une jointure et une requête `IN`.',
+		steps: [
+			'Crée un dossier et une base SQLite avec 50 clients, 200 commandes et 3 lignes par commande : `mkdir -p ~/n1-lab && cd ~/n1-lab && sqlite3 shop.db "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INT REFERENCES customers); CREATE TABLE items(id INTEGER PRIMARY KEY, order_id INT REFERENCES orders, sku TEXT); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200) INSERT INTO customers SELECT i, \'customer \'||i FROM n WHERE i<=50; WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200) INSERT INTO orders SELECT i, 1+i%50 FROM n; INSERT INTO items(order_id, sku) SELECT id, \'sku-\'||k FROM orders, (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3);"`.',
+			'Écris `page.py`, la version paresseuse : ouvre `shop.db` avec `sqlite3.connect`, pose `log = []` et `con.set_trace_callback(log.append)` pour enregistrer chaque requête, charge `SELECT id, customer_id FROM orders LIMIT ?` avec la limite lue dans `sys.argv[1]`, puis pour chaque commande lance `SELECT name FROM customers WHERE id = ?` et `SELECT sku FROM items WHERE order_id = ?`. Affiche `len(log)`.',
+			'Lance `python3 page.py 20`, puis `python3 page.py 200`, et note les deux nombres.',
+			'Écris `fixed.py` : une requête qui joint les clients dans celle des commandes, puis un seul `SELECT order_id, sku FROM items WHERE order_id IN (?,?,...)` avec tous les ids de commande, regroupés par `order_id` dans un dict. Affiche `len(log)` et `log[-1]`.',
+			'Lance `python3 fixed.py 20` et `python3 fixed.py 200`.'
+		],
+		done: [
+			'`python3 page.py 20` affiche 41, et `python3 page.py 200` affiche 401.',
+			'`python3 fixed.py 20` et `python3 fixed.py 200` affichent tous les deux 2.',
+			'La dernière requête affichée par `fixed.py` commence par `SELECT order_id, sku FROM items WHERE order_id IN (1,2,3,`.'
+		],
+		solution: [
+			'`page.py` : `import sqlite3, sys`, `con = sqlite3.connect("shop.db")`, `log = []`, `con.set_trace_callback(log.append)`, `orders = con.execute("SELECT id, customer_id FROM orders LIMIT ?", (int(sys.argv[1]),)).fetchall()`, puis une boucle `for order_id, customer_id in orders:` avec les deux requêtes par ligne, puis `print(len(log))`.',
+			'`fixed.py`, première requête : `SELECT orders.id, customers.name FROM orders JOIN customers ON customers.id = orders.customer_id LIMIT ?`. C’est ce que fait `select_related`.',
+			'Deuxième requête : `ids = [o[0] for o in orders]`, `marks = ",".join("?" * len(ids))`, puis `con.execute(f"SELECT order_id, sku FROM items WHERE order_id IN ({marks})", ids)` et `items.setdefault(order_id, []).append(sku)` pour chaque ligne. C’est ce que fait `prefetch_related`.',
+			'Regarde `log[-1]` à 200 : le compte reste à 2, mais la liste `IN` contient maintenant 200 ids. C’est le coût dont la doc Django prévient.'
+		]
+	},
 	recall: {
 		q: 'Une boucle sur 50 commandes lit `order.customer.name`. Combien de requêtes partent, et quels appels Rails et Django réduisent ce nombre ?',
 		a: '51 : une pour la liste, puis un chargement paresseux par commande. Une jointure (`eager_load`, `select_related`) lance 1 requête, et un preload (`preload`, `prefetch_related`) en lance 2, avec les ids des clients dans une seule liste `IN`.'

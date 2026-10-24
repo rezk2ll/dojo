@@ -126,6 +126,44 @@ DeadLockCheck(PGPROC *proc)
 			'Solution : verrouille les deux lignes dans un ordre fixe, par exemple le plus petit numéro de compte d’abord, quel que soit le sens : `UPDATE accounts ... WHERE acctnum = 11111;` puis `... WHERE acctnum = 22222;`. Le deuxième virement attend alors sur la première ligne au lieu de prendre l’autre.',
 			'Échouer vite : `SET lock_timeout = \'2s\';` dans la transaction. Une instruction qui attend un verrou plus de 2 secondes est annulée, ce qui vaut mieux qu’une requête qui pend. Utilise `SELECT ... FOR UPDATE NOWAIT` pour échouer tout de suite.',
 			'Pour voir qui bloque qui pendant l’attente : `SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`'
+		],
+		steps: [
+			{
+				title: 'Prends les premiers verrous',
+				questions: [
+					{ q: 'La session 1 lance `BEGIN;` et modifie le compte 11111. Que tient-elle maintenant ?', options: ['Rien jusqu’à son commit', 'Un verrou de ligne sur 11111, jusqu’à la fin de sa transaction', 'Un verrou sur toute la table `accounts`', 'Un verrou qui finit avec l’instruction'], answer: 1, why: 'Chaque UPDATE prend un verrou de ligne sur chaque ligne qu’il touche, gardé jusqu’à la fin de la transaction.' },
+					{ q: 'La session 2 lance `BEGIN;` et modifie 22222. Que se passe-t-il ?', options: ['Ça réussit tout de suite : personne ne tient cette ligne', 'Elle attend que la session 1 committe', 'Elle échoue avec `deadlock detected`', 'Elle attend un `deadlock_timeout`, puis réussit'], answer: 0, why: 'Chaque transaction tient une ligne différente. Pas encore de conflit.' },
+					{ q: 'La session 2 modifie maintenant 11111. Que se passe-t-il ?', options: ['Ça réussit, puisqu’elle tient déjà un verrou de ligne', 'Elle échoue tout de suite avec une erreur', 'Elle écrase le changement de la session 1', 'Elle bloque, en attendant que la session 1 finisse'], answer: 3, why: 'Cette ligne est verrouillée par la session 1, donc la session 2 attend son commit ou son rollback.' },
+					{ q: 'Pendant que la session 2 attend, une troisième session lance `SELECT * FROM accounts WHERE acctnum = 11111`. Qu’obtient-elle ?', options: ['Elle attend derrière la session 2', 'Elle échoue avec un lock timeout', 'L’ancien solde, tout de suite', 'Le nouveau solde de la session 1'], answer: 2, why: 'Les verrous de ligne ne bloquent que les écrivains et les verrouilleurs. Une lecture simple prend la version que son snapshot permet.' }
+				]
+			},
+			{
+				title: 'Ferme le cycle',
+				questions: [
+					{ q: 'La session 1 modifie maintenant 22222. Que se passe-t-il d’abord ?', options: ['Ça réussit, puisque la session 2 attend', 'L’update de la session 2 se termine', 'Elle bloque aussi : chaque session attend l’autre', 'PostgreSQL annule les deux sessions'], answer: 2, why: 'La session 1 attend la 2, et la 2 attend la 1 : un cycle dans le graphe des attentes.' },
+					{ q: 'Au bout de combien de temps PostgreSQL agit-il ?', options: ['Environ une seconde, le `deadlock_timeout` par défaut', 'Jamais, puisque `lock_timeout` vaut 0', 'Quand l’un des clients se déconnecte', 'Au prochain checkpoint'], answer: 0, why: 'Une transaction qui attend ne cherche un cycle qu’après avoir dormi `deadlock_timeout`, une seconde par défaut.' },
+					{ q: 'Qu’affiche la session qui échoue ?', options: ['`ERROR: canceling statement due to lock timeout`', '`ERROR: deadlock detected`, avec des lignes « Process N waits for ShareLock on transaction M; blocked by process P. »', '`ERROR: could not serialize access due to concurrent update`', '`WARNING: lock wait too long`'], answer: 1, why: '`DeadLockReport` écrit une ligne par processus du cycle. Le code d’erreur est `40P01`.' },
+					{ q: 'Qu’arrive-t-il à l’autre session ?', options: ['Elle est annulée aussi', 'Elle attend jusqu’à ce que tu tapes Entrée', 'Elle doit relancer son UPDATE', 'Son UPDATE se termine'], answer: 3, why: 'Annuler une seule demande de verrou suffit à casser le cycle. L’autre obtient le verrou et continue.' }
+				]
+			},
+			{
+				title: 'Récupère et fixe l’ordre',
+				questions: [
+					{ q: 'Que fait ensuite la session qui a échoué ?', options: ['`ROLLBACK`, puis relance tout le virement', '`COMMIT`, puisque son premier update a marché', 'Relance seulement l’UPDATE raté', 'Rien : PostgreSQL le relance'], answer: 0, why: 'Sa transaction est annulée. Fais le rollback et relance depuis le début.' },
+					{ q: 'Peux-tu savoir à l’avance quelle session va échouer ?', options: ['Oui : celle qui a commencé sa transaction en dernier est toujours annulée', 'Oui : celle qui tient le moins de verrous est toujours celle qui échoue', 'Non : la doc dit que c’est difficile à prévoir et qu’il ne faut pas s’y fier', 'Oui, toujours la session 1'], answer: 2, why: 'Le code doit donc être prêt à relancer l’une ou l’autre transaction.' },
+					{ q: 'Comment réécris-tu le virement pour qu’il ne se bloque jamais ?', options: ['Monter `deadlock_timeout` à 10 secondes', 'Verrouiller les deux lignes dans un ordre fixe, par exemple le plus petit numéro de compte d’abord', 'Lire les deux lignes avec un SELECT simple avant les updates', 'Mettre chaque UPDATE dans sa propre transaction'], answer: 1, why: 'La doc appelle un ordre de verrouillage constant « the best defense against deadlocks ».' },
+					{ q: 'Avec l’ordre fixe, que fait le deuxième virement ?', options: ['Il prend l’autre ligne d’abord, puis attend 11111', 'Il échoue tout de suite avec `could not obtain lock on row`', 'Il finit quand même en deadlock, juste après une seconde', 'Il attend sur la première ligne jusqu’à la fin du premier virement'], answer: 3, why: 'Les deux commencent par 11111, donc le deuxième attend là et ne tient jamais une ligne dont le premier a besoin.' }
+				]
+			},
+			{
+				title: 'Échoue vite au lieu d’attendre',
+				questions: [
+					{ q: 'Quel réglage fait échouer une attente de verrou coincée après 2 secondes ?', options: ['`SET deadlock_timeout = \'2s\';`', '`SET statement_timeout = 0;`', '`SET lock_timeout = \'2s\';`', '`SET idle_in_transaction_session_timeout = \'2s\';`'], answer: 2, why: '`lock_timeout` annule une instruction qui attend un verrou plus longtemps que ça.' },
+					{ q: 'Que vaut `lock_timeout` par défaut ?', options: ['0, c’est-à-dire désactivé : une attente peut durer pour toujours', '1 seconde, comme `deadlock_timeout`', '30 secondes', '5 minutes'], answer: 0, why: 'Désactivé par défaut, donc une transaction coincée peut empiler une file de demandes derrière elle.' },
+					{ q: 'Comment échouer tout de suite si la ligne est verrouillée ?', options: ['`SELECT ... FOR SHARE`', '`SET lock_timeout = 0;`', '`SET deadlock_timeout = 0;`', '`SELECT ... FOR UPDATE NOWAIT`'], answer: 3, why: '`NOWAIT` lève une erreur au lieu d’attendre le verrou. Un `lock_timeout` à 0 désactive la limite.' },
+					{ q: 'Pendant qu’une session pend, comment vois-tu qui la bloque ?', options: ['`SELECT * FROM pg_stat_user_tables;`', '`SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`', '`EXPLAIN ANALYZE` sur l’UPDATE qui pend', '`SHOW deadlock_timeout;`'], answer: 1, why: '`pg_blocking_pids` renvoie les processus qui tiennent le verrou que chaque transaction en attente veut.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,27 @@ DeadLockCheck(PGPROC *proc)
 			why: 'Un deadlock demande un cycle, et un cycle demande deux transactions qui prennent les verrous dans des ordres opposés. Avec un seul ordre global, la deuxième transaction attend au premier verrou et aucun cycle ne peut se former.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Provoquer un vrai deadlock, voir qui bloque qui, puis rendre le virement sans deadlock et faire échouer vite les attentes.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` dans trois terminaux : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres` dans chacun. Dans le terminal 1 : `CREATE TABLE accounts (acctnum int primary key, balance numeric not null); INSERT INTO accounts VALUES (11111, 1000), (22222, 1000);`',
+			'Ordres opposés : dans 1, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 11111;`. Dans 2, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 22222; UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 11111;` (il pend). Dans 3 : `SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`',
+			'Ferme le cycle : dans 1, `UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;`. Attends environ une seconde et lis les deux terminaux. Lance ensuite `ROLLBACK;` dans les deux.',
+			'Même ordre : dans 1, `BEGIN; UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 11111;`. Dans 2, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 11111;` (il attend). Dans 1, `UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 22222; COMMIT;`. Dans 2, `UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222; COMMIT;`',
+			'Échoue vite : dans 1, `BEGIN; SELECT * FROM accounts WHERE acctnum = 11111 FOR UPDATE;`. Dans 2, `BEGIN; SET lock_timeout = \'2s\'; UPDATE accounts SET balance = 0 WHERE acctnum = 11111;` puis `ROLLBACK; SELECT * FROM accounts WHERE acctnum = 11111 FOR UPDATE NOWAIT;`. Lance `ROLLBACK;` dans 1, puis `docker stop pg-lab`.'
+		],
+		done: [
+			'À l’étape 2, le terminal 3 montre l’`UPDATE ... 11111` en attente avec le pid du terminal 1 dans `pg_blocking_pids`.',
+			'À l’étape 3, un terminal affiche `ERROR:  deadlock detected` avec deux lignes « Process ... waits for ShareLock on transaction ...; blocked by process ... », et l’UPDATE de l’autre se termine.',
+			'À l’étape 4, les deux terminaux affichent `COMMIT` sans erreur. À l’étape 5, l’UPDATE échoue avec `canceling statement due to lock timeout` après environ 2 secondes, et `NOWAIT` échoue tout de suite avec `could not obtain lock on row in relation "accounts"`.'
+		],
+		solution: [
+			'Avec des ordres opposés, chaque transaction tient une ligne et veut l’autre : un cycle que seule une annulation peut casser, après `deadlock_timeout`.',
+			'Avec un seul ordre fixe (le plus petit numéro de compte d’abord), le deuxième virement attend sur la première ligne et ne peut pas tenir une ligne dont le premier a besoin.',
+			'`lock_timeout` borne chaque attente de verrou, et `NOWAIT` saute l’attente. Dans les deux cas, l’appli reçoit une erreur qu’elle peut relancer au lieu d’une requête qui pend.'
+		]
+	},
 	recall: {
 		q: 'Un virement de A vers B et un autre de B vers A échouent parfois avec `deadlock detected`. Pourquoi, et quel changement l’empêche ?',
 		a: 'Chaque virement verrouille la ligne d’un compte et attend celle que l’autre tient. Verrouille les deux lignes dans un ordre fixe, par exemple le plus petit numéro de compte d’abord, et le deuxième virement attend sur la première ligne.'

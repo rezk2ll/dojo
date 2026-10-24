@@ -126,6 +126,44 @@ export default {
 			'Writes to update: insert a review (+1, +rating), delete one (-1, -rating), and change a rating (add the difference). Do it in the same transaction as the review write, as one `UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + $1 WHERE id = $2`.',
 			'Repair: `UPDATE products p SET reviews_count = x.n, rating_sum = x.s FROM (SELECT p2.id, count(r.id) AS n, COALESCE(sum(r.rating), 0) AS s FROM products p2 LEFT JOIN reviews r ON r.product_id = p2.id GROUP BY p2.id) x WHERE x.id = p.id AND (p.reviews_count <> x.n OR p.rating_sum <> x.s)`.',
 			'Run it on a schedule, and log the number of rows it fixed. That number should be zero. When it is not, some write path forgot the copy, and the log tells you when it started.'
+		],
+		steps: [
+			{
+				title: 'Choose the columns',
+				questions: [
+					{ q: 'Which columns do you add to `products`?', options: ['`avg_rating numeric`', '`reviews_count int` and `rating_sum int`', '`last_rating int`', '`review_ids int[]`'], answer: 1, why: 'A count and a sum are enough to show "4.5 stars, 2 reviews" with no join.' },
+					{ q: 'Why store a sum and a count rather than the average itself?', options: ['A sum and a count can be adjusted on each insert or delete', 'PostgreSQL cannot store a numeric column', 'An average takes more disk than two integers', 'Averages are always computed by the app'], answer: 0, why: 'Adding or removing one review is +1 and +rating. The average is computed from them when the card is shown.' },
+					{ q: 'How does the card compute the stars?', options: ['`avg(rating)` over `reviews`', '`rating_sum / reviews_count`, both integers', '`rating_sum::numeric / NULLIF(reviews_count, 0)`', '`reviews_count / rating_sum`'], answer: 2, why: 'The cast keeps the decimals, so 9 over 2 shows 4.5 instead of 4.' },
+					{ q: 'Why the `NULLIF(reviews_count, 0)`?', options: ['To round the result', 'To hide products with one review', 'To make the column nullable', 'A product with no review would divide by zero'], answer: 3, why: '`NULLIF` turns the 0 into NULL, and dividing by NULL gives NULL instead of an error.' }
+				]
+			},
+			{
+				title: 'List the writes',
+				questions: [
+					{ q: 'Someone posts a 4-star review. What changes on the product?', options: ['`reviews_count + 1`, `rating_sum + 4`', '`reviews_count + 4`', '`rating_sum + 1`', 'Nothing until the nightly job'], answer: 0, why: 'One more review, four more stars in the sum.' },
+					{ q: 'A 5-star review is deleted. What changes?', options: ['`reviews_count - 1` only', '`rating_sum - 5` only', 'Nothing, deletes are rare', '`reviews_count - 1`, `rating_sum - 5`'], answer: 3, why: 'Both copies come from the same rows, so both move back.' },
+					{ q: 'A reviewer changes a rating from 3 to 5. What changes?', options: ['`reviews_count + 1`, `rating_sum + 5`', '`rating_sum + 2`, the count stays', '`rating_sum + 5`, the count stays', 'Nothing, the review row is the same'], answer: 1, why: 'Add the difference. The number of reviews did not change.' },
+					{ q: 'When does the product update run?', options: ['In the same transaction as the review write', 'In a background job a minute later', 'Only when the card is viewed', 'Once a day, with the repair job'], answer: 0, why: 'Then the review and the counters commit together, like Rails callbacks inside the save transaction.' }
+				]
+			},
+			{
+				title: 'Write the update safely',
+				questions: [
+					{ q: 'Which statement updates the counters on a new review?', options: ['`UPDATE products SET reviews_count = 3, rating_sum = 13 WHERE id = $2`, with values read earlier', '`UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + $1 WHERE id = $2`', '`INSERT INTO products (reviews_count) VALUES (1)`', '`UPDATE products SET reviews_count = count(*) WHERE id = $2`'], answer: 1, why: 'The database adds to the current value, as Rails does with `update_counters`, instead of the app writing back a number it read earlier.' },
+					{ q: 'A cleanup script deletes spam reviews with one raw `DELETE`. What happens to the counters?', options: ['They drop at once, PostgreSQL tracks them', 'The delete fails', 'They keep their old values, with no error', 'They reset to 0'], answer: 2, why: 'The copy is only right if every write goes through the code that updates it. A raw SQL fix skips it.' },
+					{ q: 'A popular product gets many reviews at once. What does the counter cost?', options: ['Nothing, counters are free', 'Each review updates the same row, and those updates wait for each other\'s locks', 'The reviews table grows twice as fast', 'Readers see a NULL count'], answer: 1, why: 'A counter on a busy parent row is a hot spot.' },
+					{ q: 'Which data wins when the counter and `reviews` disagree?', options: ['The counter, it is newer', 'Whichever was written last', 'The app decides each time', '`reviews`, the source of truth'], answer: 3, why: 'The source wins and the copy is rebuilt from it.' }
+				]
+			},
+			{
+				title: 'Find and fix drift',
+				questions: [
+					{ q: 'What does the repair query recount from?', options: ['`reviews`, with a `LEFT JOIN` from `products`', '`products` alone', 'The app logs', 'A materialized view of `products`'], answer: 0, why: 'The recount reads the source of truth and compares it with the copy.' },
+					{ q: 'Why a `LEFT JOIN` and `COALESCE(sum(r.rating), 0)`?', options: ['To make the query faster', 'To skip products with no review', 'So a product that lost its last review is reset to 0', 'Because `sum` cannot run on an inner join'], answer: 2, why: 'With an inner join, that product has no row in the recount and keeps its stale numbers. `sum` of nothing is NULL, so `COALESCE` gives 0.' },
+					{ q: 'Why end with `AND (p.reviews_count <> x.n OR p.rating_sum <> x.s)`?', options: ['To avoid a division by zero', 'To rewrite only the products that drifted', 'To skip locked rows', '`UPDATE ... FROM` needs an inequality'], answer: 1, why: 'PostgreSQL writes a new row version even for the same value, so the filter keeps a full recount cheap.' },
+					{ q: 'The scheduled repair logs how many rows it fixed. What number do you expect?', options: ['The number of products', 'The number of new reviews today', 'About half the products', 'Zero'], answer: 3, why: 'Any other number means a write path forgot the copy, and the log tells you when it started.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,26 @@ export default {
 			why: 'PostgreSQL stores the view\'s result, and the result changes only on `REFRESH`, which replaces its whole contents. Without `CONCURRENTLY`, that refresh can block readers; with it, the view needs a unique index.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Keep a review counter on `products`, make it drift with one raw delete, and repair it with a recount.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-denorm -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-denorm psql -U postgres`.',
+			'Create the tables with the copy: `CREATE TABLE products (id int PRIMARY KEY, name text, reviews_count int NOT NULL DEFAULT 0, rating_sum int NOT NULL DEFAULT 0); CREATE TABLE reviews (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, product_id int REFERENCES products, rating int); INSERT INTO products (id, name) VALUES (1, \'mug\'), (2, \'tea\');`',
+			'Post two reviews for the mug the right way, each in one transaction: `BEGIN; INSERT INTO reviews (product_id, rating) VALUES (1, 5); UPDATE products SET reviews_count = reviews_count + 1, rating_sum = rating_sum + 5 WHERE id = 1; COMMIT;` then the same with rating 4. Show the card: `SELECT name, reviews_count, rating_sum::numeric / NULLIF(reviews_count, 0) AS stars FROM products ORDER BY id;`',
+			'Make it drift like a cleanup script would: `DELETE FROM reviews WHERE rating = 4;` and show the card again.',
+			'Run the task\'s repair query twice in a row, then show the card a last time. Quit with `\\q` and clean up with `docker rm -f pg-denorm`.'
+		],
+		done: [
+			'Before the delete, the mug shows `2` reviews and `4.5000000000000000` stars, and the tea shows an empty (NULL) star cell.',
+			'After the raw delete, the mug still shows `2` reviews: the copy drifted with no error.',
+			'The first repair prints `UPDATE 1`, the second prints `UPDATE 0`, and the mug now shows `1` review and `5.0000000000000000` stars.'
+		],
+		solution: [
+			'Repair: `UPDATE products p SET reviews_count = x.n, rating_sum = x.s FROM (SELECT p2.id, count(r.id) AS n, COALESCE(sum(r.rating), 0) AS s FROM products p2 LEFT JOIN reviews r ON r.product_id = p2.id GROUP BY p2.id) x WHERE x.id = p.id AND (p.reviews_count <> x.n OR p.rating_sum <> x.s);`',
+			'The second run fixes nothing, thanks to the `<>` filter. In production, log that number: anything other than zero means a write path forgot the copy.'
+		]
+	},
 	recall: {
 		q: 'A script deletes rows with `delete_all`. Why is Discourse\'s `tags.public_topic_count` now wrong, and what fixes it?',
 		a: '`delete_all` runs no callbacks, so the `-1` never runs. The `EnsureDbConsistency` job recounts from `topic_tags` every 12 hours and rewrites the tags whose count differs.'

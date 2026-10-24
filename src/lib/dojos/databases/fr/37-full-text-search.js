@@ -140,6 +140,44 @@ export default {
 			'`SELECT id, title, ts_rank_cd(search, q) AS rank FROM posts, to_tsquery(\'english\', \'restore & backup\') q WHERE search @@ q ORDER BY rank DESC LIMIT 20;` Pour un texte tapé par un utilisateur, `websearch_to_tsquery` accepte les guillemets, `or` et `-` sans erreur de syntaxe.',
 			'Le vecteur est `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`. « you », « can » et « the » sont des mots vides, mais ils comptent quand même comme positions : c’est pour ça que `restor` est en 4 et en 7.',
 			'Avec les poids par défaut `{0.1, 0.2, 0.4, 1.0}` pour D, C, B, A, un post qui a les deux mots dans son titre passe devant un post qui ne les a que dans son corps.'
+		],
+		steps: [
+			{
+				title: 'Stocke le vecteur',
+				questions: [
+					{ q: 'Où gardes-tu le tsvector pour qu’il soit toujours à jour ?', options: ['Dans une colonne générée stockée', 'Nulle part : appelle `to_tsvector` dans chaque requête', 'Dans une colonne que l’application remplit une fois, à l’insert', 'Dans une colonne qu’un job de nuit reconstruit'], answer: 0, why: 'Une colonne générée est recalculée à chaque écriture, donc le vecteur n’est jamais en retard sur le texte.' },
+					{ q: 'Pourquoi écrire `to_tsvector(\'english\', ...)` et pas `to_tsvector(...)` ?', options: ['`english` n’est pas installé par défaut', 'Une colonne générée exige une expression immuable, et la forme à un argument ne l’est pas', 'Seule la forme à deux arguments peut être indexée par GIN', 'Sans elle, les mots vides sont gardés'], answer: 1, why: 'La forme à un argument dépend d’un paramètre qui peut changer, donc PostgreSQL la refuse dans une colonne générée.' },
+					{ q: 'Comment les résultats dans le titre passent-ils devant ceux du corps ?', options: ['Deux index séparés, un par colonne', 'Un `ORDER BY title` après la recherche', '`setweight(..., \'A\')` sur le titre et `\'D\'` sur le corps', 'Répéter le titre deux fois dans le vecteur'], answer: 2, why: 'Chaque position porte une étiquette de poids, et les fonctions de classement notent A bien au-dessus de D.' },
+					{ q: 'Que fait la configuration `english` de « the » ?', options: ['Elle le garde comme lexème `the`', 'Elle le réduit à `th`', 'Elle lève une erreur', 'Elle le retire comme mot vide'], answer: 3, why: 'Les mots vides sont retirés pendant la normalisation, donc ils ne deviennent jamais des lexèmes.' }
+				]
+			},
+			{
+				title: 'Indexe et interroge',
+				questions: [
+					{ q: 'Quel index sert `search @@ q` ?', options: ['`CREATE INDEX posts_search_idx ON posts USING GIN (search);`', 'Un B-tree sur `search`', 'Un B-tree sur `title` et `body`', 'Un index GIN en `jsonb_path_ops`'], answer: 0, why: 'La doc appelle GIN le type d’index préféré pour la recherche plein texte : une entrée par lexème, avec les lignes qui le contiennent.' },
+					{ q: 'La table est en service et chargée. Comment construis-tu cet index ?', options: ['Dans une transaction, après `LOCK TABLE posts`', 'Avec `CREATE INDEX CONCURRENTLY`', 'La nuit, avec un simple `CREATE INDEX`', 'En copiant d’abord la table'], answer: 1, why: '`CONCURRENTLY` laisse passer les écritures pendant la construction de l’index (jour 26).' },
+					{ q: 'Quel tsquery trouve les posts qui ont à la fois « restore » et « backup » ?', options: ['`to_tsquery(\'simple\', \'restore & backup\')`', '`\'restore & backup\'::tsquery`', '`to_tsquery(\'english\', \'restore & backup\')`', '`to_tsquery(\'english\', \'!restore & backup\')`'], answer: 2, why: 'Il donne `\'restor\' & \'backup\'`, les mêmes lexèmes que le vecteur. Une autre configuration ou un cast brut donne des mots qui ne correspondent jamais.' },
+					{ q: 'La barre de recherche transmet ce que tapent les utilisateurs. Quelle fonction utilises-tu ?', options: ['`to_tsquery` sur le texte brut', 'Un cast en `::tsquery`', '`ILIKE` avec le texte brut', '`websearch_to_tsquery`'], answer: 3, why: 'Elle accepte les guillemets, `or` et `-` sans erreur de syntaxe, donc un `&` égaré ne casse pas la requête.' }
+				]
+			},
+			{
+				title: 'Classe les résultats',
+				questions: [
+					{ q: 'Comment tries-tu les correspondances ?', options: ['`ORDER BY ts_rank_cd(search, q) DESC`', '`ORDER BY id DESC`', '`ORDER BY length(body)`', '`ORDER BY search`'], answer: 0, why: '`ts_rank_cd` note chaque correspondance selon le poids et la proximité des mots.' },
+					{ q: 'Quels sont les poids par défaut pour D, C, B et A ?', options: ['`{1.0, 0.4, 0.2, 0.1}`', '`{0.1, 0.2, 0.4, 1.0}`', '`{1, 1, 1, 1}`', '`{0.25, 0.5, 0.75, 1.0}`'], answer: 1, why: 'D compte 0,1 et A compte 1,0, donc un résultat dans le titre pèse dix fois un résultat dans le corps.' },
+					{ q: 'Pourquoi le classement peut-il coûter cher même avec `LIMIT 20` ?', options: ['Il reconstruit l’index GIN', 'Il désactive l’index', 'Il lit le tsvector de chaque ligne qui correspond', 'Il trie toute la table'], answer: 2, why: 'La doc prévient que le classement lit toutes les correspondances avant que la limite s’applique.' },
+					{ q: 'Un post a les deux mots dans son titre, un autre seulement dans son corps. Lequel passe devant ?', options: ['Celui du corps, puisque les corps sont plus longs', 'Égalité, puisque les deux correspondent', 'Celui qui a le plus petit `id`', 'Celui du titre'], answer: 3, why: 'Les lexèmes du titre portent le poids A, ceux du corps le poids D, et A note bien plus haut.' }
+				]
+			},
+			{
+				title: 'Prédis le vecteur',
+				questions: [
+					{ q: 'Titre « Backups you can restore » : que devient « Backups » ?', options: ['`backup`', '`backups`', '`Backups`', '`back`'], answer: 0, why: 'Les dictionnaires `english` passent le mot en minuscules et le réduisent à sa racine.' },
+					{ q: 'Et « restore » ?', options: ['`restore`', '`restor`', '`rest`', '`restored`'], answer: 1, why: 'Le stemmer le coupe en `restor`. « restored » donne le même lexème, c’est pour ça que le post de l’accroche correspond maintenant.' },
+					{ q: 'Le vecteur montre `\'restor\':4A,7`. Pourquoi 4 et 7, et pas 2 et 4 ?', options: ['Les positions du titre commencent à 4', 'Les poids décalent les positions', 'Les mots vides sont retirés mais comptent quand même comme positions', 'Chaque lexème répété ajoute 3'], answer: 2, why: '« you » et « can » sont en 2 et 3, « the » en 6. Ils laissent des trous dans la numérotation.' },
+					{ q: 'Dans `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`, comment repères-tu les mots du titre ?', options: ['Ils viennent en premier dans la liste', 'Ils n’ont pas de position', 'Ils sont en majuscules', 'Leurs positions portent l’étiquette `A`'], answer: 3, why: 'La liste est triée par lexème, pas par origine. Seule l’étiquette de poids dit qu’une position vient du titre.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,31 @@ export default {
 			why: 'La recherche plein texte de PostgreSQL compare les lexèmes à l’identique ou par préfixe, donc une lettre inversée ne trouve rien. La tolérance aux fautes est une fonction des moteurs de recherche comme Meilisearch, synchronisés depuis la source de vérité (jour 35).'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Voir `ILIKE` rater un post, puis construire une recherche pondérée et indexée qui le trouve et classe les résultats du titre en premier.',
+		steps: [
+			'Lance PostgreSQL et ouvre `psql` : `docker run -d --name fts-lab -e POSTGRES_PASSWORD=lab postgres:16`, attends quelques secondes, puis `docker exec -it fts-lab psql -U postgres`.',
+			'Crée quatre posts : `CREATE TABLE posts (id bigint PRIMARY KEY, title text, body text); INSERT INTO posts VALUES (1, \'We restored the backups\', \'It took an hour.\'), (2, \'Backups you can restore\', \'Test the restore every week\'), (3, \'Weekly notes\', \'We had to restore one backup from tape.\'), (4, \'Cats\', \'Nothing about it.\');`',
+			'Cherche à l’ancienne : `SELECT id FROM posts WHERE title ILIKE \'%restore backup%\' OR body ILIKE \'%restore backup%\';`.',
+			'Essaie une colonne générée sans configuration : `ALTER TABLE posts ADD COLUMN bad tsvector GENERATED ALWAYS AS (to_tsvector(title)) STORED;`. Puis ajoute la colonne `search` de l’exercice, avec `english`, et l’index GIN.',
+			'Lance la requête classée pour « restore backup », puis `SELECT search FROM posts WHERE id = 2;` et compare avec ta prédiction. Essaie `SELECT websearch_to_tsquery(\'english\', \'"restore backup" -tape\');`.',
+			'Vérifie l’index : `SET enable_seqscan = off;` (sinon quatre lignes ne l’utiliseraient jamais), puis `EXPLAIN (COSTS OFF) SELECT id FROM posts WHERE search @@ to_tsquery(\'english\', \'restore & backup\');`. Quand tu as fini : `docker rm -f fts-lab`.'
+		],
+		done: [
+			'La recherche `ILIKE` renvoie 0 ligne.',
+			'La colonne générée sans configuration échoue avec `generation expression is not immutable`.',
+			'La requête classée renvoie les posts 1, 2 et 3, avec les deux résultats dans le titre (1 et 2) devant le post 3, dont les mots ne sont que dans le corps.',
+			'Le vecteur du post 2 est `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`.',
+			'`websearch_to_tsquery` affiche `\'restor\' <-> \'backup\' & !\'tape\'`, et le plan montre `Bitmap Index Scan on posts_search_idx`.'
+		],
+		solution: [
+			'`ALTER TABLE posts ADD COLUMN search tsvector GENERATED ALWAYS AS (setweight(to_tsvector(\'english\', coalesce(title, \'\')), \'A\') || setweight(to_tsvector(\'english\', coalesce(body, \'\')), \'D\')) STORED;`',
+			'`CREATE INDEX posts_search_idx ON posts USING GIN (search);`',
+			'`SELECT id, title, ts_rank_cd(search, q) AS rank FROM posts, to_tsquery(\'english\', \'restore & backup\') q WHERE search @@ q ORDER BY rank DESC LIMIT 20;`',
+			'Le post 3 correspond alors que son corps dit « backup » une fois et « restore » une fois : les deux côtés ont été réduits aux mêmes lexèmes.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi une recherche plein texte de « restore backup » trouve-t-elle le post « We restored the backups », et quel index sert `@@` ?',
 		a: '`to_tsvector` et `to_tsquery` avec la configuration `english` réduisent tous deux les mots aux lexèmes `restor` et `backup`. Un index GIN sur le tsvector sert `@@`.'

@@ -114,6 +114,44 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			'Policy : `CREATE POLICY tenant_isolation ON invoices TO app_user USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint);`. Sans `WITH CHECK`, l’expression `USING` teste aussi les lignes insérées, donc un insert avec `tenant_id = 7` échoue.',
 			'Si le paramètre manque, `current_setting` renvoie NULL, la comparaison vaut NULL, pas vrai (jour 6), et aucune ligne ne passe. Une requête qui a sauté le `SET LOCAL` ne voit aucune facture.',
 			'Teste-le : `SET ROLE app_user; BEGIN; SET LOCAL app.tenant_id = \'42\'; SELECT count(*) FROM invoices;` ne doit compter que le tenant 42. Puis lance le même `SELECT` en tant que propriétaire de la table et vois qu’il compte tout : c’est pour ça que l’application ne doit pas être propriétaire.'
+		],
+		steps: [
+			{
+				title: 'Donne les droits sur les commandes',
+				questions: [
+					{ q: 'Quel droit correspond à « lire et insérer, jamais supprimer » ?', options: ['`GRANT SELECT, INSERT ON invoices TO app_user;`', '`GRANT ALL ON invoices TO app_user;`', '`GRANT SELECT, INSERT, DELETE ON invoices TO app_user;`', '`GRANT USAGE ON invoices TO app_user;`'], answer: 0, why: 'Donne à chaque rôle seulement les commandes dont il a besoin. Ici, `SELECT` et `INSERT`, rien de plus.' },
+					{ q: '`app_user` reçoit-il un autre droit sur `invoices` sans rien demander ?', options: ['Oui : PUBLIC reçoit `SELECT` sur chaque nouvelle table', 'Non : les tables ne donnent rien à PUBLIC par défaut', 'Oui : tout rôle peut lire les tables de `public`', 'Seulement `DELETE`, qu’il faut retirer'], answer: 1, why: 'Les tables ne donnent rien à PUBLIC par défaut, donc le droit ci-dessus est tout ce qu’a `app_user`. Les fonctions, elles, donnent `EXECUTE` à PUBLIC.' },
+					{ q: '`app_user` lance `DELETE FROM invoices`. Que se passe-t-il ?', options: ['Il supprime seulement les lignes de son tenant', 'Il renvoie `DELETE 0` et ne change rien', 'Il échoue avec `permission denied`', 'Il supprime toutes les lignes de la table'], answer: 2, why: 'Sans droit `DELETE`, la commande échoue avant de lire la moindre ligne, quoi que dise la policy.' },
+					{ q: 'La policy va filtrer les lignes. Pourquoi garder quand même des droits serrés ?', options: ['Les policies ne s’appliquent pas à `DELETE`', 'Les droits décident des commandes, la policy décide des lignes', 'Les droits accélèrent la policy', 'La RLS ne s’active pas sans un droit'], answer: 1, why: 'Ce sont deux niveaux. Un rôle aux droits réduits limite aussi ce que peut faire une injection SQL : pas de `DROP`, pas de tables jamais accordées.' }
+				]
+			},
+			{
+				title: 'Active la sécurité des lignes',
+				questions: [
+					{ q: 'Quelle instruction l’active sur la table ?', options: ['`ALTER ROLE app_user ENABLE ROW LEVEL SECURITY;`', '`GRANT ROW LEVEL SECURITY ON invoices TO app_user;`', '`ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;`', '`CREATE POLICY ON invoices ENABLE;`'], answer: 2, why: 'La RLS est un interrupteur par table, posé avec `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.' },
+					{ q: 'La RLS est active et aucune policy n’existe encore. Que voit `app_user` ?', options: ['Aucune ligne, et aucune erreur', 'Toutes les lignes, tant qu’il n’y a pas de policy', 'Une erreur qui signale la policy manquante', 'Seulement les lignes qu’il a insérées'], answer: 0, why: 'Sans policy, un refus par défaut s’applique. Le seul symptôme est un résultat vide.' },
+					{ q: 'Pourquoi est-ce important que `app_user` ne possède pas la table ?', options: ['Le propriétaire ne peut pas insérer de lignes', 'Seul le propriétaire peut lancer `SET LOCAL`', 'Les policies ne s’appliquent qu’au propriétaire', 'Le propriétaire passe outre les policies par défaut'], answer: 3, why: 'Le propriétaire de la table, les superutilisateurs et les rôles `BYPASSRLS` ignorent la sécurité des lignes. Une application connectée en propriétaire voit tous les tenants.' },
+					{ q: 'Dans une autre application, le rôle qui a lancé les migrations possède la table, et l’application se connecte avec lui. Qu’est-ce qui lui applique les policies ?', options: ['Ajouter une clause `WITH CHECK`', 'Lui donner `BYPASSRLS`', 'Utiliser `SET` au lieu de `SET LOCAL`', '`ALTER TABLE invoices FORCE ROW LEVEL SECURITY;`'], answer: 3, why: '`FORCE ROW LEVEL SECURITY` fait passer le propriétaire par les policies lui aussi. Un rôle séparé pour l’application est l’autre correction.' }
+				]
+			},
+			{
+				title: 'Écris la policy',
+				questions: [
+					{ q: 'Quelle expression `USING` ne garde que le tenant de la requête ?', options: ['`tenant_id = current_user`', '`tenant_id = 42`', '`tenant_id = current_setting(\'app.tenant_id\', true)::bigint`', '`tenant_id IS NOT NULL`'], answer: 2, why: 'Chaque requête pose `app.tenant_id` avec `SET LOCAL`. La policy le lit et le convertit au type de la colonne.' },
+					{ q: 'La policy a un `USING` et pas de `WITH CHECK`. Que se passe-t-il sur un `INSERT` ?', options: ['Les inserts ne sont jamais testés', 'L’expression `USING` teste aussi la nouvelle ligne', 'La ligne est insérée, puis cachée', 'L’insert a besoin d’une deuxième policy pour tourner'], answer: 1, why: 'Sans `WITH CHECK`, l’expression `USING` sert aux deux cas, donc les nouvelles lignes doivent aussi correspondre au tenant.' },
+					{ q: 'Avec le tenant à 42, `app_user` insère une ligne avec `tenant_id = 7`. Que se passe-t-il ?', options: ['La ligne est stockée avec `tenant_id = 42` à la place', 'La ligne est stockée mais personne ne la voit', 'Un avertissement part dans le log et la ligne passe', 'Le test échoue et la commande est annulée'], answer: 3, why: 'Un test qui échoue annule la commande. Personne ne peut écrire une ligne pour un autre tenant.' },
+					{ q: 'Que fait `TO app_user` dans `CREATE POLICY tenant_isolation ON invoices TO app_user ...` ?', options: ['Il applique la policy à ce rôle', 'Il donne la table à `app_user`', 'Il rend `app_user` propriétaire', 'Il rend la policy restrictive'], answer: 0, why: 'Une policy peut viser des rôles. Ici, seul `app_user` passe par elle. Les droits viennent toujours de `GRANT`.' }
+				]
+			},
+			{
+				title: 'Teste-la',
+				questions: [
+					{ q: 'En `app_user`, dans `BEGIN; SET LOCAL app.tenant_id = \'42\';`, que compte `SELECT count(*) FROM invoices` ?', options: ['Toutes les factures', 'Seulement les factures du tenant 42', 'Zéro, tant que tu n’as pas fait de commit', 'Une erreur, puisqu’il n’y a pas de `WHERE`'], answer: 1, why: 'La policy s’ajoute à chaque requête, donc une requête sans `WHERE` ne voit quand même que les lignes du tenant.' },
+					{ q: 'Sur une connexion neuve qui n’a jamais posé `app.tenant_id`, une requête oublie le `SET LOCAL`. Que renvoie la même requête ?', options: ['Une erreur sur un paramètre inconnu', 'Toutes les factures', 'Zéro ligne', 'Les lignes du dernier tenant sur cette connexion'], answer: 2, why: 'Avec `true` en deuxième argument, `current_setting` renvoie NULL. `tenant_id = NULL` n’est pas vrai, donc aucune ligne ne passe.' },
+					{ q: 'Pourquoi `SET LOCAL` et pas un simple `SET` ?', options: ['`SET` ne sait pas garder un paramètre maison', '`SET LOCAL` se lit plus vite dans une policy', '`SET` ne marche que pour les superutilisateurs', '`SET LOCAL` s’arrête avec la transaction, donc une connexion du pool ne fait pas fuir le tenant'], answer: 3, why: 'Un simple `SET` reste sur la session, et la requête suivante sur cette connexion partagée hériterait du tenant 42.' },
+					{ q: 'Tu lances le même `SELECT` en propriétaire de la table et il compte tous les tenants. Qu’est-ce que ça montre ?', options: ['Le propriétaire ignore les policies, donc l’application ne doit pas se connecter avec lui', 'La policy est fausse et il lui faut un `WITH CHECK`', 'Le `SET LOCAL` ne s’est pas appliqué', 'La RLS s’est désactivée toute seule'], answer: 0, why: 'C’est le contournement à l’œuvre. C’est pour ça que l’application utilise `app_user` et pas le rôle qui possède la table.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,32 @@ create policy "Allow individual read access" on public.user_roles for select usi
 			why: 'Les propriétaires de table, les superutilisateurs et les rôles BYPASSRLS ignorent la sécurité des lignes. Les applications se connectent souvent avec le rôle qui a lancé les migrations, et qui possède donc les tables. Utilise un rôle séparé, ou FORCE ROW LEVEL SECURITY.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Verrouiller une table `invoices` locale pour que `app_user` ne voie et n’écrive que les lignes de son tenant, et voir le propriétaire passer outre la policy.',
+		steps: [
+			'Lance PostgreSQL et ouvre `psql` en superutilisateur : `docker run -d --name rls-lab -e POSTGRES_PASSWORD=lab postgres:16`, attends quelques secondes, puis `docker exec -it rls-lab psql -U postgres`.',
+			'Crée la table et deux tenants : `CREATE TABLE invoices (id bigserial PRIMARY KEY, tenant_id bigint NOT NULL, amount numeric NOT NULL); INSERT INTO invoices (tenant_id, amount) VALUES (42, 100), (42, 250), (7, 999); CREATE ROLE app_user;`.',
+			'Écris les droits. La colonne `bigserial` demande aussi `GRANT USAGE ON SEQUENCE invoices_id_seq TO app_user;` pour les inserts. Vérifie avec `SET ROLE app_user; SELECT count(*) FROM invoices; RESET ROLE;`.',
+			'Active la RLS, refais la même vérification, puis écris la policy par tenant et refais-la encore, avant tout `SET LOCAL`.',
+			'Teste en `app_user` dans une transaction : `SET ROLE app_user; BEGIN; SET LOCAL app.tenant_id = \'42\';`, puis un `SELECT count(*)`, un insert pour le tenant 7, un insert pour le tenant 42, et un `DELETE FROM invoices`. Après chaque erreur, lance `ROLLBACK;`, puis de nouveau `BEGIN; SET LOCAL app.tenant_id = \'42\';` avant l’instruction suivante.',
+			'`RESET ROLE;` et recompte en `postgres`. Quand tu as fini : `docker rm -f rls-lab`.'
+		],
+		done: [
+			'Avant la RLS, `app_user` compte 3. Avec la RLS active et sans policy, il compte 0.',
+			'Juste après la policy, avant tout `SET LOCAL`, `app_user` compte 0. Avec `SET LOCAL app.tenant_id = \'42\'`, il compte 2, les lignes du tenant 42.',
+			'L’insert pour le tenant 7 échoue avec `new row violates row-level security policy for table "invoices"`, et l’insert pour le tenant 42 passe.',
+			'`DELETE FROM invoices` échoue avec `permission denied for table invoices`.',
+			'En `postgres`, `SELECT count(*) FROM invoices` compte tous les tenants.'
+		],
+		solution: [
+			'`GRANT SELECT, INSERT ON invoices TO app_user; GRANT USAGE ON SEQUENCE invoices_id_seq TO app_user;`',
+			'`ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;`',
+			'`CREATE POLICY tenant_isolation ON invoices TO app_user USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint);`',
+			'Une fois que la session a posé `app.tenant_id`, le paramètre revient en chaîne vide après la transaction, pas en NULL, donc une requête suivante sans `SET LOCAL` échoue avec `invalid input syntax for type bigint: ""`. Dans les deux cas, aucune ligne ne fuit.',
+			'`postgres` est superutilisateur, donc il ignore toutes les policies. L’application doit se connecter avec un rôle comme `app_user`, jamais en propriétaire ni en superutilisateur.'
+		]
+	},
 	recall: {
 		q: 'Qu’est-ce qui empêche une requête qui a oublié `WHERE tenant_id = ?` de lire les lignes des autres tenants, et quels rôles y échappent ?',
 		a: 'Une policy de sécurité des lignes, comme `USING (tenant_id = current_setting(\'app.tenant_id\', true)::bigint)`, filtre chaque requête. Le propriétaire de la table, les superutilisateurs et les rôles `BYPASSRLS` y échappent, donc l’application se connecte avec un rôle séparé.'

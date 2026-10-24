@@ -140,6 +140,44 @@ export default {
 			'`SELECT id, title, ts_rank_cd(search, q) AS rank FROM posts, to_tsquery(\'english\', \'restore & backup\') q WHERE search @@ q ORDER BY rank DESC LIMIT 20;` For text typed by users, `websearch_to_tsquery` accepts quotes, `or` and `-` without syntax errors.',
 			'The vector is `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`. "you", "can" and "the" are stop words, but they still count as positions, which is why `restor` is at 4 and 7.',
 			'With the default weights `{0.1, 0.2, 0.4, 1.0}` for D, C, B, A, a post with both words in its title outranks one with them only in its body.'
+		],
+		steps: [
+			{
+				title: 'Store the vector',
+				questions: [
+					{ q: 'Where do you keep the tsvector so it is always current?', options: ['In a stored generated column', 'Nowhere: call `to_tsvector` in every query', 'In a column the app fills once, at insert', 'In a column a nightly job rebuilds'], answer: 0, why: 'A generated column is recomputed on every write, so the vector never lags behind the text.' },
+					{ q: 'Why write `to_tsvector(\'english\', ...)` and not `to_tsvector(...)`?', options: ['`english` is not installed by default', 'A generated column needs an immutable expression, and the one-argument form is not', 'The two-argument form is the only one GIN can index', 'Without it, stop words are kept'], answer: 1, why: 'The one-argument form depends on a setting that can change, so PostgreSQL refuses it in a generated column.' },
+					{ q: 'How do title hits rank above body hits?', options: ['Two separate indexes, one per column', '`ORDER BY title` after the search', '`setweight(..., \'A\')` on the title and `\'D\'` on the body', 'Repeat the title twice in the vector'], answer: 2, why: 'Each position carries a weight label, and the ranking functions score A far above D.' },
+					{ q: 'What does the `english` configuration do with "the"?', options: ['It keeps it as the lexeme `the`', 'It stems it to `th`', 'It raises an error', 'It drops it as a stop word'], answer: 3, why: 'Stop words are removed during normalization, so they never become lexemes.' }
+				]
+			},
+			{
+				title: 'Index and query',
+				questions: [
+					{ q: 'Which index serves `search @@ q`?', options: ['`CREATE INDEX posts_search_idx ON posts USING GIN (search);`', 'A B-tree on `search`', 'A B-tree on `title` and `body`', 'A GIN index with `jsonb_path_ops`'], answer: 0, why: 'The docs call GIN the preferred text search index: one entry per lexeme, with the rows that hold it.' },
+					{ q: 'The table is live and busy. How do you build that index?', options: ['In a transaction, after `LOCK TABLE posts`', 'With `CREATE INDEX CONCURRENTLY`', 'Off-hours, with a plain `CREATE INDEX`', 'By copying the table first'], answer: 1, why: '`CONCURRENTLY` lets writes keep flowing while the index builds (day 26).' },
+					{ q: 'Which tsquery finds posts with both "restore" and "backup"?', options: ['`to_tsquery(\'simple\', \'restore & backup\')`', '`\'restore & backup\'::tsquery`', '`to_tsquery(\'english\', \'restore & backup\')`', '`to_tsquery(\'english\', \'!restore & backup\')`'], answer: 2, why: 'It gives `\'restor\' & \'backup\'`, the same lexemes as the vector. A different configuration or a raw cast gives words that never match.' },
+					{ q: 'The search box passes what users type. Which function do you use?', options: ['`to_tsquery` on the raw text', 'A cast to `::tsquery`', '`ILIKE` with the raw text', '`websearch_to_tsquery`'], answer: 3, why: 'It accepts quotes, `or` and `-` without syntax errors, so a stray `&` cannot break the query.' }
+				]
+			},
+			{
+				title: 'Rank the results',
+				questions: [
+					{ q: 'How do you sort the matches?', options: ['`ORDER BY ts_rank_cd(search, q) DESC`', '`ORDER BY id DESC`', '`ORDER BY length(body)`', '`ORDER BY search`'], answer: 0, why: '`ts_rank_cd` scores each match by weight and by how close the words are.' },
+					{ q: 'What are the default weights for D, C, B and A?', options: ['`{1.0, 0.4, 0.2, 0.1}`', '`{0.1, 0.2, 0.4, 1.0}`', '`{1, 1, 1, 1}`', '`{0.25, 0.5, 0.75, 1.0}`'], answer: 1, why: 'D counts 0.1 and A counts 1.0, so a title hit weighs ten times a body hit.' },
+					{ q: 'Why can ranking be expensive even with `LIMIT 20`?', options: ['It rebuilds the GIN index', 'It disables the index', 'It reads the tsvector of every matching row', 'It sorts the whole table'], answer: 2, why: 'The docs warn that ranking reads every match before the limit applies.' },
+					{ q: 'One post has both words in its title, another only in its body. Which ranks first?', options: ['The body post, since bodies are longer', 'They tie, since both match', 'Whichever has the lower `id`', 'The title post'], answer: 3, why: 'Title lexemes carry weight A, body lexemes weight D, and A scores far higher.' }
+				]
+			},
+			{
+				title: 'Predict the vector',
+				questions: [
+					{ q: 'Title "Backups you can restore": what does "Backups" become?', options: ['`backup`', '`backups`', '`Backups`', '`back`'], answer: 0, why: 'The `english` dictionaries lowercase and stem the word.' },
+					{ q: 'And "restore"?', options: ['`restore`', '`restor`', '`rest`', '`restored`'], answer: 1, why: 'The stemmer cuts it to `restor`. "restored" gives the same lexeme, which is why the hook\'s post now matches.' },
+					{ q: 'The vector shows `\'restor\':4A,7`. Why 4 and 7, not 2 and 4?', options: ['Title positions start at 4', 'Weights shift the positions', 'Stop words are dropped but still count as positions', 'Each repeated lexeme adds 3'], answer: 2, why: '"you" and "can" sit at 2 and 3, "the" at 6. They leave gaps in the numbering.' },
+					{ q: 'In `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`, how do you spot the title words?', options: ['They come first in the list', 'They have no position', 'They are in capitals', 'Their positions carry the label `A`'], answer: 3, why: 'The list is sorted by lexeme, not by origin. Only the weight label says a position came from the title.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,31 @@ export default {
 			why: 'PostgreSQL text search matches lexemes exactly or by prefix, so a swapped letter matches nothing. Typo tolerance is a feature of search engines such as Meilisearch, kept in sync from the source of truth (day 35).'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Watch `ILIKE` miss a post, then build a weighted, indexed search that finds it and ranks title hits first.',
+		steps: [
+			'Start PostgreSQL and open `psql`: `docker run -d --name fts-lab -e POSTGRES_PASSWORD=lab postgres:16`, wait a few seconds, then `docker exec -it fts-lab psql -U postgres`.',
+			'Create four posts: `CREATE TABLE posts (id bigint PRIMARY KEY, title text, body text); INSERT INTO posts VALUES (1, \'We restored the backups\', \'It took an hour.\'), (2, \'Backups you can restore\', \'Test the restore every week\'), (3, \'Weekly notes\', \'We had to restore one backup from tape.\'), (4, \'Cats\', \'Nothing about it.\');`',
+			'Search the old way: `SELECT id FROM posts WHERE title ILIKE \'%restore backup%\' OR body ILIKE \'%restore backup%\';`.',
+			'Try a generated column without a configuration: `ALTER TABLE posts ADD COLUMN bad tsvector GENERATED ALWAYS AS (to_tsvector(title)) STORED;`. Then add the `search` column from the task, with `english`, and the GIN index.',
+			'Run the ranked query for "restore backup", then `SELECT search FROM posts WHERE id = 2;` and compare with your prediction. Try `SELECT websearch_to_tsquery(\'english\', \'"restore backup" -tape\');`.',
+			'Check the index: `SET enable_seqscan = off;` (four rows would never use it otherwise), then `EXPLAIN (COSTS OFF) SELECT id FROM posts WHERE search @@ to_tsquery(\'english\', \'restore & backup\');`. When you are done: `docker rm -f fts-lab`.'
+		],
+		done: [
+			'The `ILIKE` search returns 0 rows.',
+			'The generated column without a configuration fails with `generation expression is not immutable`.',
+			'The ranked query returns posts 1, 2 and 3, with the two title hits (1 and 2) above post 3, whose words are only in its body.',
+			'Post 2\'s vector is `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`.',
+			'`websearch_to_tsquery` prints `\'restor\' <-> \'backup\' & !\'tape\'`, and the plan shows `Bitmap Index Scan on posts_search_idx`.'
+		],
+		solution: [
+			'`ALTER TABLE posts ADD COLUMN search tsvector GENERATED ALWAYS AS (setweight(to_tsvector(\'english\', coalesce(title, \'\')), \'A\') || setweight(to_tsvector(\'english\', coalesce(body, \'\')), \'D\')) STORED;`',
+			'`CREATE INDEX posts_search_idx ON posts USING GIN (search);`',
+			'`SELECT id, title, ts_rank_cd(search, q) AS rank FROM posts, to_tsquery(\'english\', \'restore & backup\') q WHERE search @@ q ORDER BY rank DESC LIMIT 20;`',
+			'Post 3 matches although its body says "backup" once and "restore" once: both sides were reduced to the same lexemes.'
+		]
+	},
 	recall: {
 		q: 'Why does a full-text search for "restore backup" find the post "We restored the backups", and which index serves `@@`?',
 		a: '`to_tsvector` and `to_tsquery` with the `english` configuration both reduce the words to the lexemes `restor` and `backup`. A GIN index on the tsvector serves `@@`.'

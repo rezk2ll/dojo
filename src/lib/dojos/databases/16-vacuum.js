@@ -108,6 +108,44 @@ export default {
 			'`events`: 50 + 0.2 × 1,000,000,000 = 200,000,050, above the cap, so 100,000,000 dead rows.',
 			'In `psql`: `SELECT relname, n_live_tup, n_dead_tup, last_autovacuum FROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 10;`',
 			'For `events`, lower its own scale factor: `ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.01);` makes the threshold 10,000,050. And look for transactions that stay open for hours: no setting helps while one of them holds the old rows.'
+		],
+		steps: [
+			{
+				title: 'Recall the rule',
+				questions: [
+					{ q: 'With default settings, when does autovacuum vacuum a table?', options: ['Every night at a fixed time', 'When its dead rows pass 50 + 20% of its rows, capped at 100,000,000', 'When the table reaches 1 GB on disk', 'After every 1,000 updates, whatever the table size'], answer: 1, why: 'Base threshold 50, scale factor 0.2, and `autovacuum_vacuum_max_threshold` of 100,000,000.' },
+					{ q: 'Which rows count as dead?', options: ['Rows nobody has read for a month', 'Rows with a NULL in the primary key', 'Rows that failed a CHECK constraint', 'Old row versions left by an UPDATE or a DELETE'], answer: 3, why: 'An UPDATE writes a new version and leaves the old one. A DELETE leaves the row in place. Both are dead once replaced or deleted.' },
+					{ q: 'How often does an autovacuum worker visit each database?', options: ['Every `autovacuum_naptime`, 1 minute by default', 'Once per checkpoint', 'Only when you run `ANALYZE`', 'Every second'], answer: 0, why: 'The launcher starts a worker for each database every `autovacuum_naptime`, which then checks each table.' },
+					{ q: 'What is the most dead rows a table ever waits for with defaults?', options: ['200,050', '2,050', '100,000,000', 'There is no limit'], answer: 2, why: 'The cap, `autovacuum_vacuum_max_threshold`, is 100,000,000 dead rows.' }
+				]
+			},
+			{
+				title: 'Compute each table',
+				questions: [
+					{ q: '`sessions` has 10,000 rows. How many dead rows before autovacuum?', options: ['10,050', '50', '2,050', '200,050'], answer: 2, why: '50 + 0.2 × 10,000 = 2,050.' },
+					{ q: '`orders` has 1,000,000 rows. How many dead rows before autovacuum?', options: ['200,050', '1,000,050', '100,050', '20,050'], answer: 0, why: '50 + 0.2 × 1,000,000 = 200,050, well under the cap.' },
+					{ q: '`events` has 1,000,000,000 rows. How many dead rows before autovacuum?', options: ['200,000,050', '1,000,000,050', '10,000,050', '100,000,000'], answer: 3, why: 'The formula gives 200,000,050, which is above the cap, so the cap wins: 100,000,000.' },
+					{ q: 'Which table is vacuumed after the fewest changes?', options: ['`events`, because it is the biggest', '`sessions`, the smallest', '`orders`, in the middle', 'All three at the same count'], answer: 1, why: 'The threshold grows with the table, so a small table is vacuumed after a few thousand changes.' }
+				]
+			},
+			{
+				title: 'Find the dead rows',
+				questions: [
+					{ q: 'Which view holds the dead row count of each table?', options: ['`pg_stats`', '`pg_stat_user_tables`', '`pg_locks`', '`pg_class`'], answer: 1, why: 'The cumulative statistics for each table are in `pg_stat_user_tables`.' },
+					{ q: 'Which column do you read?', options: ['`n_live_tup`', '`last_analyze`', '`n_dead_tup`', '`seq_scan`'], answer: 2, why: '`n_dead_tup` is the number autovacuum compares with the threshold.' },
+					{ q: 'How do you get the ten worst tables?', options: ['`ORDER BY n_dead_tup DESC LIMIT 10`', '`ORDER BY n_dead_tup LIMIT 10`', '`WHERE n_dead_tup > 10`', '`GROUP BY n_dead_tup LIMIT 10`'], answer: 0, why: 'Sort by dead rows, largest first, and keep ten.' },
+					{ q: 'How exact is `n_dead_tup`?', options: ['Exact, counted by VACUUM on each run', 'Exact, read from the table pages', 'A guess made by the planner', 'An eventually-consistent count updated by each UPDATE, DELETE and INSERT'], answer: 3, why: 'The docs describe it that way. It is good enough to decide when to vacuum.' }
+				]
+			},
+			{
+				title: 'Change events',
+				questions: [
+					{ q: 'Which change makes autovacuum visit `events` sooner?', options: ['`ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.01);`', '`ALTER TABLE events SET (autovacuum_enabled = false);`', 'Running `VACUUM FULL events` every night', 'Raising the global scale factor to 0.5'], answer: 0, why: 'A per-table scale factor changes the threshold for `events` only.' },
+					{ q: 'What is the new threshold for `events`?', options: ['100,000,000', '1,000,050', '10,000,050', '200,000,050'], answer: 2, why: '50 + 0.01 × 1,000,000,000 = 10,000,050, under the cap.' },
+					{ q: 'What else do you look for, since it blocks cleanup whatever the settings?', options: ['Indexes that are never used', 'Transactions that stay open for hours', 'Rows with very long text values', 'Tables with no primary key'], answer: 1, why: 'An open transaction may still see the old versions, so VACUUM cannot remove them, whatever the threshold.' },
+					{ q: 'You also want the `events` file to shrink on disk. What does that take?', options: ['A plain `VACUUM`, run twice', 'A lower `autovacuum_naptime`', 'A `CHECKPOINT` right after VACUUM', '`VACUUM FULL`, which needs an ACCESS EXCLUSIVE lock and room for a new copy'], answer: 3, why: 'Plain VACUUM marks space free for reuse but rarely gives it back. VACUUM FULL rewrites the table and blocks every read and write while it runs.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ export default {
 			why: 'XIDs wrap around after about two billion transactions. To stop old rows from looking like future ones, autovacuum forces a freezing run once `relfrozenxid` is older than `autovacuum_freeze_max_age`, even if autovacuum is off for that table.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Watch dead rows pile up, see one open transaction block VACUUM, and see which VACUUM shrinks the file.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql` in two terminals: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres` in each.',
+			'In terminal 1, create a jobs table with autovacuum off, so you control when it runs: `CREATE TABLE jobs (id int primary key, state text not null) WITH (autovacuum_enabled = false); INSERT INTO jobs SELECT i, \'queued\' FROM generate_series(1, 10000) i; SELECT pg_size_pretty(pg_relation_size(\'jobs\'));`',
+			'Move every job through its states twice: `UPDATE jobs SET state = \'running\'; UPDATE jobs SET state = \'done\'; UPDATE jobs SET state = \'queued\'; UPDATE jobs SET state = \'running\'; UPDATE jobs SET state = \'done\';` Wait a second, then `SELECT n_live_tup, n_dead_tup FROM pg_stat_user_tables WHERE relname = \'jobs\';` and the size again. Then `VACUUM jobs;`.',
+			'In terminal 2, open a transaction and leave it: `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM jobs;`. In terminal 1: `UPDATE jobs SET state = \'queued\'; VACUUM (VERBOSE) jobs;` and read the `tuples:` line.',
+			'In terminal 2, run `COMMIT;`. In terminal 1, run `VACUUM (VERBOSE) jobs;` again, then `SELECT pg_size_pretty(pg_relation_size(\'jobs\'));`, then `VACUUM FULL jobs;` and the size once more. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'After the five updates, `n_dead_tup` is about 50,000 for 10,000 live rows, and the table grew from about 440 kB to about 2.5 MB.',
+			'With terminal 2 open, `VACUUM (VERBOSE)` reports `10000 are dead but not yet removable`.',
+			'After the `COMMIT`, it reports `10000 removed`, the size stays about 2.5 MB, and only `VACUUM FULL` brings it back to about 440 kB.'
+		],
+		solution: [
+			'Each UPDATE writes a new version of every row and leaves the old one in place: five updates, about five dead versions per row.',
+			'The Repeatable Read snapshot in terminal 2 may still need the old versions, so VACUUM must keep them until it ends.',
+			'Plain VACUUM marks the space free for new rows of the same table. VACUUM FULL writes a new copy under an ACCESS EXCLUSIVE lock, which is why you avoid it on a busy table.'
+		]
+	},
 	recall: {
 		q: 'An UPDATE leaves the old row version in the table. With default settings, when does autovacuum remove it?',
 		a: 'When the table\'s dead rows pass 50 + 20% of its rows (200,050 for a million rows), and only once no open transaction can still see the old version.'

@@ -128,6 +128,44 @@ export default {
 			'(2) SQLite. Un utilisateur, une machine, mais les modifications doivent survivre à un crash et la recherche ne doit pas relire chaque note. La doc de SQLite appelle cet usage un « format de fichier d’application », et Anki s’en sert ainsi.',
 			'(3) PostgreSQL. Quatre serveurs écrivent en même temps à travers le réseau. La doc de SQLite conseille d’« avoid using SQLite in situations where the same database will be accessed directly (without an intervening application server) and simultaneously from many computers over a network » (éviter SQLite quand plusieurs machines y accèdent directement et en même temps par le réseau).',
 			'(4) Un simple fichier. Un autre programme le lit. Une base peut le produire, mais l’export lui-même est un fichier.'
+		],
+		steps: [
+			{
+				title: 'Pose les trois questions',
+				questions: [
+					{ q: 'Ton app plante en pleine réécriture de `tasks.json`. Que trouves-tu sur le disque ?', options: ['Toujours l’ancien fichier : l’OS annule une écriture partielle', 'Un fichier qui peut mélanger ancien et nouveau, ou s’arrêter net', 'Toujours le nouveau fichier : un appel d’écriture est tout ou rien', 'Un rollback journal que l’app peut rejouer au démarrage'], answer: 1, why: 'Un simple fichier n’a pas de journal. Rien n’annule une sauvegarde arrêtée au milieu.' },
+					{ q: 'Deux onglets enregistrent `tasks.json` au même moment. Que se passe-t-il ?', options: ['La seconde sauvegarde échoue avec une erreur claire', 'Le fichier garde les deux séries de changements, fusionnées', 'Les changements d’un onglet disparaissent sans erreur', 'L’OS verrouille le fichier jusqu’à la fermeture du premier onglet'], answer: 2, why: 'Chaque onglet réécrit sa propre copie de la liste. La dernière écriture gagne, et rien ne te prévient.' },
+					{ q: 'Quelqu’un demande « toutes les tâches de la semaine ». Comment un fichier JSON répond-il ?', options: ['Tu lis tout le fichier et tu boucles sur chaque tâche', 'L’OS tient un index des clés du fichier', 'Tu sautes à la bonne ligne, car le JSON est trié', 'Tu lances une requête, comme avec une base'], answer: 0, why: 'Un fichier n’a pas d’index. Une base répond en une requête, et un index évite de relire toutes les tâches.' },
+					{ q: 'Une fois qu’il te faut une base, quelle question tranche entre SQLite et PostgreSQL ?', options: ['Si les données tiennent en mémoire', 'Si tu dois chercher par contenu', 'Si l’app est écrite en Rust ou en Python', 'Si plusieurs machines écrivent en même temps'], answer: 3, why: 'SQLite « will only allow one writer at any instant in time » (un seul écrivain à la fois). Plusieurs machines qui écrivent ensemble, c’est le cas de PostgreSQL.' }
+				]
+			},
+			{
+				title: 'Tranche les cas à un utilisateur',
+				questions: [
+					{ q: '(1) Les réglages d’un outil en ligne de commande, lus une fois au démarrage. Tu choisis quoi ?', options: ['PostgreSQL', 'Un simple fichier', 'SQLite', 'SQLite sur un partage réseau'], answer: 1, why: 'Lu une fois, écrit rarement, par un seul processus. Une base règle des problèmes que ce cas n’a pas.' },
+					{ q: 'Qu’est-ce qui fait pencher (1) vers un simple fichier, au-delà de sa taille ?', options: ['Quelqu’un voudra peut-être le modifier à la main', 'Un fichier est plus rapide que SQLite pour toute lecture', 'SQLite ne sait pas stocker des paires clé et valeur', 'Les réglages doivent être partagés avec d’autres machines'], answer: 0, why: 'Un JSON ou un fichier texte s’ouvre dans n’importe quel éditeur. Un fichier de base demande `sqlite3` ou un autre outil.' },
+					{ q: '(2) Une app de notes sur ordinateur, avec recherche et étiquettes. Tu choisis quoi ?', options: ['Un simple fichier par note', 'PostgreSQL sur le même portable', 'SQLite', 'Un export CSV nocturne'], answer: 2, why: 'Un utilisateur sur une machine, mais les modifications doivent survivre à un crash et la recherche ne doit pas relire chaque note. La doc de SQLite parle de « format de fichier d’application ».' },
+					{ q: 'Quelle app de ce chapitre utilise SQLite comme le ferait (2) ?', options: ['Chrome, qui range chaque onglet dans son propre JSON', 'Anki, qui range chaque collection de cartes dans un seul fichier SQLite', 'Firefox, qui fait tourner un serveur PostgreSQL pour les favoris', 'Anki, qui écrit un fichier JSON et calcule sa somme de contrôle'], answer: 1, why: 'Anki ouvre sa collection avec `Connection::open(path)`. Il n’a pas de format à lui.' }
+				]
+			},
+			{
+				title: 'Tranche la boutique',
+				questions: [
+					{ q: '(3) Une boutique web avec 4 serveurs d’app qui prennent des commandes en même temps. Tu choisis quoi ?', options: ['SQLite sur un disque réseau partagé', 'Un fichier JSON par commande', 'SQLite sur chaque serveur d’app', 'PostgreSQL'], answer: 3, why: 'Quatre serveurs écrivent en même temps à travers le réseau. Un serveur comme PostgreSQL en laisse écrire plusieurs à la fois.' },
+					{ q: 'Pourquoi pas un seul fichier SQLite sur un système de fichiers réseau pour (3) ?', options: ['Le verrouillage de fichiers est bogué sur beaucoup de systèmes réseau, et ça peut corrompre le fichier', 'SQLite refuse d’ouvrir un fichier qui n’est pas sur un disque local', 'SQLite ne sait pas ranger plus d’une table par fichier', 'Les systèmes de fichiers réseau n’ont pas du tout d’appel `fsync()`'], answer: 0, why: 'La doc prévient que deux clients peuvent alors écrire au même endroit du fichier, « resulting in corruption ».' },
+					{ q: 'Que fait SQLite quand un second écrivain arrive pendant que le premier tient son verrou d’écriture ?', options: ['Il fusionne les deux écritures en un seul commit', 'Il laisse les deux écrire, puis garde la dernière', 'Il fait attendre le second, ou lui renvoie `SQLITE_BUSY`', 'Il écrit le second changement dans un nouveau fichier'], answer: 2, why: 'SQLite fait passer les écrivains un par un. Anki met même `busy_timeout` à zéro, donc un second processus reçoit `SQLITE_BUSY` tout de suite.' },
+					{ q: 'Que te coûte PostgreSQL que SQLite ne coûte pas ?', options: ['Un fichier que tu ne peux ni copier ni envoyer', 'Un processus à faire tourner, mettre à jour, sauvegarder et sécuriser', 'Aucun moyen de lancer une requête avec un index', 'Aucune prise en charge des transactions'], answer: 1, why: 'Une base serveur, c’est un service de plus à surveiller. C’est le prix de plusieurs écrivains à la fois.' }
+				]
+			},
+			{
+				title: 'Tranche l’export',
+				questions: [
+					{ q: '(4) Un export CSV nocturne que quelqu’un ouvre dans un tableur. Tu choisis quoi ?', options: ['Un simple fichier', 'SQLite', 'PostgreSQL', 'Un rollback journal'], answer: 0, why: 'Un autre programme le lit, et un tableur ouvre un CSV directement.' },
+					{ q: 'Les données de la boutique vivent dans PostgreSQL. Ça change la réponse pour (4) ?', options: ['Oui : le tableur doit se connecter à PostgreSQL', 'Oui : l’export doit devenir un fichier SQLite', 'Non : une base peut le produire, mais l’export lui-même est un fichier', 'Non : un CSV est une sorte de base de données'], answer: 2, why: 'Où vivent les données et ce dont le lecteur a besoin sont deux questions. Ici, le lecteur a besoin d’un fichier.' },
+					{ q: 'En mode rollback journal de SQLite, quand un changement compte-t-il comme validé ?', options: ['Quand les nouvelles pages arrivent dans le cache de l’OS', 'Quand le fichier journal est créé', 'Quand le journal est vidé sur le disque', 'Quand le fichier journal est supprimé'], answer: 3, why: 'La doc : « This is the instant where the transaction commits. » Un journal resté après un crash est rejoué pour annuler le changement.' },
+					{ q: 'Ton app de notes passe de JSON à SQLite. Qu’est-ce que ça coûte à l’utilisateur ?', options: ['Il lui faut `sqlite3` ou un autre outil pour regarder dans le fichier', 'Il lui faut un serveur qui tourne en arrière-plan', 'Il ne peut plus copier ses données en un seul fichier', 'Il perd toutes les modifications depuis la dernière sauvegarde'], answer: 0, why: 'SQLite garde la simplicité d’un seul fichier, mais un JSON s’ouvre dans n’importe quel éditeur, un fichier de base non.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,27 @@ export default {
 			why: 'Le verrouillage de fichiers « is buggy in many network filesystem implementations », et deux clients peuvent alors écrire au même endroit du fichier, « resulting in corruption ». Les trois autres cas, la doc les donne comme de bons usages.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire planter SQLite en pleine transaction, et le voir garder l’ancien état et refuser un second écrivain.',
+		steps: [
+			'Crée un dossier de test et une table : `mkdir -p ~/db-lab && cd ~/db-lab && sqlite3 tasks.db "CREATE TABLE task(id INTEGER PRIMARY KEY, title TEXT NOT NULL);"`.',
+			'Lance un écrivain qui ouvre une transaction et ne valide jamais : `(echo "BEGIN; INSERT INTO task(title) VALUES (\'buy milk\'), (\'call mom\');"; sleep 30) | sqlite3 tasks.db &`. Lance `ls` tout de suite : un fichier `tasks.db-journal` est apparu à côté de la base.',
+			'Dans les 30 secondes, essaie un second écrivain : `sqlite3 tasks.db "INSERT INTO task(title) VALUES (\'from tab 2\');"`.',
+			'Fais planter le premier écrivain avec `kill -9 %1`, puis compte les lignes : `sqlite3 tasks.db "SELECT count(*) FROM task;"`, et vérifie le fichier avec `sqlite3 tasks.db "PRAGMA integrity_check;"`.',
+			'Refais-le avec un commit : `sqlite3 tasks.db "BEGIN; INSERT INTO task(title) VALUES (\'buy milk\'), (\'call mom\'); COMMIT;"`, et compte à nouveau.'
+		],
+		done: [
+			'Le second écrivain de l’étape 3 affiche `database is locked`.',
+			'Après le crash, `SELECT count(*) FROM task;` affiche `0` et `PRAGMA integrity_check;` affiche `ok`.',
+			'Après la version validée, le compte vaut `2`.'
+		],
+		solution: [
+			'Le journal contient ce qu’il faut à SQLite pour annuler le changement, donc le crash laisse l’ancien état : aucune ligne, et aucun fichier à moitié écrit.',
+			'SQLite laisse entrer un écrivain à la fois. Le second reçoit `SQLITE_BUSY`, affiché `database is locked`, au lieu de perdre une écriture en silence comme les deux onglets.',
+			'Seul le `COMMIT` fait compter les lignes. Refais le même test avec `tasks.json` et un `kill -9` en pleine sauvegarde : rien ne te protège.'
+		]
+	},
 	recall: {
 		q: 'Quels trois problèmes de `tasks.json` une base de données règle-t-elle, et quand choisis-tu PostgreSQL plutôt que SQLite ?',
 		a: 'Un crash en pleine sauvegarde, deux écrivains qui effacent les changements l’un de l’autre, et la lecture de tout le fichier pour répondre à une question. Tu prends PostgreSQL quand plusieurs machines écrivent en même temps, car SQLite n’accepte qu’un écrivain à la fois.'

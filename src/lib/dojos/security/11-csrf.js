@@ -119,6 +119,44 @@ export default {
 			'`api_invite` from `evil.example`: no. The `fetch()` POST is cross-site and is not a top-level navigation, so Lax leaves the cookie out and the request is anonymous. From `blog.shop.example`: yes. The request is same-site, the cookie goes along, and `@csrf_exempt` skips both checks at line 7.',
 			'Fix `delete_photo`: accept only POST (Django’s `@require_POST`) and put `{% csrf_token %}` in the delete form. The token check then applies.',
 			'Fix `api_invite`: remove `@csrf_exempt` and have the front end send the token in an `X-CSRFToken` header. The Origin check at lines 21 to 25 also rejects `https://blog.shop.example`, since it is not in `CSRF_TRUSTED_ORIGINS`.'
+		],
+		steps: [
+			{
+				title: 'Read the setup',
+				questions: [
+					{ q: 'With `SameSite=Lax`, when does the browser attach `sessionid` to a request started by another site?', options: ['On any request, as long as it uses HTTPS', 'Only on a top-level navigation with a safe method such as GET', 'Never: Lax blocks every cross-site request', 'Only on a POST sent with `fetch()`'], answer: 1, why: 'Lax sends the cookie cross-site only on a top-level navigation with a safe method. A cross-site POST arrives without it.' },
+					{ q: 'Are `shop.example` and `blog.shop.example` same-site?', options: ['No: the hosts differ', 'Only if they use the same port', 'Yes: same scheme and same registrable domain', 'Only if `blog` is listed in `CSRF_TRUSTED_ORIGINS`'], answer: 2, why: 'Same-site compares the scheme and the registrable domain. Subdomains of `shop.example` are same-site, so Lax always sends the cookie between them.' },
+					{ q: 'Which methods does `CsrfViewMiddleware` accept with no check at line 12?', options: ['GET, HEAD, OPTIONS and TRACE', 'GET and POST', 'Only GET', 'Every method when the cookie is Lax'], answer: 0, why: 'Django treats the RFC 9110 safe methods as harmless and accepts them at once. That is why a GET must never change data.' },
+					{ q: 'What does `@csrf_exempt` do to a view?', options: ['It skips only the token check and keeps the Origin check', 'It turns on the `X-CSRFToken` header check instead', 'It returns early at line 7, with no Origin check and no token check', 'It sets `SameSite=Strict` on the session cookie'], answer: 2, why: 'Line 7 returns `None` for an exempt view before any check runs. Nothing warns about it.' }
+				]
+			},
+			{
+				title: 'Check `delete_photo`',
+				questions: [
+					{ q: 'A page on `evil.example` links to `https://shop.example/photos/42/delete`. Alice clicks it. Is `sessionid` sent?', options: ['No: Lax leaves the cookie out of every cross-site request', 'Yes: it is a top-level GET navigation', 'No: the link comes from another registrable domain', 'Only if the link opens in a new tab'], answer: 1, why: 'A link is a top-level navigation with GET, the one cross-site case where Lax still sends the cookie.' },
+					{ q: 'The GET reaches Django with Alice’s session. What does the middleware do?', options: ['It rejects it: the token is missing', 'It checks the `Origin` header first', 'It accepts it at line 12 with no check', 'It asks for the `X-CSRFToken` header'], answer: 2, why: 'GET is a safe method for Django, so line 12 accepts it. The view then deletes the photo.' },
+					{ q: 'Can a page on `blog.shop.example` forge the same delete?', options: ['Yes: it is same-site, the cookie goes along, and GET is not checked', 'No: `blog.shop.example` is not in `CSRF_TRUSTED_ORIGINS`', 'No: Lax blocks requests between subdomains', 'Only with a POST form'], answer: 0, why: 'Same-site requests always carry the cookie, and the Origin check never runs on a GET.' },
+					{ q: 'What is the real flaw in `delete_photo`?', options: ['The cookie is Lax instead of Strict', 'It changes data on a GET, which Django never checks', 'It forgot `@csrf_exempt`', 'It takes the photo `id` from the URL'], answer: 1, why: 'Django assumes safe methods have no dangerous side effects. A view that deletes on GET breaks that and is open to any link.' }
+				]
+			},
+			{
+				title: 'Check `api_invite`',
+				questions: [
+					{ q: 'A page on `evil.example` calls `fetch()` with a POST to `api_invite`. Is `sessionid` sent?', options: ['Yes: `fetch()` with `credentials: "include"` always sends cookies', 'No: it is cross-site and not a top-level navigation, so Lax leaves it out', 'Yes: Lax only applies to form posts', 'No: the browser blocks the request before it leaves'], answer: 1, why: 'A cross-site `fetch()` POST is not a top-level navigation. Lax drops the cookie, and the request arrives anonymous.' },
+					{ q: 'So can `evil.example` invite a user through `api_invite`?', options: ['Yes: `@csrf_exempt` skips every check', 'Yes: JSON bodies are never checked', 'Only if the Origin header is missing', 'No: the request carries no session, so it is anonymous'], answer: 3, why: 'Without the cookie the server sees no logged-in user. Lax saves this case, not Django.' },
+					{ q: 'A page on `blog.shop.example` sends the same `fetch()` POST. What happens?', options: ['It works: the cookie goes along and `@csrf_exempt` skips both checks', 'It fails: the Origin check rejects the subdomain', 'It fails: Lax drops cookies on every POST', 'It fails: the token check runs because the body is JSON'], answer: 0, why: 'Same-site means the cookie is attached, and the exempt view returns at line 7 before the Origin or token check.' },
+					{ q: 'Which past bug is this second case?', options: ['A view that deletes on GET', 'A missing `{% csrf_token %}` in a template', 'The Grafana case: Lax on, but the attack page was same-site', 'A token compared without `constant_time_compare`'], answer: 2, why: 'Grafana relied on Lax, and the attack page sat on a same-site origin, where Lax still sends the cookie.' }
+				]
+			},
+			{
+				title: 'Fix both views',
+				questions: [
+					{ q: 'How do you fix `delete_photo`?', options: ['Set `SESSION_COOKIE_SAMESITE = "Strict"` and keep the GET', 'Accept only POST with `@require_POST` and put `{% csrf_token %}` in the form', 'Check the `Referer` header inside the view', 'Mark it `@csrf_exempt` and check the session by hand'], answer: 1, why: 'Once the delete is a POST, the middleware runs the Origin and token checks on it.' },
+					{ q: 'How do you fix `api_invite`?', options: ['Keep `@csrf_exempt` and add `blog.shop.example` to `CSRF_TRUSTED_ORIGINS`', 'Switch the body from JSON to a form', 'Remove `@csrf_exempt` and send the token in an `X-CSRFToken` header', 'Ask the front end to send `credentials: "omit"`'], answer: 2, why: 'Without the exemption the middleware checks the header token, which `fetch()` calls send as `X-CSRFToken`.' },
+					{ q: 'After the fix, a page on `blog.shop.example` POSTs to `api_invite`. Which check stops it first?', options: ['The token check at line 36', 'SameSite=Lax on the cookie', 'The safe-method check at line 12', 'The Origin check at lines 21 to 25'], answer: 3, why: '`https://blog.shop.example` is not the app’s own origin and not in `CSRF_TRUSTED_ORIGINS`, so the Origin check rejects it before the token is read.' },
+					{ q: 'Why can the blog page not just copy the token into its request?', options: ['It cannot read `shop.example`’s pages or the `csrftoken` value', 'The token changes every second', 'Browsers strip the `X-CSRFToken` header cross-origin', 'The token is signed with Alice’s password'], answer: 0, why: 'The token is a random secret in `shop.example`’s own pages and cookie. Another origin can make the browser send a request, but it cannot read that secret.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,30 @@ export default {
 			why: 'SameSite compares sites (scheme and registrable domain), and the port is not part of the site. The jub0bs write-up states that `http://localhost:8081` "is same-site with respect to" `http://localhost:3000`, so Lax sent the cookie. An Origin or token check would have caught it.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Run Django’s `CsrfViewMiddleware` on localhost and watch it accept a GET, skip an exempt view, and refuse a POST with no token or a foreign `Origin`.',
+		steps: [
+			'Make a folder with Django in it: `mkdir -p ~/csrf-lab && cd ~/csrf-lab && python3 -m venv .venv && . .venv/bin/activate && pip install django`.',
+			'Write a one-file app with three URLs (`/token`, `/email`, and `/invite` marked `csrf_exempt`): `printf \'%s\\n\' \'import sys\' \'from django.conf import settings\' \'settings.configure(DEBUG=True, SECRET_KEY="lab", ROOT_URLCONF=__name__, MIDDLEWARE=["django.middleware.csrf.CsrfViewMiddleware"])\' \'from django.http import HttpResponse\' \'from django.middleware.csrf import get_token\' \'from django.urls import path\' \'from django.views.decorators.csrf import csrf_exempt\' \'ok = lambda r: HttpResponse(r.method + " accepted\\n")\' \'urlpatterns = [path("token", lambda r: HttpResponse(get_token(r))), path("email", ok), path("invite", csrf_exempt(ok))]\' \'from django.core.management import execute_from_command_line\' \'execute_from_command_line(sys.argv)\' > app.py`',
+			'Start it in terminal A: `python app.py runserver 8000`. Keep an eye on its log.',
+			'In terminal B, `cd ~/csrf-lab`, then send what a forged request would send: `curl -s -o /dev/null -w "%{http_code}\\n" -X POST localhost:8000/email`, then `curl -s localhost:8000/email`, then `curl -s -X POST localhost:8000/invite`.',
+			'Now play the real page. Fetch a token and its cookie: `tok=$(curl -s -c jar -b jar localhost:8000/token); echo "$tok"`. Then `curl -s -b jar -H "X-CSRFToken: $tok" -X POST localhost:8000/email`.',
+			'Send the same request with a foreign origin: `curl -s -o /dev/null -w "%{http_code}\\n" -b jar -H "X-CSRFToken: $tok" -H "Origin: http://evil.example" -X POST localhost:8000/email`. Stop the server with Ctrl+C when you are done.'
+		],
+		done: [
+			'The POST to `/email` with no token prints `403`, and the log in A says `CSRF cookie not set`.',
+			'`curl -s localhost:8000/email` prints `GET accepted`, and the POST to `/invite` prints `POST accepted`.',
+			'`echo "$tok"` prints 64 characters, and the POST with that token prints `POST accepted`.',
+			'The POST with `Origin: http://evil.example` prints `403`, and the log says `Origin checking failed`.'
+		],
+		solution: [
+			'The GET passes because line 12 accepts safe methods with no check. A view that deletes on GET would delete here too.',
+			'`/invite` passes because `csrf_exempt` returns at line 7, before the Origin and token checks.',
+			'The token POST passes because the `X-CSRFToken` header unmasks to the same secret as the `csrftoken` cookie in `jar`. A page on another site cannot read either one.',
+			'The foreign `Origin` fails before the token is even read: `http://evil.example` is neither the app’s own origin nor in `CSRF_TRUSTED_ORIGINS`. Clean up with `rm -rf ~/csrf-lab`.'
+		]
+	},
 	recall: {
 		q: 'On a POST, which two values does Django’s `CsrfViewMiddleware` compare?',
 		a: 'The `csrfmiddlewaretoken` form field (or the `X-CSRFToken` header), unmasked from 64 to 32 characters, against the secret in the `csrftoken` cookie, with `constant_time_compare`.'

@@ -152,8 +152,8 @@ export default {
 				title: 'Call it under the default profile',
 				questions: [
 					{ q: 'What does `libc.syscall(425, 8, buf)` return there?', options: ['-1 with "Operation not permitted"', '-1 with "Function not implemented"', '3, a file descriptor', '0, with nothing set up'], answer: 0, why: 'In this session it returned -1 and errno `EPERM` under the default profile.' },
-					{ q: 'Which rule in the profile produced that error?', options: ['A rule that names `io_uring_setup` with `errnoRet` `EPERM`', 'The `CAP_SYS_ADMIN` rule', 'The `clone3` rule', 'None: the default action, `SCMP_ACT_ERRNO` with `EPERM`'], answer: 3, why: 'No rule names `io_uring_setup`, so the call reaches `DefaultAction: ActErrno` with `EPERM`.' },
-					{ q: 'Did the kernel run any of `io_uring_setup`?', options: ['Yes, then undid it', 'Yes, but it skipped the capability checks', 'No, the filter answers before the call executes', 'Only the argument checks'], answer: 2, why: 'The filter runs on entry to the kernel, before the call. An `ERRNO` action returns the error and the call never runs.' },
+					{ q: 'Which errno number does that call set?', options: ['38', '13', '0', '1'], answer: 3, why: '`EPERM` is errno 1, "Operation not permitted". 38 is `ENOSYS` and 13 is `EACCES`.' },
+					{ q: 'Which seccomp action would have killed the process instead of returning an error?', options: ['`SECCOMP_RET_ALLOW`', '`SECCOMP_RET_ERRNO`', '`SECCOMP_RET_KILL_PROCESS`', '`SECCOMP_RET_LOG`'], answer: 2, why: 'seccomp(2) lists the actions from `SECCOMP_RET_KILL_PROCESS` down to `SECCOMP_RET_ALLOW`. Docker\'s default uses `ERRNO`, so the program lives on.' },
 					{ q: 'Why does the profile leave `io_uring_setup` out?', options: ['It does not exist on x86-64', 'It was judged unsafe: moby/moby#46762 quotes "io_uring to be unsafe"', 'It needs `CAP_SYS_ADMIN`', 'It is too slow inside containers'], answer: 1, why: 'Since moby/moby#46762 in 2023, `io_uring_*` calls have no rule, citing containerd: "Security experts generally believe io_uring to be unsafe."' }
 				]
 			},
@@ -169,7 +169,7 @@ export default {
 			{
 				title: 'Try CAP_SYS_ADMIN',
 				questions: [
-					{ q: 'With `--cap-add=SYS_ADMIN`, what does `io_uring_setup` return?', options: ['3, a file descriptor', '-1 with `ENOSYS`', '-1 with `EPERM`, as before', 'The container exits with `SIGSYS`'], answer: 2, why: 'The call is still in no rule, so the default action still answers `EPERM`.' },
+					{ q: 'With `--cap-add=SYS_ADMIN`, what does `grep Seccomp /proc/self/status` print?', options: ['`Seccomp: 0`', '`Seccomp: 1`', '`Seccomp: 2`', 'No `Seccomp` line'], answer: 2, why: 'Adding a capability changes which rules match, not whether the filter is attached. The default profile is still on.' },
 					{ q: 'What does `CAP_SYS_ADMIN` change in the profile?', options: ['It allows a list of 26 calls such as `mount`, `unshare` and `setns`', 'It switches the default action to allow', 'It removes the filter', 'Nothing, the profile ignores capabilities'], answer: 0, why: 'The rule with `Includes: Caps: CAP_SYS_ADMIN` adds those 26 calls. "The default seccomp profile will adjust to the selected capabilities".' },
 					{ q: 'What about `clone3` with `CAP_SYS_ADMIN`?', options: ['Still `ENOSYS`', 'Allowed: the `CAP_SYS_ADMIN` rule names it, and the `ENOSYS` rule excludes that capability', 'Blocked with `EPERM`', 'Killed with `SIGSYS`'], answer: 1, why: 'The `ENOSYS` rule has `Excludes: Caps: CAP_SYS_ADMIN`, and line 6 lists `clone3` in the allowed rule.' },
 					{ q: 'A service really needs io_uring. What lets the call through and keeps the rest of the filter?', options: ['`--cap-add=ALL`', '`--privileged` is the only way', 'Running the container as root', 'A custom profile that allows `io_uring_setup`'], answer: 3, why: 'Only a custom profile or `unconfined` lets it through, and a custom profile keeps every other rule.' }

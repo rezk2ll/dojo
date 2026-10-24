@@ -158,18 +158,18 @@ export default {
 				title: 'Read the last layer',
 				questions: [
 					{ q: 'In the extracted archive, which file tells you the order of the layers?', options: ['`manifest.json`', '`index.json` alone', 'The file names, sorted by hash', '`repositories`'], answer: 0, why: '`manifest.json` lists the layers in order. The last one is the `rm` step.' },
-					{ q: '`tar tvf` on that layer prints one entry. Which one?', options: ['`big.bin`, empty', '`.wh.big.bin`, an empty file', '`big.bin.deleted`, 100 MB', 'A character device named `big.bin`'], answer: 1, why: 'The layer is a 77-byte tar holding `.wh.big.bin`, the whiteout in its image layer form.' },
+					{ q: 'What is the first `blobs/sha256/...` match in `manifest.json`?', options: ['The `head` layer', 'The image config', 'The `rm` layer', 'The build cache'], answer: 1, why: '`manifest.json` lists the config blob first, then the layers in order. That is why the lab takes the last match.' },
 					{ q: 'What does the `.wh.` prefix mean?', options: ['A hidden file the app wrote', 'A hard link to the lower file', 'A whiteout: hide this name from the layers below', 'A file that waits for a copy-up'], answer: 2, why: 'The OCI image spec stores a whiteout as an empty file named "the prefix `.wh.` plus the basename of the path to be deleted".' },
-					{ q: 'In a running container\'s upper directory, how does the same whiteout look?', options: ['A `.wh.big.bin` file', 'A symbolic link to `/dev/null`', 'An empty directory', 'A character device with device number 0/0'], answer: 3, why: 'On disk, overlayfs writes a character device 0/0. The `.wh.` name is the form it takes inside a layer tar.' }
+					{ q: 'What size does `tar tvf` show for the `.wh.big.bin` entry?', options: ['100 MB', '4.1 kB', '77 bytes', '0'], answer: 3, why: 'A whiteout carries no data, only its name. The 100 MB stays in the layer below.' }
 				]
 			},
 			{
 				title: 'Explain the numbers',
 				questions: [
-					{ q: 'Why did `rm` not shrink image A?', options: ['A delete cannot touch a lower layer, so it only adds a whiteout on top', 'Docker forgot to run the `rm` step', 'The `rm` step failed silently', 'Whiteouts take as much space as the file'], answer: 0, why: 'Lower layers are read-only. The new layer hides the name, and the layer below keeps its bytes.' },
+					{ q: 'What does `docker run --rm A ls /big.bin` print?', options: ['`ls: /big.bin: No such file or directory`', '`/big.bin`, the 100 MB file', 'An empty file', 'A device 0/0'], answer: 0, why: 'In the merged view, the whiteout hides the name. The bytes still sit in the layer below, out of sight.' },
 					{ q: 'How do you keep a temporary file out of every layer?', options: ['Delete it in a later `RUN`', 'Create and delete it in the same `RUN`', 'Write it to `/tmp`, which is never in a layer', 'Add it to `.dockerignore`'], answer: 1, why: 'A layer is the state at the end of its step. If the file is gone by then, no layer holds it.' },
 					{ q: 'A `RUN chown -R app /data` runs over a big directory from an earlier layer. What happens?', options: ['Only the owner field changes in the old layer', 'Nothing is written, ownership is metadata', 'Every file is copied up, so the directory is duplicated in a new layer', 'The build fails because lower layers are read-only'], answer: 2, why: '`chmod` or `chown` on a lower file triggers a copy-up, so the new layer holds a full copy.' },
-					{ q: 'A container appends 2 bytes to a 50 MB file from the image. What lands in the upper directory?', options: ['A 2-byte diff', 'Nothing, the write goes to the lower file', 'A whiteout and the 2 bytes', 'A full 50 MB copy of the file, plus the 2 bytes'], answer: 3, why: 'The first write copies the whole file up. In this session, upper held a 50,000,002-byte file.' }
+					{ q: 'B\'s archive is about 3.6 million bytes. What makes up most of it?', options: ['The 100 MB file, compressed', 'The build cache', 'The whiteout for `big.bin`', 'The `alpine:3.20` base layer'], answer: 3, why: 'B\'s own step is `4.1kB` in `docker history`, so nearly all of the archive is the alpine layer it starts from.' }
 				]
 			}
 		]

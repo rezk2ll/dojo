@@ -102,6 +102,44 @@ export default {
 			'Température 2 : les logits passent à 1.0, 0.5 et 0.05, et le softmax donne 0.502, 0.304 et 0.194. " the" passe d’environ 1 tirage sur 10 à environ 1 sur 5.',
 			'Avec `top_k=1`, tous les logits sous le meilleur passent à moins l’infini. " Paris" a une probabilité de 1, donc `torch.multinomial` le renvoie à chaque fois.',
 			'Avec `top_k=1`, la boucle prend le meilleur token à chaque tour, et le tirage n’a plus rien d’aléatoire. Sur les modèles Claude sortis après Opus 4.6, tu ne peux pas le demander : l’API refuse tout `top_k`.'
+		],
+		steps: [
+			{
+				title: 'Calcule le softmax à température 1',
+				questions: [
+					{ q: 'Quelle est la première étape pour transformer ces logits en probabilités ?', options: ['Diviser chaque logit par la somme des logits', 'Garder le meilleur logit et jeter les autres', 'Diviser chaque logit par la température, puis prendre l’`exp`', 'Multiplier chaque logit par la température'], answer: 2, why: 'On divise d’abord les logits par la température. Le softmax prend ensuite l’`exp` de chacun et divise par leur somme.' },
+					{ q: 'À température 1, que donne `exp` pour 2.0, 1.0 et 0.1 ?', options: ['7.39, 2.72 et 1.11', '2.0, 1.0 et 0.1', '4.0, 1.0 et 0.01', '0.659, 0.242 et 0.099'], answer: 0, why: 'Diviser par 1 ne change rien : ce sont `exp(2.0)`, `exp(1.0)` et `exp(0.1)`.' },
+					{ q: 'Quelle est la somme, et la probabilité de " Paris" ?', options: ['3.1, soit 0.645', '11.21, soit 0.659', '11.21, soit 0.5', '7.39, soit 1.0'], answer: 1, why: '7.39 + 2.72 + 1.11 font 11.21, et 7.39 / 11.21 fait 0.659.' },
+					{ q: 'Combien font les trois probabilités additionnées ?', options: ['3.1', '11.21', 'Ça dépend de la température', '1'], answer: 3, why: 'Le softmax renvoie toujours des probabilités dont la somme fait 1 : 0.659 + 0.242 + 0.099.' }
+				]
+			},
+			{
+				title: 'Refais-le à température 2',
+				questions: [
+					{ q: 'Que valent les logits après division par 2 ?', options: ['1.0, 0.5 et 0.05', '4.0, 2.0 et 0.2', '2.0, 1.0 et 0.1', '1.0, 0.5 et 0.1'], answer: 0, why: 'Chaque logit est divisé par deux, ce qui divise aussi par deux les écarts entre eux.' },
+					{ q: 'Quelles sont les probabilités à température 2 ?', options: ['0.659, 0.242 et 0.099', '0.502, 0.304 et 0.194', '0.864, 0.117 et 0.019', '0.333, 0.333 et 0.333'], answer: 1, why: 'Des écarts plus petits entre logits donnent des probabilités plus proches. Elles ne sont pas égales, car les écarts ne sont pas nuls.' },
+					{ q: 'À quelle fréquence " the" sort-il à température 2 ?', options: ['Environ 1 tirage sur 10, comme à température 1', 'Jamais : son logit est trop bas', 'Environ 1 tirage sur 5, contre 1 sur 10 avant', 'Environ 1 tirage sur 2'], answer: 2, why: 'Sa probabilité passe de 0.099 à 0.194.' },
+					{ q: 'Que fait une température au-dessus de 1 en général ?', options: ['Elle aplatit les probabilités', 'Elle les resserre sur le meilleur token', 'Elle retire les tokens les plus bas', 'Elle ajoute des tokens au vocabulaire'], answer: 0, why: 'Diviser par plus de 1 réduit les écarts entre logits : les tokens bas sortent plus souvent.' }
+				]
+			},
+			{
+				title: 'Applique `top_k=1`',
+				questions: [
+					{ q: 'Que fait `top_k=1` aux logits ?', options: ['Il divise chaque logit par 1', 'Il passe tous les logits sous le meilleur à moins l’infini', 'Il garde le logit d’un token au hasard', 'Il retire le meilleur logit pour laisser une chance aux autres'], answer: 1, why: 'Les lignes 320 à 322 mettent à `-float(\'Inf\')` tous les logits sous le k-ième meilleur.' },
+					{ q: 'Quels tokens `generate(..., top_k=1)` peut-il renvoyer ?', options: ['Seulement " Paris"', '" Paris" et " Lyon"', 'Les trois, avec " Paris" plus souvent', 'Seulement " the"'], answer: 0, why: 'Après le softmax, un logit à moins l’infini a une probabilité de 0 et ne sort jamais.' },
+					{ q: 'Quelle probabilité " Paris" reçoit-il ?', options: ['0.659', '0.731', '1', '0.502'], answer: 2, why: 'C’est le seul token restant : le softmax lui donne toute la probabilité.' },
+					{ q: 'Avec `top_k=1`, la température change-t-elle encore le token qui sort ?', options: ['Oui : une température haute fait revenir " Lyon"', 'Oui : une température basse peut retirer " Paris"', 'Seulement à température 0', 'Non : il reste un seul token, et il a une probabilité de 1'], answer: 3, why: 'Diviser un seul logit fini par n’importe quelle température laisse toujours un seul token à probabilité 1.' }
+				]
+			},
+			{
+				title: 'Explique pourquoi ça se répète',
+				questions: [
+					{ q: 'Pourquoi `top_k=1` donne-t-il la même réponse à chaque exécution ?', options: ['nanoGPT met en cache la première réponse', 'La graine change à chaque exécution', 'Le modèle s’arrête après un token', 'Chaque tour prend le meilleur token, donc le tirage n’a plus rien d’aléatoire'], answer: 3, why: '`torch.multinomial` tire dans une distribution où un seul token a une probabilité de 1. Le tirage tombe toujours dessus.' },
+					{ q: 'Que devient chaque token choisi par la boucle ?', options: ['Il est ajouté au contexte du passage suivant', 'Il est jeté une fois affiché', 'Il remplace le premier token du contexte', 'Il est comparé à une liste de bonnes réponses'], answer: 0, why: '`torch.cat((idx, idx_next), dim=1)` l’ajoute à `idx`. Le même contexte redonne le même meilleur token, tour après tour.' },
+					{ q: 'Peux-tu demander `top_k=1` à un modèle Claude sorti après Opus 4.6 ?', options: ['Oui, c’est la valeur par défaut', 'Non : l’API refuse tout `top_k` avec une erreur 400', 'Oui, mais seulement avec `temperature: 0`', 'Non : l’API utilise `top_k=200` sans le dire'], answer: 1, why: 'Sur ces modèles, l’API refuse tout `top_k`, un `top_p` sous 0.99 et une `temperature` autre que 1.0.' },
+					{ q: 'Sur les anciens modèles Claude, `temperature: 0.0` rend-il la sortie totalement déterministe ?', options: ['Non : la référence de l’API dit que les résultats ne seront pas totalement déterministes', 'Oui, à chaque fois', 'Oui, si `top_k` vaut aussi 1', 'Seulement pour les réponses de moins de 300 tokens'], answer: 0, why: 'La référence de la Messages API dit que "even with `temperature` of `0.0`, the results will not be fully deterministic."' }
+				]
+			}
 		]
 	},
 	quiz: [

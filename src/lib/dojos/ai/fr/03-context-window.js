@@ -119,6 +119,44 @@ export default {
 			'La limite de la fin est 8 192 // 2 = 4 096. La boucle remonte tant que la fin reste sous 4 096 : les 10 derniers messages (3 900 tokens) restent mot pour mot, plus le message 30 s’il fait moins de 196 tokens.',
 			'Les messages plus anciens, dont la règle des 4 espaces, partent dans `summarize_all`. aider envoie un message utilisateur qui commence par "I spoke to you previously about a number of things." suivi de la fin.',
 			'Pour garder la règle : mets-la dans `CONVENTIONS.md` et charge-le avec `/read CONVENTIONS.md`. aider remet les fichiers en lecture seule dans chaque requête, à part de l’historique résumé. Ou répète la règle dans ton message actuel.'
+		],
+		steps: [
+			{
+				title: 'Calcule la limite d’historique',
+				questions: [
+					{ q: 'Que vaut `max_chat_history_tokens` pour un modèle à 200 000 tokens d’entrée ?', options: ['12 500', '8 192', '1 024', '200 000'], answer: 1, why: '`min(max(200000 / 16, 1024), 8192)` : 200 000 / 16 font 12 500, et le `min` plafonne à 8 192.' },
+					{ q: 'Pourquoi la limite n’est-elle pas 12 500, soit 200 000 / 16 ?', options: ['aider arrondit à la puissance de deux inférieure', 'Le `max` la remonte à 1 024', 'Le `min` plafonne le résultat à 8 192', 'Les tokens de sortie sont retirés avant'], answer: 2, why: 'La formule borne le résultat entre 1 024 et 8 192. 12 500 dépasse le plafond.' },
+					{ q: 'L’historique fait 12 000 tokens. Qu’en fait aider ?', options: ['Il renvoie l’historique intact', 'Il lance le résumé, car 12 000 dépasse 8 192', 'Il reçoit une erreur 400 "prompt is too long"', 'Il jette les 4 messages les plus anciens'], answer: 1, why: 'Les lignes 39 et 40 ne renvoient l’historique intact que s’il tient dans `self.max_tokens`.' },
+					{ q: 'Un historique de 6 000 tokens serait-il résumé ?', options: ['Non : il tient sous 8 192, donc il repart intact', 'Oui : tout historique est résumé', 'Oui : il dépasse la limite de 4 096 de la fin', 'Seulement s’il a plus de 4 messages'], answer: 0, why: 'Le test `total <= self.max_tokens` passe en premier. Sous la limite, rien ne change.' }
+				]
+			},
+			{
+				title: 'Trouve la fin',
+				questions: [
+					{ q: 'Quelle est la limite de la fin ?', options: ['4 096', '8 192', '6 000', '3 900'], answer: 0, why: '`half_max_tokens = self.max_tokens // 2`, donc 8 192 // 2.' },
+					{ q: 'Dans quel ordre la boucle parcourt-elle les messages ?', options: ['Du message 1 vers la fin', 'Du milieu vers les bords', 'Le plus gros message d’abord', 'Du message le plus récent en remontant'], answer: 3, why: '`range(len(sized) - 1, -1, -1)` part du dernier message et remonte.' },
+					{ q: 'Les 10 derniers messages, 3 900 tokens, restent-ils mot pour mot ?', options: ['Non : ils sont résumés avec le reste', 'Oui : 3 900 est sous 4 096', 'Seulement les 4 derniers, fixés par `min_split`', 'Non : la fin doit faire 4 096 tout pile'], answer: 1, why: 'La boucle ajoute des messages tant que la fin reste sous `half_max_tokens`.' },
+					{ q: 'Quand le message 30 rejoint-il aussi la fin ?', options: ['S’il fait moins de 196 tokens', 'Si c’est un message de l’assistant', 'Jamais : la fin fait toujours 10 messages', 'S’il fait moins de 4 096 tokens'], answer: 0, why: '4 096 moins 3 900 laissent 196. Le message 30 n’entre que si la fin reste sous 4 096 avec lui.' }
+				]
+			},
+			{
+				title: 'Dis ce qu’envoie aider',
+				questions: [
+					{ q: 'Où finit la règle des 4 espaces du message 1 ?', options: ['Dans le début, envoyé à `summarize_all`', 'Dans la fin, gardée mot pour mot', 'Dans le prompt système', 'Supprimée, sans aucun résumé'], answer: 0, why: 'Le message 1 est bien plus ancien que la fin : il est dans le début qu’on résume.' },
+					{ q: 'Que demande le prompt `summarize` d’aider ?', options: ['Chaque règle recopiée mot pour mot', 'Seulement les blocs de code de chaque message', '"less detail about older parts and more detail about the most recent messages"', 'Le même niveau de détail pour chaque message'], answer: 2, why: 'Le prompt favorise les messages récents. Une règle du message 1 tombe dans la partie la moins détaillée.' },
+					{ q: 'Sous quelle forme le résumé arrive-t-il dans la requête suivante ?', options: ['Un message utilisateur qui commence par "I spoke to you previously about a number of things."', 'Un prompt système en plus', 'Un résultat d’outil', 'Un commentaire en haut du fichier modifié'], answer: 0, why: 'aider envoie ce message utilisateur, puis la fin mot pour mot.' },
+					{ q: 'Pourquoi le modèle peut-il maintenant écrire des tabulations ?', options: ['L’API refuse les requêtes qui contiennent d’anciennes règles', 'La règle ne survit que si le résumé la reprend', 'La fin l’emporte toujours sur le début', 'aider retire exprès les règles de format'], answer: 1, why: 'Un résumé garde ce que le modèle résumeur a jugé important. Une règle de format peut sauter sans la moindre erreur.' }
+				]
+			},
+			{
+				title: 'Garde la règle en vigueur',
+				questions: [
+					{ q: 'Quelle façon garde la règle dans chaque requête, quoi que dise le résumé ?', options: ['La réécrire dans le message 1 avec « important »', 'La mettre dans `CONVENTIONS.md` et le charger avec `/read CONVENTIONS.md`', 'Augmenter le `max_input_tokens` du modèle', 'Demander au modèle de s’en souvenir'], answer: 1, why: 'C’est la façon que donne la doc d’aider pour les conventions de code.' },
+					{ q: 'Pourquoi un fichier en lecture seule survit-il au résumé ?', options: ['Le modèle résumeur ne raccourcit jamais les fichiers', 'L’API met les fichiers en cache d’un tour à l’autre', 'Les fichiers en lecture seule font partie des données d’entraînement', 'aider remet les fichiers en lecture seule dans chaque requête, à part de l’historique résumé'], answer: 3, why: 'Le fichier ne fait pas partie de l’historique du chat : `summarize_all` n’y touche jamais.' },
+					{ q: 'Quelle est la deuxième façon de garder la règle ?', options: ['La répéter dans ton message actuel', 'Baisser la température', 'Passer à un modèle avec une fenêtre de 1M de tokens', 'Activer le prompt caching'], answer: 0, why: 'Une plus grande fenêtre n’aide pas : aider plafonne l’historique à 8 192 tokens. Le cache change le prix, pas ce qui compte.' },
+					{ q: 'Pourquoi répéter la règle dans ton message actuel marche-t-il ?', options: ['L’API ne lit que le dernier message', 'Les règles répétées pèsent plus à l’entraînement', 'Les messages les plus récents restent mot pour mot dans la fin', 'aider marque le texte répété en lecture seule'], answer: 2, why: 'La fin est gardée telle quelle, et « Lost in the Middle » a montré que les modèles exploitent bien l’information en fin de contexte.' }
+				]
+			}
 		]
 	},
 	quiz: [

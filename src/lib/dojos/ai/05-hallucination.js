@@ -115,6 +115,44 @@ response = client.messages.create(
 			'Then check whether a library you already depend on does the job. Grep your lockfile for a YAML library and read its docs for comment handling.',
 			'Rewrite the prompt with the library’s real docs pasted in `<docs>` tags. Ask the model to quote the functions it uses from those docs, to use no package outside them, and to say "I don’t know" if the docs do not cover keeping comments.',
 			'Run the new answer and check every function it calls exists in the quoted docs. A function that appears in the code but not in the quotes came from the model, so treat it as unverified.'
+		],
+		steps: [
+			{
+				title: 'Check the registry',
+				questions: [
+					{ q: 'What do you run first?', options: ['`pip install yamlkeeper`, to see if it works', '`pip index versions yamlkeeper`', 'A second prompt asking the model if the package is real', 'A search of the answer for a version number'], answer: 1, why: 'Check the registry before installing anything. Installing an unchecked name is what the attack waits for.' },
+					{ q: 'It prints "No matching distribution found for yamlkeeper". What does that tell you?', options: ['The model invented the import', 'The package is private, so you need a token', 'PyPI is down, so try again later', 'The package was renamed to `yaml`'], answer: 0, why: 'No package with that name exists on PyPI. The model wrote a probable-looking name, and nothing in its loop looked it up.' },
+					{ q: 'What does `https://pypi.org/pypi/yamlkeeper/json` return?', options: ['200, with an empty list of versions', 'A redirect to a similar package', '404', '403, because you are not logged in'], answer: 2, why: 'A 404 from the PyPI JSON API confirms there is no such project (checked 2026-10-17).' },
+					{ q: 'Say a package named `yamlkeeper` did exist. What do you check before installing it?', options: ['Only that the name matches the import', 'That it has a README', 'Nothing: if it exists, it is safe', 'Its age, author and download count'], answer: 3, why: 'An attacker can register a name models repeat. 43% of fake names came back in all 10 runs of the same prompt.' }
+				]
+			},
+			{
+				title: 'Look at what you already have',
+				questions: [
+					{ q: 'What is the second check?', options: ['Whether a library you already depend on does the job', 'Whether the model gives the same name on a second run', 'Whether the function name sounds right', 'Whether another model suggests the same package'], answer: 0, why: 'Code you already have is real and installed. Start from it before looking for a new package.' },
+					{ q: 'How do you find that library?', options: ['Ask the model to list your dependencies', 'Grep your lockfile for a YAML library', 'Search PyPI for "yaml" and take the first hit', 'Read the model’s explanation again'], answer: 1, why: 'The lockfile lists what is really installed. The model’s word about your dependencies is not a check.' },
+					{ q: 'You find a YAML library in the lockfile. What do you read next?', options: ['Its changelog', 'Its license', 'Its docs on comment handling', 'Its star count'], answer: 2, why: 'The task is to keep comments, so the docs on comment handling tell you if this library does it.' },
+					{ q: 'Why does getting the same name on a second run prove nothing?', options: ['43% of fake names came back in all 10 runs', 'The model only checks PyPI on the first run', 'The second run uses a smaller model', 'Repeated names are always real packages'], answer: 0, why: 'Fake names often repeat. That is what makes them predictable for an attacker.' }
+				]
+			},
+			{
+				title: 'Ground the prompt',
+				questions: [
+					{ q: 'What goes into the new prompt?', options: ['A longer description of what you want', 'The fake import, marked as wrong', 'A request to try harder', 'The library’s real docs, in `<docs>` tags'], answer: 3, why: 'Grounding needs the source in the context. The model can then answer from text you trust.' },
+					{ q: 'Which instruction keeps the model inside those docs?', options: ['Be creative with the API', 'Use no package outside the docs', 'Use your general knowledge as well', 'Prefer the newest package you know'], answer: 1, why: 'Anthropic’s advanced list says to use only the provided documents and "not its general knowledge".' },
+					{ q: 'What do you ask the model to quote?', options: ['The functions it uses, from the docs', 'The whole docs, back to you', 'Its reasoning, step by step', 'The PyPI page of the library'], answer: 0, why: 'A quote ties each function to a passage of the docs, so you can check it.' },
+					{ q: 'What should the model do if the docs do not cover keeping comments?', options: ['Give its best guess at a function', 'Name a package that might do it', 'Say "I don’t know"', 'Return empty code with no message'], answer: 2, why: 'Anthropic’s first fix is to give the model "permission to admit uncertainty".' }
+				]
+			},
+			{
+				title: 'Check the new answer',
+				questions: [
+					{ q: 'What do you check when you run the new answer?', options: ['That every function it calls exists in the quoted docs', 'That it runs without a warning', 'That it is shorter than the first answer', 'That it uses the same names as before'], answer: 0, why: 'Running is not enough. Each call has to match a passage the model quoted.' },
+					{ q: 'A function is in the code but not in the quotes. What is it?', options: ['Fine: the model saw it in training', 'Unverified: it came from the model', 'A private helper of the library', 'Proof that the docs are out of date'], answer: 1, why: 'Nothing in the context backs it, so it is the model’s own words until you check it.' },
+					{ q: 'Do these techniques remove hallucinations?', options: ['Yes, once the model quotes first', 'Yes, at temperature 0', 'Only with citations enabled', 'No: Anthropic’s guide says they "don’t eliminate them entirely"'], answer: 3, why: 'The guide asks you to validate critical information anyway.' },
+					{ q: 'With the Citations feature on, which sentences have no passage of your documents behind them?', options: ['The ones that carry no citation', 'Every cited sentence', 'Only the first sentence', 'None: every sentence gets a citation'], answer: 0, why: 'Citations are guaranteed to point into your documents. Uncited sentences are the model’s own words, and you check those by hand.' }
+				]
+			}
 		]
 	},
 	quiz: [

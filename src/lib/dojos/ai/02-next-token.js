@@ -102,6 +102,44 @@ export default {
 			'Temperature 2: dividing gives 1.0, 0.5 and 0.05, and softmax gives 0.502, 0.304 and 0.194. " the" goes from about 1 draw in 10 to about 1 in 5.',
 			'With `top_k=1`, every logit below the best is set to minus infinity. " Paris" gets probability 1, so `torch.multinomial` always returns it.',
 			'With `top_k=1` the loop takes the top token at every step, and the draw has no randomness left. On Claude models released after Opus 4.6 you cannot ask for this: the API rejects any `top_k`.'
+		],
+		steps: [
+			{
+				title: 'Compute softmax at temperature 1',
+				questions: [
+					{ q: 'What is the first step to turn these logits into probabilities?', options: ['Divide each logit by the sum of the logits', 'Keep the top logit and drop the rest', 'Divide each logit by the temperature, then take `exp`', 'Multiply each logit by the temperature'], answer: 2, why: 'The logits are divided by the temperature first. Softmax then takes `exp` of each and divides by their sum.' },
+					{ q: 'At temperature 1, what does `exp` give for 2.0, 1.0 and 0.1?', options: ['7.39, 2.72 and 1.11', '2.0, 1.0 and 0.1', '4.0, 1.0 and 0.01', '0.659, 0.242 and 0.099'], answer: 0, why: 'Dividing by 1 changes nothing, so these are `exp(2.0)`, `exp(1.0)` and `exp(0.1)`.' },
+					{ q: 'What is the sum, and the probability of " Paris"?', options: ['3.1, so 0.645', '11.21, so 0.659', '11.21, so 0.5', '7.39, so 1.0'], answer: 1, why: '7.39 + 2.72 + 1.11 is 11.21, and 7.39 / 11.21 is 0.659.' },
+					{ q: 'What do the three probabilities add up to?', options: ['3.1', '11.21', 'It depends on the temperature', '1'], answer: 3, why: 'Softmax always returns probabilities that sum to 1: 0.659 + 0.242 + 0.099.' }
+				]
+			},
+			{
+				title: 'Redo it at temperature 2',
+				questions: [
+					{ q: 'What are the logits after dividing by 2?', options: ['1.0, 0.5 and 0.05', '4.0, 2.0 and 0.2', '2.0, 1.0 and 0.1', '1.0, 0.5 and 0.1'], answer: 0, why: 'Each logit is halved, which halves the gaps between them.' },
+					{ q: 'What are the probabilities at temperature 2?', options: ['0.659, 0.242 and 0.099', '0.502, 0.304 and 0.194', '0.864, 0.117 and 0.019', '0.333, 0.333 and 0.333'], answer: 1, why: 'Smaller gaps between logits give closer probabilities. They are not equal, because the gaps are not zero.' },
+					{ q: 'How often is " the" drawn at temperature 2?', options: ['About 1 draw in 10, as at temperature 1', 'Never: its logit is too low', 'About 1 draw in 5, up from 1 in 10', 'About 1 draw in 2'], answer: 2, why: 'Its probability goes from 0.099 to 0.194.' },
+					{ q: 'What does a temperature above 1 do in general?', options: ['It flattens the probabilities', 'It sharpens them toward the top token', 'It removes the lowest tokens', 'It adds tokens to the vocabulary'], answer: 0, why: 'Dividing by more than 1 shrinks the gaps between logits, so low tokens get drawn more often.' }
+				]
+			},
+			{
+				title: 'Apply `top_k=1`',
+				questions: [
+					{ q: 'What does `top_k=1` do to the logits?', options: ['It divides every logit by 1', 'It sets every logit below the best to minus infinity', 'It keeps the logit of one random token', 'It removes the best logit so others get a chance'], answer: 1, why: 'Lines 320 to 322 set every logit below the k-th best to `-float(\'Inf\')`.' },
+					{ q: 'Which tokens can `generate(..., top_k=1)` return?', options: ['Only " Paris"', '" Paris" and " Lyon"', 'All three, with " Paris" more often', 'Only " the"'], answer: 0, why: 'After softmax, a logit of minus infinity has probability 0 and can never be drawn.' },
+					{ q: 'What probability does " Paris" get?', options: ['0.659', '0.731', '1', '0.502'], answer: 2, why: 'It is the only token left, so softmax gives it all of the probability.' },
+					{ q: 'With `top_k=1`, does the temperature still change which token comes out?', options: ['Yes: a high temperature brings " Lyon" back', 'Yes: a low temperature can drop " Paris"', 'Only at temperature 0', 'No: one token is left, and it gets probability 1'], answer: 3, why: 'Dividing one finite logit by any temperature still leaves a single token with probability 1.' }
+				]
+			},
+			{
+				title: 'Explain why it repeats',
+				questions: [
+					{ q: 'Why does `top_k=1` give the same reply every run?', options: ['nanoGPT caches the first reply', 'The seed changes on each run', 'The model stops after one token', 'Each step takes the top token, so the draw has no randomness left'], answer: 3, why: '`torch.multinomial` draws from a distribution with one token at probability 1. The draw always lands there.' },
+					{ q: 'What happens to each token the loop picks?', options: ['It is appended to the context for the next pass', 'It is thrown away after it is printed', 'It replaces the first token of the context', 'It is checked against a list of right answers'], answer: 0, why: '`torch.cat((idx, idx_next), dim=1)` adds it to `idx`. The same context gives the same top token again, step after step.' },
+					{ q: 'Can you ask a Claude model released after Opus 4.6 for `top_k=1`?', options: ['Yes, it is the default', 'No: the API rejects any `top_k` with a 400 error', 'Yes, but only with `temperature: 0`', 'No: the API silently uses `top_k=200`'], answer: 1, why: 'On those models the API rejects any `top_k`, `top_p` below 0.99 and `temperature` other than 1.0.' },
+					{ q: 'On older Claude models, does `temperature: 0.0` make the output fully deterministic?', options: ['No: the API reference says results will not be fully deterministic', 'Yes, every time', 'Yes, if `top_k` is also 1', 'Only for replies under 300 tokens'], answer: 0, why: 'The Messages API reference says that "even with `temperature` of `0.0`, the results will not be fully deterministic."' }
+				]
+			}
 		]
 	},
 	quiz: [

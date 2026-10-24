@@ -119,6 +119,44 @@ export default {
 			'`encode("aaaab")` returns `[256, 256, 98]`. The first merge turns the four 97s into two 256s. No merge was learned for (256, 256) or (256, 98), so encoding stops at 3 tokens.',
 			'`encode("abac")` returns `[97, 98, 97, 99]`. The text appears inside the training string, but no merge covers "ab" or "ac", so each byte stays its own token.',
 			'Adding one "a" changed 1 token into 3. Real tokenizers show the same effect: "strawberry" is 3 tokens at the start of a line and 1 token after a space in `cl100k_base`.'
+		],
+		steps: [
+			{
+				title: 'Find the learned merges',
+				questions: [
+					{ q: 'How many merges does `train("aaabdaaabac", 259)` learn?', options: ['3', '259', '256', '11'], answer: 0, why: '`num_merges = vocab_size - 256`, so 259 gives 3 merges on top of the 256 byte ids.' },
+					{ q: 'Which pair becomes id 256?', options: ['(97, 98), "ab"', '(97, 97), "aa"', '(98, 100), "bd"', '(97, 99), "ac"'], answer: 1, why: '"aa" appears 4 times in the training text, more than any other pair, so it gets the first new id.' },
+					{ q: 'What does merge 2 build?', options: ['257 = (256, 97), "aaa"', '257 = (100, 256), "daa"', '257 = (256, 256), "aaaa"', '257 = (256, 98), "aab"'], answer: 0, why: 'Training counts pairs again on the new list, 256 97 98 100 256 97 98 97 99. "aa" followed by "a" appears twice and becomes 257, as in the diagram.' },
+					{ q: 'What does merge 3 build?', options: ['258 = (98, 100), "bd"', '258 = (97, 99), "ac"', '258 = (257, 98), "aaab"', '258 = (256, 97), "aaa"'], answer: 2, why: '"aaa" followed by "b" comes next. After it, training stops: 3 merges were asked for.' }
+				]
+			},
+			{
+				title: 'Predict `encode("aaab")`',
+				questions: [
+					{ q: 'What list of ids does `encode("aaab")` start from?', options: ['[256, 97, 98]', '[97, 97, 97, 98]', '[258]', '[97, 98]'], answer: 1, why: 'Encoding starts from the raw UTF-8 bytes, like training. Each of the 4 characters is one byte.' },
+					{ q: 'In which order does `encode` apply the merges?', options: ['Most frequent pair in the input first', 'Learned first, applied first: 256, then 257, then 258', 'Longest token first: 258, then 257, then 256', 'Left to right, whatever pair comes first'], answer: 1, why: '`min(... self.merges.get(p, float("inf")))` picks the pair with the lowest merge index, so merges replay in training order.' },
+					{ q: 'What is the list after merge 1?', options: ['[256, 97, 98]', '[97, 256, 98]', '[257, 98]', '[256, 256]'], answer: 0, why: 'The first two 97s become 256. The third "a" and the "b" stay as bytes for now.' },
+					{ q: 'What does `encode("aaab")` return?', options: ['[257, 98]', '[256, 97, 98]', '[258]', '[97, 97, 97, 98]'], answer: 2, why: '256 97 98 becomes 257 98, then 258. One token for 4 characters.' }
+				]
+			},
+			{
+				title: 'Predict `encode("aaaab")`',
+				questions: [
+					{ q: 'What does merge 1 do to `[97, 97, 97, 97, 98]`?', options: ['[256, 97, 97, 98]', '[256, 256, 98]', '[257, 97, 98]', '[97, 97, 256, 98]'], answer: 1, why: 'Every "aa" in the list is replaced, and merges never overlap. Four 97s become two 256s.' },
+					{ q: 'Why can merge 2 not apply next?', options: ['It needs (256, 97), and no 97 follows a 256 any more', 'It only runs during training, never in `encode`', 'It needs the text to start with a "b"', 'Encoding always stops after the first merge'], answer: 0, why: 'Merge 2 joins a 256 with a 97. Both 97s were used up by merge 1.' },
+					{ q: 'What does `encode("aaaab")` return?', options: ['[97, 258]', '[256, 256, 98]', '[257, 97, 98]', '[256, 258]'], answer: 1, why: 'No merge was learned for (256, 256) or (256, 98), so encoding stops at 3 tokens.' },
+					{ q: 'What makes `encode` stop?', options: ['The list is shorter than 4 ids', 'Every merge has been tried once', 'The list holds only ids above 255', 'No pair in the list matches a learned merge'], answer: 3, why: '`if pair not in self.merges: break` ends the loop when no learned pair is left.' }
+				]
+			},
+			{
+				title: 'Explain the results',
+				questions: [
+					{ q: 'What does `encode("abac")` return?', options: ['[257, 99]', '[256, 97, 99]', '[97, 98, 97, 99]', '[258]'], answer: 2, why: 'Each byte stays its own token: none of the learned pairs appears in "abac".' },
+					{ q: '"abac" appears inside the training text. Why are its bytes not merged?', options: ['No learned merge covers "ab" or "ac"', 'The tokenizer only merges text at the start of a string', 'Encoding skips text it already saw in training', 'Only pairs of the same letter can merge'], answer: 0, why: 'Only 3 merges were learned, and none of them is "ab" or "ac". Seeing the text in training is not enough.' },
+					{ q: 'One extra "a" took "aaab" from 1 token to 3. What does this show?', options: ['Longer text always takes fewer tokens', 'Repeated letters always form one token', 'The tokenizer counts characters, not pairs', 'A small change in the text can change the tokens a lot'], answer: 3, why: 'Tokens follow the learned merges, not the letters. One character can break a merge chain.' },
+					{ q: 'How does `cl100k_base` tokenize "strawberry"?', options: ['1 token everywhere it appears', '10 tokens, one per letter', '3 tokens after a space, 1 at the start of a line', '1 token after a space, 3 at the start of a line'], answer: 3, why: '" strawberry" with its leading space is id 73700. At the start of a line it is "str", "aw", "berry".' }
+				]
+			}
 		]
 	},
 	quiz: [

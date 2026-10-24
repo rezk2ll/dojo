@@ -112,6 +112,44 @@ Rails.application.config.content_security_policy_nonce_directives = %w(style-src
 			'Plus strict : `script-src \'nonce-{RANDOM}\' \'strict-dynamic\'; object-src \'none\'; base-uri \'none\'`, avec un `{RANDOM}` neuf à chaque réponse et la même valeur dans `nonce="..."` sur chaque balise `<script>` de l’appli. Sans `strict-dynamic`, c’est la CSP stricte à nonce montrée sur MDN.',
 			'Envoie l’en-tête sur toutes les réponses, pas seulement sur les pages HTML. MDN : la politique « should be set on all responses to all requests, not just the main document ».',
 			'Déploie-la d’abord en `Content-Security-Policy-Report-Only` avec un point `report-to`, corrige les scripts en ligne de l’appli qui apparaissent dans les rapports, puis envoie-la en `Content-Security-Policy`.'
+		],
+		steps: [
+			{
+				title: 'Lis la politique',
+				questions: [
+					{ q: 'Quelle directive décide si le gestionnaire `onerror` s’exécute ?', options: ['`default-src`', '`script-src`', '`object-src`', '`img-src`'], answer: 1, why: 'Les gestionnaires d’événement en ligne sont du JavaScript : c’est `script-src` qui les régit.' },
+					{ q: 'Qu’autorise `\'unsafe-inline\'` dans `script-src` ?', options: ['Seulement les scripts de la même origine', 'Seulement les scripts de `https://cdn.example.com`', 'Les blocs `<script>` en ligne et les gestionnaires d’événement en ligne', 'Seulement `eval`'], answer: 2, why: 'C’est le mot-clé qui laisse tourner le JavaScript en ligne, celui que la politique de Mastodon laisse de côté.' },
+					{ q: 'Que bloque `object-src \'none\'` ?', options: ['Les plugins comme `<object>` et `<embed>`', 'Les scripts en ligne', 'Les images', 'Tous les types de ressources'], answer: 0, why: 'Il ne couvre que le contenu des plugins. Il ne fait rien contre un attribut `onerror`.' },
+					{ q: 'Quelle directive manque et n’a pas de repli sur `default-src` ?', options: ['`script-src`', '`style-src`', '`img-src`', '`base-uri`'], answer: 3, why: 'MDN dit que `base-uri` n’a pas de repli : "Not setting this allows any URL."' }
+				]
+			},
+			{
+				title: 'Décide si elle arrête la bio',
+				questions: [
+					{ q: 'La bio contient `<img src=x onerror=alert(1)>`. La politique l’arrête-t-elle ?', options: ['Oui : `default-src \'self\'` la bloque', 'Non : `\'unsafe-inline\'` laisse tourner le gestionnaire en ligne', 'Oui : `object-src \'none\'` la bloque', 'Seulement en mode report-only'], answer: 1, why: 'Le gestionnaire est du JavaScript en ligne, et `\'unsafe-inline\'` autorise justement ça.' },
+					{ q: '`https://cdn.example.com` dans la liste compte-t-il pour cette attaque ?', options: ['Oui : le gestionnaire est chargé depuis lui', 'Oui : il annule `\'unsafe-inline\'`', 'Non : l’attaque ne charge rien depuis aucun hôte', 'Seulement si le CDN est en panne'], answer: 2, why: 'Le script est en ligne dans la page. Les listes d’hôtes ne règlent que la provenance des fichiers de script.' },
+					{ q: 'Pourquoi le bug du nettoyeur de Mastodon a-t-il fait moins de dégâts ?', options: ['Son `script-src` n’avait pas `\'unsafe-inline\'` : les scripts en ligne injectés ne tournaient pas', 'Il n’avait pas de `default-src`', 'Il était en mode report-only', 'Son nonce était dans `script-src`'], answer: 0, why: 'L’avis : l’impact était limité par une CSP stricte "blocking inline scripts" (qui bloque les scripts en ligne).' },
+					{ q: 'Qu’est la CSP dans cette histoire, à côté du nettoyeur ?', options: ['Un remplaçant du nettoyeur', 'Un moyen de trouver les XSS', 'Un filtre côté serveur', 'Une seconde couche qui limite les dégâts quand la première cède'], answer: 3, why: 'Le HTML est bien arrivé dans la page. La CSP a seulement empêché le navigateur de l’exécuter.' }
+				]
+			},
+			{
+				title: 'Écris un `script-src` plus strict',
+				questions: [
+					{ q: 'Quel `script-src` remplace la liste d’hôtes ?', options: ['`script-src \'self\' \'unsafe-inline\'`', '`script-src *`', '`script-src \'nonce-{RANDOM}\' \'strict-dynamic\'`', '`script-src \'none\'` avec `\'unsafe-inline\'`'], answer: 2, why: 'Seuls les scripts qui portent le nonce tournent, et `strict-dynamic` leur permet de charger ce dont ils ont besoin.' },
+					{ q: 'À quelle fréquence le nonce doit-il changer ?', options: ['À chaque réponse', 'Une fois par jour', 'À chaque déploiement', 'Une fois par utilisateur'], answer: 0, why: 'Un nonce n’est secret que s’il est neuf à chaque réponse. Rails en génère un nouveau à chaque requête.' },
+					{ q: 'Où la même valeur de nonce doit-elle aussi apparaître ?', options: ['Dans l’URL', 'Dans un cookie', 'Dans `default-src`', 'Dans `nonce="..."` sur chaque balise `<script>` de l’appli'], answer: 3, why: 'Le navigateur n’exécute un script que si son attribut `nonce` correspond à l’en-tête.' },
+					{ q: 'Pourquoi le `onerror` injecté échoue-t-il encore avec cette politique ?', options: ['Le bug est corrigé', 'Il ne porte pas de nonce, et il n’y a plus de `\'unsafe-inline\'`', '`strict-dynamic` bloque les images', '`base-uri \'none\'` le bloque'], answer: 1, why: 'Un gestionnaire en attribut ne peut pas porter de nonce. Sans `\'unsafe-inline\'`, le navigateur le bloque.' }
+				]
+			},
+			{
+				title: 'Déploie-la',
+				questions: [
+					{ q: 'Quelles réponses doivent porter l’en-tête ?', options: ['Seulement la page d’accueil', 'Seulement les pages HTML', 'Toutes les réponses à toutes les requêtes', 'Seulement les réponses avec des scripts'], answer: 2, why: 'MDN : la politique « should be set on all responses to all requests, not just the main document ».' },
+					{ q: 'Comment la déployer sans casser l’appli ?', options: ['D’abord en `Content-Security-Policy-Report-Only` avec un point `report-to`', 'L’activer un vendredi soir', 'L’activer pour les admins seulement', 'Ajouter `\'unsafe-inline\'` la première semaine'], answer: 0, why: 'Le mode report-only ne bloque rien et te dit ce que la politique aurait bloqué.' },
+					{ q: 'Que corriges-tu en lisant les rapports ?', options: ['Les réglages du navigateur', 'La liste d’hôtes du CDN', 'Les attributs des cookies', 'Les scripts en ligne de l’appli qui y apparaissent'], answer: 3, why: 'Chacun a besoin du nonce, ou d’un passage dans un fichier, avant d’imposer la politique.' },
+					{ q: 'Quand passes-tu en `Content-Security-Policy` ?', options: ['Avant le premier rapport', 'Quand les scripts de l’appli n’apparaissent plus dans les rapports', 'Jamais : report-only suffit', 'Après la prochaine XSS'], answer: 1, why: 'Le mode report-only n’impose rien : il ne protège qu’une fois le vrai en-tête envoyé.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,28 @@ Rails.application.config.content_security_policy_nonce_directives = %w(style-src
 			why: 'MDN : « The policy is not enforced, but any violations are sent to the reporting endpoint specified in the policy. » Si un en-tête qui applique la politique est aussi présent, les deux sont respectés. Une politique report-only ne peut pas passer par un élément `<meta>`.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Sers la page de l’exercice depuis un nginx local, regarde la politique faible laisser tourner le gestionnaire injecté, puis passe à une politique à nonce et regarde le navigateur le bloquer pendant que ton propre script tourne encore.',
+		steps: [
+			'Crée la page, avec un script à toi et la bio injectée : `mkdir -p ~/csp-lab/html ~/csp-lab/conf && cd ~/csp-lab && printf \'%s\\n\' \'<!doctype html>\' \'<script nonce="__NONCE__">document.title = "own script ran"</script>\' \'<p>Bio: <img src=x onerror=alert(1)></p>\' > html/index.html`.',
+			'Dans un éditeur, crée `conf/default.conf` avec ces lignes : `server {`, `listen 80;`, `root /usr/share/nginx/html;`, `sub_filter_once off;`, `sub_filter __NONCE__ $request_id;`, `add_header Content-Security-Policy "default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdn.example.com; object-src \'none\'" always;`, `}`.',
+			'Lance nginx : `docker run -d --name csp-lab -p 8080:80 -v "$PWD/html:/usr/share/nginx/html:ro" -v "$PWD/conf:/etc/nginx/conf.d:ro" nginx:1.27-alpine`. Vérifie l’en-tête avec `curl -sI localhost:8080`, puis ouvre `http://localhost:8080` dans un navigateur.',
+			'Remplace la politique de la ligne `add_header` par `script-src \'nonce-$request_id\' \'strict-dynamic\'; object-src \'none\'; base-uri \'none\'`. Recharge nginx : `docker exec csp-lab nginx -s reload`.',
+			'Lance `curl -sI localhost:8080` deux fois, puis `curl -si localhost:8080 | grep -o "nonce[-=]\\"\\{0,1\\}[0-9a-f]*"`. Recharge ensuite la page dans le navigateur, console de développement ouverte.'
+		],
+		done: [
+			'Avec la première politique, le navigateur affiche une boîte d’alerte : le gestionnaire injecté a tourné.',
+			'Avec la politique à nonce, deux appels `curl -sI` montrent deux valeurs `nonce-…` différentes.',
+			'Le `grep` montre la même valeur dans l’en-tête et dans la balise `<script nonce="…">`.',
+			'Le navigateur n’affiche plus d’alerte, le titre de l’onglet dit `own script ran`, et la console indique que le gestionnaire en ligne a été bloqué par `script-src`.'
+		],
+		solution: [
+			'La première politique autorise `\'unsafe-inline\'` : l’attribut `onerror` tourne comme n’importe quel script en ligne.',
+			'`sub_filter` écrit le `$request_id` de nginx, propre à chaque requête, dans la page, et `add_header` met la même valeur dans l’en-tête : le nonce est neuf à chaque réponse.',
+			'Ton script porte le `nonce` correspondant et tourne. L’attribut `onerror` ne peut pas en porter et il est bloqué. Nettoie avec `docker rm -f csp-lab` et `rm -rf ~/csp-lab`.'
+		]
+	},
 	recall: {
 		q: 'Dans la CVE-2023-42452 de Mastodon, quel réglage de `script_src` a empêché le HTML injecté de lancer des scripts ?',
 		a: '`p.script_src :self, assets_host, "\'wasm-unsafe-eval\'"` : pas de `\'unsafe-inline\'`, donc le navigateur refuse les blocs `<script>` en ligne et les gestionnaires d’événement.'

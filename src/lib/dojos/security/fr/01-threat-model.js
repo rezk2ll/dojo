@@ -132,6 +132,44 @@ export default {
 			'S : `to=email` écrit à l’adresse tapée par le visiteur. Avec une recherche insensible à la casse, une adresse sosie peut tomber sur le compte et recevoir le lien, comme dans la CVE-2019-19844 de Django. Écris à `user.email`.',
 			'S : `request.host` vient de l’en-tête `Host`, que l’attaquant choisit. Le lien peut pointer vers son serveur et lui livrer le jeton au clic de la victime. L’OWASP : l’URL « should either be hard-coded, or validated against a list of trusted domains ».',
 			'D et R : rien ne limite les demandes par compte, et rien n’est journalisé. Ajoute une limite par compte et journalise chaque demande avec le compte visé.'
+		],
+		steps: [
+			{
+				title: 'Trouve qui contrôle chaque valeur',
+				questions: [
+					{ q: 'Dans (4), qui choisit l’adresse de `to=` ?', options: ['La table `users`', 'Le serveur de mail', 'Celui qui envoie la requête', 'La configuration de l’app'], answer: 2, why: '`request.form["email"]` est ce que le navigateur a posté. Celui qui envoie la requête le choisit.' },
+					{ q: 'D’où vient `request.host` ?', options: ['De l’en-tête `Host`, que l’expéditeur choisit', 'Du nom du serveur dans la config de l’app', 'Du certificat TLS du site', 'De l’enregistrement DNS du domaine'], answer: 0, why: 'Il est lu dans l’en-tête `Host` de la requête. L’attaquant peut y mettre n’importe quelle valeur.' },
+					{ q: 'Comment appliques-tu STRIDE à ce handler ?', options: ['Classe chaque ligne par probabilité fois impact', 'Choisis la lettre qui colle le mieux à la fonctionnalité', 'Passe-le une fois sur toute l’app, pas par fonctionnalité', 'Pose les six questions à chaque étape et chaque flèche'], answer: 3, why: 'STRIDE, ce sont six questions, et tu poses chacune à chaque case et chaque flèche. Il trouve des menaces ; il ne les classe pas.' },
+					{ q: 'Que demande la lettre R à ce handler ?', options: ['Quelqu’un peut-il lire des données interdites ?', 'Peux-tu prouver plus tard qui a demandé quel compte ?', 'Quelqu’un peut-il devenir admin par le formulaire ?', 'Quelqu’un peut-il modifier le jeton après l’envoi ?'], answer: 1, why: 'La répudiation, c’est la preuve après coup. GitLab a pu dire aux admins quoi chercher parce que son journal d’audit enregistrait chaque demande de réinitialisation.' }
+				]
+			},
+			{
+				title: 'Vérifie les réponses et le jeton',
+				questions: [
+					{ q: '(2) répond « No account with that email » avec un 404. Quelle lettre ?', options: ['Spoofing', 'Tampering', 'Information disclosure', 'Denial of service'], answer: 2, why: 'Chaque requête livre un fait : cette adresse a-t-elle un compte. N’importe qui peut tester une liste d’adresses.' },
+					{ q: 'Que renvoies-tu à la place ?', options: ['« Email sent » dans tous les cas, dans le même temps', 'Un 403 au lieu d’un 404 pour les adresses inconnues', 'Le même message, mais après un CAPTCHA', 'Un 404 avec un corps vide'], answer: 0, why: 'L’OWASP demande un message identique pour les comptes existants et absents, dans le même temps. Un autre code de statut ou une réponse plus lente fuit encore.' },
+					{ q: 'Combien de jetons `random.randint(100000, 999999)` peut-il produire ?', options: ['999 999', '900 000', '1 000 000', '100 000'], answer: 1, why: 'De 100000 à 999999, il y a 900 000 valeurs, toutes à 6 chiffres.' },
+					{ q: 'À 100 essais par seconde, combien de temps pour tous les essayer ?', options: ['Environ 15 minutes', 'Environ 25 heures', 'Environ 9 jours', 'Environ 2 h 30'], answer: 3, why: '900 000 valeurs à 100 par seconde, c’est 9 000 secondes, 2 h 30. Sans expiration, le jeton attend tout ce temps.' }
+				]
+			},
+			{
+				title: 'Regarde où part le lien',
+				questions: [
+					{ q: '(4) écrit à `request.form["email"]`, et la recherche ignore la casse. Qu’est-ce qui peut mal tourner ?', options: ['Le serveur de mail refuse les majuscules', 'Une adresse sosie tombe sur le compte et reçoit le lien', 'Le jeton est enregistré pour le mauvais compte', 'Le mail part avant que le jeton soit enregistré'], answer: 1, why: 'C’est la CVE-2019-19844 de Django : une adresse fabriquée tombait sur un vrai compte après le pliage de casse Unicode, et le lien partait chez l’attaquant.' },
+					{ q: 'À quelle adresse le lien doit-il partir ?', options: ['À l’adresse tapée, passée en minuscules', 'À l’adresse tapée et à l’adresse enregistrée', 'À une adresse que l’utilisateur confirme sur la page', 'À `user.email`, lue dans la ligne de la base'], answer: 3, why: 'Seule l’adresse enregistrée appartient au titulaire. La CVE-2023-7028 de GitLab envoyait les liens à des adresses prises dans la requête.' },
+					{ q: 'Un attaquant poste l’adresse d’ana avec `Host: evil.example`. Que reçoit ana ?', options: ['Un vrai jeton dans un lien vers evil.example', 'Une erreur, car l’hôte ne correspond pas', 'Un lien vers le vrai site, sans jeton', 'Aucun mail, car l’hôte est inconnu'], answer: 0, why: 'Le lien est construit avec `request.host`. Quand ana clique, son navigateur livre un jeton valide au serveur de l’attaquant.' },
+					{ q: 'Que dit l’OWASP sur l’URL de réinitialisation ?', options: ['Construis-la avec l’en-tête `Referer`', 'Construis-la avec l’hôte de la requête, en HTTPS', 'Écris-la en dur, ou vérifie-la contre des domaines de confiance', 'Laisse l’utilisateur la choisir dans le formulaire'], answer: 2, why: 'L’OWASP : l’URL « should either be hard-coded, or validated against a list of trusted domains ». L’en-tête `Host` n’est ni l’un ni l’autre.' }
+				]
+			},
+			{
+				title: 'Bouche les trous',
+				questions: [
+					{ q: 'Après les corrections de I et S, quelles lettres le handler rate-t-il encore ?', options: ['D et R', 'T et E', 'Seulement T', 'Aucune'], answer: 0, why: 'Rien ne limite les demandes par compte (D), et rien n’est journalisé (R).' },
+					{ q: 'Quelqu’un envoie des milliers de demandes par heure pour ana. Qu’ajoutes-tu ?', options: ['Bloquer le compte d’ana après 5 demandes', 'Un jeton plus long dans chaque mail', 'Une limite de débit par compte', 'Un second serveur de mail pour les liens'], answer: 2, why: 'L’OWASP demande une limite par compte, et dit que les comptes ne doivent pas être bloqués par une attaque sur le mot de passe oublié.' },
+					{ q: 'Que doit contenir chaque entrée du journal ?', options: ['Le jeton, pour que le support le renvoie', 'Le nouveau mot de passe, pour le support', 'Seulement l’heure de la demande', 'Qui a demandé, et pour quel compte'], answer: 3, why: 'C’est ce qui a permis à GitLab de montrer aux admins les requêtes suspectes. Ne journalise jamais le jeton : qui le détient choisit le mot de passe.' },
+					{ q: 'Quel jeton respecte les règles de l’OWASP ?', options: ['`random.randint` sur 12 chiffres, sans expiration', '`secrets.token_urlsafe(32)`, haché, qui expire, à usage unique', '`secrets.token_urlsafe(32)`, valable jusqu’à la connexion suivante', 'Un SHA-256 de l’adresse et de la date du jour'], answer: 1, why: 'L’OWASP : un générateur aléatoire sûr, assez long, lié à un seul compte, invalidé après usage. La doc Python dit que `random` « should not be used for security purposes ».' }
+				]
+			}
 		]
 	},
 	quiz: [

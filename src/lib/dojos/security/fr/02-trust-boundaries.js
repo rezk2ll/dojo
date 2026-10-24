@@ -110,6 +110,44 @@ export const filterInternalHeaders = (
 			'`X-User` : nginx le transmet tel quel, donc un client peut envoyer `X-User: admin`. Ne le pose que dans le proxy d’authentification, et retire la copie du client avec `proxy_set_header X-User "";`. La doc nginx : si la valeur « is an empty string then this field will not be passed to a proxied server ».',
 			'`X-Forwarded-For` : `$proxy_add_x_forwarded_for` ajoute la vraie adresse après ce que le client a envoyé. La valeur la plus à gauche est le texte du client, qui peut changer d’IP à chaque requête et échapper à la limite. Utilise `proxy_set_header X-Forwarded-For $remote_addr;`, ou lis la valeur la plus à droite, celle ajoutée par nginx.',
 			'Le port 8000 sur `0.0.0.0` est ouvert sur toutes les interfaces : un attaquant peut contourner nginx et poser n’importe quel en-tête. Attache Flask à `127.0.0.1:8000` ou à un réseau privé que seul nginx atteint.'
+		],
+		steps: [
+			{
+				title: 'Place les frontières',
+				questions: [
+					{ q: 'Combien de frontières de confiance une requête franchit-elle avant que Flask la lise ?', options: ['Une : d’internet à Flask', 'Deux : d’internet à nginx, de nginx à Flask', 'Trois : navigateur, nginx et proxy d’authentification', 'Aucune : nginx la rend fiable'], answer: 1, why: 'Les données passent d’internet à nginx, puis de nginx à l’appli. Chaque ligne est un endroit où vérifier.' },
+					{ q: 'Quelles parties d’une requête sont non fiables en arrivant à nginx ?', options: ['Seulement le corps', 'Seulement les cookies', 'Seulement les en-têtes qui commencent par `X-`', 'L’URL, chaque en-tête, chaque cookie et le corps'], answer: 3, why: 'L’expéditeur a choisi chaque octet. Une donnée non fiable, c’est tout ce qui a franchi une frontière sans contrôle.' },
+					{ q: 'Quand l’appli peut-elle croire un en-tête ?', options: ['Quand le dernier à l’écrire est une pièce que tu contrôles', 'Quand son nom commence par `X-`', 'Quand il est arrivé par le port 443', 'Quand l’appli l’écrit dans le journal'], answer: 0, why: 'Demande-toi qui l’a écrit en dernier. Si nginx l’a écrasé ou supprimé, la valeur du client a disparu.' },
+					{ q: 'Dans le cas Next.js, qu’est-ce qui a cédé à la frontière ?', options: ['Le cookie de session n’était pas signé', 'Le middleware tournait après la page', 'Un en-tête interne était accepté de l’extérieur', 'Pas de TLS entre le proxy et l’appli'], answer: 2, why: 'Le serveur lisait `x-middleware-subrequest` sur chaque requête, y compris celles d’internet, donc un visiteur pouvait sauter le contrôle de connexion.' }
+				]
+			},
+			{
+				title: 'Vérifie X-User',
+				questions: [
+					{ q: 'nginx transmet `X-User` tel quel. Que peut faire un client ?', options: ['Envoyer `X-User: admin` et agir en admin', 'Rien : le proxy d’authentification signe l’en-tête', 'Seulement lire sa propre valeur de `X-User`', 'Le changer seulement après connexion'], answer: 0, why: 'L’appli croit `X-User`, et rien sur le chemin ne retire la copie envoyée par le client.' },
+					{ q: 'Quelle ligne nginx retire la copie du client ?', options: ['`proxy_hide_header X-User;`', '`proxy_set_header X-User $remote_addr;`', '`proxy_set_header X-User "";`', '`add_header X-User "";`'], answer: 2, why: 'La doc nginx : si la valeur « is an empty string then this field will not be passed to a proxied server ».' },
+					{ q: 'Qui doit être le seul à poser `X-User` ?', options: ['Le navigateur, après la connexion', 'nginx, à partir de la valeur du client', 'N’importe quelle pièce derrière le port 443', 'Le proxy d’authentification, après la connexion'], answer: 3, why: 'L’en-tête porte le résultat de la connexion, donc seule la pièce qui a vérifié la connexion peut l’écrire.' },
+					{ q: 'Next.js lance `filterInternalHeaders` à la première ligne de `requestHandlerImpl`. Pourquoi là ?', options: ['C’est l’endroit le plus rapide du serveur', 'Chaque requête y passe avant que le code lise les en-têtes', 'Le navigateur ne peut pas appeler cette fonction', 'Seules les routes admin y passent'], answer: 1, why: 'Un seul contrôle au point d’entrée couvre toutes les routes. Aucun code plus loin ne voit la valeur venue de l’extérieur.' }
+				]
+			},
+			{
+				title: 'Vérifie X-Forwarded-For',
+				questions: [
+					{ q: 'Un client envoie `X-Forwarded-For: 6.6.6.6`. Que reçoit Flask avec `$proxy_add_x_forwarded_for` ?', options: ['Seulement l’adresse vue par nginx', 'Seulement `6.6.6.6`', 'Rien : nginx supprime l’en-tête', '`6.6.6.6`, puis l’adresse vue par nginx'], answer: 3, why: 'La variable ajoute la vraie adresse après ce que le client a envoyé.' },
+					{ q: 'Pourquoi la valeur la plus à gauche casse-t-elle la limite de débit ?', options: ['La valeur de gauche est toujours nginx', 'Le client l’écrit, donc chaque requête peut annoncer une nouvelle IP', 'nginx trie la liste à chaque requête', 'Elle contient la forme IPv6 de l’adresse'], answer: 1, why: 'L’entrée la plus à gauche est le texte du client. Une nouvelle valeur à chaque requête échappe à une limite par IP.' },
+					{ q: 'Quel changement donne à Flask une adresse fiable ?', options: ['`proxy_set_header X-Forwarded-For $http_x_forwarded_for;`', 'Garder la valeur de gauche, mais vérifier que c’est une IP valide', '`proxy_set_header X-Forwarded-For $remote_addr;`', 'Renommer l’en-tête en `X-Client-IP` dans Flask'], answer: 2, why: '`$remote_addr` est l’adresse vue par nginx sur la connexion, et elle remplace la copie du client. Lire la valeur la plus à droite, celle ajoutée par nginx, marche aussi.' },
+					{ q: 'Le `SECURE_PROXY_SSL_HEADER` de Django suit la même règle. Que doit faire le proxy ?', options: ['Retirer le `X-Forwarded-Proto` du client, puis poser le sien', 'Transmettre la valeur du client telle quelle', 'Chiffrer en TLS le lien vers Django', 'Poser l’en-tête seulement pour les connectés'], answer: 0, why: 'La doc Django exige que le proxy « strips the `X-Forwarded-Proto` header from all incoming requests ». Sinon une requête HTTP simple peut se dire HTTPS.' }
+				]
+			},
+			{
+				title: 'Ferme la porte de service',
+				questions: [
+					{ q: 'Flask écoute sur `0.0.0.0:8000`. Qui peut s’y connecter ?', options: ['Seulement nginx sur la même machine', 'Seulement les clients en port 443', 'Quiconque atteint une interface de la machine', 'Personne tant que nginx n’a pas démarré'], answer: 2, why: '`0.0.0.0` veut dire toutes les interfaces, donc une requête peut atteindre le port 8000 sans passer par nginx.' },
+					{ q: 'Un attaquant se connecte directement au port 8000. Quel correctif nginx protège encore l’appli ?', options: ['Aucun : nginx ne voit jamais cette requête', '`proxy_set_header X-User "";`', '`$remote_addr` dans `X-Forwarded-For`', 'Les deux correctifs d’en-têtes ensemble'], answer: 0, why: 'Les correctifs d’en-têtes vivent dans nginx. Une requête qui contourne nginx pose les en-têtes qu’elle veut.' },
+					{ q: 'Qu’est-ce qui ferme ce chemin ?', options: ['Passer Flask sur le port 8443', 'Attacher Flask à `127.0.0.1:8000`', 'Ajouter un CAPTCHA à la page de connexion', 'Activer HTTPS dans Flask'], answer: 1, why: 'Le seul chemin vers l’appli passe alors par nginx, là où tournent les correctifs d’en-têtes. Un réseau privé que seul nginx atteint marche aussi.' },
+					{ q: 'Comment prouves-tu que le correctif de `X-User` marche ?', options: ['Cherche `X-User` dans le journal d’accès de nginx', 'Redémarre nginx et regarde les erreurs', 'Connecte-toi et vérifie que la page s’affiche', 'Envoie `X-User: admin` via nginx et vérifie que l’appli ne reçoit rien'], answer: 3, why: 'Falsifie l’en-tête toi-même. Si l’appli voit encore `admin`, la frontière est ouverte.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ export const filterInternalHeaders = (
 			why: 'Django croit l’en-tête, donc il ne doit venir que du proxy. La doc exige que le proxy « strips the `X-Forwarded-Proto` header from all incoming requests » et ne le pose que pour les requêtes arrivées en HTTPS. Le TLS entre proxy et Django n’empêche pas un en-tête falsifié.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Falsifie `X-User` et `X-Forwarded-For` à travers un vrai nginx, puis corrige le proxy pour que l’appli ne voie que ce que nginx a écrit.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/boundary-lab && cd ~/boundary-lab`. Écris une config nginx d’une ligne. Un second serveur sur `127.0.0.1:9000` joue l’appli et affiche les deux en-têtes qu’il reçoit : `printf \'%s\\n\' \'server { listen 8080; location / { proxy_pass http://127.0.0.1:9000; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; } } server { listen 127.0.0.1:9000; return 200 "app sees X-User=[$http_x_user] XFF=[$http_x_forwarded_for]\\n"; }\' > default.conf`.',
+			'Lance nginx, publié sur localhost seulement : `docker run -d --name boundary-lab -p 127.0.0.1:8080:8080 -v "$PWD:/etc/nginx/conf.d:ro" nginx:1.27-alpine`.',
+			'Envoie une requête normale, puis une falsifiée : `curl -s localhost:8080/`, puis `curl -s -H "X-User: admin" -H "X-Forwarded-For: 6.6.6.6" localhost:8080/`.',
+			'Corrige la frontière. Dans `default.conf`, remplace `$proxy_add_x_forwarded_for;` par `$remote_addr; proxy_set_header X-User "";`. Recharge avec `docker exec boundary-lab nginx -s reload` et renvoie la requête falsifiée.',
+			'Essaie la porte de service : `curl -s localhost:9000/`. Puis nettoie avec `docker rm -f boundary-lab`.'
+		],
+		done: [
+			'Avant le correctif, la requête falsifiée affiche `X-User=[admin]` et `XFF=[6.6.6.6, ...]` : l’appli lit le texte du client.',
+			'Après le rechargement, la même requête affiche `X-User=[]` et une seule adresse dans `XFF`, celle vue par nginx.',
+			'`curl -s localhost:9000/` n’arrive pas à se connecter : le port de l’appli n’est pas joignable depuis ton portable.'
+		],
+		solution: [
+			'`$proxy_add_x_forwarded_for` ajoute l’adresse vue par nginx après la valeur du client, donc l’entrée de gauche reste falsifiée. `$remote_addr` remplace toute la valeur.',
+			'`proxy_set_header X-User "";` empêche nginx de transmettre l’en-tête. Dans un vrai montage, le proxy d’authentification pose la valeur après la connexion.',
+			'L’appli écoute sur `127.0.0.1:9000` dans le conteneur et n’est pas publiée, donc nginx est le seul chemin. Attacher Flask à `127.0.0.1:8000` fait la même chose dans l’exercice.'
+		]
+	},
 	recall: {
 		q: 'Quel en-tête la CVE-2025-29927 laissait-elle envoyer depuis l’extérieur, et où le correctif le retire-t-il ?',
 		a: '`x-middleware-subrequest`. `filterInternalHeaders` le supprime à la première ligne de `requestHandlerImpl`, sauf si `x-middleware-subrequest-id` vaut la valeur aléatoire créée au démarrage.'

@@ -137,6 +137,44 @@ outputPath: ../data/results.csv`,
 			'Entrée hors sujet : un ticket « What time does your office open on Saturday? », avec `__expected` à `contains:General Inquiries`, la catégorie des "Questions about company contact information or hours of operation".',
 			'Entrée ambiguë : « You charged me twice and I want the second charge removed », avec `contains:Billing Disputes`. Écris le label avant le run, et si deux personnes de l’équipe ne sont pas d’accord, note-le : la doc range parmi les cas limites ceux "where even humans would find it hard to reach an assessment consensus".',
 			'Un brouillon de réponse n’a pas de chaîne juste unique, donc le code ne peut pas le noter. Prends un modèle correcteur avec une grille qui rend « correct » ou « incorrect », par exemple l’assertion `llm-rubric` de promptfoo, et vérifie d’abord ses verdicts sur 20 réponses que tu as notées à la main.'
+		],
+		steps: [
+			{
+				title: 'Compte les appels',
+				questions: [
+					{ q: 'Un run fait un appel à l’API par quoi ?', options: ['Par ligne seulement', 'Par prompt, par provider et par ligne', 'Par prompt seulement', 'Par provider et par catégorie'], answer: 1, why: 'promptfoo fait passer chaque ligne par chaque prompt et chaque provider.' },
+					{ q: 'Combien de providers la config du cookbook liste-t-elle ?', options: ['3', '10', '5', '68'], answer: 2, why: 'Un seul modèle à 5 températures : 0, 0.2, 0.4, 0.6 et 0.8.' },
+					{ q: 'Avec une 4e version du prompt, combien d’appels fait un run ?', options: ['1 360', '1 020', '340', '1 088'], answer: 0, why: '4 prompts x 5 températures x 68 tickets, cela fait 1 360.' },
+					{ q: 'Combien d’appels chaque nouvelle version du prompt ajoute-t-elle à chaque run ?', options: ['68', '5', '1 020', '340'], answer: 3, why: 'Un prompt passe par 5 providers sur 68 lignes : 340 appels.' }
+				]
+			},
+			{
+				title: 'Écris une ligne hors sujet',
+				questions: [
+					{ q: 'Quel cas limite de la doc « What time does your office open on Saturday? » couvre-t-il ?', options: ['Une entrée hors sujet', 'Une entrée trop longue', 'Une entrée ambiguë', 'Un ticket en double'], answer: 0, why: 'Ce n’est pas du tout un problème d’assurance : il teste les "Irrelevant or nonexistent input data".' },
+					{ q: 'Quelle valeur `__expected` lui donnes-tu ?', options: ['`contains:Account Management`', '`contains:General Inquiries`', '`contains:Policy Administration`', '`contains:Coverage Explanations`'], answer: 1, why: 'Les horaires du bureau relèvent de General Inquiries.' },
+					{ q: 'Pourquoi General Inquiries est-il le bon label ?', options: ['C’est le label que le modèle choisit le plus souvent', 'N’importe quel label convient, une ligne hors sujet échoue toujours', 'Il couvre les questions sur les coordonnées ou les horaires', 'C’est le premier label de la liste'], answer: 2, why: 'La catégorie est définie comme "Questions about company contact information or hours of operation".' },
+					{ q: 'Quand le label attendu est-il écrit ?', options: ['Après le run, à partir de la réponse du modèle', 'Quand la ligne échoue pour la première fois', 'Par promptfoo, à partir du transform', 'Avant le run, par une personne'], answer: 3, why: 'Une réponse de référence est écrite par une personne avant le run, pour que le modèle ne se note pas lui-même.' }
+				]
+			},
+			{
+				title: 'Écris une ligne ambiguë',
+				questions: [
+					{ q: '« You charged me twice and I want the second charge removed. » Quelle valeur `__expected` écris-tu ?', options: ['`contains:Billing Inquiries`', '`contains:Claims Disputes`', '`contains:Billing Disputes`', '`contains:General Inquiries`'], answer: 2, why: 'Le client conteste un prélèvement : c’est un litige, pas une question sur la facturation.' },
+					{ q: 'Deux collègues ne sont pas d’accord sur ce label. Que fais-tu ?', options: ['Tu supprimes la ligne, c’est du bruit', 'Tu gardes la ligne et tu notes le désaccord', 'Tu laisses le modèle choisir le label', 'Tu la marques réussie quoi qu’il arrive'], answer: 1, why: 'La doc range parmi les cas limites à tester ceux "where even humans would find it hard to reach an assessment consensus".' },
+					{ q: 'Avant la notation, que fait `transform.py` de chaque réponse ?', options: ['Il met le texte du ticket en minuscules', 'Il ne garde que le texte entre les balises `<category>`', 'Il relance la ligne à une température plus haute', 'Il l’envoie à un second modèle'], answer: 1, why: 'Le prompt avec raisonnement écrit d’abord un `<scratchpad>`, donc le correcteur ne doit voir que le label.' },
+					{ q: 'Le modèle répond Billing Inquiries pour cette ligne. Pourquoi échoue-t-elle ?', options: ['`icontains-any` le rejette comme label invalide', 'La température était trop haute', 'Le transform a retiré le label', 'Le label est valide mais ce n’est pas celui attendu'], answer: 3, why: 'Billing Inquiries passe la vérification `icontains-any`. C’est le `contains:Billing Disputes` de la ligne qui échoue.' }
+				]
+			},
+			{
+				title: 'Choisis un correcteur pour la réponse',
+				questions: [
+					{ q: 'Pourquoi le code ne peut-il pas noter un brouillon de réponse au client ?', options: ['Il n’a pas de chaîne juste unique', 'Le code ne sait pas lire un long texte', 'La notation par code coûte un appel d’API en plus', 'promptfoo ne sait pas lire du texte libre'], answer: 0, why: 'Le code vérifie une forme fixe, comme un label exact. Une bonne réponse peut s’écrire de bien des façons.' },
+					{ q: 'Quel correcteur prends-tu à la place ?', options: ['Une recherche de phrases clés', 'Une notation humaine à chaque run', 'Un modèle correcteur avec une grille', 'Aucun : un run à température 0'], answer: 2, why: 'Un modèle correcteur lit la réponse et une grille, puis rend « correct » ou « incorrect ».' },
+					{ q: 'Quelle assertion promptfoo va avec ce correcteur ?', options: ['`icontains-any`', '`llm-rubric`', '`contains`', '`transform`'], answer: 1, why: '`llm-rubric` demande à un modèle de noter la sortie selon ta grille.' },
+					{ q: 'Que fais-tu avant de te fier au score de ce correcteur ?', options: ['Tu le lances à température 0.8', 'Tu ajoutes 1 000 lignes', 'Tu le compares au score de `icontains-any`', 'Tu vérifies ses verdicts sur 20 réponses notées à la main'], answer: 3, why: 'Un modèle correcteur peut se tromper. La doc dit de tester d’abord sa fiabilité, puis de passer à l’échelle.' }
+				]
+			}
 		]
 	},
 	quiz: [

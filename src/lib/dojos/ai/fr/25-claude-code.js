@@ -134,6 +134,44 @@ export default {
 			'Take action : un `Edit` par fichier, chacun remplace un `old_string` exact. La première modification te demande ton accord, et si tu réponds « Yes, and don’t ask again », les suivantes tournent sans demande jusqu’à la fin de la session.',
 			'Verify : `npm test` via Bash. Il te demande ton accord, car ce n’est pas une commande en lecture seule. S’il échoue, Claude lit la sortie et revient aux modifications.',
 			'Si la deuxième modification est fausse, appuie sur `Esc` pour arrêter l’appel d’outil en cours, puis deux fois sur `Esc` pour ramener les fichiers au checkpoint d’avant cette modification, et dis à Claude ce qui n’allait pas.'
+		],
+		steps: [
+			{
+				title: 'Rassemble le contexte',
+				questions: [
+					{ q: 'Quel appel d’outil attends-tu en premier ?', options: ['`Edit` sur le premier fichier', '`npm test` via Bash', '`grep -rn getUser src` via Bash', '`Read` sur tous les fichiers du dépôt'], answer: 2, why: 'Claude doit trouver où `getUser` est utilisé avant de lire ou de changer quoi que ce soit.' },
+					{ q: 'En mode Manual, ce `grep` te demande-t-il ton accord ?', options: ['Oui, chaque commande Bash demande', 'Non, `grep` fait partie de la liste intégrée en lecture seule', 'Seulement la première fois de la session', 'Seulement s’il cherche hors de `src`'], answer: 1, why: 'Une liste intégrée de commandes en lecture seule, dont `grep`, tourne sans demande.' },
+					{ q: 'Les appels `Read` sur les fichiers qu’il liste te demandent-ils ton accord ?', options: ['Non, une lecture dans le répertoire de travail ne demande jamais', 'Oui, chaque fichier demande une fois', 'Seulement pour les fichiers de test', 'Oui, sauf si CLAUDE.md liste le fichier'], answer: 0, why: 'Les lectures dans le répertoire de travail n’ont pas besoin de validation.' },
+					{ q: 'Qu’est-ce qui dit à Claude quels fichiers lire ?', options: ['Tu les listes dans ton message', 'La sortie du `grep`', 'Ton CLAUDE.md', 'Le fichier JSONL de la session'], answer: 1, why: 'Claude choisit chaque outil d’après ce que le dernier résultat a montré. Tu décris le résultat voulu, pas les fichiers.' }
+				]
+			},
+			{
+				title: 'Passe à l’action',
+				questions: [
+					{ q: 'Combien d’appels `Edit` attends-tu ?', options: ['Un pour tout le dépôt', 'Un par fichier qui utilise `getUser`', 'Un par test', 'Un par commit'], answer: 1, why: 'Chaque `Edit` modifie un fichier, donc le renommage prend un appel par fichier.' },
+					{ q: 'Comment `Edit` trouve-t-il le texte à changer ?', options: ['Il cherche des noms qui se ressemblent', 'Il réécrit tout le fichier', 'Il lance `sed` sur le fichier', 'Il remplace un `old_string` exact par un `new_string`'], answer: 3, why: '`Edit` cherche une correspondance exacte, sans approximation.' },
+					{ q: 'Que fait Claude Code juste avant chaque modification ?', options: ['Il commite le fichier dans git', 'Il lance les tests', 'Il prend un checkpoint du fichier', 'Il recharge CLAUDE.md'], answer: 2, why: 'Claude Code fait d’abord une copie du fichier, et c’est ce qui rend une modification réversible.' },
+					{ q: 'Tu réponds « Yes, and don’t ask again » à la première modification. Combien de temps cela dure-t-il ?', options: ['Jusqu’à la fin de la session', 'Pour toujours, via `.claude/settings.local.json`', 'Pour la modification suivante seulement', 'Jusqu’à ce que les tests passent'], answer: 0, why: 'Pour les modifications de fichiers, cette réponse vaut pour le reste de la session. Les suivantes tournent sans demande.' }
+				]
+			},
+			{
+				title: 'Vérifie le résultat',
+				questions: [
+					{ q: 'Quel appel vérifie que les tests passent encore après le renommage ?', options: ['`Glob` sur les fichiers de test', '`npm test` via Bash', '`Read` sur le fichier de test', '`Edit` sur le fichier de test'], answer: 1, why: 'La tâche dit que les tests doivent encore passer, donc Claude les lance.' },
+					{ q: '`npm test` te demande-t-il ton accord ?', options: ['Non, les tests ne font que lire des fichiers', 'Non, tu as déjà validé les modifications', 'Oui, ce n’est pas une commande en lecture seule', 'Seulement quand un test échoue'], answer: 2, why: '`npm test` n’est pas dans la liste en lecture seule, donc en mode Manual il demande.' },
+					{ q: 'Les tests échouent. Que fait Claude ensuite ?', options: ['Il lit la sortie et revient aux modifications', 'Il s’arrête et annonce la tâche finie', 'Il revient en arrière de lui-même', 'Il ouvre une nouvelle session'], answer: 0, why: 'Verify renvoie vers take action : la sortie de l’échec est ce dont Claude repart.' },
+					{ q: 'Quand la boucle de cette demande s’arrête-t-elle ?', options: ['Après 10 appels d’outils', 'Dès que les tests passent', 'Quand la fenêtre de contexte est pleine', 'Quand le modèle répond par du texte sans appel d’outil'], answer: 3, why: 'Le modèle appelle des outils jusqu’à produire une réponse sans appel d’outil.' }
+				]
+			},
+			{
+				title: 'Rattrape une mauvaise modification',
+				questions: [
+					{ q: 'La deuxième modification tourne mal pendant que Claude travaille. Sur quoi appuies-tu d’abord ?', options: ['`Esc` une fois, pour arrêter l’appel d’outil en cours', '`Enter`, pour mettre un message en file', '`Esc` trois fois', 'Tu fermes le terminal'], answer: 0, why: '`Esc` arrête Claude et annule l’appel d’outil en cours.' },
+					{ q: 'Comment ramènes-tu les fichiers à leur état d’avant cette modification ?', options: ['Tu lances `claude --resume`', 'Tu appuies deux fois sur `Esc` et tu reviens en arrière', 'Tu lances `/compact`', 'Tu ouvres une nouvelle session'], answer: 1, why: 'Deux fois `Esc` ramène à un checkpoint antérieur.' },
+					{ q: 'Que ne peut pas ramener un retour en arrière ?', options: ['Une modification d’un fichier local', 'La copie du checkpoint', 'Une action sur un système distant, comme une base de données', 'Un fichier du répertoire de travail'], answer: 2, why: 'La doc : les actions sur des bases, des API ou des déploiements "can’t be checkpointed".' },
+					{ q: 'Les fichiers sont revenus. Que fais-tu ensuite ?', options: ['Tu supprimes le fichier JSONL de la session', 'Tu quittes le mode Manual', 'Tu fais le renommage à la main', 'Tu dis à Claude ce qui n’allait pas'], answer: 3, why: 'La session garde son historique, donc Claude peut réessayer avec ta correction.' }
+				]
+			}
 		]
 	},
 	quiz: [

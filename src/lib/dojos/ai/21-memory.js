@@ -126,6 +126,44 @@ export default {
 			'Claude Code concatenates the four files. None of them replaces another, so a conflict between two of them is yours to fix: the docs say Claude "may pick one arbitrarily".',
 			'`src/billing/CLAUDE.md` is below the working directory, so it is not loaded at launch. It loads the first time Claude reads, writes or edits a file in `src/billing/`.',
 			'Run `/context` to check: the launch files are listed under Memory files. The billing file is not in that list until it loads, and then a `Loaded` line with its path appears in the terminal.'
+		],
+		steps: [
+			{
+				title: 'List what loads at launch',
+				questions: [
+					{ q: 'Is `~/.claude/CLAUDE.md` in the context at launch?', options: ['Yes, as the user-scope file', 'No, only files inside the repo load', 'Only after `/memory` opens it', 'Only if the repo has no CLAUDE.md'], answer: 0, why: 'The user-scope file loads at the start of every session, whatever repo you are in.' },
+					{ q: 'You launch in `~/work/shop/api`. Is `~/work/CLAUDE.md`, two levels up, loaded?', options: ['No, only the working directory file loads', 'Yes, every parent directory file loads at launch', 'Only if it is under 200 lines', 'Only when Claude edits a file in `~/work`'], answer: 1, why: 'Claude Code reads the CLAUDE.md files in your working directory **and every directory above it**.' },
+					{ q: 'Is `~/work/shop/api/CLAUDE.local.md` loaded at launch?', options: ['No, `.local` files are read on demand', 'Only with auto memory turned on', 'Yes, it sits in the working directory', 'No, Claude Code ignores `.local` files'], answer: 2, why: 'It is in the directory you launched from, so it is part of the launch set, read last.' },
+					{ q: 'How many of the five files are in the context at launch?', options: ['Five', 'Four', 'One', 'Three'], answer: 1, why: 'The user file and the three files from `~/work` down to `api`. The billing file waits.' }
+				]
+			},
+			{
+				title: 'Put them in order',
+				questions: [
+					{ q: 'Which file is read first?', options: ['`~/work/shop/api/CLAUDE.local.md`', '`~/work/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`~/work/shop/CLAUDE.md`'], answer: 2, why: 'The user-scope file comes first, then the project tree.' },
+					{ q: 'In which direction do the docs order the project tree?', options: ['From the working directory up to the root', 'From the filesystem root down to the working directory', 'Alphabetically by path', 'By file size, smallest first'], answer: 1, why: 'The docs say "from the filesystem root down to your working directory".' },
+					{ q: 'Which project file is read last?', options: ['`~/work/CLAUDE.md`', '`~/work/shop/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`~/work/shop/api/CLAUDE.local.md`'], answer: 3, why: 'The file closest to where you launched is read last.' },
+					{ q: 'Which file comes right after `~/work/CLAUDE.md`?', options: ['`~/work/shop/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`src/billing/CLAUDE.md`', '`~/work/shop/api/CLAUDE.local.md`'], answer: 0, why: 'Walking down the tree, `shop` is the next directory after `work`.' }
+				]
+			},
+			{
+				title: 'Handle a conflict',
+				questions: [
+					{ q: 'How does Claude Code combine the four launch files?', options: ['It keeps only the closest file', 'It concatenates them, none replaces another', 'It merges them and drops duplicate lines', 'It keeps only the user-scope file'], answer: 1, why: 'All four end up in the context, one after the other.' },
+					{ q: '`~/work/CLAUDE.md` says "use npm" and `~/work/shop/CLAUDE.md` says "use pnpm". What do the docs say Claude does?', options: ['Always follows the file read last', 'Always follows the user-scope file', 'Stops and asks you every time', 'May pick one arbitrarily'], answer: 3, why: 'Nothing settles the clash for you. The docs warn that Claude "may pick one arbitrarily".' },
+					{ q: 'Who fixes that conflict?', options: ['You, by editing the files so they agree', 'Claude Code, at the next `/compact`', 'The API, which drops the older rule', 'Auto memory, which keeps the newest rule'], answer: 0, why: 'Since no file overrides another, the conflict is yours to fix.' },
+					{ q: 'You need a rule that blocks an action every time. What do the docs point to?', options: ['A longer CLAUDE.md with the rule in bold', 'A line in `MEMORY.md`', 'A PreToolUse hook', 'Typing the rule again in the chat'], answer: 2, why: 'CLAUDE.md is "context, not enforced configuration". A PreToolUse hook is what blocks.' }
+				]
+			},
+			{
+				title: 'Place the billing file and check',
+				questions: [
+					{ q: 'Why is `src/billing/CLAUDE.md` not loaded at launch?', options: ['It is below the working directory', 'It is over the 200-line target', 'It is a `.local` file', 'Subfolder files are never loaded'], answer: 0, why: 'Files above the working directory load at launch. Files below it wait.' },
+					{ q: 'When does the billing file load?', options: ['At the next `/compact`', 'When you run `/memory`', 'The first time Claude reads, writes or edits a file in `src/billing/`', 'At the start of the next session'], answer: 2, why: 'A file below the working directory loads when Claude first touches a file in its folder.' },
+					{ q: 'You run `/context` just after launch. Where are the four launch files?', options: ['In the auto memory index `MEMORY.md`', 'Under Memory files', 'In the terminal, as `Loaded` lines', 'Nowhere: `/context` only counts tokens'], answer: 1, why: '`/context` lists the files loaded at launch under Memory files.' },
+					{ q: 'Claude then edits a file in `src/billing/`. What shows the billing file has loaded?', options: ['A new entry in `MEMORY.md`', 'A prompt asking you to approve it', 'Nothing: the load is silent', 'A `Loaded` line with its path in the terminal'], answer: 3, why: 'When it loads, the terminal prints a `Loaded` line with its path.' }
+				]
+			}
 		]
 	},
 	quiz: [

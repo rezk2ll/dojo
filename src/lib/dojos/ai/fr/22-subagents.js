@@ -104,6 +104,44 @@ When determining how many subagents to create, follow these guidelines:
 			'Une description de tâche : « Objectif : pour PostgreSQL, SQLite, DuckDB et ClickHouse, trouve la licence, le numéro et la date de la dernière version, et s’il existe un type de colonne JSON. Sortie : une ligne par base avec ces 4 champs et une URL source chacun. Sources : le site du projet et ses notes de version seulement. Périmètre : ces 4 bases uniquement. »',
 			'B reste à un seul agent, car chaque étape dépend de la précédente : les logs mènent à une requête, la requête à un verrou, le verrou à un job du vendredi. Le billet range parmi les mauvais cas les tâches "that require all agents to share the same context or involve many dependencies between agents".',
 			'Le calcul pour A : environ 15 fois les tokens d’un chat, pour un tableau que tu remplirais sinon à la main depuis 12 sites. Pour B, trois sous-agents reconstruiraient chacun de zéro la même image du service.'
+		],
+		steps: [
+			{
+				title: 'Teste l’indépendance de A',
+				questions: [
+					{ q: 'Quelle question décide si une demande se découpe bien entre des sous-agents ?', options: ['La demande fait-elle plus d’un paragraphe ?', 'Cite-t-elle plus de 10 éléments ?', 'Les sous-tâches peuvent-elles tourner sans voir les résultats des autres ?', 'La réponse aura-t-elle besoin de citations ?'], answer: 2, why: 'Chaque sous-agent travaille dans son propre contexte : une sous-tâche qui a besoin du résultat d’une autre ne peut pas tourner en parallèle.' },
+					{ q: 'Dans A, chercher une base demande-t-il les résultats d’une autre ?', options: ['Non, chacune se cherche seule', 'Oui, les licences dépendent les unes des autres', 'Oui, il faut d’abord comparer les versions', 'Seulement pour les bases avec un type JSON'], answer: 0, why: 'La licence ou la date de version de DuckDB ne dit rien sur SQLite. Les 12 recherches sont indépendantes.' },
+					{ q: 'Que renvoie chaque sous-agent à l’agent principal ?', options: ['Toutes les pages qu’il a lues', 'Son résultat condensé, par exemple une liste', 'Toute sa fenêtre de contexte', 'Rien : il écrit lui-même la réponse finale'], answer: 1, why: 'Les sous-agents explorent, puis condensent. Seul le résultat court entre dans le contexte de l’agent principal.' },
+					{ q: 'Pourquoi le découpage garde-t-il petit le contexte de l’agent principal ?', options: ['Les sous-agents partagent une grande fenêtre de contexte', 'L’agent principal efface son plan après les avoir lancés', 'Les sous-agents tournent sans limite de contexte', 'Les pages lues par chaque sous-agent restent dans son propre contexte'], answer: 3, why: 'C’est l’isolation du contexte : les recherches et les pages lues restent chez le sous-agent qui les a faites.' }
+				]
+			},
+			{
+				title: 'Teste les dépendances de B',
+				questions: [
+					{ q: 'Dans B, comment s’enchaînent les étapes de l’enquête ?', options: ['Chaque étape peut tourner seule', 'Seule la première étape compte', 'Elles peuvent tourner dans n’importe quel ordre', 'Chaque étape dépend de la précédente'], answer: 3, why: 'Les logs mènent à une requête, la requête à un verrou, le verrou à un job du vendredi. Chaque indice vient du précédent.' },
+					{ q: 'Quel genre de tâche le billet range-t-il parmi les mauvais cas pour un système multi-agents ?', options: ['Les tâches où tous les agents ont besoin du même contexte', 'Les tâches de plus de 5 éléments', 'Les tâches qui demandent une recherche web', 'Les tâches qui demandent un format de sortie'], answer: 0, why: 'Le billet cite les tâches "that require all agents to share the same context or involve many dependencies between agents".' },
+					{ q: 'Que se passe-t-il si tu découpes B entre trois sous-agents ?', options: ['Chacun trouve un tiers de la cause', 'Chacun reconstruit de zéro la même image du service', 'L’agent principal obtient la réponse 90 % plus vite', 'Ils partagent leurs trouvailles au fil de l’eau'], answer: 1, why: 'Chaque sous-agent part d’un contexte vide : les trois refont le même travail de fond, et tu le paies trois fois.' },
+					{ q: 'Avec des sous-agents bloquants, l’agent principal peut-il réorienter celui qui cherche au mauvais endroit ?', options: ['Oui, il lui envoie un message en cours de route', 'Seulement le plus lent', 'Non, il attend qu’il ait fini', 'Oui, grâce à `run_blocking_subagent`'], answer: 2, why: 'Le billet : "the lead agent can’t steer subagents". Bloquant veut dire qu’il attend.' }
+				]
+			},
+			{
+				title: 'Dimensionne le découpage de A',
+				questions: [
+					{ q: 'Quelle ligne des règles de comptage la réponse utilise-t-elle pour A ?', options: ['Simple : 1 sous-agent', 'Standard complexity : 2 à 3', 'Medium complexity : 3 à 5', 'High complexity : 5 à 10'], answer: 1, why: 'La réponse classe A en « Standard complexity », ce qui donne 2 à 3 sous-agents.' },
+					{ q: 'Avec 3 sous-agents pour 12 bases, combien en prend chacun ?', options: ['3', '12', '6', '4'], answer: 3, why: '12 bases réparties sur 3 sous-agents, cela fait 4 chacun.' },
+					{ q: 'Que dit le prompt de l’agent principal quand un plan semble demander plus de 20 sous-agents ?', options: ['Les lancer par lots de 20', 'Regrouper les sous-tâches similaires', 'Prendre un plus gros modèle pour l’agent principal', 'Demander à l’utilisateur de découper sa requête'], answer: 1, why: 'Plus de sous-agents, c’est plus de surcoût. Le prompt préfère "fewer, more capable subagents".' },
+					{ q: 'Combien de fois les tokens d’un chat un système multi-agents consomme-t-il, environ ?', options: ['Environ 15', 'Environ 4', 'Environ 90', 'Environ 2'], answer: 0, why: 'Anthropic a mesuré environ 4 fois pour un agent seul et environ 15 fois pour un système multi-agents.' }
+				]
+			},
+			{
+				title: 'Écris une description de tâche',
+				questions: [
+					{ q: 'Combien d’objectifs principaux donner à un sous-agent ?', options: ['Un par base qu’il couvre', 'Autant qu’en contient le prompt', 'Idéalement 1 seul', 'Aucun : il lit la requête de l’utilisateur'], answer: 2, why: 'Le prompt de l’agent principal demande "ideally just 1 core objective per subagent".' },
+					{ q: 'Quelle ligne de l’exemple de description fixe le format de sortie ?', options: ['« Sources : le site du projet et ses notes de version seulement »', '« Sortie : une ligne par base avec ces 4 champs et une URL source chacun »', '« Périmètre : ces 4 bases uniquement »', '« Objectif : pour PostgreSQL, SQLite, DuckDB et ClickHouse, trouve la licence… »'], answer: 1, why: 'La ligne de sortie dit au sous-agent la forme exacte à renvoyer, pour que l’agent principal fusionne les trois résultats.' },
+					{ q: 'Pourquoi ajouter « Périmètre : ces 4 bases uniquement » ?', options: ['Pour qu’il ne dérive pas vers les 8 autres et ne refasse pas le travail', 'Pour qu’il utilise moins d’outils', 'Pour qu’il puisse sauter la date de version', 'Parce qu’un sous-agent ne lit que 4 pages'], answer: 0, why: 'Les limites de périmètre évitent la dérive, pour que deux sous-agents ne paient pas les mêmes pages.' },
+					{ q: 'L’agent principal envoie seulement « cherche ces bases ». Qu’a vu Anthropic avec ce genre de consigne ?', options: ['Les sous-agents ont refusé et demandé une tâche plus étroite', 'L’agent principal a manqué de contexte', 'Chaque sous-agent a choisi une base de lui-même', 'Les sous-agents ont mal compris et refait les recherches des autres'], answer: 3, why: 'Avec "research the semiconductor shortage", deux sous-agents ont lancé les mêmes recherches sur les chaînes d’approvisionnement de 2025.' }
+				]
+			}
 		]
 	},
 	quiz: [

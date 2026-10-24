@@ -129,6 +129,44 @@ export default {
 			'`Bash(npm test)` matches only that exact command, so `npm test --coverage` still asks. `Bash(git push *)` sits in ask, and ask is checked before allow, so no allow rule can skip that prompt.',
 			'`Read(./.env)` in deny blocks the Read tool and commands such as `cat .env`. Without a sandbox it misses a Python script that opens the file itself. With the sandbox on, Read deny rules are merged into the sandbox configuration and the OS blocks that script too. `allowUnsandboxedCommands: false` stops Claude from retrying a blocked command outside the sandbox.',
 			'The gap: a command that reaches another host in Manual mode still prompts you. `strictAllowlist`, which refuses those hosts with no prompt, has no effect in a repository\'s `.claude/settings.json`. It belongs in your user settings or in managed settings.'
+		],
+		steps: [
+			{
+				title: 'Allow the two npm commands',
+				questions: [
+					{ q: 'Which key lets `npm test` run without a prompt?', options: ['`permissions.ask`', '`permissions.allow`', '`permissions.deny`', '`sandbox.enabled`'], answer: 1, why: 'An allow rule approves a matching call ahead of time.' },
+					{ q: 'Which allow rule approves `npm test` and no other npm command?', options: ['`Bash(npm test)`', '`Bash(npm *)`', '`npm test`', '`Allow(npm test)`'], answer: 0, why: 'A rule names the tool, then the command: `Bash(npm test)`. `Bash(npm *)` would approve every npm command.' },
+					{ q: 'Does `Bash(npm test)` match `npm test --coverage`?', options: ['Yes, it starts with `npm test`', 'No, it matches only that exact command', 'Yes, rules ignore flags', 'Only inside the sandbox'], answer: 1, why: 'With no `*`, the rule matches the exact command text and nothing longer.' },
+					{ q: 'Why not write `Bash(npm *)` and cover both commands at once?', options: ['Wildcards are not allowed in allow rules', 'It matches no command at all', 'It would block `npm test`', 'It would also allow every other npm command without asking'], answer: 3, why: 'A Bash rule matches the command text, so `npm *` approves far more than the two commands the task names.' }
+				]
+			},
+			{
+				title: 'Make every push ask',
+				questions: [
+					{ q: 'Where do you put `Bash(git push *)`?', options: ['In allow', 'In ask', 'In deny', 'In `sandbox.network`'], answer: 1, why: 'The task wants a prompt before a push, not a block. That is an ask rule.' },
+					{ q: 'In which order does Claude Code check the rules?', options: ['Allow, then ask, then deny', 'In the order they appear in the file', 'Deny, then ask, then allow', 'Most specific rule first'], answer: 2, why: 'Deny, then ask, then allow, and the first match decides.' },
+					{ q: 'A later edit adds `Bash(git *)` to allow. Can it skip the push prompt?', options: ['No, ask is checked before allow', 'Yes, if it is written first in the file', 'Yes, the wider wildcard wins', 'Only in user settings'], answer: 0, why: 'The ask rule matches first, so no allow rule can approve the push silently.' },
+					{ q: 'Claude proposes `git -C . push`. Does the `Bash(git push *)` rule match it?', options: ['Yes, Claude Code parses git options', 'Yes, the sandbox rewrites the command', 'Only with `strictAllowlist` set', 'No, the rule matches the command text'], answer: 3, why: 'The docs: "A push written another way, such as `git -C . push`, isn\'t matched".' }
+				]
+			},
+			{
+				title: 'Keep `.env` unread',
+				questions: [
+					{ q: 'Which entry stops Claude from reading `.env`?', options: ['`Read(./.env)` in ask', '`Edit(./.env)` in deny', '`Read(./.env)` in deny', '"Never read .env" in CLAUDE.md'], answer: 2, why: 'A deny rule is enforced by Claude Code. A CLAUDE.md line only shapes what the model tries.' },
+					{ q: 'Without the sandbox, what does `Read(./.env)` in deny miss?', options: ['`cat .env`', 'The Read tool', 'A Python script that opens the file itself', 'Nothing: it blocks every reader'], answer: 2, why: 'The rule catches the Read tool and commands like `cat .env`, not a program that opens the file on its own.' },
+					{ q: 'With the sandbox on, what happens to that Read deny rule?', options: ['It is merged into the sandbox config, so the OS blocks the script too', 'It is ignored for sandboxed commands', 'It turns into an ask rule', 'It also blocks every write in the repo'], answer: 0, why: 'Read deny rules feed the sandbox, and the OS then refuses the file to any sandboxed process.' },
+					{ q: 'What does `allowUnsandboxedCommands: false` add?', options: ['It turns the sandbox on', 'It stops Claude retrying a blocked command outside the sandbox', 'It blocks all network traffic', 'It makes Claude Code exit when no sandbox starts'], answer: 1, why: 'It makes Claude Code ignore the `dangerouslyDisableSandbox` retry. Exiting at startup is `failIfUnavailable`.' }
+				]
+			},
+			{
+				title: 'Limit the network, then find the gap',
+				questions: [
+					{ q: 'Which key limits the hosts shell commands can reach?', options: ['`sandbox.network.allowedDomains`', '`permissions.allow` with `WebFetch`', '`sandbox.filesystem.denyWrite`', '`sandbox.credentials`'], answer: 0, why: 'The sandbox proxy checks each host against `allowedDomains`.' },
+					{ q: 'What does `allowedDomains` hold before you add anything?', options: ['Every npm registry', 'Every host', '`github.com`', 'Nothing: the list starts empty'], answer: 3, why: 'The docs say the allowed domains "start empty", so you list `registry.npmjs.org` yourself.' },
+					{ q: 'In Manual mode, a sandboxed command reaches a host not in the list. What happens?', options: ['It is blocked with no prompt', 'You get a prompt', 'It runs anyway', 'Claude Code exits'], answer: 1, why: 'The connection is held for a decision, so the limit relies on your No.' },
+					{ q: 'Where does `strictAllowlist`, which refuses those hosts with no prompt, take effect?', options: ['In the repo\'s `.claude/settings.json`', 'In CLAUDE.md', 'In your user settings or managed settings', 'In the sandbox block of any settings file'], answer: 2, why: 'It has no effect in a repository\'s settings file. That is the gap the project file cannot close.' }
+				]
+			}
 		]
 	},
 	quiz: [

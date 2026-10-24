@@ -104,6 +104,44 @@ When determining how many subagents to create, follow these guidelines:
 			'One task description: "Objective: for PostgreSQL, SQLite, DuckDB and ClickHouse, find the license, the latest release number and date, and whether a JSON column type exists. Output: one row per database with those 4 fields and a source URL each. Sources: the project\'s own site and release notes only. Scope: only these 4 databases."',
 			'B stays with one agent, because every step depends on the last one: the logs point to a query, the query points to a lock, the lock points to a Friday job. The post says tasks "that require all agents to share the same context or involve many dependencies between agents" are a poor fit.',
 			'Cost check for A: about 15 times the tokens of a chat, for a table you would otherwise fill by hand from 12 websites. For B, three subagents would each rebuild the same picture of the service from scratch.'
+		],
+		steps: [
+			{
+				title: 'Test A for independence',
+				questions: [
+					{ q: 'Which question decides whether a request splits well across subagents?', options: ['Is the request longer than one paragraph?', 'Does it mention more than 10 items?', 'Can the subtasks run without seeing each other\'s results?', 'Will the answer need citations?'], answer: 2, why: 'Each subagent works in its own context, so a subtask that needs another one\'s result cannot run in parallel.' },
+					{ q: 'In A, does looking up one database need the results for another?', options: ['No, each one can be looked up alone', 'Yes, the licenses depend on each other', 'Yes, the releases must be compared first', 'Only for databases with a JSON type'], answer: 0, why: 'A license or a release date for DuckDB tells you nothing about SQLite. The 12 lookups are independent.' },
+					{ q: 'What does each subagent send back to the lead?', options: ['Every page it read', 'Its condensed result, such as a list', 'Its whole context window', 'Nothing: it writes the final answer itself'], answer: 1, why: 'Subagents explore, then condense. Only the short result enters the lead\'s context.' },
+					{ q: 'Why does the split keep the lead\'s context small?', options: ['Subagents share one big context window', 'The lead deletes its plan after starting them', 'Subagents run with no context limit', 'The pages each subagent reads stay in its own context'], answer: 3, why: 'That is context isolation: searches and page reads stay with the subagent that did them.' }
+				]
+			},
+			{
+				title: 'Test B for dependencies',
+				questions: [
+					{ q: 'In B, how do the steps of the investigation relate?', options: ['Each step can run alone', 'Only the first step matters', 'They can run in any order', 'Each step depends on the last one'], answer: 3, why: 'The logs point to a query, the query to a lock, the lock to a Friday job. Each clue comes from the one before.' },
+					{ q: 'Which kind of task does the post call a poor fit for multi-agent systems?', options: ['Tasks where all agents need the same context', 'Tasks with more than 5 items', 'Tasks that need web search', 'Tasks that need an output format'], answer: 0, why: 'The post names tasks "that require all agents to share the same context or involve many dependencies between agents".' },
+					{ q: 'What happens if you split B across three subagents?', options: ['Each finds a third of the cause', 'Each rebuilds the same picture of the service from scratch', 'The lead gets the answer 90% faster', 'They share their findings as they go'], answer: 1, why: 'Each subagent starts with an empty context, so all three redo the same groundwork and pay for it.' },
+					{ q: 'With blocking subagents, can the lead redirect one that searches in the wrong place?', options: ['Yes, it sends it a new message mid-run', 'Only the slowest one', 'No, it waits for it to finish', 'Yes, through `run_blocking_subagent`'], answer: 2, why: 'The post: "the lead agent can\'t steer subagents". Blocking means it waits.' }
+				]
+			},
+			{
+				title: 'Size the split for A',
+				questions: [
+					{ q: 'Which row of the count guidelines does the answer use for A?', options: ['Simple: 1 subagent', 'Standard complexity: 2 to 3', 'Medium complexity: 3 to 5', 'High complexity: 5 to 10'], answer: 1, why: 'The answer reads A as a "Standard complexity" query, which gives 2 to 3 subagents.' },
+					{ q: 'With 3 subagents for 12 databases, how many does each one take?', options: ['3', '12', '6', '4'], answer: 3, why: '12 databases over 3 subagents is 4 each.' },
+					{ q: 'What does the lead prompt say to do when a plan seems to need more than 20 subagents?', options: ['Start them in batches of 20', 'Consolidate similar sub-tasks', 'Use a bigger model for the lead', 'Ask the user to split the query'], answer: 1, why: 'More subagents means more overhead. The prompt prefers "fewer, more capable subagents".' },
+					{ q: 'About how many times the tokens of a chat does a multi-agent system use?', options: ['About 15', 'About 4', 'About 90', 'About 2'], answer: 0, why: 'Anthropic measured about 4 times for one agent and about 15 times for multi-agent systems.' }
+				]
+			},
+			{
+				title: 'Write one task description',
+				questions: [
+					{ q: 'How many core objectives should one subagent get?', options: ['One per database it covers', 'As many as fit in the prompt', 'Ideally just 1', 'None: it reads the user query'], answer: 2, why: 'The lead prompt asks for "ideally just 1 core objective per subagent".' },
+					{ q: 'Which line of the sample description sets the output format?', options: ['"Sources: the project\'s own site and release notes only"', '"Output: one row per database with those 4 fields and a source URL each"', '"Scope: only these 4 databases"', '"Objective: for PostgreSQL, SQLite, DuckDB and ClickHouse, find the license..."'], answer: 1, why: 'The output line tells the subagent exactly what shape to send back, so the lead can merge three results.' },
+					{ q: 'Why add "Scope: only these 4 databases"?', options: ['To stop it drifting into the other 8 and repeating work', 'To make it use fewer tools', 'To let it skip the release date', 'Because a subagent can read only 4 pages'], answer: 0, why: 'Scope boundaries prevent research drift, so two subagents do not pay for the same pages.' },
+					{ q: 'The lead sends only "research these databases". What did Anthropic see with instructions like that?', options: ['Subagents refused and asked for a narrower task', 'The lead ran out of context', 'Each subagent picked one database on its own', 'Subagents misread the task and duplicated each other\'s searches'], answer: 3, why: 'With "research the semiconductor shortage", two subagents ran the same 2025 supply chain searches.' }
+				]
+			}
 		]
 	},
 	quiz: [

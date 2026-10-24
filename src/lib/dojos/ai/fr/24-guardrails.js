@@ -129,6 +129,44 @@ export default {
 			'`Bash(npm test)` ne correspond qu’à cette commande exacte, donc `npm test --coverage` demande encore. `Bash(git push *)` est en ask, et ask passe avant allow, donc aucune règle allow ne saute cette demande.',
 			'`Read(./.env)` en deny bloque l’outil Read et des commandes comme `cat .env`. Sans sandbox, il rate un script Python qui ouvre le fichier lui-même. Avec le sandbox, les règles Read deny sont fusionnées dans sa configuration, et le système bloque aussi ce script. `allowUnsandboxedCommands: false` empêche Claude de relancer hors du sandbox une commande bloquée.',
 			'Le trou : en mode Manual, une commande qui joint un autre hôte te pose encore la question. `strictAllowlist`, qui refuse ces hôtes sans demander, n’a aucun effet dans le `.claude/settings.json` d’un dépôt. Il se pose dans tes settings utilisateur ou dans les managed settings.'
+		],
+		steps: [
+			{
+				title: 'Autorise les deux commandes npm',
+				questions: [
+					{ q: 'Quelle clé laisse `npm test` tourner sans demande ?', options: ['`permissions.ask`', '`permissions.allow`', '`permissions.deny`', '`sandbox.enabled`'], answer: 1, why: 'Une règle allow approuve d’avance un appel qui lui correspond.' },
+					{ q: 'Quelle règle allow approuve `npm test` et aucune autre commande npm ?', options: ['`Bash(npm test)`', '`Bash(npm *)`', '`npm test`', '`Allow(npm test)`'], answer: 0, why: 'Une règle nomme l’outil, puis la commande : `Bash(npm test)`. `Bash(npm *)` approuverait toutes les commandes npm.' },
+					{ q: '`Bash(npm test)` correspond-il à `npm test --coverage` ?', options: ['Oui, il commence par `npm test`', 'Non, il ne correspond qu’à cette commande exacte', 'Oui, les règles ignorent les options', 'Seulement dans le sandbox'], answer: 1, why: 'Sans `*`, la règle correspond au texte exact de la commande, et à rien de plus long.' },
+					{ q: 'Pourquoi ne pas écrire `Bash(npm *)` pour couvrir les deux d’un coup ?', options: ['Les jokers sont interdits dans les règles allow', 'Elle ne correspond à aucune commande', 'Elle bloquerait `npm test`', 'Elle autoriserait aussi toutes les autres commandes npm sans demander'], answer: 3, why: 'Une règle Bash porte sur le texte de la commande, donc `npm *` approuve bien plus que les deux commandes de la tâche.' }
+				]
+			},
+			{
+				title: 'Fais demander chaque push',
+				questions: [
+					{ q: 'Où mets-tu `Bash(git push *)` ?', options: ['En allow', 'En ask', 'En deny', 'Dans `sandbox.network`'], answer: 1, why: 'La tâche veut une demande avant un push, pas un blocage. C’est une règle ask.' },
+					{ q: 'Dans quel ordre Claude Code teste-t-il les règles ?', options: ['Allow, puis ask, puis deny', 'Dans l’ordre du fichier', 'Deny, puis ask, puis allow', 'La règle la plus précise d’abord'], answer: 2, why: 'Deny, puis ask, puis allow, et la première qui correspond décide.' },
+					{ q: 'Une modif ajoute plus tard `Bash(git *)` en allow. Peut-elle sauter la demande du push ?', options: ['Non, ask passe avant allow', 'Oui, si elle est écrite en premier dans le fichier', 'Oui, le joker le plus large gagne', 'Seulement dans les settings utilisateur'], answer: 0, why: 'La règle ask correspond la première, donc aucune règle allow ne peut approuver le push en silence.' },
+					{ q: 'Claude propose `git -C . push`. La règle `Bash(git push *)` correspond-elle ?', options: ['Oui, Claude Code analyse les options de git', 'Oui, le sandbox réécrit la commande', 'Seulement avec `strictAllowlist`', 'Non, la règle porte sur le texte de la commande'], answer: 3, why: 'La doc : "A push written another way, such as `git -C . push`, isn’t matched".' }
+				]
+			},
+			{
+				title: 'Garde `.env` illisible',
+				questions: [
+					{ q: 'Quelle entrée empêche Claude de lire `.env` ?', options: ['`Read(./.env)` en ask', '`Edit(./.env)` en deny', '`Read(./.env)` en deny', '« Never read .env » dans CLAUDE.md'], answer: 2, why: 'Une règle deny est appliquée par Claude Code. Une ligne de CLAUDE.md ne fait qu’orienter ce que le modèle tente.' },
+					{ q: 'Sans sandbox, que rate `Read(./.env)` en deny ?', options: ['`cat .env`', 'L’outil Read', 'Un script Python qui ouvre le fichier lui-même', 'Rien : il bloque tout lecteur'], answer: 2, why: 'La règle attrape l’outil Read et des commandes comme `cat .env`, pas un programme qui ouvre le fichier de son côté.' },
+					{ q: 'Avec le sandbox, que devient cette règle Read deny ?', options: ['Elle est fusionnée dans la config du sandbox, et le système bloque aussi le script', 'Elle est ignorée pour les commandes du sandbox', 'Elle devient une règle ask', 'Elle bloque aussi toute écriture dans le dépôt'], answer: 0, why: 'Les règles Read deny alimentent le sandbox, et le système refuse alors le fichier à tout processus du sandbox.' },
+					{ q: 'Qu’ajoute `allowUnsandboxedCommands: false` ?', options: ['Il active le sandbox', 'Il empêche Claude de relancer hors du sandbox une commande bloquée', 'Il bloque tout le réseau', 'Il fait quitter Claude Code si le sandbox ne démarre pas'], answer: 1, why: 'Il fait ignorer à Claude Code la relance `dangerouslyDisableSandbox`. Quitter au démarrage, c’est `failIfUnavailable`.' }
+				]
+			},
+			{
+				title: 'Limite le réseau, puis trouve le trou',
+				questions: [
+					{ q: 'Quelle clé limite les hôtes que les commandes shell peuvent joindre ?', options: ['`sandbox.network.allowedDomains`', '`permissions.allow` avec `WebFetch`', '`sandbox.filesystem.denyWrite`', '`sandbox.credentials`'], answer: 0, why: 'Le proxy du sandbox compare chaque hôte à `allowedDomains`.' },
+					{ q: 'Que contient `allowedDomains` avant que tu y ajoutes quoi que ce soit ?', options: ['Tous les registres npm', 'Tous les hôtes', '`github.com`', 'Rien : la liste part vide'], answer: 3, why: 'La doc dit que les domaines autorisés "start empty", donc tu listes toi-même `registry.npmjs.org`.' },
+					{ q: 'En mode Manual, une commande du sandbox joint un hôte hors de la liste. Que se passe-t-il ?', options: ['Elle est bloquée sans demande', 'Tu reçois une demande', 'Elle passe quand même', 'Claude Code quitte'], answer: 1, why: 'La connexion attend une décision, donc la limite repose sur ton No.' },
+					{ q: 'Où `strictAllowlist`, qui refuse ces hôtes sans demander, a-t-il un effet ?', options: ['Dans le `.claude/settings.json` du dépôt', 'Dans CLAUDE.md', 'Dans tes settings utilisateur ou les managed settings', 'Dans le bloc sandbox de n’importe quel fichier de settings'], answer: 2, why: 'Il n’a aucun effet dans le fichier de settings d’un dépôt. C’est le trou que le fichier de projet ne peut pas boucher.' }
+				]
+			}
 		]
 	},
 	quiz: [

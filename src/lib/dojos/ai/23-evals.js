@@ -137,6 +137,44 @@ outputPath: ../data/results.csv`,
 			'Irrelevant input: a ticket that says "What time does your office open on Saturday?", with `__expected` set to `contains:General Inquiries`, the category for "Questions about company contact information or hours of operation".',
 			'Ambiguous input: "You charged me twice and I want the second charge removed", with `contains:Billing Disputes`. Write the label before the run, and if two people on the team disagree on it, record that: the docs list cases "where even humans would find it hard to reach an assessment consensus" as edge cases.',
 			'A drafted reply has no single right string, so code cannot grade it. Use a model grader with a rubric that returns "correct" or "incorrect", for example promptfoo\'s `llm-rubric` assertion, and check its verdicts on 20 replies you graded by hand first.'
+		],
+		steps: [
+			{
+				title: 'Count the calls',
+				questions: [
+					{ q: 'One run makes one API call per what?', options: ['Per row only', 'Per prompt, per provider, per row', 'Per prompt only', 'Per provider, per category'], answer: 1, why: 'promptfoo sends every row through every prompt and every provider.' },
+					{ q: 'How many providers does the cookbook config list?', options: ['3', '10', '5', '68'], answer: 2, why: 'One model at 5 temperatures: 0, 0.2, 0.4, 0.6 and 0.8.' },
+					{ q: 'With a 4th prompt version, how many calls does one run make?', options: ['1,360', '1,020', '340', '1,088'], answer: 0, why: '4 prompts x 5 temperatures x 68 tickets is 1,360.' },
+					{ q: 'How many calls does each new prompt version add to every run?', options: ['68', '5', '1,020', '340'], answer: 3, why: 'One prompt runs 5 providers over 68 rows: 340 calls.' }
+				]
+			},
+			{
+				title: 'Write an irrelevant-input row',
+				questions: [
+					{ q: 'Which docs edge case does "What time does your office open on Saturday?" cover?', options: ['Irrelevant input', 'Overly long input', 'Ambiguous input', 'A duplicate ticket'], answer: 0, why: 'It is not an insurance problem at all, so it tests "Irrelevant or nonexistent input data".' },
+					{ q: 'Which `__expected` value do you give it?', options: ['`contains:Account Management`', '`contains:General Inquiries`', '`contains:Policy Administration`', '`contains:Coverage Explanations`'], answer: 1, why: 'Office hours belong to General Inquiries.' },
+					{ q: 'Why is General Inquiries the right label?', options: ['It is the label the model picks most often', 'Any label works, since off-topic rows always fail', 'It covers questions about contact information or hours of operation', 'It is the first label in the list'], answer: 2, why: 'The category is defined as "Questions about company contact information or hours of operation".' },
+					{ q: 'When is the expected label written?', options: ['After the run, from the model\'s answer', 'When the row first fails', 'By promptfoo, from the transform', 'Before the run, by a person'], answer: 3, why: 'A golden answer is written by a person before the run, so the model cannot grade itself.' }
+				]
+			},
+			{
+				title: 'Write an ambiguous row',
+				questions: [
+					{ q: '"You charged me twice and I want the second charge removed." Which `__expected` value do you write?', options: ['`contains:Billing Inquiries`', '`contains:Claims Disputes`', '`contains:Billing Disputes`', '`contains:General Inquiries`'], answer: 2, why: 'The customer contests a charge, so it is a dispute, not a question about billing.' },
+					{ q: 'Two teammates disagree on that label. What do you do?', options: ['Delete the row, since it is noise', 'Keep the row and record the disagreement', 'Let the model pick the label', 'Mark it as passing whatever comes back'], answer: 1, why: 'The docs list cases "where even humans would find it hard to reach an assessment consensus" as edge cases worth testing.' },
+					{ q: 'Before grading, what does `transform.py` do to each answer?', options: ['Lowercases the ticket text', 'Keeps only the text between `<category>` tags', 'Retries the row at a higher temperature', 'Sends it to a second model'], answer: 1, why: 'The reasoning prompt writes a `<scratchpad>` first, so the grader must see only the label.' },
+					{ q: 'The model answers Billing Inquiries for that row. Why does it fail?', options: ['`icontains-any` rejects it as an invalid label', 'The temperature was too high', 'The transform removed the label', 'The label is valid but not the expected one'], answer: 3, why: 'Billing Inquiries passes the `icontains-any` check. The row\'s own `contains:Billing Disputes` is what fails.' }
+				]
+			},
+			{
+				title: 'Pick a grader for the reply',
+				questions: [
+					{ q: 'Why can\'t code grade a drafted reply to the customer?', options: ['It has no single right string', 'Code cannot read long text', 'Code grading costs an extra API call', 'promptfoo cannot read free text'], answer: 0, why: 'Code checks a fixed form, such as an exact label. A good reply can be written many ways.' },
+					{ q: 'Which grader do you use instead?', options: ['A string match on key phrases', 'Human grading on every run', 'A model grader with a rubric', 'None: run at temperature 0'], answer: 2, why: 'A model grader reads the answer and a rubric and returns "correct" or "incorrect".' },
+					{ q: 'Which promptfoo assertion fits that grader?', options: ['`icontains-any`', '`llm-rubric`', '`contains`', '`transform`'], answer: 1, why: '`llm-rubric` asks a model to grade the output against your rubric.' },
+					{ q: 'What do you do before you trust that grader\'s score?', options: ['Run it at temperature 0.8', 'Add 1,000 more rows', 'Compare it with the `icontains-any` score', 'Check its verdicts on 20 replies you graded by hand'], answer: 3, why: 'A model grader can be wrong. The docs say to test its reliability first, then scale.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -120,6 +120,44 @@ def lint_python_compile(fname, code):
 			'(3) Code: a lookup table with one row per code. The answer list is finite and known in advance.',
 			'(4) Model: there is no list of valid summaries to write down. Check a sample by hand or with a judge (day 37).',
 			'(5) Both: rules for the clear names (`email`, `phone`, `birth_date`), then a model with context for the unclear ones such as `age`. When the model gives the same answer for a pattern many times, a person reviews the pattern and adds it as a rule, as in Meta\'s funnel.'
+		],
+		steps: [
+			{
+				title: 'Sort the clear cases',
+				questions: [
+					{ q: '(1) Pull `ORD-123456` out of incoming emails. Code or model?', options: ['A model, since emails are free text', 'Code: the regex `ORD-\\d{6}`', 'A model, with a regex to check it', 'A person, since order numbers matter'], answer: 1, why: 'The format is fixed, so a regex finds every order number and never invents one.' },
+					{ q: '(2) Count last week\'s tickets per product. Code or model?', options: ['Code: a `GROUP BY product`', 'A model that reads every ticket', 'A model with a SQL tool', 'A judge model that checks the count'], answer: 0, why: 'A `GROUP BY` gives an exact count that is the same on every run, and costs no tokens.' },
+					{ q: '(3) Show the country name for each two-letter code. Code or model?', options: ['A model, since country names change', 'A model with a cache', 'A regex on the code', 'Code: a lookup table, one row per code'], answer: 3, why: 'The list of answers is finite and known in advance.' },
+					{ q: 'Which question tells you a task belongs to code?', options: ['Is the input written in English?', 'Is the task boring?', 'Can you list every valid answer and the rule that picks it?', 'Does the team want it fast?'], answer: 2, why: 'When you can write the answers and the rule down, a rule gives the same answer every time.' }
+				]
+			},
+			{
+				title: 'Choose for the summary',
+				questions: [
+					{ q: '(4) A one-sentence summary of each angry complaint. Code or model?', options: ['Code: the first sentence of the complaint', 'A model: there is no list of valid summaries', 'A lookup table of common complaints', 'A regex on angry words'], answer: 1, why: 'A summary takes judgment over free text, which is what a model is good at.' },
+					{ q: 'How do you check the summaries?', options: ['A sample by hand or with a judge', 'An `==` against an expected summary', 'Nothing: the model is deterministic', 'Count the words of each summary'], answer: 0, why: 'Free text fails `==`, so you grade a sample, as on day 37.' },
+					{ q: 'What changes when the summary goes through a model API?', options: ['Nothing leaves your machine', 'The answer is the same on every run', 'It costs no tokens', 'The complaint text goes to someone else\'s servers'], answer: 3, why: 'A model API call sends the input out. A regex on your own machine sends nothing anywhere.' },
+					{ q: 'Does a different summary on a later run matter here?', options: ['Yes: it must be replayable for an audit', 'Yes: the count of tickets changes', 'Little: it is a note for a person, not an enforced decision', 'It cannot happen with a model'], answer: 2, why: 'A changing answer matters when a decision must be reproduced later. A note for the team lead is read once.' }
+				]
+			},
+			{
+				title: 'Split the field scan',
+				questions: [
+					{ q: '(5) Flag personal data in 300 field names. Which approach fits?', options: ['Only a model, for all 300', 'Only rules, for all 300', 'Rules for the clear names, a model for the unclear ones', 'A person reads all 300'], answer: 2, why: 'Clear names need no judgment, and unclear ones such as `age` need context no rule has.' },
+					{ q: 'Which fields go to the rules?', options: ['`email`, `phone`, `birth_date`', '`age`, `id2`', 'All fields with a number in the name', 'Fields the model is unsure about'], answer: 0, why: 'Their names say what they hold, so a rule can match them every time.' },
+					{ q: 'Why does `age` go to the model?', options: ['It is the longest name', 'Rules cannot read three letters', 'Models are faster on short names', 'It can be a person\'s age or a cache time-to-live'], answer: 3, why: 'Telling those two apart takes context, which is the case Meta keeps the LLM for.' },
+					{ q: 'In Meta\'s funnel, what share of traffic do the rules resolve?', options: ['About 15%', 'Roughly 85%', 'About 50%', 'All of it'], answer: 1, why: 'Rules "resolve the large majority of traffic, roughly 85%, in single-digit milliseconds". The LLM handles the rest.' }
+				]
+			},
+			{
+				title: 'Grow the rules',
+				questions: [
+					{ q: 'The model gives the same answer for a pattern many times. What do you do?', options: ['A person reviews the pattern and adds it as a rule', 'Let the model keep answering it', 'Remove the pattern from the scan', 'Ask a second model to confirm each time'], answer: 0, why: 'Meta distills what the LLM learns into rules, which shrinks its role over time.' },
+					{ q: 'Why should a person approve a rule that touches personal data?', options: ['Rules cannot run without a signature', 'The model cannot write rules', 'The rule could change how sensitive data is protected', 'It makes the rule faster'], answer: 2, why: 'Meta has a person approve each rule that could change how sensitive data is protected.' },
+					{ q: 'What does a new rule gain over the model path?', options: ['It handles new, unclear names', 'It needs no maintenance', 'It understands context better', 'Milliseconds instead of seconds, and the same answer on replay'], answer: 3, why: 'Meta\'s rules answer in single-digit milliseconds, while the LLM takes seconds and roughly 400 times the compute.' },
+					{ q: 'You keep both paths. How do downstream systems stay simple?', options: ['They call the model again to check', 'Both paths return the same result format', 'They only read rule results', 'They store which path answered and branch on it'], answer: 1, why: 'Meta makes both return the same format, so downstream systems do not need to know which path answered.' }
+				]
+			}
 		]
 	},
 	quiz: [

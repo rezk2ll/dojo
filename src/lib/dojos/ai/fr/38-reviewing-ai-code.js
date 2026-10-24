@@ -107,6 +107,44 @@ export default {
 			'Test creux : `pytest.raises(Exception)` accepte ce `TypeError`, donc la CI reste verte alors que chaque date valide échoue aussi. Attends plutôt un `ValueError`, et ajoute un test qui vérifie que `parse_date("2024-02-01")` renvoie `date(2024, 2, 1)`.',
 			'Preuve : dans un shell Python, `parse_date("2024-02-01")` lève le même `TypeError`. Le test passe que le code soit juste ou cassé, il ne vérifie donc rien.',
 			'Périmètre : les trois modules reformatés ne font pas partie du ticket, demande-les dans une PR à part. Le vrai correctif est plus court : sous Python 3.12, `date.fromisoformat("2024-02-30")` lève déjà `ValueError: day is out of range for month`.'
+		],
+		steps: [
+			{
+				title: 'Lis la liste des fichiers',
+				questions: [
+					{ q: 'Le ticket porte sur `parse_date`. Quels fichiers le diff devrait-il toucher ?', options: ['`dates.py` et son test', '`dates.py`, son test et trois modules reformatés', 'Chaque module qui importe `dates.py`', 'Seulement le fichier de test'], answer: 0, why: 'Le correctif d’une fonction doit justifier chaque autre fichier qu’il touche.' },
+					{ q: 'Comment appelles-tu les trois modules reformatés ?', options: ['Un test creux', 'Une API inventée', 'Une dérive de périmètre', 'Un nettoyage obligatoire'], answer: 2, why: 'Des changements que la tâche ne demandait pas, comme des fichiers reformatés, sont une dérive de périmètre.' },
+					{ q: 'Que demandes-tu pour ces trois modules ?', options: ['De les retirer et de les envoyer dans une PR à part', 'De les garder, puisque la CI est verte', 'De reformater aussi le reste du dépôt', 'D’ajouter des tests sur le formatage'], answer: 0, why: 'Ils ne font pas partie du ticket, et un diff limité à la tâche reste assez petit pour être lu ligne par ligne.' },
+					{ q: 'Pourquoi la doc Claude dit-elle de surveiller les fichiers en trop ?', options: ['Les fichiers en trop ralentissent la CI', 'Git ne sait pas fusionner plus de cinq fichiers', 'Les relecteurs sont payés au fichier', 'Claude Opus 4.5 et 4.6 ont tendance à en faire trop et à créer des fichiers en plus'], answer: 3, why: 'La doc dit que Claude Opus 4.5 et 4.6 « have a tendency to overengineer by creating extra files ».' }
+				]
+			},
+			{
+				title: 'Vérifie le nouvel appel',
+				questions: [
+					{ q: 'Sous Python 3.12, `date.fromisoformat()` accepte-t-il `strict=True` ?', options: ['Oui, depuis Python 3.11', 'Non : il n’accepte aucun argument nommé', 'Oui, mais seulement sur les dates', 'Seulement avec `from __future__ import strict`'], answer: 1, why: 'Ce mot-clé n’existe pas : c’est une API inventée.' },
+					{ q: 'Que fait la nouvelle ligne avec une date valide comme `"2024-02-01"` ?', options: ['Elle renvoie `date(2024, 2, 1)`', 'Elle renvoie `None`', 'Elle lève `TypeError`', 'Elle lève `ValueError`'], answer: 2, why: 'L’appel échoue sur l’argument nommé avant même de lire la chaîne, donc chaque entrée lève une erreur.' },
+					{ q: 'Comment vérifies-tu un nouvel argument nommé en relecture ?', options: ['Tu lui fais confiance si le code se lit bien', 'Tu cherches sa définition ou sa page de doc', 'Tu demandes à l’agent s’il existe', 'Tu attends que des utilisateurs le signalent'], answer: 1, why: 'Pour chaque nouvel import, fonction, argument nommé ou paquet, trouve sa définition ou sa page de doc.' },
+					{ q: 'Que fait déjà `date.fromisoformat("2024-02-30")` sous Python 3.12 ?', options: ['Il renvoie une date en mars', 'Il renvoie `None`', 'Il lève `TypeError`', 'Il lève `ValueError: day is out of range for month`'], answer: 3, why: 'Le vrai correctif est plus court : l’appel standard rejette déjà cette date.' }
+				]
+			},
+			{
+				title: 'Teste le test',
+				questions: [
+					{ q: 'Quelles exceptions `pytest.raises(Exception)` accepte-t-il ?', options: ['Toute sous-classe de `Exception`, `TypeError` compris', 'Seulement `ValueError`', 'Seulement celles levées par `parse_date`', 'Aucune tant que tu n’en nommes pas une'], answer: 0, why: 'Presque toutes les classes d’erreur héritent de `Exception`, donc le test passe aussi sur le `TypeError`.' },
+					{ q: 'Pourquoi la CI est-elle verte ?', options: ['Le test vérifie le bon comportement', 'La CI a sauté le nouveau test', 'Le `TypeError` satisfait `pytest.raises(Exception)`', 'Python 3.12 accepte `strict=True`'], answer: 2, why: 'Le test attend n’importe quelle erreur, et l’appel cassé en lève une pour chaque entrée.' },
+					{ q: 'Comment prouves-tu que le test est creux ?', options: ['Tu lis le nom du test', 'Tu lances `parse_date("2024-02-01")` et tu vois le même `TypeError`', 'Tu demandes à l’agent de l’expliquer', 'Tu relances la CI'], answer: 1, why: 'Une date valide échoue de la même façon, donc le test passe que le code soit juste ou cassé.' },
+					{ q: 'Quelle est la façon générale de vérifier un test qui protège un correctif ?', options: ['Compter ses assertions', 'Le lancer deux fois', 'Le renommer', 'Annuler le correctif et le lancer : il doit échouer'], answer: 3, why: 'Un test qui reste vert sans le correctif n’a pas testé le correctif.' }
+				]
+			},
+			{
+				title: 'Écris la relecture',
+				questions: [
+					{ q: 'Quelle exception le test doit-il attendre ?', options: ['`ValueError`', '`TypeError`', '`Exception`', '`KeyError`'], answer: 0, why: '`ValueError: day is out of range for month` est ce que lève le vrai correctif pour `"2024-02-30"`.' },
+					{ q: 'Quel test demandes-tu en plus ?', options: ['Un test où `parse_date` lève une erreur pour toute entrée', 'Un test où `parse_date("2024-02-01")` renvoie `date(2024, 2, 1)`', 'Un test sur le formatage des trois modules', 'Un test qui vérifie que `strict=True` est accepté'], answer: 1, why: 'Un test sur une date valide échoue tant que le mot-clé inventé est là.' },
+					{ q: 'L’agent a écrit « tous les tests passent ». Que dit la doc Claude Code de demander ?', options: ['Une explication plus longue', 'Un deuxième agent qui confirme', 'Des preuves : la commande lancée et ce qu’elle a renvoyé', 'Rien de plus : le vert suffit'], answer: 2, why: '« Have Claude show evidence rather than asserting success. »' },
+					{ q: 'Tu demandes à un agent relecteur les manques de cette PR. Que dit la doc ?', options: ['Il ne trouve jamais de manque dans du code d’agent', 'Il a besoin de la session qui a écrit le code', 'Il ne lit que les fichiers de test', 'Il en signalera presque toujours, même quand le travail est solide'], answer: 3, why: 'La doc conseille de ne signaler que les manques qui touchent la justesse ou les exigences posées.' }
+				]
+			}
 		]
 	},
 	quiz: [

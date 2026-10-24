@@ -124,6 +124,44 @@ export default {
 			'Un prompt gagne une question seulement si le juge préfère sa réponse dans les deux ordres. Si le verdict suit l’ordre, la question est une égalité. Tu annonces victoires, défaites et égalités.',
 			'Une réponse sans balise de verdict, ou une erreur d’API, va dans un compte « erreur du correcteur » à part et se relance. Elle ne compte jamais comme une défaite pour A ou pour B.',
 			'Avant d’annoncer, deux personnes notent à la main les 50 mêmes paires tirées au hasard. Calcule l’accord du juge avec chacune et l’accord entre les deux. Si le juge est proche du chiffre humain (l’étude a vu 85 % contre 81 %), tu publies le résultat ; s’il est loin en dessous, tu corriges d’abord la grille.'
+		],
+		steps: [
+			{
+				title: 'Compte les appels',
+				questions: [
+					{ q: 'Sans réponses de référence, quel mode de notation convient pour comparer A et B ?', options: ['Une note de 1 à 5 pour chaque réponse seule', 'Par paires : les deux réponses dans un seul appel', 'Une égalité exacte avec A', 'Un score ROUGE entre A et B'], answer: 1, why: 'Pour comparer deux prompts, le chapitre montre les deux réponses dans un seul appel et demande laquelle est meilleure.' },
+					{ q: 'Pourquoi noter chaque paire deux fois ?', options: ['Pour lisser le coût de l’API', 'Parce que le premier appel remplit le cache', 'Parce que les juges préfèrent une réponse pour sa position', 'Parce que le juge oublie la grille'], answer: 2, why: 'Dans l’étude, Claude-v1 choisissait la première réponse 75,0 % du temps. Inverser l’ordre révèle ce biais.' },
+					{ q: 'Combien d’appels de notation faut-il pour 300 questions ?', options: ['600', '300', '900', '1 200'], answer: 0, why: '300 paires, chacune notée dans les deux ordres : 300 × 2 = 600 appels.' },
+					{ q: 'Qu’écrit le juge avant son verdict ?', options: ['Rien : seulement le verdict', 'Une copie des deux réponses', 'Une note de confiance de 1 à 5', 'Son explication'], answer: 3, why: 'La doc conseille le raisonnement avant la note, donc l’explication d’abord et le verdict en dernier.' }
+				]
+			},
+			{
+				title: 'Définis une victoire',
+				questions: [
+					{ q: 'Quand B gagne-t-il une question ?', options: ['Quand le juge le préfère au premier appel', 'Quand le juge le préfère dans les deux ordres', 'Quand le juge le préfère dans au moins un ordre', 'Quand sa réponse est plus longue'], answer: 1, why: 'La méthode de l’étude ne déclare une victoire que si une réponse est préférée dans les deux ordres.' },
+					{ q: 'Dans l’ordre A,B, le juge choisit A. Dans l’ordre B,A, il choisit B. Que notes-tu ?', options: ['Une victoire pour A', 'Une victoire pour B', 'Une erreur du correcteur', 'Une égalité'], answer: 3, why: 'Un verdict qui suit la position ne dit rien du contenu, il compte donc comme une égalité.' },
+					{ q: 'Qu’annonces-tu à la fin ?', options: ['Victoires, défaites et égalités', 'Seulement le taux de victoire de B', 'La note moyenne de A et de B', 'Seulement les questions gagnées par B'], answer: 0, why: 'Les égalités sont de vrais résultats : elles marquent les questions où le juge a seulement suivi l’ordre.' },
+					{ q: 'B remplit ses réponses avec une copie reformulée de sa liste. Quel est le risque ?', options: ['Aucun : le juge voit les mêmes faits', 'Le juge refuse de le noter', 'Le juge peut se laisser tromper et le préférer', 'La réponse ne s’analyse plus'], answer: 2, why: 'Dans le test « repetitive list » de l’étude, ce remplissage a trompé Claude-v1 et GPT-3.5 dans 91,3 % des cas.' }
+				]
+			},
+			{
+				title: 'Gère les verdicts manquants',
+				questions: [
+					{ q: 'Une réponse du juge n’a pas de balise de verdict. Qu’est-ce que c’est ?', options: ['Une égalité', 'Un échec du correcteur', 'Une défaite pour la deuxième réponse', 'Une victoire pour la première réponse'], answer: 1, why: 'Le code ne lit que la balise de verdict, donc une réponse sans balise est un échec du correcteur, pas de A ni de B.' },
+					{ q: 'Où va une erreur d’API pendant la notation ?', options: ['Dans un compte « erreur du correcteur » à part, puis une relance', 'Dans les défaites de A', 'Dans les égalités', 'Nulle part : elle disparaît sans bruit'], answer: 0, why: 'Mêlés aux verdicts, les échecs du correcteur changeraient la note des prompts que tu testes.' },
+					{ q: 'Un correcteur enveloppe l’appel dans `except Exception` et renvoie « incorrect ». Que peut-il se passer ?', options: ['L’exécution plante à la première erreur', 'Le juge relance tout seul', 'Les erreurs comptent comme des égalités', 'Chaque réponse échoue, sans plantage'], answer: 3, why: 'Avec un prefill que Claude 4.6 et suivants refusent, chaque appel échoue, et chaque réponse est enregistrée comme fausse.' },
+					{ q: 'Pourquoi ne pas compter un verdict manquant comme une défaite ?', options: ['Ça baisserait la note pour une raison sans lien avec la réponse', 'Les défaites ne sont pas annoncées', 'La grille l’interdit', 'Ça doublerait les appels'], answer: 0, why: 'Une erreur du correcteur dit quelque chose du correcteur, pas du prompt testé.' }
+				]
+			},
+			{
+				title: 'Contrôle le juge',
+				questions: [
+					{ q: 'Comment contrôles-tu le juge avant d’annoncer « B gagne » ?', options: ['Tu demandes au juge sa confiance', 'Tu le lances deux fois et compares ses notes', 'Des personnes notent un échantillon à la main et tu compares', 'Tu prends le plus gros modèle disponible'], answer: 2, why: 'Seules des étiquettes humaines te disent si le juge mesure ce que les gens appellent une bonne réponse.' },
+					{ q: 'Quels deux taux d’accord calcules-tu ?', options: ['Juge avec chaque personne, et personne avec personne', 'Juge avec lui-même, et A avec B', 'Juge avec A, et juge avec B', 'Personne avec A, et personne avec B'], answer: 0, why: 'Le chiffre entre humains est la barre à laquelle tu compares le juge.' },
+					{ q: 'Dans l’étude, comment le meilleur juge se comparait-il aux experts ?', options: ['50 % contre 81 %', '23,8 % contre 75 %', '91,3 % contre 85 %', '85 % contre 81 % entre experts'], answer: 3, why: 'GPT-4 était d’accord avec les experts sur 85 % des votes hors égalité, et les experts entre eux sur 81 %.' },
+					{ q: 'Le juge s’accorde avec les gens bien moins qu’ils ne s’accordent entre eux. Que fais-tu ?', options: ['Tu publies le résultat avec un avertissement', 'Tu corriges d’abord la grille', 'Tu notes plus de questions avec le même juge', 'Tu abandonnes l’échantillon humain'], answer: 1, why: 'Un juge loin sous le chiffre humain ne peut pas remplacer les gens, donc tu le corriges avant de croire sa note.' }
+				]
+			}
 		]
 	},
 	quiz: [

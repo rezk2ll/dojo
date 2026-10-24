@@ -134,6 +134,44 @@ export default {
 			'`Shared_Clean` is 17692 kB, about 17 MiB: the libraries and other clean shared pages are small. The gap between the two workers is 1196664 − 282820 = 913844 kB, about 892 MiB, and the `Anonymous` gap is 912956 kB. Almost all of the gap is anonymous memory the old process wrote.',
 			'The restart freed it, so the kernel and the page cache did not hold it: the process did, as live Python objects or as freed chunks kept in glibc arenas.',
 			'List mappings by size: `awk \'/^[0-9a-f]+-[0-9a-f]+ /{n=($6==""?"[anon]":$6)} /^Rss:/{print $2, n}\' /proc/49/smaps | sort -n | tail`. The reporter found 61 anonymous mappings of 1 MiB or more, 1039848 kB in total, against 76392 kB for the largest `[heap]`.'
+		],
+		steps: [
+			{
+				title: 'Compute the share',
+				questions: [
+					{ q: 'Which two numbers give the anonymous share of pid 49\'s memory?', options: ['`Private_Dirty` over `Shared_Clean`', '`Anonymous` over `Rss`', '`Rss` over `Anonymous`', '`Anonymous` over `Private_Dirty`'], answer: 1, why: '`Rss` is all resident memory. `Anonymous` is the part that belongs to no file.' },
+					{ q: '1178592 / 1196664 is about what?', options: ['98.5 %', '85 %', '50 %', '9.8 %'], answer: 0, why: 'The two numbers differ by about 18 MB out of 1.2 GB.' },
+					{ q: 'What goes into `Anonymous`?', options: ['Pages of mapped libraries', 'The page cache of files the worker read', 'Kernel slab objects', 'Heap, stacks, anonymous `mmap`, and private copies of written file pages'], answer: 3, why: '`smaps_account` adds a page to `Anonymous` when it belongs to no file. A written `MAP_PRIVATE` file page becomes a private anonymous copy.' },
+					{ q: '`Private_Dirty` is 1096568 kB. What does that add?', options: ['Those pages are shared with other workers', 'Those pages can be dropped at any time', 'Those pages are mapped by this process only and were written', 'Those pages sit in swap'], answer: 2, why: 'Private dirty pages belong to this process alone. The kernel cannot drop them, only swap them out.' }
+				]
+			},
+			{
+				title: 'Rule out files',
+				questions: [
+					{ q: 'Where do mapped libraries mostly land in `smaps_rollup`?', options: ['`Shared_Clean`', '`Private_Dirty`', '`Anonymous`', '`Swap`'], answer: 0, why: 'Libraries are file pages that many processes map and nobody writes.' },
+					{ q: '`Shared_Clean` is 17692 kB. What does that tell you?', options: ['Libraries hold most of the 1.2 GB', 'Libraries and clean shared pages are about 17 MiB, a small part', 'The worker leaks file descriptors', 'The page cache is full'], answer: 1, why: '17 MiB out of 1.2 GB cannot explain the growth.' },
+					{ q: 'What is the `Rss` gap between pid 49 and pid 2179?', options: ['About 282 MiB', 'About 1.2 GiB', 'About 17 MiB', 'About 892 MiB'], answer: 3, why: '1196664 − 282820 = 913844 kB, about 892 MiB.' },
+					{ q: 'The `Anonymous` gap is 912956 kB. What do you conclude?', options: ['The gap is mostly libraries', 'The gap is mostly page cache', 'Almost all of the gap is anonymous memory the old process wrote', 'The two readings cannot be compared'], answer: 2, why: 'The anonymous gap is within 1 MB of the `Rss` gap. File pages play no real part.' }
+				]
+			},
+			{
+				title: 'Say who held it',
+				questions: [
+					{ q: 'The restart freed the memory. What does that rule out?', options: ['The kernel or the page cache holding it', 'A leak in the Python code', 'glibc arenas keeping freed chunks', 'Nothing: restarts free kernel memory too'], answer: 0, why: 'Memory that leaves with the process belonged to that process, not to the kernel or the page cache.' },
+					{ q: 'Inside the process, what two things could hold the anonymous pages?', options: ['Open sockets and pipes', 'Live Python objects, or freed chunks kept in glibc arenas', 'Shared libraries and the page cache', 'The stack of the main thread only'], answer: 1, why: 'Both are anonymous memory the process wrote. The numbers alone cannot tell them apart.' },
+					{ q: 'Why can freed chunks keep `Rss` high?', options: ['free() sends pages to swap', 'The kernel holds freed pages until reboot', 'Python never calls free()', 'glibc can trim a heap only from the top end'], answer: 3, why: 'mallopt(3): "the heap can be trimmed only if memory is freed at the top end". One live object near the top keeps the pages below it.' },
+					{ q: 'What does gunicorn `max_requests` do about it?', options: ['It caps each arena at 64 MiB', 'It finds the code that allocates', 'It restarts a worker after that many requests', 'It turns off glibc arenas'], answer: 2, why: 'It is "a simple method to help limit the damage of memory leaks". It does not show which code allocates.' }
+				]
+			},
+			{
+				title: 'Find the mappings',
+				questions: [
+					{ q: 'Which file has the per-mapping split?', options: ['`/proc/49/smaps_rollup`', '`/proc/49/status`', '`/proc/49/smaps`', '`/proc/49/maps`'], answer: 2, why: '`smaps_rollup` sums all mappings. `smaps` keeps one block per mapping, with its own `Rss:`.' },
+					{ q: 'In the `awk` command, why test `$6==""`?', options: ['An empty 6th column means an unnamed anonymous mapping', 'It skips the `[heap]` line', 'It skips mappings in swap', 'It keeps only shared libraries'], answer: 0, why: 'The name sits in the 6th column of the header line. Large `malloc` blocks and extra arenas have no name.' },
+					{ q: 'A `malloc(1 MB)` in glibc lands where?', options: ['In `[heap]`, grown with `brk`', 'In its own private anonymous mapping', 'In `[stack]`', 'In the page cache'], answer: 1, why: 'glibc serves a block of 128 kB or more from its own `mmap`. It shows up with no name.' },
+					{ q: 'The reporter found 61 unnamed mappings of 1 MiB or more, 1039848 kB in total, and 76392 kB of `[heap]`. Where is the growth?', options: ['In the main arena `[heap]`', 'In the libraries', 'In the stacks', 'In unnamed anonymous mappings: large blocks and extra arenas'], answer: 3, why: 'The unnamed mappings hold about 1 GB, more than ten times the `[heap]`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,26 @@ export default {
 			why: 'Threads that contend on the main arena lock get their own arenas, up to 8 per CPU on 64-bit. Those arenas are `mmap`ed heaps of up to 64 MiB with no name in `maps`. Only the main arena grows `[heap]`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Start a process that leaks on purpose, watch `smaps_rollup` grow, and find the mapping that holds it.',
+		steps: [
+			'On Linux, start a Python process that keeps 1 MiB more every 50 ms, up to 400 MiB, then idles: `python3 -c "import time; keep = []; [(keep.append(bytearray(1 << 20)), time.sleep(0.05)) for _ in range(400)]; time.sleep(120)" & pid=$!`.',
+			'Read the totals three times: `for i in 1 2 3; do grep -E \'^(Rss|Anonymous|Private_Dirty|Shared_Clean)\' /proc/$pid/smaps_rollup; echo; sleep 3; done`.',
+			'List the mappings by resident size: `awk \'/^[0-9a-f]+-[0-9a-f]+ /{n=($6==""?"[anon]":$6)} /^Rss:/{print $2, n}\' /proc/$pid/smaps | sort -n | tail -5`.',
+			'Stop it: `kill $pid`.'
+		],
+		done: [
+			'`Rss`, `Anonymous` and `Private_Dirty` grow on each reading, while `Shared_Clean` stays at a few MB.',
+			'`Anonymous` stays within a few MB of `Rss`.',
+			'The last line of step 3 is `[anon]`, far above `python3` and `libc.so.6`.'
+		],
+		solution: [
+			'Each `bytearray(1 << 20)` is a 1 MiB block, above glibc\'s 128 kB threshold, so it gets its own anonymous `mmap`. Writing zeros into it faults the pages in.',
+			'The kernel merges anonymous mappings that sit next to each other with the same flags, so the 1 MiB blocks can show up as one big `[anon]` line instead of hundreds.',
+			'This is the chapter\'s method: `smaps_rollup` says the growth is anonymous memory the process wrote, and `smaps` names where it sits. Neither says which line of code allocates.'
+		]
+	},
 	recall: {
 		q: 'Which file gives a process\'s memory totals in one read, and which line shows that the growth is memory the process wrote itself?',
 		a: '`/proc/<pid>/smaps_rollup`, and its `Anonymous:` line, with `Private_Dirty:` next to it. The idle authentik worker had 2090156 kB `Anonymous` out of 2110844 kB `Rss`.'

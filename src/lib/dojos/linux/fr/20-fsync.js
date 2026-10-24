@@ -121,6 +121,44 @@ durable_rename(const char *oldfile, const char *newfile, int elevel)
 			'Sortie relevée sur un portable pour ce chapitre, après les appels de démarrage de l’interpréteur : `openat(AT_FDCWD, "config.json.tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3`, `write(3, "{\\"port\\": 8080}\\n", 15) = 15`, `fsync(3) = 0`, `close(3) = 0`.',
 			'Puis `rename("config.json.tmp", "config.json") = 0`, `openat(AT_FDCWD, ".", O_RDONLY|O_CLOEXEC) = 3`, `fsync(3) = 0`, `close(3) = 0`. Le premier `fsync` couvre les 15 octets et l’inode du fichier temporaire ; le second couvre l’entrée de répertoire modifiée par le rename.',
 			'Sans le premier `fsync`, le rename peut atteindre le disque avant les données : c’est le fichier de 0 octet du chapitre précédent. Sans le `fsync` du répertoire, un plantage peut ramener l’ancien `config.json`, comme si le rename n’avait jamais eu lieu.'
+		],
+		steps: [
+			{
+				title: 'Trace le fichier temporaire',
+				questions: [
+					{ q: 'Le premier appel tracé est `openat(..., "config.json.tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3`. Quelle étape est-ce ?', options: ['Ouvrir l’ancien `config.json` pour le lire', 'Créer le fichier temporaire dans le même répertoire', 'Ouvrir le répertoire', 'Verrouiller la config'], answer: 1, why: 'Le remplacement sûr commence par un fichier temporaire à côté de la cible, pour que le `rename` reste sur un seul système de fichiers.' },
+					{ q: '`write(3, ..., 15) = 15` rend la main. Où sont les 15 octets maintenant ?', options: ['Sur le disque', 'Dans le journal', 'Dans le cache de pages, en pages sales', 'Dans l’entrée de répertoire'], answer: 2, why: '`write(2)` copie les octets dans le cache de pages et rend la main avant qu’ils n’atteignent le disque.' },
+					{ q: 'Pourquoi le fichier temporaire doit-il être dans le même répertoire, et pas dans `/tmp` ?', options: ['`rename` ne traverse pas les systèmes de fichiers', '`/tmp` n’a pas de cache de pages', 'On ne peut pas faire de `fsync` dans `/tmp`', 'Python refuse les autres chemins'], answer: 0, why: '`rename` entre deux systèmes de fichiers échoue avec `EXDEV`. Le même répertoire garde les deux noms sur un seul système de fichiers.' },
+					{ q: 'Pourquoi ne pas ouvrir `config.json` avec `O_TRUNC` et écrire sur place ?', options: ['C’est plus lent', 'Il faut être root', 'Ça casse `strace`', 'Un plantage en pleine écriture laisse un fichier vide ou partiel'], answer: 3, why: 'L’ancien contenu disparaît dès que la troncature arrive. Le fichier temporaire garde l’ancien intact jusqu’au rename.' }
+				]
+			},
+			{
+				title: 'Place le premier fsync',
+				questions: [
+					{ q: 'Quel appel rend les 15 octets durables ?', options: ['`write(3, ..., 15)`', 'Le premier `fsync(3) = 0`', '`close(3)`', '`rename`'], answer: 1, why: 'Une donnée est durable dès qu’un `fsync` sur elle a renvoyé 0. `write` et `close` n’attendent pas le disque.' },
+					{ q: 'Que couvre ce premier `fsync` ?', options: ['Les 15 octets et l’inode du fichier temporaire', 'L’entrée de répertoire de `config.json`', 'Tous les fichiers du répertoire', 'Seulement la taille du fichier'], answer: 0, why: 'fsync écrit les pages sales et les métadonnées d’un fichier, et rend la main quand le périphérique annonce le transfert terminé.' },
+					{ q: 'Le premier `fsync` renvoie -1 avec `EIO`. Quelle est la réaction sûre ?', options: ['Rappeler `fsync` jusqu’à recevoir 0', 'L’ignorer et faire le rename', 'Réécrire les données depuis une autre copie, ou s’arrêter', 'Fermer et rouvrir le fichier'], answer: 2, why: 'Linux ne remonte une erreur de writeback qu’une fois et peut jeter les pages. Un nouvel essai peut renvoyer 0 pour des données perdues.' },
+					{ q: 'Pourquoi `durable_rename` de PostgreSQL fait-il d’abord un `fsync` du fichier source ?', options: ['Pour le verrouiller', 'Pour vérifier sa taille', 'Pour libérer son cache de pages', 'Pour que ses données soient sur le disque avant qu’un nom pointe vers lui'], answer: 3, why: 'La ligne 13 fait un `fsync` de l’ancien fichier avant le rename : le nouveau nom ne pointe jamais vers des données absentes.' }
+				]
+			},
+			{
+				title: 'Place le rename et le second fsync',
+				questions: [
+					{ q: 'Que garantit `rename("config.json.tmp", "config.json") = 0` aux lecteurs ?', options: ['L’ancien ou le nouveau fichier à tout moment, jamais de nom absent', 'Un court moment sans `config.json`', 'Une copie des deux fichiers', 'Un fichier fusionné'], answer: 0, why: 'rename(2) : la cible "will be atomically replaced", sans aucun moment où `newpath` manque.' },
+					{ q: 'Le `openat(AT_FDCWD, ".", O_RDONLY|O_CLOEXEC) = 3` suivant ouvre quoi ?', options: ['Le nouveau `config.json`', 'Encore le fichier temporaire', 'Le répertoire courant', 'Le journal'], answer: 2, why: '`"."` est le répertoire qui porte l’entrée modifiée par le rename.' },
+					{ q: 'Les deux lignes `fsync` utilisent le fd 3. Est-ce le même fichier ?', options: ['Oui : le fd 3 désigne toujours un seul fichier', 'Oui : le noyau réutilise l’inode', 'Non : le second est `config.json`', 'Non : le fd 3 a été fermé puis réutilisé pour le répertoire'], answer: 3, why: '`close(3)` a libéré le numéro, et l’`openat` suivant l’a récupéré pour `"."`.' },
+					{ q: 'Que couvre le second `fsync` ?', options: ['L’entrée de répertoire modifiée par le rename', 'Encore les 15 octets', 'Les données de l’ancien `config.json`', 'Rien : on ne peut pas faire de `fsync` sur un répertoire'], answer: 0, why: 'fsync(2) : synchroniser un fichier ne garantit pas que son entrée de répertoire a atteint le disque. Il faut un `fsync` explicite sur le répertoire.' }
+				]
+			},
+			{
+				title: 'Dis ce que laisse un plantage',
+				questions: [
+					{ q: 'Dans le répertoire vide, sans le premier `fsync`, que peut laisser un plantage ?', options: ['L’ancien fichier, toujours', 'Un `config.json` de 0 octet : le rename est arrivé avant les données', 'Un fichier moitié ancien, moitié nouveau', 'Deux fichiers `config.json`'], answer: 1, why: 'Le rename peut atteindre le disque avant les données : c’est le fichier de 0 octet du chapitre précédent. Sans ancien `config.json` à remplacer, `auto_da_alloc` d’ext4 n’intervient pas.' },
+					{ q: 'Tu relances le script : un ancien `config.json` existe. Sans le `fsync` du répertoire, que peut laisser un plantage ?', options: ['Un fichier de 0 octet', 'Plus aucun fichier', 'L’ancien `config.json`, comme si le rename n’avait pas eu lieu', 'Un répertoire corrompu'], answer: 2, why: 'Le rename a modifié le répertoire, et cette modification peut se perdre. `rename` ne laisse jamais le nom absent ou mélangé.' },
+					{ q: 'Avec les deux, que peut laisser un plantage ?', options: ['Un fichier de 0 octet', 'L’ancien ou le nouveau `config.json`, jamais un mélange', 'Toujours l’ancien fichier', 'Seulement un fichier temporaire'], answer: 1, why: 'Les données d’abord, puis un rename atomique, puis l’entrée de répertoire sur le disque. `durable_rename` promet "no mixed state or truncated files".' },
+					{ q: 'Que coûte chaque remplacement durable ?', options: ['Rien de plus', 'Un seul `fsync`, sur le répertoire', 'Un `sync` complet du disque', 'Deux appels `fsync`, qui attendent chacun le périphérique'], answer: 3, why: 'Un sur le fichier et un sur son répertoire. "The call blocks until the device reports that the transfer has completed."' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ durable_rename(const char *oldfile, const char *newfile, int elevel)
 			why: 'fsync(2) dit que synchroniser un fichier ne garantit pas que son entrée de répertoire a atteint le disque. Le rename a modifié le répertoire, et cette modification peut se perdre. `rename` lui-même ne laisse jamais le nom absent ou mélangé.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Mesurer ce que coûte `fsync`, et voir pourquoi un programme groupe ses écritures avant un seul `fsync`.',
+		steps: [
+			'Crée un dossier sur un vrai disque, pas sur un `tmpfs` : `mkdir -p ~/fsync-lab && cd ~/fsync-lab`.',
+			'Chronomètre 500 petites écritures sans `fsync` : `python3 -c "import os, time; fd = os.open(\'log.txt\', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644); t = time.time(); [os.write(fd, b\'event\\n\') for i in range(500)]; print(\'%.3f s\' % (time.time() - t))"`.',
+			'Chronomètre la même chose avec un `fsync` après chaque écriture : remplace la liste par `[(os.write(fd, b\'event\\n\'), os.fsync(fd)) for i in range(500)]`.',
+			'Chronomètre les 500 écritures suivies d’un seul `fsync` : reprends la liste de l’étape 2 et ajoute `os.fsync(fd);` juste après.',
+			'Sous Linux, compte les appels : `strace -c -e trace=fsync python3 -c "import os; fd = os.open(\'log.txt\', os.O_WRONLY); [(os.write(fd, b\'event\\n\'), os.fsync(fd)) for i in range(500)]"`.'
+		],
+		done: [
+			'L’étape 2 affiche à peu près `0.000 s`.',
+			'L’étape 3 prend bien plus longtemps sur le même disque, une bonne partie d’une seconde ou plus.',
+			'L’étape 4 reste proche de l’étape 2.',
+			'Le tableau de `strace -c` montre 500 appels `fsync`.'
+		],
+		solution: [
+			'`write` ne fait que remplir le cache de pages : l’étape 2 n’attend jamais le disque. Chaque `fsync` bloque jusqu’à ce que le périphérique annonce le transfert terminé : l’étape 3 avance à la vitesse du périphérique.',
+			'Un seul `fsync` après beaucoup d’écritures les rend toutes durables d’un coup, pour le prix d’une seule attente du périphérique.',
+			'Sur un `tmpfs`, les trois étapes sont rapides : il n’y a aucun périphérique à attendre, et rien ne survit au redémarrage de toute façon.'
+		]
+	},
 	recall: {
 		q: 'Qu’a changé PostgreSQL en novembre 2018 après le signalement du fsyncgate, et pourquoi ne se contente-t-il pas de réessayer `fsync` ?',
 		a: 'Il fait maintenant un PANIC au premier échec de `fsync` sur un fichier de données (`data_sync_retry` désactivé par défaut) et rejoue le WAL au redémarrage. Linux peut jeter les pages ratées et ne remonter l’erreur qu’une fois : un deuxième `fsync` peut renvoyer 0 pour des données perdues.'

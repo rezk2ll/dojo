@@ -123,6 +123,44 @@ export default {
 			'`used` = 28365352 - 22012500 = 6352852 kB (6.1 GiB, 22%). buff/cache = 7061852 + 10194356 + 3816928 = 21073136 kB.',
 			'By hand: 1670320 free + 16985396 of file lists + 3816928 of slab = 22472644 kB. The kernel reports 22012500 kB, 460144 kB less: the reserve and the cache it keeps back.',
 			'The server is fine: 21 GiB is available. Alert on `MemAvailable`, or on swap and OOM kills (chapters 11 and 12), instead of `MemFree`.'
+		],
+		steps: [
+			{
+				title: 'Check what the alert measured',
+				questions: [
+					{ q: 'Which line gives "94% used"?', options: ['`MemAvailable` over `MemTotal`', '`MemFree`: 5.9% free', '`Cached` over `MemTotal`', '`SReclaimable`'], answer: 1, why: '100% minus 5.9% free is about 94%. The alert read `MemFree`.' },
+					{ q: 'What does `MemFree` leave out?', options: ['Swap that is in use', 'RAM that holds nothing at all', 'Page cache it can hand back', 'Memory used by root processes'], answer: 2, why: 'File pages kept in case they are read again leave `MemFree`, even though programs can still get them.' },
+					{ q: 'Why is a low `MemFree` normal on a busy server?', options: ['The kernel caches file data in idle RAM', 'The kernel reserves most RAM for itself', 'Programs leak memory slowly over time', '`MemFree` is only updated at boot'], answer: 0, why: 'RAM that no program uses holds file pages instead of sitting empty.' },
+					{ q: 'Which line should the alert use instead?', options: ['`Cached`', '`Buffers`', '`MemTotal`', '`MemAvailable`'], answer: 3, why: 'It estimates how much a new program can get "without swapping".' }
+				]
+			},
+			{
+				title: 'Rebuild used',
+				questions: [
+					{ q: 'How does free(1) compute `used`?', options: ['Total minus free', 'Total minus available', 'Total minus buff/cache', 'Cached plus Buffers'], answer: 1, why: 'free(1): `used` is total minus available.' },
+					{ q: 'What is `used` here?', options: ['26695032 kB', '21073136 kB', '6352852 kB', '1670320 kB'], answer: 2, why: '28365352 - 22012500 = 6352852 kB, about 6.1 GiB.' },
+					{ q: 'What share of RAM is that?', options: ['About 22%', 'About 94%', 'About 6%', 'About 78%'], answer: 0, why: '6352852 / 28365352 is about 22%, far from the 94% in the alert.' },
+					{ q: 'How much is available to new programs?', options: ['About 1.6 GiB', 'About 6.1 GiB', 'About 10 GiB', 'About 21 GiB'], answer: 3, why: '`MemAvailable` is 22012500 kB, about 21 GiB.' }
+				]
+			},
+			{
+				title: 'Rebuild buff/cache',
+				questions: [
+					{ q: 'Which three lines add up to buff/cache?', options: ['`Buffers`, `Cached`, `SReclaimable`', '`MemFree`, `Cached`, `Buffers`', '`Active(file)`, `Inactive(file)`, `Cached`', '`Cached`, `SReclaimable`, `MemAvailable`'], answer: 0, why: 'free(1) adds `Buffers`, `Cached` and `SReclaimable`.' },
+					{ q: 'What is buff/cache here?', options: ['17256208 kB', '21073136 kB', '22012500 kB', '16985396 kB'], answer: 1, why: '7061852 + 10194356 + 3816928 = 21073136 kB.' },
+					{ q: 'Can the kernel drop all of buff/cache?', options: ['Yes, every cached page is a copy of disk', 'Yes, but only once dirty pages are written', 'No: `Cached` includes tmpfs and shared memory', 'No: only `Buffers` can be dropped'], answer: 2, why: 'tmpfs pages have no file on disk behind them, and the estimate keeps some cache back.' },
+					{ q: 'What must happen before the kernel can reuse a dirty page?', options: ['Nothing, it drops it', 'A process must close the file', 'The page must be swapped out', 'It must be written to disk'], answer: 3, why: 'A dirty page differs from the file on disk, so it is written back first.' }
+				]
+			},
+			{
+				title: 'Estimate MemAvailable',
+				questions: [
+					{ q: 'Which lines make the file lists the kernel counts?', options: ['`Active(file)` and `Inactive(file)`', '`Cached` and `Buffers`', '`Cached` only', '`Buffers` and `SReclaimable`'], answer: 0, why: '`si_mem_available()` adds `NR_ACTIVE_FILE` and `NR_INACTIVE_FILE`.' },
+					{ q: 'What is that sum here?', options: ['10194356 kB', '15170572 kB', '16985396 kB', '21073136 kB'], answer: 2, why: '1814824 + 15170572 = 16985396 kB.' },
+					{ q: 'Free + file lists + reclaimable slab gives what?', options: ['22012500 kB', '22472644 kB', '21073136 kB', '28365352 kB'], answer: 1, why: '1670320 + 16985396 + 3816928 = 22472644 kB.' },
+					{ q: 'The kernel reports 22012500 kB, 460144 kB less. Why?', options: ['Rounding in `free` to the nearest MiB', 'The dirty pages waiting for disk', 'Swap in use', 'It keeps back a reserve, cache and slab'], answer: 3, why: 'It subtracts `totalreserve_pages` and holds back half of each pool or the low watermark, whichever is smaller.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,28 @@ export default {
 			why: '`Cached` includes tmpfs and shared memory, which the kernel cannot drop. `si_mem_available()` counts only the file lists, minus half of them or the low watermark, so the system keeps enough cache to run.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Read a file from disk and then from the page cache, and rebuild the columns of `free` from `/proc/meminfo`.',
+		steps: [
+			'Make a scratch folder and a 256 MiB file: `mkdir -p ~/cache-lab && cd ~/cache-lab && head -c 268435456 /dev/urandom > med.bin && sync`. This lab needs Linux.',
+			'Write a script that drops this one file from the cache, no root needed: `printf \'import os, sys\\nfd = os.open(sys.argv[1], os.O_RDONLY)\\nos.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)\\n\' > evict.py`.',
+			'Write a script that reads a file and prints its disk bytes: `printf \'import sys, time\\nt = time.time()\\nwith open(sys.argv[1], "rb") as f:\\n    while f.read(1 << 20): pass\\nio = dict(l.split(": ") for l in open("/proc/self/io").read().split("\\\\n") if l)\\nprint("read_bytes", io["read_bytes"], "seconds", round(time.time() - t, 3))\\n\' > readit.py`.',
+			'Evict, then read twice: `python3 evict.py med.bin; python3 readit.py med.bin; python3 readit.py med.bin`.',
+			'Rebuild `free`: run `free -k` and `grep -E \'^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable):\' /proc/meminfo`. Clean up with `rm med.bin`.'
+		],
+		done: [
+			'The first read prints `read_bytes 268435456`, and the second prints `read_bytes 0` and takes less time.',
+			'`free`\'s `used` equals `MemTotal` minus `MemAvailable`, give or take the few kB that changed between the two commands.',
+			'`free`\'s `buff/cache` equals `Buffers` + `Cached` + `SReclaimable`, with the same small drift.'
+		],
+		solution: [
+			'`read_bytes` counts bytes "really fetched from the storage layer". The first read filled the page cache, and the second process found every page there.',
+			'The cache belongs to the kernel, not to the process, so a new process gets the cached pages.',
+			'`posix_fadvise(POSIX_FADV_DONTNEED)` asks the kernel to drop the clean cached pages of this one file. `drop_caches` does it for the whole machine and needs root.',
+			'`used` is total minus available, so it leaves out the cache the kernel can hand back.'
+		]
+	},
 	recall: {
 		q: 'Which `/proc/meminfo` line tells you how much memory a new program can get without swapping, and how does `free` compute `used` from it?',
 		a: '`MemAvailable`, the `available` column. `used` = total - available, for example 28365352 - 22012500 = 6352852 kB.'

@@ -123,6 +123,44 @@ export default {
 			'`-rwsr-xr-x 4755 root root /usr/bin/passwd`: the 4 is set-user-ID, so `passwd` runs with effective UID 0 for any caller. `-rwxr-sr-x 2755 root crontab /usr/bin/crontab`: the 2 is set-group-ID, so it runs with effective group `crontab`.',
 			'`drwxrwsr-x 2775 root mail /var/mail`: set-group-ID on a directory, so each new mailbox gets group `mail`.',
 			'`umask` printed `002`: a new file gets 0666 & ~002 = 0664 (`-rw-rw-r--`), a new directory 0775. `find` listed 11 set-user-ID root programs, among them `sudo`, `su`, `mount` and `pkexec`.'
+		],
+		steps: [
+			{
+				title: 'Read the /tmp line',
+				questions: [
+					{ q: '`drwxrwxrwt 1777 root root /tmp`. Which special bit is set?', options: ['Set-user-ID', 'Set-group-ID', 'Sticky', 'None: `t` is a file type'], answer: 2, why: 'The first octal digit is 1, shown as `t` in the others\' execute slot: the sticky bit.' },
+					{ q: 'What does the 777 part let users do in `/tmp`?', options: ['Create files there', 'Delete any file there', 'Read every file there', 'Run every file there as root'], answer: 0, why: 'Write and execute on a directory let every user add entries to it.' },
+					{ q: 'Bob tries to delete a file alice made in `/tmp`, mode 0666. What happens?', options: ['It works: the file is writable by all', 'It works: `/tmp` is writable by all', 'It works only at boot', 'It fails: the sticky bit limits deletion to the owners'], answer: 3, why: 'Deleting changes the directory, so the directory decides. Only the file\'s owner, root or a privileged process may delete it.' },
+					{ q: 'Why does the file\'s own mode not matter for deletion?', options: ['The kernel checks the file mode after the delete', 'Deleting removes a directory entry, so the directory\'s mode decides', 'Files in `/tmp` have no mode', 'Because root owns `/tmp`'], answer: 1, why: 'A name lives in the parent directory. Removing it is a write to that directory.' }
+				]
+			},
+			{
+				title: 'Read the two programs',
+				questions: [
+					{ q: '`-rwsr-xr-x 4755 root root /usr/bin/passwd`. What does the 4 do?', options: ['It makes the file readable by root only', 'Set-user-ID: the process runs with effective UID 0 for any caller', 'Set-group-ID: it runs with group root', 'It marks the file sticky in memory'], answer: 1, why: 'execve sets the effective user ID to the file owner\'s, root here. The real UID stays the caller\'s.' },
+					{ q: 'User 1000 runs `passwd`. What is the process\'s real UID?', options: ['0', '1000', '4755', 'The UID of the last user who ran it'], answer: 1, why: 'Only the effective UID changes. The real UID stays 1000, so the program knows who called it.' },
+					{ q: '`-rwxr-sr-x 2755 root crontab /usr/bin/crontab`. What does the 2 do?', options: ['It runs with effective group `crontab`', 'It runs with effective user `crontab`', 'Only the group can run it', 'New files take group `crontab`'], answer: 0, why: 'The `s` in the group slot on a program is set-group-ID: it sets the effective group ID to the file\'s group.' },
+					{ q: 'When would `passwd` keep effective UID 1000 despite the bit?', options: ['When the caller is in group `root`', 'When the umask is `022`', 'When its filesystem is mounted `nosuid`, or `no_new_privs` is set', 'Never'], answer: 2, why: 'execve(2) ignores the set-user-ID bit on a `nosuid` mount or when the thread has `no_new_privs`.' }
+				]
+			},
+			{
+				title: 'Read the directory and the list',
+				questions: [
+					{ q: '`drwxrwsr-x 2775 root mail /var/mail`. What does the `s` do on a directory?', options: ['Programs inside run as `mail`', 'Only `mail` can list it', 'New files there take group `mail`', 'Files there cannot be deleted'], answer: 2, why: 'inode(7): files created in a set-group-ID directory "inherit their group ID from the directory".' },
+					{ q: 'A new subdirectory under `/var/mail`. Does it get the bit too?', options: ['Yes: new subdirectories inherit it', 'No: only files inherit', 'Only if made by root', 'Only with umask `002`'], answer: 0, why: 'New subdirectories of a set-group-ID directory get the bit as well, so the rule carries down.' },
+					{ q: '`find /usr/bin -perm -4000` listed 11 programs. What do they share?', options: ['They are all sticky', 'They all belong to group `mail`', 'They cannot be run by users', 'They all run with the owner\'s UID, root here, for any caller'], answer: 3, why: '`-perm -4000` matches files with the set-user-ID bit. Each one runs as root for every user.' },
+					{ q: 'Why does that list matter after PwnKit?', options: ['Each program on it slows down boot', 'A bug in any of them is a root bug for every local user', 'Each one leaks the umask', 'They ignore `nosuid`'], answer: 1, why: '`pkexec` was on such a list from May 2009 to January 2022. The fix cleared its bit with `chmod 0755`.' }
+				]
+			},
+			{
+				title: 'Compute from umask',
+				questions: [
+					{ q: '`umask` prints `002`. What mode does `touch` ask for?', options: ['0777', '0644', '0666', '0002'], answer: 2, why: '`touch` asks `open` for 0666. The umask then turns bits off.' },
+					{ q: 'What mode does the new file get?', options: ['0664, `-rw-rw-r--`', '0644, `-rw-r--r--`', '0666, `-rw-rw-rw-`', '0775, `-rwxrwxr-x`'], answer: 0, why: '0666 & ~002 = 0664. Only others lose write.' },
+					{ q: 'What mode does a new directory get?', options: ['0664', '0755', '0777', '0775'], answer: 3, why: '`mkdir` asks for 0777, and 0777 & ~002 = 0775.' },
+					{ q: 'Why do teams in a shared setgid directory pick `002` over `022`?', options: ['`022` blocks the setgid bit', 'With `022` new files are `-rw-r--r--`, so the group cannot write', '`002` makes files executable', '`022` hides files from the group'], answer: 1, why: 'The setgid directory gives the group, but the umask decides if the group can write.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,30 @@ export default {
 			why: 'open(2) turns off the umask bits: 0666 & ~027 = 0640. The group loses write and others lose everything. 0750 is what `mkdir` would give, since it starts from 0777.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Watch each special bit act, as two users in a throwaway container where you are root.',
+		steps: [
+			'Start the container. `--tmpfs` adds a scratch mount that Docker mounts `nosuid`: `docker run --rm -it --tmpfs /ns:exec debian:bookworm-slim bash`.',
+			'Make two users and a group: `useradd -m alice; useradd -m bob; groupadd team; usermod -aG team alice`.',
+			'Sticky bit: `mkdir /shared && chmod 1777 /shared`, then `su alice -c \'touch /shared/alice.log && chmod 666 /shared/alice.log\'` and `su bob -c \'rm /shared/alice.log\'`.',
+			'Set-group-ID directory: `mkdir /team && chgrp team /team && chmod 2775 /team`, then `su alice -c \'touch /team/a.txt\'` and `stat -c \'%A %U %G %n\' /team /team/a.txt`.',
+			'umask: `su alice -c \'umask 027; touch /tmp/f; mkdir /tmp/d\'` and `stat -c \'%a %n\' /tmp/f /tmp/d`.',
+			'Set-user-ID: `cp /usr/bin/id /usr/local/bin/myid && chmod 4755 /usr/local/bin/myid` and `su bob -c myid`. Then the same file on the `nosuid` mount: `cp /usr/bin/id /ns/myid && chmod 4755 /ns/myid` and `su bob -c /ns/myid`. Then `exit`.'
+		],
+		done: [
+			'Step 3 prints `Operation not permitted` although the file is mode 666.',
+			'Step 4 shows `/team` as `drwxrwsr-x` and `a.txt` with group `team`.',
+			'Step 5 prints `640 /tmp/f` and `750 /tmp/d`.',
+			'`su bob -c myid` prints `euid=0(root)`, and `su bob -c /ns/myid` does not.'
+		],
+		solution: [
+			'The sticky bit on `/shared` lets only alice, root or a privileged process remove `alice.log`. The file\'s mode is not checked.',
+			'`a.txt` took the directory\'s group. It is `-rw-r--r--` because the default umask `022` took away the group\'s write bit.',
+			'0666 & ~027 = 0640 and 0777 & ~027 = 0750.',
+			'execve set bob\'s effective UID to the file owner, root, and left the real UID at bob. On the `nosuid` mount, execve ignored the bit.'
+		]
+	},
 	recall: {
 		q: 'What do the octal digits 4, 2 and 1 in front of a mode like `4755` mean, and which one did the PwnKit fix remove from `pkexec`?',
 		a: '4 is set-user-ID, 2 is set-group-ID, 1 is the sticky bit. `chmod 0755 /usr/bin/pkexec` removed the 4, so `pkexec` no longer ran as root for every user.'

@@ -124,6 +124,44 @@ export default {
 			'Deuxième essai : `CapPrm`, `CapEff` et `CapBnd` valent tous `0000000000000400`, soit `cap_net_bind_service`, le bit 10.',
 			'Troisième essai : `CapEff: 0000000000000000` et `CapBnd: 0000000000000400`. `grep` tourne en UID 1000 sans capabilities de fichier, donc la formule P\'(permitted) = (P(inheritable) & F(inheritable)) | (F(permitted) & P(bounding)) | P\'(ambient) donne 0. La capability reste dans l’ensemble limite, comme plafond.',
 			'Pour la donner à un programme non root, l’image lance `setcap cap_net_bind_service=+ep` sur ce binaire, ce qui écrit l’attribut `security.capability`. Pour un port sous 1024 dans Docker, tu n’en as pas besoin : Docker met `ip_unprivileged_port_start` à 0.'
+		],
+		steps: [
+			{
+				title: 'Lis l’essai par défaut',
+				questions: [
+					{ q: 'Le premier essai affiche `CapEff: 00000000a80425fb`. D’où vient cet ensemble ?', options: ['Le noyau le donne à tout processus en UID 0', 'De la liste par défaut de Docker, 14 capabilities', 'L’image `alpine:3.20` le déclare', 'C’est le `CapEff` de l’hôte recopié'], answer: 1, why: 'Sans option, `TweakCapabilities` renvoie `basics`, les 14 noms de `defaults.go`, de `CAP_CHOWN` à `CAP_AUDIT_WRITE`.' },
+					{ q: 'Comment transformes-tu le masque en noms ?', options: ['`capsh --decode=00000000a80425fb`', '`getcap 00000000a80425fb`', '`setcap -d 00000000a80425fb`', '`grep a80425fb /etc/capabilities`'], answer: 0, why: '`capsh --decode` lit le masque hexadécimal et affiche un nom par bit à 1.' },
+					{ q: 'Quel bit utilise `cap_chown` ?', options: ['Le bit 10', 'Le bit 1', 'Le bit 31', 'Le bit 0'], answer: 3, why: '`capsh --decode=1` affiche `cap_chown` : c’est le bit 0, le plus bas du masque.' },
+					{ q: 'Ce processus est en UID 0. Que vérifie le noyau quand il appelle `chown` ?', options: ['Que l’UID vaut 0', 'Que le fichier appartient à l’UID 0', '`CAP_CHOWN` dans l’ensemble effectif', 'L’attribut `security.capability` du fichier modifié'], answer: 2, why: 'Depuis Linux 2.2, une action privilégiée vérifie la seule capability dont elle a besoin. chown(2) demande `CAP_CHOWN` dans l’ensemble effectif.' }
+				]
+			},
+			{
+				title: 'Lis l’essai réduit',
+				questions: [
+					{ q: 'Avec `--cap-drop=ALL --cap-add=NET_BIND_SERVICE`, quelle liste Docker construit-il ?', options: ['Les 14 par défaut plus `NET_BIND_SERVICE`', 'Les 14 par défaut moins `NET_BIND_SERVICE`', 'Seulement `NET_BIND_SERVICE`', 'Une liste vide, car `ALL` l’emporte'], answer: 2, why: 'Quand les retraits contiennent `ALL`, Docker jette la liste par défaut et ne garde que les ajouts.' },
+					{ q: 'Le deuxième essai affiche trois fois `0000000000000400`. Que donne le décodage ?', options: ['`cap_net_bind_service`, le bit 10', '`cap_net_raw`, le bit 13', '`cap_chown`, le bit 0', '`cap_sys_admin`, le bit 21'], answer: 0, why: '0x400, c’est le bit 10, que `capsh` décode en `cap_net_bind_service`.' },
+					{ q: 'Quelles trois lignes le montrent ?', options: ['`CapInh`, `CapEff`, `CapAmb`', '`CapPrm`, `CapEff`, `CapBnd`', '`CapInh`, `CapPrm`, `CapBnd`', '`CapEff`, `CapBnd`, `CapAmb`'], answer: 1, why: 'Root garde la capability dans ses ensembles permis et effectif, et l’ensemble limite ne contient qu’elle aussi.' },
+					{ q: 'Un binaire setuid root tourne dans ce conteneur. Quelles capabilities peut-il gagner ?', options: ['Toutes, car setuid root veut dire root complet', 'Les 14 par défaut', 'Aucune, setuid est ignoré dans les conteneurs', 'Au plus `cap_net_bind_service`, ce que permet `CapBnd`'], answer: 3, why: 'L’ensemble limite est combiné par ET avec ce qu’accorde un fichier pendant l’execve. Rien hors de `CapBnd` ne peut revenir.' }
+				]
+			},
+			{
+				title: 'Lis l’essai non root',
+				questions: [
+					{ q: 'Avec `--user 1000` en plus, que montrent `CapEff` et `CapBnd` ?', options: ['`CapEff` à 0, `CapBnd` à `0000000000000400`', 'Les deux à `0000000000000400`', 'Les deux à 0', '`CapEff` à `0000000000000400`, `CapBnd` à 0'], answer: 0, why: 'Le processus n’a aucune capability effective, mais l’ensemble limite garde le bit 10 comme plafond.' },
+					{ q: 'Pourquoi `CapEff` est-il vide ?', options: ['Docker ignore `--cap-add` quand `--user` est présent', 'Le noyau retire les capabilities aux UID au-dessus de 999', 'Un execve non root d’un fichier sans capabilities de fichier donne un ensemble permis vide', 'La capability n’apparaît qu’après le premier `bind`'], answer: 2, why: 'La formule d’execve de capabilities(7) construit le nouvel ensemble permis à partir des ensembles héritable, de fichier et ambiant. Pour l’UID 1000 qui lance `grep`, ils sont tous vides.' },
+					{ q: 'Dans cette formule, quelle partie donnerait la capability à `grep` s’il en avait une ?', options: ['`CapBnd` tout seul', '`F(permitted) & P(bounding)` : une capability de fichier, dans la limite de l’ensemble limite', 'L’UID du processus', 'Les capabilities du démon Docker'], answer: 1, why: 'Une capability de fichier posée avec `setcap` est combinée par ET avec l’ensemble limite. Le bit 10 est dans `CapBnd`, donc un tel fichier pourrait la gagner.' },
+					{ q: 'Le troisième résultat est-il un bug de Docker ?', options: ['Oui, Docker devrait recopier les ajouts dans `CapEff`', 'Oui, le noyau a perdu la capability pendant le `fork`', 'Non, `--user` désactive toujours les capabilities', 'Non, c’est la façon dont execve calcule les capabilities d’un processus non root'], answer: 3, why: 'Docker a transmis la capability demandée. Ce sont les règles d’execve du noyau qui décident de ce que garde un programme non root.' }
+				]
+			},
+			{
+				title: 'Donne-la à un programme non root',
+				questions: [
+					{ q: 'Comment une image donne-t-elle `cap_net_bind_service` à un seul binaire non root ?', options: ['`setcap cap_net_bind_service=+ep` sur ce binaire', '`chmod u+s` sur ce binaire', '`--cap-add=ALL` au lancement', 'Une ligne `ENV CAP_NET_BIND_SERVICE=1`'], answer: 0, why: '`setcap ... +ep` donne au fichier des capabilities permises et effectives : un processus les gagne quand il lance ce fichier.' },
+					{ q: 'Où `setcap` stocke-t-il ça ?', options: ['Dans `/etc/capabilities`', 'Dans le `config.json` de l’image', 'Dans l’attribut étendu `security.capability` du fichier', 'Dans l’en-tête ELF du binaire'], answer: 2, why: 'Les capabilities de fichier vivent dans l’attribut étendu `security.capability` de l’exécutable.' },
+					{ q: 'Dans Docker, un processus non root a-t-il besoin de cette capability pour écouter sur le port 80 ?', options: ['Oui, les ports sous 1024 la demandent toujours', 'Non, Docker met `ip_unprivileged_port_start` à 0 dans le conteneur', 'Seulement si l’hôte a un pare-feu', 'Seulement avec le profil seccomp par défaut'], answer: 1, why: 'Docker met `net.ipv4.ip_unprivileged_port_start` à 0 dans chaque conteneur qui a son propre namespace réseau : n’importe quel UID peut écouter sur le port 80.' },
+					{ q: 'Avec la politique Restricted de Kubernetes, peux-tu la rajouter après avoir retiré ALL ?', options: ['Non, la liste `add` doit rester vide', 'Seulement avec `privileged: true`', 'Seulement sur des nœuds en cgroup v2', 'Oui, `NET_BIND_SERVICE` est la seule capability qu’elle autorise'], answer: 3, why: 'Restricted dit que les conteneurs « must drop ALL capabilities, and are only permitted to add back the NET_BIND_SERVICE capability ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ export default {
 			why: 'La politique Restricted dit que les conteneurs « must drop ALL capabilities, and are only permitted to add back the NET_BIND_SERVICE capability ». La politique Baseline autorise 13 noms : la liste par défaut de Docker sans `NET_RAW`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire les ensembles de capabilities que Docker donne à un conteneur, puis trouver la plus petite liste dont nginx a besoin en rajoutant une capability à la fois.',
+		steps: [
+			'Lis les ensembles par défaut : `docker run --rm alpine:3.20 grep Cap /proc/self/status`, puis décode `CapEff` sur l’hôte avec `capsh --decode=00000000a80425fb` (`capsh` vient avec libcap, le paquet `libcap2-bin` sur Debian et Ubuntu).',
+			'Relance le même `grep` avec `--cap-drop=ALL --cap-add=NET_BIND_SERVICE`, puis encore avec `--user 1000` ajouté avant le nom de l’image.',
+			'Lance nginx sans rien : `docker run --rm --cap-drop=ALL nginx:1.27-alpine`. Lis la dernière ligne du log.',
+			'Rajoute une capability : `timeout 5 docker run --rm --cap-drop=ALL --cap-add=CHOWN nginx:1.27-alpine 2>&1 | grep emerg`.',
+			'Rajoute celles qui manquent et sers la page : `docker run -d --name cap-lab -p 8080:80 --cap-drop=ALL --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID nginx:1.27-alpine`, puis `curl -I localhost:8080` et `docker exec cap-lab grep CapEff /proc/1/status`. Fais le ménage avec `docker rm -f cap-lab`.'
+		],
+		done: [
+			'Le `CapEff` par défaut vaut `00000000a80425fb` et se décode en 14 noms.',
+			'Avec le retrait et l’ajout, `CapPrm`, `CapEff` et `CapBnd` valent `0000000000000400`. Avec `--user 1000`, `CapEff` n’a que des zéros et `CapBnd` vaut toujours `0000000000000400`.',
+			'nginx sans rien s’arrête sur `chown("/var/cache/nginx/client_temp", 101) failed (1: Operation not permitted)`. Avec `CHOWN`, les workers écrivent `setgid(101) failed`.',
+			'`curl -I localhost:8080` renvoie `HTTP/1.1 200 OK`, et le `CapEff` de nginx vaut `00000000000000c1`.'
+		],
+		solution: [
+			'`--cap-drop=ALL` jette la liste de Docker : root dans le conteneur échoue à la vérification de `CAP_CHOWN` par le noyau.',
+			'nginx ne signale que la première capability manquante, donc tu les rajoutes une par une : `CHOWN` pour le dossier de cache, puis `SETGID` et `SETUID` pour que les workers passent à l’UID 101.',
+			'`capsh --decode=00000000000000c1` affiche `cap_chown,cap_setgid,cap_setuid` : les bits 0, 6 et 7, les trois que tu as ajoutés et rien d’autre.'
+		]
+	},
 	recall: {
 		q: 'Root, dans un conteneur lancé avec `--cap-drop=ALL`, appelle `chown`. Que se passe-t-il, et que montre `CapEff` ?',
 		a: 'L’appel échoue avec `EPERM`, « Operation not permitted », car `CAP_CHOWN` n’est pas dans l’ensemble effectif. `CapEff` vaut `0000000000000000` ; par défaut, Docker donne `00000000a80425fb`, soit 14 capabilities.'

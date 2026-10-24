@@ -120,6 +120,44 @@ export default {
 			'`sudo findmnt --verify` checks the file. Then `sudo systemctl daemon-reload`, as fstab(5) recommends on systemd systems, and `sudo mount /var/tmp`, which reads the rest of the line from fstab.',
 			'`findmnt /var/tmp` should show `rw,nosuid,nodev,noexec` and the size. Test it: copy `/bin/true` there and run it. You should get `Permission denied` and exit status 126.',
 			'Whatever was in `/var/tmp` before stays on the root filesystem, hidden under the new mount until you unmount it.'
+		],
+		steps: [
+			{
+				title: 'Fill in the fields',
+				questions: [
+					{ q: 'In what order do the six fstab fields come?', options: ['Mount point, device, type, options, fsck order, dump', 'Device, mount point, type, options, dump, fsck order', 'Type, device, mount point, options, dump, fsck order', 'Device, type, mount point, options, fsck order, dump'], answer: 1, why: 'fstab(5): the device, the mount point, the type, the options, a dump flag and the fsck order.' },
+					{ q: 'What goes in the device field for a tmpfs?', options: ['`/dev/shm`', 'The UUID of the root disk', '`/dev/tmpfs0`', 'Just `tmpfs`'], answer: 3, why: 'A tmpfs lives in memory and has no block device. The field is just the word `tmpfs`.' },
+					{ q: 'What do you put in the last two fields?', options: ['`0 0`', '`0 1`', '`1 1`', '`0 2`'], answer: 0, why: 'There is nothing to dump or check on a filesystem in memory. `1` is for the root filesystem, checked first.' },
+					{ q: 'How do you write the 2 GiB size?', options: ['`size=2GiB`', '`blocks=2g`', '`size=2g`', '`maxsize=2048`'], answer: 2, why: 'tmpfs takes a `size=` option with a `k`, `m` or `g` suffix.' }
+				]
+			},
+			{
+				title: 'Pick the options',
+				questions: [
+					{ q: 'Which option stops a program on `/var/tmp` from being run directly?', options: ['`noexec`', '`ro`', '`nodev`', '`noatime`'], answer: 0, why: 'mount(8): `noexec` means "Do not permit direct execution of any binaries on the mounted filesystem".' },
+					{ q: 'Which option makes the kernel ignore the setuid bit there?', options: ['`nodev`', '`nosuid`', '`noexec`', '`nouser`'], answer: 1, why: '`nosuid`: "Do not honor set-user-ID and set-group-ID bits or file capabilities". The program would run as its caller.' },
+					{ q: 'Which option stops device files there from working?', options: ['`nosuid`', '`noexec`', '`private`', '`nodev`'], answer: 3, why: '`nodev`: "Do not interpret character or block special devices on the filesystem".' },
+					{ q: 'So the full line is...', options: ['`/var/tmp tmpfs tmpfs size=2g,nosuid,nodev,noexec 0 0`', '`tmpfs /var/tmp ext4 size=2g,nosuid,nodev,noexec 0 1`', '`tmpfs /var/tmp tmpfs size=2g,nosuid,nodev,noexec 0 0`', '`tmpfs /var/tmp tmpfs size=2g,ro,noexec 0 0`'], answer: 2, why: 'Device `tmpfs`, mount point `/var/tmp`, type `tmpfs`, the size and the three options, then `0 0`.' }
+				]
+			},
+			{
+				title: 'Apply it without a reboot',
+				questions: [
+					{ q: 'What do you run first, before mounting anything?', options: ['`sudo reboot`', '`sudo findmnt --verify`', '`sudo mount -a --fake`', '`sudo fsck /var/tmp`'], answer: 1, why: 'A typo in fstab can stop the next boot at an emergency shell. `findmnt --verify` checks the file first.' },
+					{ q: 'What does fstab(5) recommend after editing the file on a systemd system?', options: ['`sudo systemctl daemon-reload`', '`sudo systemctl restart fstab`', '`sudo update-fstab`', 'Nothing: systemd reads it on each mount'], answer: 0, why: 'fstab(5): "it\'s recommended to use systemctl daemon-reload after fstab modification".' },
+					{ q: 'Which command mounts it with the options from the line?', options: ['`sudo mount --fake /var/tmp`', '`sudo mount -o remount /var/tmp`', '`sudo mount --bind /var/tmp /var/tmp`', '`sudo mount /var/tmp`'], answer: 3, why: 'Given only the mount point, `mount` reads the rest of the line from fstab.' },
+					{ q: 'What happens to the files already in `/var/tmp`?', options: ['They are copied into the tmpfs', 'They are deleted', 'They stay on the root filesystem, hidden until you unmount', 'They move to `/tmp`'], answer: 2, why: 'A mount covers the directory. The old files are still on disk under it.' }
+				]
+			},
+			{
+				title: 'Confirm the options',
+				questions: [
+					{ q: 'Which command shows the options the mount really has?', options: ['`cat /etc/fstab`', '`findmnt /var/tmp`', '`ls -ld /var/tmp`', '`df -i /var/tmp`'], answer: 1, why: 'fstab is what you asked for. `findmnt` shows the live mount: `rw,nosuid,nodev,noexec` and the size.' },
+					{ q: 'You copy `/bin/true` into `/var/tmp` and run it. What should you see?', options: ['`Permission denied` and exit status 126', 'Nothing, and exit status 0', '`Read-only file system`', '`Operation not permitted` and exit 1'], answer: 0, why: '`execve` returns `EACCES` on a noexec mount, and bash returns 126 for a command it found but cannot run.' },
+					{ q: 'A user then runs `sh /var/tmp/script.sh`. What happens?', options: ['`Permission denied`, like `./script.sh`', 'The kernel kills `sh`', 'It runs only if the script is not setuid', 'The script runs'], answer: 3, why: '`execve` runs `/bin/sh` from the root mount, and `sh` only reads the script. `noexec` does not block that.' },
+					{ q: 'A teammate expects `noexec` to block `python3 /var/tmp/x.py` too. Does it?', options: ['Yes: `noexec` blocks any program that reads the file', 'Yes, but only for scripts with mode `+x`', 'No: python3 lives on another mount and only reads the file', 'No: `noexec` only applies to setuid files'], answer: 2, why: '`noexec` is checked at `execve` for the file being executed. Here that file is `python3`, on the root mount, and the script is opened as data.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,29 @@ export default {
 			why: 'In `bprm_fill_uid`, `mnt_may_suid()` is false on a nosuid mount, so the function returns before it sets the effective UID from the file owner. The program runs, without the extra privilege.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Apply the task\'s fstab line in a throwaway container, then watch `noexec` and a read-only bind mount at work.',
+		steps: [
+			'Start a container that is allowed to mount (it changes nothing on your host): `docker run --rm -it --privileged debian:12-slim bash`.',
+			'Add the line and check the file: `echo "tmpfs /var/tmp tmpfs size=2g,nosuid,nodev,noexec 0 0" >> /etc/fstab`, then `findmnt --verify`.',
+			'Mount it from fstab and read the live options: `mount /var/tmp`, then `findmnt /var/tmp`.',
+			'Try to run code from it: `cp /bin/true /var/tmp/true; /var/tmp/true; echo $?`. Then `printf \'#!/bin/sh\\necho hello\\n\' > /var/tmp/hello.sh; chmod +x /var/tmp/hello.sh`, and run both `/var/tmp/hello.sh` and `sh /var/tmp/hello.sh`.',
+			'Make a read-only second view: `mkdir /ro; mount --bind /var/tmp /ro; mount -o remount,bind,ro /ro`. Run `touch /ro/x`, `touch /var/tmp/y`, `ls /ro`, then leave with `exit`.'
+		],
+		done: [
+			'`findmnt --verify` prints `Success, no errors or warnings detected`.',
+			'`findmnt /var/tmp` shows `rw,nosuid,nodev,noexec` and `size=2097152k`.',
+			'`/var/tmp/true` prints `Permission denied` and `echo $?` prints `126`, while `sh /var/tmp/hello.sh` prints `hello`.',
+			'`touch /ro/x` fails with `Read-only file system`, and `ls /ro` lists the `y` you created through `/var/tmp`.'
+		],
+		solution: [
+			'`--privileged` gives the container the right to call `mount`. Without it, `mount` fails with `Permission denied`.',
+			'`2g` is shown as `2097152k`: 2 × 1024 × 1024 KiB.',
+			'The script with mode `-rwxr-xr-x` still fails when run directly: the mount flag wins over the file mode at `execve`. `sh` lives on the root mount and reads the script as data.',
+			'`findmnt -o TARGET,OPTIONS /ro` shows `ro` on `/ro` while `/var/tmp` stays `rw`: the flag belongs to the mount, not to the filesystem.'
+		]
+	},
 	recall: {
 		q: 'A script on a `noexec` mount has mode `-rwxr-xr-x`. What do `./script.sh` and `sh script.sh` do, and why?',
 		a: '`./script.sh` fails with `Permission denied` and exit 126: the exec open sees `MNT_NOEXEC` through `path_noexec` and returns `EACCES`. `sh script.sh` runs: `execve` runs `/bin/sh` from another mount, which reads the script as data.'

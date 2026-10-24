@@ -114,6 +114,44 @@ void linuxMemoryWarnings(void) {
 			'La somme des `AnonHugePages` de chaque `/proc/<pid>/smaps` a trouvé deux processus `node` qui lancent `vite preview`, avec 18432 kB chacun, soit 9 grandes pages.',
 			'Dans les deux, les pages sont dans une projection nommée `[anon:mimalloc]` dont les `VmFlags` contiennent `hg`. L’allocateur mimalloc a appelé `madvise(MADV_HUGEPAGE)` sur son tas, donc le noyau a donné des pages de 2 MB à cette plage.',
 			'Les compteurs de vmstat courent depuis le démarrage. 11882 défauts sur 122535 pour une grande page, environ 1 sur 10, n’ont trouvé aucun bloc libre de 2 MB et se sont repliés sur des pages de 4 KB.'
+		],
+		steps: [
+			{
+				title: 'Lis le mode',
+				questions: [
+					{ q: 'Le fichier affiche `always [madvise] never`. Quel mode est actif ?', options: ['`always`', '`never`', '`madvise`', 'Les trois, un par CPU'], answer: 2, why: 'Le noyau met entre crochets la valeur active.' },
+					{ q: 'En mode `madvise`, quelle mémoire peut recevoir des grandes pages ?', options: ['Toute plage anonyme de plus de 2 MB', 'Seulement les plages marquées avec `madvise(MADV_HUGEPAGE)`', 'Seulement les fichiers sur disque', 'Rien : `madvise` équivaut à `never`'], answer: 1, why: 'La doc du noyau : les grandes pages sont "only enabled inside MADV_HUGEPAGE regions". La taille ne joue aucun rôle.' },
+					{ q: 'Que change une page de 2 MB pour le TLB ?', options: ['Une entrée couvre 512 fois plus de mémoire', 'Le TLB gagne 512 entrées', 'Le TLB est coupé pour cette plage', 'Rien : le TLB ne garde que des fichiers'], answer: 0, why: 'Avec des pages de 4 KB, chaque entrée couvre 4 KB. Une page de 2 MB couvre 512 fois plus avec une seule entrée.' },
+					{ q: 'Redis afficherait-il son avertissement THP sur cette machine ?', options: ['Oui : THP est pris en charge', 'Oui : `AnonHugePages` n’est pas à 0', 'Seulement si `defrag` est à `always`', 'Non : `checkTHPEnabled` n’échoue que sur `[always]`'], answer: 3, why: 'Redis lit le même fichier et n’avertit que s’il trouve `[always]`. Avec `madvise`, il ne fait rien.' }
+				]
+			},
+			{
+				title: 'Lis les compteurs',
+				questions: [
+					{ q: '`AnonHugePages: 36864 kB`. Combien de pages de 2 MB cela fait-il ?', options: ['18', '36', '9', '512'], answer: 0, why: '36864 kB divisés par 2048 kB donnent 18 grandes pages.' },
+					{ q: 'Pourquoi ce nombre n’est-il pas à 0 en mode `madvise` ?', options: ['Le mode `madvise` donne quand même des grandes pages aux gros tas', '`khugepaged` ignore le mode', 'Un processus a marqué une plage avec `MADV_HUGEPAGE`', 'Le compteur inclut le cache de pages'], answer: 2, why: 'En mode `madvise`, un nombre non nul veut dire qu’un programme a demandé des grandes pages sur une plage.' },
+					{ q: 'Sur quelle période `thp_fault_alloc` et `thp_fault_fallback` comptent-ils ?', options: ['La dernière seconde', 'Depuis le démarrage', 'Depuis le dernier `cat`', 'Depuis le passage de THP en `madvise`'], answer: 1, why: 'Les compteurs de `/proc/vmstat` ne font que monter depuis le démarrage.' },
+					{ q: 'Que compte `thp_fault_fallback` ?', options: ['Les grandes pages redécoupées en petites', 'Les grandes pages libérées par l’OOM killer', 'Les défauts qui trouvent la traduction dans le TLB', 'Les défauts pour une grande page qui n’ont trouvé aucun bloc de 2 MB et ont pris du 4 KB'], answer: 3, why: 'Quand aucun bloc de 2 MB n’est libre et que la plage ne doit pas attendre, le défaut se replie sur 4 KB et le compteur monte de 1.' }
+				]
+			},
+			{
+				title: 'Trouve le propriétaire',
+				questions: [
+					{ q: 'Quel fichier dit combien de grandes pages tient un processus ?', options: ['`/proc/<pid>/smaps`', '`/proc/<pid>/status`', '`/proc/<pid>/oom_score`', '`/proc/<pid>/cmdline`'], answer: 0, why: 'proc_pid_smaps(5) donne `AnonHugePages` pour chaque projection du processus.' },
+					{ q: 'La somme trouve deux processus `node` avec 18432 kB chacun. Cela colle-t-il avec le total ?', options: ['Non : c’est la moitié du total', 'Non : smaps compte en pages', 'Seulement si le swap est coupé', 'Oui : 2 × 18432 kB font 36864 kB'], answer: 3, why: 'Deux processus avec 9 grandes pages chacun donnent les 18 pages de `/proc/meminfo`.' },
+					{ q: 'Les pages sont dans une projection dont les `VmFlags` contiennent `hg`. Que veut dire `hg` ?', options: ['La projection est dans le swap', 'Le drapeau de conseil pour grandes pages est posé', 'La projection est partagée', 'La projection est un fichier hugetlbfs'], answer: 1, why: 'proc_pid_smaps(5) appelle `hg` le "huge page advise flag" : quelqu’un a appelé `madvise(MADV_HUGEPAGE)` dessus.' },
+					{ q: 'La projection s’appelle `[anon:mimalloc]`. Qui a demandé les grandes pages ?', options: ['Le noyau, de lui-même', 'Le fichier de config de `vite`', 'L’allocateur mimalloc, sur son tas', 'systemd, pour chaque service'], answer: 2, why: 'mimalloc a appelé `madvise(MADV_HUGEPAGE)` sur son tas, donc le noyau a donné des pages de 2 MB à cette plage.' }
+				]
+			},
+			{
+				title: 'Explique les replis',
+				questions: [
+					{ q: '11882 replis sur 122535 défauts pour une grande page. À quelle fréquence un défaut s’est-il replié ?', options: ['Environ 1 sur 100', 'Environ 1 sur 2', 'Jamais', 'Environ 1 sur 10'], answer: 3, why: '11882 sur 122535, c’est presque un dixième.' },
+					{ q: 'De quoi une page de 2 MB a-t-elle besoin, contrairement à une page de 4 KB ?', options: ['De 2 MB de mémoire physique libre et contiguë', 'D’un fichier sur disque derrière elle', 'Des droits root', 'D’une entrée TLB libre sur chaque CPU'], answer: 0, why: 'Une grande page est un seul bloc physique. Quand la mémoire est fragmentée, il se peut qu’aucun bloc de ce genre ne soit libre.' },
+					{ q: 'Sur une machine où THP est à `always` et `defrag` à sa valeur par défaut, `madvise`, une plage non marquée `MADV_HUGEPAGE` prend un défaut et aucun bloc libre de 2 MB n’existe. Que se passe-t-il ?', options: ['Le défaut bloque et compacte la mémoire', 'Le processus reçoit SIGBUS', 'Elle se replie tout de suite sur des pages de 4 KB', 'L’allocation échoue avec ENOMEM'], answer: 2, why: 'Par défaut, seules les plages marquées attendent. Les autres se replient et `thp_fault_fallback` monte.' },
+					{ q: 'Quel thread du noyau peut encore regrouper ces pages de 4 KB en une grande page plus tard ?', options: ['`kswapd`', '`khugepaged`', '`oom_reaper`', '`kworker`'], answer: 1, why: '`khugepaged` parcourt la mémoire et regroupe après coup des suites de 512 petites pages en une page de 2 MB.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,28 @@ void linuxMemoryWarnings(void) {
 			why: 'La doc du noyau : avec `always`, l’application "will stall on allocation failure and directly reclaim pages and compact memory in an effort to allocate a THP immediately". Le repli immédiat, c’est ce que font `defer` et `never`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Obtenir des grandes pages en mode `madvise` en les demandant, et voir où elles apparaissent.',
+		steps: [
+			'Sous Linux, vérifie le mode et les compteurs : `cat /sys/kernel/mm/transparent_hugepage/enabled` et `grep -E "thp_fault_(alloc|fallback) " /proc/vmstat`. Le lab attend `madvise` ou `always`.',
+			'Écris 64 MB de mémoire anonyme sans demander de grandes pages : `python3 -c "import mmap; n = 64 << 20; m = mmap.mmap(-1, n, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS); m.write(b\'x\' * n); print(open(\'/proc/self/smaps_rollup\').read())" | grep AnonHuge`.',
+			'Refais-le, mais marque d’abord la plage : ajoute `m.madvise(mmap.MADV_HUGEPAGE);` juste avant `m.write`.',
+			'Trouve la projection marquée dans la liste complète : relance l’étape 3 avec `/proc/self/smaps` au lieu de `smaps_rollup`, et envoie la sortie dans `grep -E \'^(AnonHugePages|VmFlags)\' | grep -B1 \' hg\'`.',
+			'Relis les compteurs de vmstat et compare-les avec l’étape 1.'
+		],
+		done: [
+			'En mode `madvise`, l’étape 2 affiche `AnonHugePages: 0 kB`.',
+			'L’étape 3 affiche une valeur au-dessus de 0, multiple de 2048 kB.',
+			'L’étape 4 affiche une ligne `AnonHugePages` au-dessus d’une ligne `VmFlags` qui contient `hg`.',
+			'`thp_fault_alloc` a monté entre l’étape 1 et l’étape 5.'
+		],
+		solution: [
+			'Sans `MADV_HUGEPAGE`, le mode `madvise` donne des pages de 4 KB, quelle que soit la taille de la plage. Avec, chaque tranche de 2 MB peut devenir une seule page.',
+			'La valeur de l’étape 3 est souvent sous 65536 kB. Une partie de la plage n’est pas alignée sur 2 MB, et certains défauts n’ont trouvé aucun bloc libre de 2 MB : ils sont allés dans `thp_fault_fallback`.',
+			'`hg` est le drapeau que pose `madvise(MADV_HUGEPAGE)`. C’est ainsi que le chapitre a remonté les 18 grandes pages jusqu’à mimalloc.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi les pages de 2 MB réduisent-elles les défauts de TLB, et pourquoi Redis coupe-t-il THP pour son propre processus ?',
 		a: 'Une entrée du TLB couvre 512 fois plus de mémoire qu’avec des pages de 4 KB. Redis fait un `fork` pour ses instantanés, et après `fork` chaque écriture sur une grande page partagée copie 2 MB, ce qui coûte en latence et en mémoire.'

@@ -119,6 +119,44 @@ WantedBy=multi-user.target`,
 			'`[Service]` : `ExecStart=/usr/local/bin/shop`, `Restart=on-failure`, `RestartSec=5`. `[Install]` : `WantedBy=multi-user.target`.',
 			'Installation et lancement : `systemctl enable --now shop`. `enable` crée le lien dans `multi-user.target.wants/` et recharge la configuration, `--now` démarre l’unité en plus.',
 			'Après une modification : `systemctl daemon-reload`, puis `systemctl restart shop`. `systemctl show shop -p NeedDaemonReload` affiche `NeedDaemonReload=yes` tant que le rechargement manque.'
+		],
+		steps: [
+			{
+				title: 'Fais venir PostgreSQL',
+				questions: [
+					{ q: 'Quelle ligne fait démarrer `postgresql.service` quand `shop` démarre ?', options: ['`After=postgresql.service`', '`Before=postgresql.service`', '`Wants=postgresql.service`', '`WantedBy=postgresql.service`'], answer: 2, why: '`Wants=` ajoute un job de démarrage pour l’unité listée dans la transaction. `After=` seul ne démarre rien.' },
+					{ q: 'Quelle ligne fait attendre `shop` jusqu’à ce que PostgreSQL ait fini de démarrer ?', options: ['`After=postgresql.service`', '`Requires=postgresql.service`', '`Wants=postgresql.service`', '`Before=postgresql.service`'], answer: 0, why: 'L’ordre ne vient que de `After=` et `Before=`. `After=b` veut dire que `a` attend `b` quand les deux démarrent.' },
+					{ q: 'Avec `Wants=` et sans `After=`, que se passe-t-il au `systemctl start shop` ?', options: ['PostgreSQL démarre d’abord, puis `shop`', 'Seul `shop` démarre', 'systemd refuse le job', 'Les deux démarrent en même temps'], answer: 3, why: 'Les dépendances de besoin n’ordonnent rien. Sans `After=`, systemd démarre les deux unités simultanément.' },
+					{ q: 'Pourquoi préférer `Wants=` à `Requires=` ici ?', options: ['`Requires=` ne démarre pas l’unité', 'Avec `Requires=`, redémarrer PostgreSQL redémarre aussi `shop`', '`Wants=` ordonne aussi les unités', '`Requires=` ne marche qu’au boot'], answer: 1, why: 'Avec `Requires=`, arrêter ou redémarrer explicitement l’unité listée arrête ou redémarre aussi celle-ci.' }
+				]
+			},
+			{
+				title: 'Règle la relance',
+				questions: [
+					{ q: 'Quelles lignes de `[Service]` relancent l’app 5 secondes après un crash ?', options: ['`Restart=always` et `TimeoutStartSec=5`', '`Restart=on-failure` et `RestartSec=5`', '`Restart=on-abort` et `StartLimitBurst=5`', '`Restart=no` et `RestartSec=5`'], answer: 1, why: '`on-failure` relance après une sortie non nulle ou un signal pas propre. `RestartSec=` fixe le délai avant le nouveau démarrage.' },
+					{ q: 'Sans `RestartSec=`, combien de temps systemd attend-il avant une relance ?', options: ['100 ms', '5 secondes', '10 secondes', 'Il ne relance pas'], answer: 0, why: '`RestartSec=` vaut 100 ms par défaut, d’où un service cassé qui atteint la limite en moins d’une seconde.' },
+					{ q: 'Comment écrire « abandonner après 10 démarrages en 5 minutes » ?', options: ['`StartLimitBurst=5` et `StartLimitIntervalSec=10`', '`RestartSec=300` et `StartLimitBurst=10`', '`StartLimitIntervalSec=5m` et `RestartSec=10`', '`StartLimitIntervalSec=300` et `StartLimitBurst=10`'], answer: 3, why: '`StartLimitBurst=` est le nombre de démarrages, `StartLimitIntervalSec=` la fenêtre : 300 secondes font 5 minutes.' },
+					{ q: 'Dans quelle section vont les deux lignes de limite ?', options: ['`[Service]`', '`[Install]`', '`[Unit]`', 'L’une ou l’autre'], answer: 2, why: 'L’indice le dit : `StartLimitIntervalSec=` et `StartLimitBurst=` vont dans `[Unit]`.' }
+				]
+			},
+			{
+				title: 'Fais-la démarrer au boot',
+				questions: [
+					{ q: 'Quelle ligne fait démarrer `shop` au boot une fois activée ?', options: ['`WantedBy=multi-user.target`', '`After=multi-user.target`', '`Wants=multi-user.target`', '`Before=default.target`'], answer: 0, why: '`systemctl enable` lit `[Install]` et ajoute un lien dans `multi-user.target.wants/`, donc la target tire `shop`.' },
+					{ q: 'Quelle commande seule l’installe et la lance tout de suite ?', options: ['`systemctl start shop`', '`systemctl daemon-reload shop`', '`systemctl link shop`', '`systemctl enable --now shop`'], answer: 3, why: '`enable` crée le lien et recharge la configuration, `--now` démarre l’unité en plus.' },
+					{ q: 'Faut-il un `systemctl daemon-reload` avant `enable` pour un nouveau fichier ?', options: ['Oui, sinon `enable` échoue', 'Non : `enable` recharge la configuration du gestionnaire de lui-même', 'Oui, et un redémarrage en plus', 'Seulement si l’unité a un `Wants=`'], answer: 1, why: 'L’indice le dit : `systemctl enable` recharge la configuration du gestionnaire de lui-même.' },
+					{ q: 'Que ne fait pas `systemctl start shop` seul ?', options: ['Démarrer PostgreSQL d’abord', 'Lancer `ExecStart=`', 'Faire démarrer `shop` au prochain boot', 'Appliquer la politique de relance'], answer: 2, why: '`start` lance l’unité maintenant. Seul `enable` crée le lien `.wants/` qui la relance au boot.' }
+				]
+			},
+			{
+				title: 'Applique un changement plus tard',
+				questions: [
+					{ q: 'Tu changes `ExecStart=` et tu lances seulement `systemctl restart shop`. Qu’est-ce qui tourne ?', options: ['L’ancienne ligne de commande, avec un avertissement', 'La nouvelle ligne de commande', 'Rien : l’unité ne se charge plus', 'La nouvelle, après le prochain redémarrage'], answer: 0, why: 'systemd garde l’unité analysée en mémoire. Dans l’essai, le service a redémarré avec `/bin/sleep 600` jusqu’au rechargement.' },
+					{ q: 'Que lances-tu après la modification ?', options: ['`systemctl reset-failed shop`, puis `systemctl start shop`', '`systemctl enable --now shop` à nouveau', '`systemctl reload shop`', '`systemctl daemon-reload`, puis `systemctl restart shop`'], answer: 3, why: '`daemon-reload` relit tous les fichiers d’unité et reconstruit l’arbre des dépendances. Le redémarrage utilise alors la nouvelle définition.' },
+					{ q: 'Quelle commande te dit qu’il manque encore un rechargement ?', options: ['`systemctl is-failed shop`', '`systemctl show shop -p NeedDaemonReload`', '`systemctl list-dependencies shop`', '`systemctl cat shop`'], answer: 1, why: 'Elle affiche `NeedDaemonReload=yes` tant que le fichier sur le disque diffère de ce que systemd a chargé.' },
+					{ q: 'Après une rafale de crashs, l’unité est `failed` avec `Start request repeated too quickly.` Qu’est-ce qui la débloque ?', options: ['`systemctl daemon-reload`', '`systemctl restart shop`, tout de suite', '`systemctl reset-failed shop`', '`systemctl enable shop`'], answer: 2, why: '`reset-failed` remet le compteur à zéro. Chaque démarrage compte dans la limite, les manuels aussi.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,29 @@ WantedBy=multi-user.target`,
 			why: '`RestartSec=` vaut 100 ms par défaut, et le gestionnaire accepte 5 démarrages par 10 secondes. Le sixième tombe dans l’intervalle : systemd le refuse et laisse l’unité en échec jusqu’à `systemctl reset-failed` ou la fin de l’intervalle.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Atteindre toi-même la limite de démarrage et le piège du `daemon-reload`, avec des unités utilisateur qui se passent de root.',
+		steps: [
+			'Crée le dossier des unités utilisateur : `mkdir -p ~/.config/systemd/user`. Crée `~/.config/systemd/user/dojo-crash.service` avec une section `[Service]` qui contient `ExecStart=/bin/sh -c \'echo reading config; exit 1\'` et `Restart=on-failure`.',
+			'Charge-la et lance-la : `systemctl --user daemon-reload && systemctl --user start dojo-crash`. Attends deux secondes, puis lance `systemctl --user show dojo-crash -p NRestarts -p ActiveState` et `journalctl --user -u dojo-crash -n 4 --no-pager`.',
+			'Corrige la politique : ajoute une section `[Unit]` avec `StartLimitIntervalSec=300` et `StartLimitBurst=10`, et `RestartSec=5` sous `[Service]`. Lance `systemctl --user daemon-reload`, `systemctl --user reset-failed dojo-crash`, relance-la, et relis les deux mêmes valeurs au bout d’environ 12 secondes.',
+			'Passe au piège du rechargement : crée `dojo-sleep.service` avec `ExecStart=/bin/sleep 600`, recharge, lance-la. Remplace `600` par `700` dans le fichier, puis lance `systemctl --user restart dojo-sleep` et `systemctl --user show dojo-sleep -p NeedDaemonReload`. Regarde la commande qui tourne avec `ps -o args= -p $(systemctl --user show dojo-sleep -p MainPID --value)`.',
+			'Lance `systemctl --user daemon-reload`, redémarre encore et regarde la commande. Fais le ménage : `systemctl --user stop dojo-crash dojo-sleep`, supprime les deux fichiers, `systemctl --user daemon-reload`.'
+		],
+		done: [
+			'Avec les réglages par défaut, `NRestarts=5`, l’unité est `failed`, et les dernières lignes du journal montrent `restart counter is at 5` et `Start request repeated too quickly.`',
+			'Avec la correction, au bout de 12 secondes l’unité affiche `ActiveState=activating` et seulement 2 relances.',
+			'Le premier `restart` de `dojo-sleep` affiche `Warning: The unit file ... changed on disk`, `NeedDaemonReload=yes`, et `ps` montre toujours `/bin/sleep 600`.',
+			'Après `daemon-reload`, `ps` montre `/bin/sleep 700`.'
+		],
+		solution: [
+			'Le `RestartSec=` par défaut de 100 ms brûle les 5 démarrages permis par 10 secondes en bien moins d’une seconde. Le journal montre `restart counter is at 5`, puis le refus.',
+			'Avec `RestartSec=5` et 10 démarrages par 300 secondes, l’unité continue d’essayer en `auto-restart` au lieu d’abandonner : le cas d’une base encore en train de démarrer.',
+			'Le `dojo-crash.service` corrigé contient : `[Unit]`, `StartLimitIntervalSec=300`, `StartLimitBurst=10`, puis `[Service]`, `ExecStart=...`, `Restart=on-failure`, `RestartSec=5`.',
+			'`systemctl --user` parle à ton propre gestionnaire systemd, donc les unités, leurs limites et `daemon-reload` se comportent comme avec le gestionnaire système, sans `sudo`.'
+		]
+	},
 	recall: {
 		q: 'Avec les réglages par défaut, combien de démarrages systemd accorde-t-il à un service `Restart=on-failure` qui plante, et quelle ligne termine son journal ?',
 		a: '5 démarrages en 10 secondes (`DefaultStartLimitBurst=5`, `DefaultStartLimitIntervalSec=10s`), espacés de 100 ms. Puis `Start request repeated too quickly.`, et l’unité reste en échec jusqu’à `systemctl reset-failed`.'

@@ -132,6 +132,44 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 			'CPU moyen : 3,08 s de CPU en 3,1 s environ (31 périodes de 100 ms), soit à peu près 1 CPU, exactement la limite. Les 4 boucles voulaient 4 CPU sur une machine qui en a 16.',
 			'À chaque période, les 4 files ont épuisé les 100 ms de quota en 25 ms environ, puis chacune a attendu 75 ms environ. 30 périodes × 4 files × 75 ms = 9 s, ce qui colle à `throttled_usec 8975156` : le noyau additionne le temps throttlé de chaque file.',
 			'Pour un service, la même lecture avec un graphe d’usage à 30 % de la limite te dit que les requêtes attendent à l’intérieur des périodes. Pour faire baisser la latence, il faut changer la limite ou le nombre de threads actifs.'
+		],
+		steps: [
+			{
+				title: 'Lis les compteurs',
+				questions: [
+					{ q: 'Que compte `usage_usec 3081196` ?', options: ['Le temps réel depuis le démarrage du conteneur', 'Le temps CPU consommé par le groupe, environ 3,08 s', 'Le temps passé par le groupe à attendre un CPU', 'Le quota restant dans la période en cours'], answer: 1, why: '`usage_usec` est le temps CPU consommé par le groupe, tous threads et tous CPU confondus, en microsecondes.' },
+					{ q: 'Que compte `nr_periods 31` ?', options: ['Les périodes où le groupe avait du travail', 'Les périodes où le groupe a été throttlé', 'Les threads qui ont tourné dans le groupe', 'Le nombre de changements de quota'], answer: 0, why: '`nr_periods` compte les périodes de 100 ms où le groupe avait du travail. Environ 3,1 s de test donnent 31.' },
+					{ q: 'Que compte `nr_throttled 30` ?', options: ['Les threads arrêtés au moins une fois', 'Les millisecondes perdues par période', 'Les secondes passées throttlé', 'Les périodes où le groupe a épuisé son quota'], answer: 3, why: 'Une période compte comme throttlée quand la réserve s’est vidée et que le groupe a dû attendre le prochain remplissage.' },
+					{ q: 'Quel `cpu.max` donne `--cpus 1` au conteneur ?', options: ['`max 100000`', '`1 100000`', '`100000 100000`', '`100000 1`'], answer: 2, why: 'Un CPU, c’est un quota de 100 ms par période de 100 ms, la même valeur qu’une limite Kubernetes de `1`.' }
+				]
+			},
+			{
+				title: 'Calcule le pourcentage throttlé',
+				questions: [
+					{ q: 'Comment calcules-tu le pourcentage throttlé ?', options: ['`throttled_usec` divisé par `usage_usec`', '`nr_throttled` divisé par `nr_periods`', '`usage_usec` divisé par la durée du test', '`nr_periods` divisé par `nr_throttled`'], answer: 1, why: 'Le billet d’Indeed le définit comme `nr_throttled` divisé par `nr_periods` : la part des périodes terminées quota épuisé.' },
+					{ q: 'Combien vaut-il ici ?', options: ['Environ 3 %', 'Environ 30 %', 'Environ 97 %', 'Plus de 100 %'], answer: 2, why: '30 / 31 fait environ 97 %. Presque chaque période s’est terminée quota épuisé.' },
+					{ q: 'Pourquoi y a-t-il environ 31 périodes dans un test de 3 s ?', options: ['La période dure 100 ms', 'Le noyau compte une période par thread', 'La période dure 1 s et chaque CPU compte une fois', 'Docker pose une période pour 10 boucles'], answer: 0, why: 'La période par défaut est de 100000 µs. 3,1 s d’activité font 31 périodes.' },
+					{ q: 'À quel niveau un graphe d’usage moyenné par minute montrerait-il ce conteneur ?', options: ['Loin sous la limite, car il est inactif la plupart du temps', 'À environ 4 CPU, ce que demandaient les boucles', 'À zéro, car le temps throttlé n’est pas compté', 'À peu près à sa limite, 1 CPU'], answer: 3, why: 'Le groupe a consommé 1 CPU en moyenne, toute sa limite. Le graphe montrerait la limite atteinte, mais pas que 4 threads attendaient la plus grande partie de chaque période.' }
+				]
+			},
+			{
+				title: 'Calcule le CPU moyen',
+				questions: [
+					{ q: '3,08 s de CPU en 3,1 s environ de temps réel, ça fait combien de CPU en moyenne ?', options: ['Environ 4', 'Environ 1', 'Environ 0,3', 'Environ 16'], answer: 1, why: 'Temps CPU divisé par temps réel : 3,08 / 3,1 fait à peu près 1 CPU.' },
+					{ q: 'Comment ça se compare à la limite ?', options: ['C’est exactement la limite', 'C’est un quart de la limite', 'C’est quatre fois la limite', 'Ça n’a rien à voir avec la limite'], answer: 0, why: 'La limite est de 1 CPU, et le noyau l’a appliquée à chaque période.' },
+					{ q: 'Combien de CPU voulaient les 4 boucles actives ?', options: ['1', '2', '16', '4'], answer: 3, why: 'Chaque boucle active peut occuper un CPU, et la machine en avait 16 de libres. La limite les a tenues à 1.' },
+					{ q: 'Combien de temps faut-il à 4 threads en parallèle pour dépenser 100 ms de quota ?', options: ['100 ms', '400 ms', 'Environ 25 ms', '5 ms, une tranche'], answer: 2, why: 'Quatre threads dépensent 4 ms de quota par milliseconde de temps réel : les 100 ms sont parties au bout de 25 ms environ.' }
+				]
+			},
+			{
+				title: 'Explique les 9 s',
+				questions: [
+					{ q: 'Une fois la réserve vide vers 25 ms, combien de temps chaque file attend-elle ?', options: ['Environ 75 ms, jusqu’au prochain remplissage', 'Environ 25 ms, une tranche de plus', 'Une période entière de 100 ms', 'Elle n’attend pas, elle emprunte à la période suivante'], answer: 0, why: 'Les quatre threads attendent le remplissage à la fin de la période : 100 ms moins les 25 ms où ils ont tourné.' },
+					{ q: 'Comment le noyau additionne-t-il `throttled_usec` ?', options: ['Une fois par période, pour tout le groupe', 'Seulement pour le CPU qui a trouvé la réserve vide', 'Par file de CPU, donc quatre files ajoutent quatre fois le temps réel', 'Par thread, mais seulement pour le thread principal'], answer: 2, why: '`throttled_usec` s’additionne par file d’exécution de CPU dans `unthrottle_cfs_rq`. Quatre files throttlées ensemble comptent quatre fois.' },
+					{ q: 'Quel produit donne environ 9 s ?', options: ['31 périodes × 100 ms × 3 s', '30 périodes × 4 files × 75 ms', '4 boucles × 3 s × 75 %', '16 CPU × 30 périodes × 25 ms'], answer: 1, why: '30 × 4 × 75 ms font 9 s, ce qui colle à `throttled_usec 8975156`.' },
+					{ q: 'Un vrai service montre les mêmes compteurs alors que son graphe affiche 30 % de la limite. Qu’est-ce qui fait baisser sa latence ?', options: ['Un tableau de bord avec une moyenne plus courte', 'Plus de mémoire pour le pod', 'Un redémarrage du pod', 'Une limite plus haute ou moins de threads actifs'], answer: 3, why: 'Les requêtes attendent à l’intérieur des périodes parce que les threads dépensent le quota tôt. Il faut changer la limite ou le nombre de threads actifs.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,27 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 			why: 'Dans `unthrottle_cfs_rq`, chaque file d’exécution par CPU ajoute son propre temps throttlé au total du groupe. Quatre files throttlées 75 ms dans la même période ajoutent 300 ms.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Reproduire la lecture de `cpu.stat` du chapitre, puis changer la limite et le nombre de threads et voir le throttling apparaître et disparaître.',
+		steps: [
+			'Vérifie que tu as au moins 4 CPU : `nproc`.',
+			'Lance 4 boucles actives sous une limite de 1 CPU pendant 3 secondes : `docker run --rm --cpus 1 busybox sh -c \'for i in 1 2 3 4; do (while :; do :; done) & done; sleep 3; grep -E "usage_usec|nr_|throttled_usec" /sys/fs/cgroup/cpu.stat\'`.',
+			'Calcule `nr_throttled / nr_periods`, le CPU moyen (`usage_usec` divisé par 3100000 environ) et `throttled_usec` en secondes.',
+			'Lance une seule boucle active sous la même limite : `docker run --rm --cpus 1 busybox sh -c \'(while :; do :; done) & sleep 3; grep -E "usage_usec|nr_|throttled_usec" /sys/fs/cgroup/cpu.stat\'`.',
+			'Relance les 4 boucles avec `--cpus 4` au lieu de `--cpus 1`.'
+		],
+		done: [
+			'Étape 2 : `nr_throttled` est égal à `nr_periods` ou juste en dessous (environ 30 sur 31), `usage_usec` vaut environ 3 millions, et `throttled_usec` est entre 8 et 9 millions.',
+			'Étape 4 : `usage_usec` vaut toujours environ 3 millions, et `throttled_usec` reste sous 10000 (10 ms), même si `nr_throttled` compte quelques périodes.',
+			'Étape 5 : `usage_usec` vaut environ 12 millions, et `throttled_usec` reste sous 10000 (10 ms), même si `nr_throttled` compte quelques périodes.'
+		],
+		solution: [
+			'L’étape 2 est la lecture du chapitre : environ 97 % de périodes throttlées, 1 CPU en moyenne, et 8 à 9 s de temps throttlé, car 4 files attendent chacune 75 ms environ par période.',
+			'Avec un seul thread, la boucle dépense les 100 ms de quota sur toute la période. Elle peut en manquer juste avant le remplissage, mais n’attend jamais longtemps : `throttled_usec` reste minuscule.',
+			'Avec `--cpus 4`, le quota est de 400 ms par période, assez pour les 4 boucles : 4 CPU × 3 s font les 12 s de `usage_usec`, presque sans temps throttlé. Le même travail, une autre limite.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi un conteneur à 30 % de sa limite CPU peut-il quand même avoir des requêtes lentes, et quel fichier le montre ?',
 		a: 'Le quota de `cpu.max` se compte par période (100 ms) et s’additionne sur tous les threads. Plusieurs threads peuvent l’épuiser en une fraction de la période puis attendre la recharge, pendant que la moyenne sur une minute reste basse. `cpu.stat` le montre : `nr_throttled` comparé à `nr_periods`.'

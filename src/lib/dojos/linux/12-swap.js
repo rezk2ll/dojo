@@ -108,6 +108,44 @@ func calcSwapForBurstablePods(containerMemoryRequest, nodeTotalMemory, totalPods
 			'Output captured in this session on a 27 GiB laptop: `swapon` shows `/dev/dm-2 partition 3.8G 2.3G`, swappiness is `60`, and `vmstat` shows `swpd` at about 2,452,988 kB with `free` near 3.3 GB and `cache` near 15 GB.',
 			'The two lines after the first show `si` at 4 and 0, and `so` at 0 and 0. The 2.3 GB in swap stays there and nothing reads it back.',
 			'The machine is not short of memory. The kernel moved pages that nobody used to swap and kept 15 GB of page cache in RAM instead. Trouble looks like `si` and `so` in the thousands on every line, with processes stalled on major faults.'
+		],
+		steps: [
+			{
+				title: 'Read the swap setup',
+				questions: [
+					{ q: '`swapon --show` prints `/dev/dm-2 partition 3.8G 2.3G`. What does the 2.3G say?', options: ['The swap is 2.3 GB too small', 'The kernel reads 2.3 GB per second from it', '2.3 GB of pages sit in swap right now', 'The machine has 2.3 GB of free RAM'], answer: 2, why: 'The columns are name, type, size and used. 2.3 GB of the 3.8 GB partition holds pages today.' },
+					{ q: 'What kind of page can the kernel free only by writing it to swap?', options: ['A clean page cache page', 'An anonymous page: heap, stack, anonymous `mmap`', 'A page of a binary on disk', 'A page of a file opened read-only'], answer: 1, why: 'No file holds a copy of an anonymous page. Page cache can be dropped and read again from the file.' },
+					{ q: 'Swappiness reads `60`. What does that value set?', options: ['How costly swap I/O is compared to reading file pages back', 'The percent of RAM that can go to swap', 'The seconds a page waits before it is swapped', 'The swap size in GB'], answer: 0, why: '`vm.swappiness` goes from 0 to 200 and tells reclaim how costly swap I/O is. 60 is the default.' },
+					{ q: 'At 60, which pages does reclaim prefer to take first?', options: ['Anonymous pages, written to swap', 'Pages of the busiest process', 'Neither: it waits for the OOM killer', 'Page cache, dropped without I/O'], answer: 3, why: 'At 100 swap and file I/O count the same. Below 100, the kernel prefers to drop page cache.' }
+				]
+			},
+			{
+				title: 'Read the vmstat lines',
+				questions: [
+					{ q: 'Which `vmstat 1 3` line do you skip?', options: ['The first one: it is an average since boot', 'The last one: it is cut short', 'The middle one: it repeats the first', 'None: they all mean the same'], answer: 0, why: 'The first line averages everything since boot. The next lines show each second.' },
+					{ q: 'What does the `swpd` column show?', options: ['Pages swapped in each second', 'Pages swapped out each second', 'How much sits in swap now', 'The swap device name'], answer: 2, why: '`swpd` is the amount stored in swap. It says nothing about traffic.' },
+					{ q: 'What do `si` and `so` show?', options: ['The swap partition and swap file sizes', 'How much moves in from swap and out to swap each second', 'Swap I/O errors in and out', 'The share of CPU spent on swap'], answer: 1, why: '`si` is swap in and `so` is swap out, both per second. They show the work, not the stock.' },
+					{ q: 'A page in swap is read again. What does the process see?', options: ['A segmentation fault', 'A SIGKILL from the kernel', 'Nothing: swap is as fast as RAM', 'A major fault: it waits while the page is read from disk'], answer: 3, why: 'The page is not in RAM, so the access faults and the process waits. `si` goes up and `majflt` counts it.' }
+				]
+			},
+			{
+				title: 'Judge the traffic',
+				questions: [
+					{ q: 'After the first line, `si` reads 4 and 0, `so` reads 0 and 0. What do you conclude?', options: ['The 2.3 GB stays in swap and nobody reads it back', 'The machine is thrashing', 'The swap device has failed', 'The kernel is about to call the OOM killer'], answer: 0, why: 'Pages that sit in swap untouched cost no I/O. The traffic is close to zero.' },
+					{ q: '`cache` sits near 15 GB. Why would the kernel keep it while 2.3 GB is in swap?', options: ['Page cache can never be dropped', 'Swappiness at 0 forbids dropping it', 'Swapped pages were not in use, while the cached files are read', 'Swap is always used before cache'], answer: 2, why: 'The kernel moved pages nobody used to swap and gave the RAM to page cache that serves reads.' },
+					{ q: 'What would real memory trouble look like here?', options: ['`swpd` above 1 GB', '`si` and `so` in the thousands on every line', '`free` under 4 GB', '`cache` above 10 GB'], answer: 1, why: 'Slowness comes from pages moving in and out all the time, with processes stalled on major faults.' },
+					{ q: 'Is a large `swpd` with `si` and `so` at 0 a problem?', options: ['Yes: swap must stay empty', 'Yes: it means a leak', 'Only if swappiness is above 60', 'No: those are pages parked in swap'], answer: 3, why: 'Parked pages cost nothing until they are read back. Only the traffic hurts.' }
+				]
+			},
+			{
+				title: 'Give the verdict',
+				questions: [
+					{ q: 'Is this laptop short of memory?', options: ['Yes: swap is more than half full', 'No: swap holds unused pages and barely moves', 'Yes: free RAM is only 3.3 GB', 'Cannot say without the OOM log'], answer: 1, why: 'Traffic is near zero and the kernel keeps 15 GB of page cache. Memory is not tight.' },
+					{ q: 'A colleague wants to set swappiness to 0 "to turn swap off". What does 0 do?', options: ['It turns every swap device off', 'It swaps every page as soon as it is written', 'It swaps only when free and file pages fall under the high watermark', 'It moves the swap to RAM'], answer: 2, why: 'At 0, swap starts only below the high watermark. Only `swapoff` or no swap device turns it off.' },
+					{ q: 'A page written once at startup is never read again. Once it is in swap, what happens to the RAM it held?', options: ['It goes back to page cache or to other processes', 'It stays reserved for that page', 'The OOM killer takes it back', 'Only a reboot frees it'], answer: 0, why: 'Pages written once and never read again can leave RAM. That RAM goes back to page cache or to other processes.' },
+					{ q: 'Which numbers do you put in your answer?', options: ['Only the swap size', 'Only swappiness', 'Only the `free` column', '`swpd`, plus `si` and `so` after the first line'], answer: 3, why: '`swpd` says how much is parked, `si` and `so` say whether it moves. Together they answer the question.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ func calcSwapForBurstablePods(containerMemoryRequest, nodeTotalMemory, totalPods
 			why: '`GetContainerSwapBehavior` returns `NoSwap` when the memory request equals the limit. Then `configureSwap` writes 0 as `memory.swap.max`, so the kernel never swaps out that container\'s anonymous pages.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Read swap the way the chapter does: what is parked, what moves, and how a cgroup caps it.',
+		steps: [
+			'On a Linux machine, read the setup: `swapon --show` and `cat /proc/sys/vm/swappiness`.',
+			'Watch the traffic for five seconds: `vmstat 1 5`. Skip the first line and read `swpd`, `si` and `so`.',
+			'Find who owns the parked pages: `for f in /proc/[0-9]*/status; do awk \'/^Name/{n=$2} /^VmSwap/{print $2, n}\' "$f"; done 2>/dev/null | sort -rn | head -5`.',
+			'Read the swap cap of a container with no swap: `docker run --rm -m 64m --memory-swap 64m alpine cat /sys/fs/cgroup/memory.swap.max`.',
+			'Do the same with Docker\'s default and with more room: `docker run --rm -m 64m alpine cat /sys/fs/cgroup/memory.swap.max`, then the same with `--memory-swap 192m`.'
+		],
+		done: [
+			'You can say how much sits in swap and whether `si` and `so` move after the first line.',
+			'The `VmSwap` list names the five processes with the most kB in swap.',
+			'The first container prints `0`, the second `67108864`, the third `134217728`.'
+		],
+		solution: [
+			'A large `swpd` with `si` and `so` near 0 means pages parked in swap. The processes at the top of the `VmSwap` list wrote those pages once and stopped reading them.',
+			'Docker\'s `--memory-swap` is RAM plus swap. 64m and 64m leaves 0 for swap, which Docker writes to `memory.swap.max`, the same file the kubelet writes.',
+			'With no `--memory-swap`, Docker allows as much swap as RAM: 64 MiB, or 67108864 bytes. 192m minus 64m leaves 128 MiB, or 134217728.'
+		]
+	},
 	recall: {
 		q: 'Which pages need swap to be freed, and which counters in `vmstat` show that swapping is hurting?',
 		a: 'Anonymous pages: heap, stack, anonymous `mmap`. Page cache can be dropped without swap. `si` and `so` moving on every line hurt; a large `swpd` with `si` and `so` at 0 is pages parked in swap.'

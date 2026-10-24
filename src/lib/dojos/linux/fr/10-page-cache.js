@@ -123,6 +123,44 @@ export default {
 			'`used` = 28365352 - 22012500 = 6352852 kB (6,1 GiB, 22 %). buff/cache = 7061852 + 10194356 + 3816928 = 21073136 kB.',
 			'À la main : 1670320 libres + 16985396 de listes de fichiers + 3816928 de slab = 22472644 kB. Le noyau annonce 22012500 kB, soit 460144 kB de moins : la réserve et le cache qu’il garde de côté.',
 			'Le serveur va bien : 21 GiB sont disponibles. Alerte plutôt sur `MemAvailable`, ou sur le swap et les OOM kills (chapitres 11 et 12), qu’à partir de `MemFree`.'
+		],
+		steps: [
+			{
+				title: 'Vérifie ce que l’alerte a mesuré',
+				questions: [
+					{ q: 'Quelle ligne donne « 94 % utilisés » ?', options: ['`MemAvailable` sur `MemTotal`', '`MemFree` : 5,9 % de libre', '`Cached` sur `MemTotal`', '`SReclaimable`'], answer: 1, why: '100 % moins 5,9 % de libre font environ 94 %. L’alerte a lu `MemFree`.' },
+					{ q: 'Que laisse de côté `MemFree` ?', options: ['Le swap en cours d’usage', 'La RAM qui ne contient rien du tout', 'Du cache de pages qu’il peut rendre', 'La mémoire des processus de root'], answer: 2, why: 'Les pages de fichiers gardées au cas où on les relise sortent de `MemFree`, alors que les programmes peuvent encore les obtenir.' },
+					{ q: 'Pourquoi un `MemFree` bas est-il normal sur un serveur actif ?', options: ['Le noyau met des fichiers en cache dans la RAM inutilisée', 'Le noyau se réserve la plus grande partie de la RAM', 'Les programmes fuient lentement avec le temps', '`MemFree` n’est mis à jour qu’au démarrage'], answer: 0, why: 'La RAM qu’aucun programme n’utilise garde des pages de fichiers au lieu de rester vide.' },
+					{ q: 'Quelle ligne l’alerte devrait-elle utiliser ?', options: ['`Cached`', '`Buffers`', '`MemTotal`', '`MemAvailable`'], answer: 3, why: 'Elle estime ce qu’un nouveau programme peut obtenir « without swapping ».' }
+				]
+			},
+			{
+				title: 'Recalcule used',
+				questions: [
+					{ q: 'Comment free(1) calcule-t-il `used` ?', options: ['Total moins free', 'Total moins available', 'Total moins buff/cache', 'Cached plus Buffers'], answer: 1, why: 'free(1) : `used` vaut le total moins le disponible.' },
+					{ q: 'Que vaut `used` ici ?', options: ['26695032 kB', '21073136 kB', '6352852 kB', '1670320 kB'], answer: 2, why: '28365352 - 22012500 = 6352852 kB, environ 6,1 GiB.' },
+					{ q: 'Quelle part de la RAM est-ce ?', options: ['Environ 22 %', 'Environ 94 %', 'Environ 6 %', 'Environ 78 %'], answer: 0, why: '6352852 / 28365352 font environ 22 %, loin des 94 % de l’alerte.' },
+					{ q: 'Combien est disponible pour de nouveaux programmes ?', options: ['Environ 1,6 GiB', 'Environ 6,1 GiB', 'Environ 10 GiB', 'Environ 21 GiB'], answer: 3, why: '`MemAvailable` vaut 22012500 kB, environ 21 GiB.' }
+				]
+			},
+			{
+				title: 'Recalcule buff/cache',
+				questions: [
+					{ q: 'Quelles trois lignes s’additionnent pour donner buff/cache ?', options: ['`Buffers`, `Cached`, `SReclaimable`', '`MemFree`, `Cached`, `Buffers`', '`Active(file)`, `Inactive(file)`, `Cached`', '`Cached`, `SReclaimable`, `MemAvailable`'], answer: 0, why: 'free(1) additionne `Buffers`, `Cached` et `SReclaimable`.' },
+					{ q: 'Que vaut buff/cache ici ?', options: ['17256208 kB', '21073136 kB', '22012500 kB', '16985396 kB'], answer: 1, why: '7061852 + 10194356 + 3816928 = 21073136 kB.' },
+					{ q: 'Le noyau peut-il lâcher tout buff/cache ?', options: ['Oui, chaque page en cache est une copie du disque', 'Oui, mais seulement une fois les pages sales écrites', 'Non : `Cached` inclut tmpfs et la mémoire partagée', 'Non : seul `Buffers` peut être lâché'], answer: 2, why: 'Les pages tmpfs n’ont aucun fichier sur disque derrière elles, et l’estimation garde un peu de cache de côté.' },
+					{ q: 'Que doit-il se passer avant que le noyau réutilise une page sale ?', options: ['Rien, il la lâche', 'Un processus doit fermer le fichier', 'La page doit partir en swap', 'Elle doit être écrite sur le disque'], answer: 3, why: 'Une page sale diffère du fichier sur disque : elle est d’abord réécrite.' }
+				]
+			},
+			{
+				title: 'Estime MemAvailable',
+				questions: [
+					{ q: 'Quelles lignes forment les listes de fichiers que le noyau compte ?', options: ['`Active(file)` et `Inactive(file)`', '`Cached` et `Buffers`', '`Cached` seul', '`Buffers` et `SReclaimable`'], answer: 0, why: '`si_mem_available()` additionne `NR_ACTIVE_FILE` et `NR_INACTIVE_FILE`.' },
+					{ q: 'Que vaut cette somme ici ?', options: ['10194356 kB', '15170572 kB', '16985396 kB', '21073136 kB'], answer: 2, why: '1814824 + 15170572 = 16985396 kB.' },
+					{ q: 'Libre + listes de fichiers + slab récupérable, ça donne quoi ?', options: ['22012500 kB', '22472644 kB', '21073136 kB', '28365352 kB'], answer: 1, why: '1670320 + 16985396 + 3816928 = 22472644 kB.' },
+					{ q: 'Le noyau annonce 22012500 kB, soit 460144 kB de moins. Pourquoi ?', options: ['Un arrondi de `free` au MiB près', 'Les pages sales qui attendent le disque', 'Le swap utilisé', 'Il garde de côté une réserve, du cache et du slab'], answer: 3, why: 'Il retire `totalreserve_pages` et garde de côté, pour le cache comme pour le slab, la moitié ou le filigrane bas, le plus petit des deux.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,28 @@ export default {
 			why: '`Cached` inclut tmpfs et la mémoire partagée, que le noyau ne peut pas lâcher. `si_mem_available()` ne compte que les listes de fichiers, moins leur moitié ou le filigrane bas : le système garde assez de cache pour tourner.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lire un fichier depuis le disque puis depuis le cache de pages, et recalculer les colonnes de `free` à partir de `/proc/meminfo`.',
+		steps: [
+			'Crée un dossier de travail et un fichier de 256 MiB : `mkdir -p ~/cache-lab && cd ~/cache-lab && head -c 268435456 /dev/urandom > med.bin && sync`. Ce lab demande Linux.',
+			'Écris un script qui retire ce seul fichier du cache, sans root : `printf \'import os, sys\\nfd = os.open(sys.argv[1], os.O_RDONLY)\\nos.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)\\n\' > evict.py`.',
+			'Écris un script qui lit un fichier et affiche ses octets lus sur disque : `printf \'import sys, time\\nt = time.time()\\nwith open(sys.argv[1], "rb") as f:\\n    while f.read(1 << 20): pass\\nio = dict(l.split(": ") for l in open("/proc/self/io").read().split("\\\\n") if l)\\nprint("read_bytes", io["read_bytes"], "seconds", round(time.time() - t, 3))\\n\' > readit.py`.',
+			'Vide le cache du fichier, puis lis deux fois : `python3 evict.py med.bin; python3 readit.py med.bin; python3 readit.py med.bin`.',
+			'Recalcule `free` : lance `free -k` et `grep -E \'^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable):\' /proc/meminfo`. Nettoie avec `rm med.bin`.'
+		],
+		done: [
+			'La première lecture affiche `read_bytes 268435456`, et la deuxième affiche `read_bytes 0` et prend moins de temps.',
+			'Le `used` de `free` égale `MemTotal` moins `MemAvailable`, à quelques kB près qui ont changé entre les deux commandes.',
+			'Le `buff/cache` de `free` égale `Buffers` + `Cached` + `SReclaimable`, au même petit écart près.'
+		],
+		solution: [
+			'`read_bytes` compte les octets « really fetched from the storage layer ». La première lecture a rempli le cache de pages, et le deuxième processus y a trouvé chaque page.',
+			'Le cache appartient au noyau, pas au processus : un nouveau processus obtient les pages en cache.',
+			'`posix_fadvise(POSIX_FADV_DONTNEED)` demande au noyau de lâcher les pages propres en cache de ce seul fichier. `drop_caches` le fait pour toute la machine et demande root.',
+			'`used` vaut le total moins le disponible : il laisse de côté le cache que le noyau peut rendre.'
+		]
+	},
 	recall: {
 		q: 'Quelle ligne de `/proc/meminfo` dit combien de mémoire un nouveau programme peut obtenir sans swap, et comment `free` en tire-t-il `used` ?',
 		a: '`MemAvailable`, la colonne `available`. `used` = total - available, par exemple 28365352 - 22012500 = 6352852 kB.'

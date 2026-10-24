@@ -119,6 +119,44 @@ WantedBy=multi-user.target`,
 			'`[Service]`: `ExecStart=/usr/local/bin/shop`, `Restart=on-failure`, `RestartSec=5`. `[Install]`: `WantedBy=multi-user.target`.',
 			'Install and start: `systemctl enable --now shop`. `enable` creates the symlink in `multi-user.target.wants/` and reloads the configuration, and `--now` starts the unit too.',
 			'After an edit: `systemctl daemon-reload`, then `systemctl restart shop`. `systemctl show shop -p NeedDaemonReload` prints `NeedDaemonReload=yes` while the reload is missing.'
+		],
+		steps: [
+			{
+				title: 'Bring in PostgreSQL',
+				questions: [
+					{ q: 'Which line makes `postgresql.service` start when `shop` starts?', options: ['`After=postgresql.service`', '`Before=postgresql.service`', '`Wants=postgresql.service`', '`WantedBy=postgresql.service`'], answer: 2, why: '`Wants=` adds a start job for the listed unit to the transaction. `After=` alone starts nothing.' },
+					{ q: 'Which line makes `shop` wait until PostgreSQL has finished starting?', options: ['`After=postgresql.service`', '`Requires=postgresql.service`', '`Wants=postgresql.service`', '`Before=postgresql.service`'], answer: 0, why: 'Ordering comes only from `After=` and `Before=`. `After=b` means `a` waits for `b` when both start.' },
+					{ q: 'With `Wants=` and no `After=`, what happens on `systemctl start shop`?', options: ['PostgreSQL starts first, then `shop`', 'Only `shop` starts', 'systemd refuses the job', 'Both start at the same time'], answer: 3, why: 'Requirement dependencies do not order anything. Without `After=`, systemd starts both units simultaneously.' },
+					{ q: 'Why prefer `Wants=` over `Requires=` here?', options: ['`Requires=` does not start the unit', 'With `Requires=`, restarting PostgreSQL also restarts `shop`', '`Wants=` also orders the units', '`Requires=` only works at boot'], answer: 1, why: 'With `Requires=`, explicitly stopping or restarting the listed unit also stops or restarts this one.' }
+				]
+			},
+			{
+				title: 'Set the restart policy',
+				questions: [
+					{ q: 'Which `[Service]` lines restart the app 5 seconds after a crash?', options: ['`Restart=always` and `TimeoutStartSec=5`', '`Restart=on-failure` and `RestartSec=5`', '`Restart=on-abort` and `StartLimitBurst=5`', '`Restart=no` and `RestartSec=5`'], answer: 1, why: '`on-failure` restarts after a non-zero exit or an unclean signal. `RestartSec=` sets the delay before the new start.' },
+					{ q: 'Without `RestartSec=`, how long does systemd wait before a restart?', options: ['100 ms', '5 seconds', '10 seconds', 'It does not restart'], answer: 0, why: '`RestartSec=` defaults to 100 ms, which is why a broken service hits the start limit in under a second.' },
+					{ q: 'How do you write "give up after 10 starts in 5 minutes"?', options: ['`StartLimitBurst=5` and `StartLimitIntervalSec=10`', '`RestartSec=300` and `StartLimitBurst=10`', '`StartLimitIntervalSec=5m` and `RestartSec=10`', '`StartLimitIntervalSec=300` and `StartLimitBurst=10`'], answer: 3, why: '`StartLimitBurst=` is the number of starts, `StartLimitIntervalSec=` the window: 300 seconds is 5 minutes.' },
+					{ q: 'In which section do the two start-limit lines go?', options: ['`[Service]`', '`[Install]`', '`[Unit]`', 'Either section works'], answer: 2, why: 'The hint says so: `StartLimitIntervalSec=` and `StartLimitBurst=` belong in `[Unit]`.' }
+				]
+			},
+			{
+				title: 'Start it at boot',
+				questions: [
+					{ q: 'Which line makes `shop` start at boot once enabled?', options: ['`WantedBy=multi-user.target`', '`After=multi-user.target`', '`Wants=multi-user.target`', '`Before=default.target`'], answer: 0, why: '`systemctl enable` reads `[Install]` and adds a symlink in `multi-user.target.wants/`, so the target pulls `shop` in.' },
+					{ q: 'Which one command installs and starts it now?', options: ['`systemctl start shop`', '`systemctl daemon-reload shop`', '`systemctl link shop`', '`systemctl enable --now shop`'], answer: 3, why: '`enable` creates the symlink and reloads the configuration, and `--now` starts the unit too.' },
+					{ q: 'Do you need `systemctl daemon-reload` before `enable` for a new file?', options: ['Yes, or `enable` fails', 'No: `enable` reloads the manager configuration by itself', 'Yes, and a reboot as well', 'Only if the unit has `Wants=`'], answer: 1, why: 'The hint states it: `systemctl enable` reloads the manager configuration on its own.' },
+					{ q: 'What does `systemctl start shop` alone not do?', options: ['Start PostgreSQL first', 'Run `ExecStart=`', 'Make `shop` start at the next boot', 'Apply the restart policy'], answer: 2, why: '`start` runs the unit now. Only `enable` creates the `.wants/` symlink that brings it back at boot.' }
+				]
+			},
+			{
+				title: 'Apply a later change',
+				questions: [
+					{ q: 'You change `ExecStart=` and run only `systemctl restart shop`. What runs?', options: ['The old command line, with a warning', 'The new command line', 'Nothing: the unit fails to load', 'The new one, after the next reboot'], answer: 0, why: 'systemd keeps the parsed unit in memory. In the test run, the service restarted with `/bin/sleep 600` until the reload.' },
+					{ q: 'What do you run after the edit?', options: ['`systemctl reset-failed shop`, then `systemctl start shop`', '`systemctl enable --now shop` again', '`systemctl reload shop`', '`systemctl daemon-reload`, then `systemctl restart shop`'], answer: 3, why: '`daemon-reload` reloads every unit file and rebuilds the dependency tree. The restart then uses the new definition.' },
+					{ q: 'Which command tells you a reload is still missing?', options: ['`systemctl is-failed shop`', '`systemctl show shop -p NeedDaemonReload`', '`systemctl list-dependencies shop`', '`systemctl cat shop`'], answer: 1, why: 'It prints `NeedDaemonReload=yes` while the file on disk differs from what systemd has loaded.' },
+					{ q: 'After a burst of crashes the unit is `failed` with `Start request repeated too quickly.` What clears it?', options: ['`systemctl daemon-reload`', '`systemctl restart shop`, right away', '`systemctl reset-failed shop`', '`systemctl enable shop`'], answer: 2, why: '`reset-failed` clears the start counter. Every start counts toward the limit, manual ones too.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,29 @@ WantedBy=multi-user.target`,
 			why: '`RestartSec=` defaults to 100 ms, and the manager allows 5 starts per 10 seconds. The sixth start falls inside the interval, so systemd refuses it and leaves the unit failed until `systemctl reset-failed` or the interval passes.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Hit the start limit and the `daemon-reload` trap yourself, with user units that need no root.',
+		steps: [
+			'Make the user unit folder: `mkdir -p ~/.config/systemd/user`. Create `~/.config/systemd/user/dojo-crash.service` with a `[Service]` section holding `ExecStart=/bin/sh -c \'echo reading config; exit 1\'` and `Restart=on-failure`.',
+			'Load and start it: `systemctl --user daemon-reload && systemctl --user start dojo-crash`. Wait two seconds, then run `systemctl --user show dojo-crash -p NRestarts -p ActiveState` and `journalctl --user -u dojo-crash -n 4 --no-pager`.',
+			'Fix the policy: add a `[Unit]` section with `StartLimitIntervalSec=300` and `StartLimitBurst=10`, and `RestartSec=5` under `[Service]`. Run `systemctl --user daemon-reload`, `systemctl --user reset-failed dojo-crash`, start it again, and check the same two values after about 12 seconds.',
+			'Now the reload trap: create `dojo-sleep.service` with `ExecStart=/bin/sleep 600`, reload, start it. Change `600` to `700` in the file, then run `systemctl --user restart dojo-sleep` and `systemctl --user show dojo-sleep -p NeedDaemonReload`. Check the running command with `ps -o args= -p $(systemctl --user show dojo-sleep -p MainPID --value)`.',
+			'Run `systemctl --user daemon-reload`, restart again and check the command. Clean up: `systemctl --user stop dojo-crash dojo-sleep`, delete both files, `systemctl --user daemon-reload`.'
+		],
+		done: [
+			'With the defaults, `NRestarts=5`, the unit is `failed`, and the last journal lines show `restart counter is at 5` and `Start request repeated too quickly.`',
+			'With the fix, after 12 seconds the unit shows `ActiveState=activating` and only 2 restarts.',
+			'The first `restart` of `dojo-sleep` prints `Warning: The unit file ... changed on disk`, `NeedDaemonReload=yes`, and `ps` still shows `/bin/sleep 600`.',
+			'After `daemon-reload`, `ps` shows `/bin/sleep 700`.'
+		],
+		solution: [
+			'The default `RestartSec=` of 100 ms burns the 5 starts allowed per 10 seconds in well under a second. The journal shows `restart counter is at 5`, then the refusal.',
+			'With `RestartSec=5` and 10 starts per 300 seconds, the unit keeps trying in `auto-restart` instead of giving up: the case of a database that is still booting.',
+			'The fixed `dojo-crash.service` reads: `[Unit]`, `StartLimitIntervalSec=300`, `StartLimitBurst=10`, then `[Service]`, `ExecStart=...`, `Restart=on-failure`, `RestartSec=5`.',
+			'`systemctl --user` talks to your own systemd manager, so the units, their limits and `daemon-reload` behave as on the system manager, with no `sudo`.'
+		]
+	},
 	recall: {
 		q: 'With default settings, how many starts does systemd allow a crashing `Restart=on-failure` service, and what line ends its journal?',
 		a: '5 starts within 10 seconds (`DefaultStartLimitBurst=5`, `DefaultStartLimitIntervalSec=10s`), 100 ms apart. Then `Start request repeated too quickly.` and the unit stays failed until `systemctl reset-failed`.'

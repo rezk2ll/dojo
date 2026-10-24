@@ -133,6 +133,44 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			'`docker stop` sends SIGTERM, so the program\'s handler runs. If the handler makes the program exit within 10 seconds, Docker never sends SIGKILL.',
 			'If the handler only logs and returns, the program keeps running. Docker sends SIGKILL at second 10, and the handler cannot stop that.',
 			'For comparison, captured in this session: `sleep 300` with no handler, sent `kill -TERM`, ends with status 143. A bash loop with `trap ... TERM` keeps running after `kill -TERM` and ends with 137 after `kill -KILL`.'
+		],
+		steps: [
+			{
+				title: 'Decode the mask',
+				questions: [
+					{ q: 'What does the `SigCgt` line in `/proc/<pid>/status` list?', options: ['The signals the process has sent', 'The signals the process ignores', 'The signals waiting in the queue to be delivered', 'The signals it catches with a handler'], answer: 3, why: '`SigCgt` is the caught mask: one bit per signal that has a handler.' },
+					{ q: '`0x4000` is which power of 2?', options: ['2 to the power 14', '2 to the power 15', '2 to the power 12', '2 to the power 4'], answer: 0, why: '0x4000 is 16384, which is 2 to the power 14. Only one bit is set.' },
+					{ q: 'Only bit 14 is set. With bit n-1 standing for signal n, which signal number is it?', options: ['14', '15', '13', '16'], answer: 1, why: 'Bit 14 is n-1 with n = 15. Counting starts at bit 0 for signal 1.' },
+					{ q: '`sleep 60` shows `SigCgt: 0000000000000000`. What does that tell you?', options: ['`sleep` blocks every signal until it wakes up', '`sleep` cannot receive signals', '`sleep` has no handler: defaults apply', 'The kernel hides the mask for short programs'], answer: 2, why: 'All zeros means no handlers. SIGTERM then uses its default action: terminate.' }
+				]
+			},
+			{
+				title: 'Name the signal',
+				questions: [
+					{ q: 'Which signal is number 15?', options: ['SIGKILL', 'SIGINT', 'SIGQUIT', 'SIGTERM'], answer: 3, why: 'signal(7): SIGTERM is 15. SIGKILL is 9 on x86.' },
+					{ q: 'Which Python line would give exactly this mask?', options: ['`signal.signal(signal.SIGTERM, handler)`', '`signal.signal(signal.SIGKILL, handler)`', '`os.kill(os.getpid(), 15)`', '`signal.pause()`'], answer: 0, why: 'Registering a SIGTERM handler sets bit 14. The chapter captured exactly `0000000000004000` for that.' },
+					{ q: 'Could you add a bit for SIGKILL to this mask?', options: ['Yes, with `sigaction()` when the process runs as root', 'No: SIGKILL cannot be caught, blocked or ignored', 'Yes, but only inside a container', 'Only if SIGTERM is caught first'], answer: 1, why: 'sigaction(2) accepts "any valid signal except SIGKILL and SIGSTOP".' },
+					{ q: 'What does the mask not tell you about the SIGTERM handler?', options: ['That a handler exists', 'Which signal it is for', 'Whether the handler makes the program exit', 'That the default action is replaced'], answer: 2, why: 'The bit only says a handler is registered. What it does, exit or just log, is in the code.' }
+				]
+			},
+			{
+				title: 'Follow docker stop',
+				questions: [
+					{ q: 'What does `docker stop` send first when the image sets no `STOPSIGNAL`?', options: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP'], answer: 0, why: 'Docker sends the image\'s `StopSignal`, or SIGTERM when none is set.' },
+					{ q: 'The handler cleans up and exits within 10 seconds. What happens next?', options: ['Docker still sends SIGKILL at second 10', 'Docker restarts the container', 'The kernel runs the handler a second time', 'Docker never sends SIGKILL'], answer: 3, why: 'SIGKILL only comes when the process is still running at the end of the grace period.' },
+					{ q: 'The handler only logs and returns. What happens?', options: ['The program exits on its own once the handler returns', 'It keeps running until SIGKILL at second 10', 'Docker waits forever for the program', 'The kernel turns SIGTERM into SIGKILL at once'], answer: 1, why: 'After a handler returns, the program carries on. Docker sends SIGKILL when the 10 seconds are up.' },
+					{ q: 'How do you give the program more than 10 seconds?', options: ['Catch SIGKILL in the handler', 'Set `STOPSIGNAL SIGINT`', 'Pass `--stop-timeout` or `docker stop -t`', 'Restart the container with `--rm`'], answer: 2, why: 'The grace period is 10 seconds by default, and these two options change it.' }
+				]
+			},
+			{
+				title: 'Check the exit codes',
+				questions: [
+					{ q: '`sleep 300` with no handler gets `kill -TERM`. What status does the shell see?', options: ['143', '137', '15', '0'], answer: 0, why: 'Captured in the chapter: 143, which is 128 + 15 for SIGTERM.' },
+					{ q: 'A bash loop with `trap ... TERM` gets `kill -TERM`. What happens?', options: ['It exits with 143', 'It exits with 0', 'It exits with 137', 'It keeps running'], answer: 3, why: 'The trap is a handler, so the default action no longer applies.' },
+					{ q: 'That loop then gets `kill -KILL`. What status?', options: ['143', '137', '9', '1'], answer: 1, why: 'SIGKILL ends it whatever the trap says, and the status is 137, which is 128 + 9.' },
+					{ q: 'After a stop that took 10 seconds, the main process ended with status 137. What does that point to?', options: ['The handler exited with an error', 'The healthcheck failed', 'SIGKILL ended it after the grace period', 'SIGTERM was delivered twice'], answer: 2, why: '137 means SIGKILL, and 10 seconds is the default grace period.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -170,6 +208,29 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			why: 'SIGTERM is Smart Shutdown: the handler sets `pending_pm_shutdown_request`, and the server waits for every session to end. Aborting the transactions is Fast Shutdown (SIGINT). Exiting without normal shutdown processing is Immediate Shutdown (SIGQUIT).'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Read a process\'s caught-signal mask, then see SIGTERM handled and SIGKILL not.',
+		steps: [
+			'Make a scratch folder: `mkdir -p ~/signal-lab && cd ~/signal-lab`.',
+			'Write a program that catches SIGTERM and does not exit: `printf \'import signal, time\\nsignal.signal(signal.SIGTERM, lambda s, f: print("got SIGTERM, ignoring", flush=True))\\nwhile True: time.sleep(1)\\n\' > app.py`.',
+			'Start it in the background and read its mask (Linux): `python3 app.py & p=$!; sleep 1; grep SigCgt /proc/$p/status`.',
+			'Send SIGTERM, check it still runs, then send SIGKILL: `kill -TERM $p; sleep 1; kill -0 $p && echo still running; kill -KILL $p; wait $p; echo status=$?`.',
+			'Compare with a program that has no handler: `sleep 300 & s=$!; grep SigCgt /proc/$s/status; kill -TERM $s; wait $s; echo status=$?`.'
+		],
+		done: [
+			'The mask of `app.py` has bit 14 set: it ends in `4000`, or `4002` when Python also catches SIGINT for Ctrl-C.',
+			'After `kill -TERM`, the program prints `got SIGTERM, ignoring` and `still running` appears.',
+			'After `kill -KILL`, `status=137` appears.',
+			'`sleep 300` shows an all-zero mask and ends with `status=143`.'
+		],
+		solution: [
+			'0x4000 is bit 14, signal 15, SIGTERM. Bit 1 (0x2) is signal 2, SIGINT.',
+			'The handler replaces the default action, so SIGTERM only prints a line. That is what makes `docker stop` wait its full 10 seconds.',
+			'SIGKILL cannot be caught, so the kernel ends the process: 128 + 9 = 137. With no handler, SIGTERM terminates `sleep`: 128 + 15 = 143.',
+			'On macOS there is no `/proc`: skip the `grep SigCgt` parts, the `kill` steps work the same.'
+		]
+	},
 	recall: {
 		q: 'What does `docker stop` send to the main process, and when does the second signal come?',
 		a: 'The image\'s `StopSignal`, SIGTERM by default, then SIGKILL if the process is still running after 10 seconds. SIGKILL cannot be caught, so no cleanup code runs.'

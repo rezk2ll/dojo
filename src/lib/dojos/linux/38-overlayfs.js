@@ -134,6 +134,44 @@ export default {
 			'A\'s last layer is a 77-byte tar with one entry: `---------- 0/0 0 ... .wh.big.bin`. The whiteout hides `big.bin` in the merged view, and the 100 MB layer below it is unchanged.',
 			'Image B: one layer of `4.1kB`, and `docker save` writes 3,646,464 bytes. The file was created and deleted within the same step, so it never reached a layer.',
 			'Random bytes do not compress, which is why the 100 MB layer stays near 100 MB in the archive (100,030,702 bytes here).'
+		],
+		steps: [
+			{
+				title: 'Build the two images',
+				questions: [
+					{ q: 'How many layers does image A add on top of `alpine:3.20`?', options: ['One', 'Two, one per `RUN`', 'Three, one per line', 'None, `RUN` steps add no layers'], answer: 1, why: 'Each `RUN` writes its changes to a new layer, so A adds one for `head` and one for `rm`.' },
+					{ q: 'What does a `RUN` step\'s layer hold?', options: ['A full copy of the filesystem after the step', 'Only the command line that was run', 'A tar of the files it added or changed, plus whiteouts for deletions', 'A binary diff of each changed block'], answer: 2, why: 'A layer is a changeset: the files the step added or changed, and a `.wh.<name>` entry for each one it deleted.' },
+					{ q: 'In image B, why does `big.bin` reach no layer?', options: ['It was created and deleted within the same step', 'The builder skips files over 50 MB', 'B compresses random bytes better', '`&&` runs the second command in a new container'], answer: 0, why: 'The layer records the state at the end of the step. By then `big.bin` is already gone.' },
+					{ q: 'Both images start from `alpine:3.20`. What do their containers share on disk?', options: ['Nothing, each image has its own copy', 'Only the `/etc` directory', 'The upper directory', 'The alpine lower directories'], answer: 3, why: 'Containers from the same layers share the same lower directories. Each one gets only its own thin upper directory.' }
+				]
+			},
+			{
+				title: 'Compare the sizes',
+				questions: [
+					{ q: 'What does `docker history` show for A\'s two steps?', options: ['`100MB` and `0B`', '`100MB` and `4.1kB`', '`4.1kB` and `4.1kB`', '`100MB` and `-100MB`'], answer: 1, why: 'The `head` layer holds the 100 MB file. The `rm` layer holds only a whiteout, so it is tiny.' },
+					{ q: '`docker save` writes 103,678,464 bytes for A and 3,646,464 for B. What explains the gap?', options: ['A\'s archive includes the build cache', 'B was compressed and A was not', 'A still carries the 100 MB layer, B never had it', 'A has a bigger base image'], answer: 2, why: 'The delete step removed no bytes from the layer below. Only B kept the file out of every layer.' },
+					{ q: 'Why does the 100 MB layer stay near 100 MB in the archive?', options: ['Random bytes do not compress', '`docker save` adds the build cache to each layer', 'The whiteout doubles it', 'Docker pads layers to a fixed size'], answer: 0, why: 'The file came from `/dev/urandom`. With nothing to compress, the layer stays about 100,030,702 bytes.' },
+					{ q: 'You push image A to a registry. What travels over the network?', options: ['Only the last layer, since it is the newest', 'Only the files visible in the merged view', 'Nothing for `big.bin`, the whiteout cancels it', 'The 100 MB layer too, because it is part of the image'], answer: 3, why: 'A push or pull carries every layer. The whiteout hides the file in the merged view but does not remove the bytes below.' }
+				]
+			},
+			{
+				title: 'Read the last layer',
+				questions: [
+					{ q: 'In the extracted archive, which file tells you the order of the layers?', options: ['`manifest.json`', '`index.json` alone', 'The file names, sorted by hash', '`repositories`'], answer: 0, why: '`manifest.json` lists the layers in order. The last one is the `rm` step.' },
+					{ q: '`tar tvf` on that layer prints one entry. Which one?', options: ['`big.bin`, empty', '`.wh.big.bin`, an empty file', '`big.bin.deleted`, 100 MB', 'A character device named `big.bin`'], answer: 1, why: 'The layer is a 77-byte tar holding `.wh.big.bin`, the whiteout in its image layer form.' },
+					{ q: 'What does the `.wh.` prefix mean?', options: ['A hidden file the app wrote', 'A hard link to the lower file', 'A whiteout: hide this name from the layers below', 'A file that waits for a copy-up'], answer: 2, why: 'The OCI image spec stores a whiteout as an empty file named "the prefix `.wh.` plus the basename of the path to be deleted".' },
+					{ q: 'In a running container\'s upper directory, how does the same whiteout look?', options: ['A `.wh.big.bin` file', 'A symbolic link to `/dev/null`', 'An empty directory', 'A character device with device number 0/0'], answer: 3, why: 'On disk, overlayfs writes a character device 0/0. The `.wh.` name is the form it takes inside a layer tar.' }
+				]
+			},
+			{
+				title: 'Explain the numbers',
+				questions: [
+					{ q: 'Why did `rm` not shrink image A?', options: ['A delete cannot touch a lower layer, so it only adds a whiteout on top', 'Docker forgot to run the `rm` step', 'The `rm` step failed silently', 'Whiteouts take as much space as the file'], answer: 0, why: 'Lower layers are read-only. The new layer hides the name, and the layer below keeps its bytes.' },
+					{ q: 'How do you keep a temporary file out of every layer?', options: ['Delete it in a later `RUN`', 'Create and delete it in the same `RUN`', 'Write it to `/tmp`, which is never in a layer', 'Add it to `.dockerignore`'], answer: 1, why: 'A layer is the state at the end of its step. If the file is gone by then, no layer holds it.' },
+					{ q: 'A `RUN chown -R app /data` runs over a big directory from an earlier layer. What happens?', options: ['Only the owner field changes in the old layer', 'Nothing is written, ownership is metadata', 'Every file is copied up, so the directory is duplicated in a new layer', 'The build fails because lower layers are read-only'], answer: 2, why: '`chmod` or `chown` on a lower file triggers a copy-up, so the new layer holds a full copy.' },
+					{ q: 'A container appends 2 bytes to a 50 MB file from the image. What lands in the upper directory?', options: ['A 2-byte diff', 'Nothing, the write goes to the lower file', 'A whiteout and the 2 bytes', 'A full 50 MB copy of the file, plus the 2 bytes'], answer: 3, why: 'The first write copies the whole file up. In this session, upper held a 50,000,002-byte file.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,28 @@ export default {
 			why: 'The kernel docs: "A whiteout is created as a character device with 0/0 device number". When the merged view finds it, the matching name in the lower directories is hidden. The `.wh.` name is the form a whiteout takes inside an image layer tar.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build an image whose delete step frees nothing, find the whiteout in its last layer, and watch a container\'s own changes.',
+		steps: [
+			'Make two build folders: `mkdir -p ~/layers-lab/a ~/layers-lab/b && cd ~/layers-lab`, then `printf \'FROM alpine:3.20\\nRUN head -c 100000000 /dev/urandom > /big.bin\\nRUN rm /big.bin\\n\' > a/Dockerfile` and `printf \'FROM alpine:3.20\\nRUN head -c 100000000 /dev/urandom > /big.bin && rm /big.bin\\n\' > b/Dockerfile`.',
+			'Build both: `docker build -q -t layers-a a && docker build -q -t layers-b b`.',
+			'Compare: `docker history layers-a | head -3`, `docker history layers-b | head -2`, then `docker save layers-a | wc -c` and `docker save layers-b | wc -c`.',
+			'Open A\'s archive and list its last layer: `mkdir -p out && docker save layers-a | tar -x -C out`, then `LAST=$(grep -o \'blobs/sha256/[0-9a-f]*\' out/manifest.json | tail -1); ls -l out/$LAST; tar tvf out/$LAST`.',
+			'Watch a container\'s upper layer: `docker run --name ovl-lab alpine:3.20 sh -c \'rm /etc/motd; echo x >> /etc/profile; touch /new.txt\'`, then `docker diff ovl-lab`. Clean up with `docker rm ovl-lab` and `docker rmi layers-a layers-b`.'
+		],
+		done: [
+			'`docker history layers-a` shows `4.1kB` for the `rm` step and `100MB` for the `head` step. `layers-b` has one step of `4.1kB`.',
+			'`docker save` gives about 103.7 million bytes for A and about 3.6 million for B.',
+			'The last layer of A is 77 bytes, and `tar tvf` prints one entry, `.wh.big.bin`.',
+			'`docker diff` prints `C /etc`, `C /etc/profile`, `D /etc/motd` and `A /new.txt`.'
+		],
+		solution: [
+			'A\'s second `RUN` could not remove bytes from the layer below, so it wrote a whiteout. B created and deleted the file in one step, so no layer ever held it.',
+			'`manifest.json` lists the config blob first and the layers in order after it, so the last `blobs/sha256/...` match is the `rm` layer.',
+			'`docker diff` reads the container\'s upper directory: `D` is a whiteout, `C` is a copy-up (the whole `/etc/profile` was copied before the append), and `A` is a new file.'
+		]
+	},
 	recall: {
 		q: 'A build step deletes a 100 MB file created by the step before. What does the new layer contain, and why does the image not shrink?',
 		a: 'A whiteout: a 77-byte tar with one entry, `.wh.big.bin`. It hides the file in the merged view, while the 100 MB layer below keeps its bytes and stays in the image.'

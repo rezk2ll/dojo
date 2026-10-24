@@ -88,6 +88,44 @@ WantedBy=timers.target`,
 			'`/etc/systemd/system/report.timer` : `[Timer]` avec `OnCalendar=Mon..Fri 02:30` et `Persistent=true`, puis `[Install]` avec `WantedBy=timers.target`.',
 			'Vérification : `systemd-analyze calendar \'Mon..Fri 02:30\'` affiche `Normalized form: Mon..Fri *-*-* 02:30:00` et la prochaine expiration. Ensuite `systemctl enable --now report.timer`.',
 			'Dernier et prochain passage : `systemctl list-timers report.timer` (colonnes `NEXT`, `LEFT`, `LAST`, `PASSED`). Sortie : `journalctl -u report.service`.'
+		],
+		steps: [
+			{
+				title: 'Lis la ligne de crontab',
+				questions: [
+					{ q: 'Dans `30 2 * * 1-5`, que veulent dire `30` et `2` ?', options: ['Le jour 30, le mois 2', 'La minute 30 de l’heure 2', 'L’heure 30 n’existe pas, donc la minute 2', 'Toutes les 30 minutes pendant 2 heures'], answer: 1, why: 'Les deux premiers champs d’une crontab sont la minute et l’heure : 02:30.' },
+					{ q: 'Que veut dire le cinquième champ, `1-5` ?', options: ['Du 1er au 5 du mois', 'De janvier à mai', 'Du lundi au vendredi', 'Cinq passages de suite'], answer: 2, why: 'L’indice le dit : le cinquième champ est le jour de la semaine, et 1-5 va du lundi au vendredi.' },
+					{ q: 'Que ne fait pas cette ligne de crontab, alors que la tâche le demande ?', options: ['Lancer un rapport raté pendant que la machine était éteinte', 'Tourner seulement en semaine', 'Tourner à une minute fixe', 'Tourner en root'], answer: 0, why: 'cron regarde chaque minute si une commande doit tourner. Si la machine est éteinte à 02:30, le passage est perdu.' },
+					{ q: 'Combien de fichiers demande la version timer ?', options: ['Un seul `.timer` qui contient la commande', 'Une ligne dans `timers.target`', 'Trois : un timer, un service et un socket', 'Deux : `report.timer` pour l’horaire, `report.service` pour la commande'], answer: 3, why: 'Un timer démarre le service du même nom. L’horaire et la commande vivent à part.' }
+				]
+			},
+			{
+				title: 'Écris le service',
+				questions: [
+					{ q: 'Quel `Type=` convient à un rapport qui tourne puis s’arrête ?', options: ['`Type=oneshot`', '`Type=notify`', '`Type=simple`', '`Type=forking`'], answer: 0, why: 'Un timer démarre en général un service `Type=oneshot` : il va jusqu’au bout, puis l’unité redevient inactive.' },
+					{ q: 'Quelle ligne lance le rapport ?', options: ['`Exec=/usr/local/bin/report`', '`Command=/usr/local/bin/report`', '`ExecStart=/usr/local/bin/report`', '`Run=/usr/local/bin/report`'], answer: 2, why: '`ExecStart=` est la commande que systemd lance au démarrage du service.' },
+					{ q: '`report.service` a-t-il besoin d’une section `[Install]` ?', options: ['Oui, `WantedBy=multi-user.target`', 'Non : c’est le timer qui le démarre', 'Oui, `WantedBy=report.timer`', 'Oui, sinon le timer ne le trouve pas'], answer: 1, why: 'Le timer démarre le service à chaque expiration. Seul le timer est activé, donc seul le timer a besoin d’`[Install]`.' },
+					{ q: 'Où va la sortie du rapport ?', options: ['Dans la boîte mail de root, comme avec cron', 'Dans `/var/log/cron.log`', 'Nulle part sans redirection', 'Dans le journal, rattachée à `report.service`'], answer: 3, why: 'Un service écrit par défaut dans le journal (`DefaultStandardOutput=journal`).' }
+				]
+			},
+			{
+				title: 'Écris le timer',
+				questions: [
+					{ q: 'Quel `OnCalendar=` correspond à `30 2 * * 1-5` ?', options: ['`OnCalendar=Mon..Fri 02:30`', '`OnCalendar=1-5 2:30`', '`OnCalendar=*-*-1..5 02:30`', '`OnCalendar=weekdays 30 2`'], answer: 0, why: 'Un événement de calendrier donne d’abord les jours de la semaine, puis la date et l’heure : `Mon..Fri *-*-* 02:30:00` en forme normalisée.' },
+					{ q: 'Quelle ligne rattrape un passage raté pendant un arrêt ?', options: ['`RandomizedDelaySec=1h`', '`WakeSystem=true`', '`Persistent=true`', '`AccuracySec=1us`'], answer: 2, why: 'Avec `Persistent=true`, systemd garde sur le disque l’heure du dernier déclenchement et démarre le service au boot si un passage a été raté.' },
+					{ q: 'Quelle ligne d’`[Install]` démarre le timer au boot ?', options: ['`WantedBy=multi-user.target`', '`WantedBy=timers.target`', '`After=time-sync.target`', '`Before=report.service`'], answer: 1, why: '`apt-daily.timer` fait pareil : `WantedBy=timers.target`.' },
+					{ q: '`Persistent=true` marcherait-il avec `OnUnitActiveSec=1d` à la place ?', options: ['Oui, il marche avec tous les timers', 'Oui, si tu ajoutes `AccuracySec=`', 'Seulement après un redémarrage', 'Non : `Persistent=` ne marche qu’avec `OnCalendar=`'], answer: 3, why: 'Un timer basé sur `OnUnitActiveSec=` ne rattrape rien après un arrêt.' }
+				]
+			},
+			{
+				title: 'Vérifie et observe',
+				questions: [
+					{ q: 'Quelle commande vérifie ton horaire avant de l’activer ?', options: ['`systemctl cat report.timer`', '`systemd-analyze calendar \'Mon..Fri 02:30\'`', '`crontab -l`', '`systemctl list-units --type=timer`'], answer: 1, why: 'Elle affiche `Normalized form: Mon..Fri *-*-* 02:30:00` et la prochaine expiration.' },
+					{ q: 'Quelle unité actives-tu et démarres-tu ?', options: ['`report.service`', 'Les deux, l’une après l’autre', '`report.timer`', '`timers.target`'], answer: 2, why: '`systemctl enable --now report.timer`. Le timer démarre ensuite le service à chaque expiration.' },
+					{ q: 'Quelle commande montre le dernier passage et le prochain ?', options: ['`systemctl list-timers report.timer`', '`journalctl -u report.timer`', '`systemctl status report.service`', '`systemd-analyze blame`'], answer: 0, why: 'Ses colonnes sont `NEXT`, `LEFT`, `LAST` et `PASSED`.' },
+					{ q: 'Et ce qu’a affiché le rapport ?', options: ['`journalctl -u report.timer`', '`cat /var/log/syslog`', '`systemctl list-timers --all`', '`journalctl -u report.service`'], answer: 3, why: 'Le timer ne fait que démarrer le service. La sortie est rattachée à l’unité service, donc tu filtres sur `report.service`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -125,6 +163,28 @@ WantedBy=timers.target`,
 			why: 'Le timer ne fait que démarrer `report.service`. La sortie standard du service va par défaut dans le journal (`DefaultStandardOutput=journal`), rattachée à l’unité service : tu filtres donc sur `report.service`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Faire tourner un timer sous ton propre utilisateur, lire sa sortie dans le journal, et voir `Persistent=true` rattraper un passage raté.',
+		steps: [
+			'Vérifie d’abord l’horaire de la tâche : `systemd-analyze calendar \'Mon..Fri 02:30\'`.',
+			'Crée `~/.config/systemd/user/dojo-report.service` avec `[Service]`, `Type=oneshot` et `ExecStart=/bin/sh -c "date; echo report done"`.',
+			'Crée `~/.config/systemd/user/dojo-report.timer` avec `[Timer]`, `OnCalendar=*:*:0/20` (toutes les 20 secondes, pour ne pas attendre 02:30), `AccuracySec=1s` et `Persistent=true`. Puis `systemctl --user daemon-reload && systemctl --user start dojo-report.timer`.',
+			'Au bout d’une demi-minute, lance `systemctl --user list-timers dojo-report.timer` et `journalctl --user -u dojo-report.service -n 4 --no-pager`.',
+			'Rate un passage exprès : `systemctl --user stop dojo-report.timer`, attends 30 secondes, `date +%T`, puis `systemctl --user start dojo-report.timer` et relis le journal avec `-o short-precise`. Fais le ménage : arrête le timer, supprime les deux fichiers et `~/.local/share/systemd/timers/stamp-dojo-report.timer`, puis `systemctl --user daemon-reload`.'
+		],
+		done: [
+			'`systemd-analyze calendar` affiche `Normalized form: Mon..Fri *-*-* 02:30:00` et une prochaine expiration un jour de semaine.',
+			'`list-timers` montre une heure `LAST` et une heure `NEXT` à 20 secondes d’écart.',
+			'Le journal montre des lignes `report done` pour `dojo-report.service`.',
+			'Après l’arrêt puis le démarrage, une ligne `report done` apparaît moins d’une seconde après le `start`, pas au créneau de 20 secondes suivant.'
+		],
+		solution: [
+			'Dans l’essai, le timer a été arrêté à 14:11:20, le créneau de 14:11:40 est passé pendant qu’il était inactif, et le service a tourné à 14:11:42, juste après le `start`.',
+			'Le rattrapage vient du fichier stamp : pour un timer utilisateur, `Persistent=true` le garde dans `~/.local/share/systemd/timers/`. Pour un timer système, c’est `/var/lib/systemd/timers/`.',
+			'Pour la vraie tâche, les deux fichiers vont dans `/etc/systemd/system/` avec `OnCalendar=Mon..Fri 02:30`, un `[Install]` avec `WantedBy=timers.target` dans le timer, et `systemctl enable --now report.timer`.'
+		]
+	},
 	recall: {
 		q: 'Quel réglage de `[Timer]` fait tourner une tâche après le boot si son créneau est passé machine éteinte, et où systemd garde-t-il de quoi le savoir ?',
 		a: '`Persistent=true`, avec `OnCalendar=`. systemd garde l’heure du dernier déclenchement sur le disque, dans `/var/lib/systemd/timers/stamp-<name>.timer` sous Ubuntu, et démarre le service au boot si un passage a été raté.'

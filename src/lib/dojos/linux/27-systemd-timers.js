@@ -88,6 +88,44 @@ WantedBy=timers.target`,
 			'`/etc/systemd/system/report.timer`: `[Timer]` with `OnCalendar=Mon..Fri 02:30` and `Persistent=true`, then `[Install]` with `WantedBy=timers.target`.',
 			'Check: `systemd-analyze calendar \'Mon..Fri 02:30\'` prints `Normalized form: Mon..Fri *-*-* 02:30:00` and the next elapse. Then `systemctl enable --now report.timer`.',
 			'Last and next run: `systemctl list-timers report.timer` (columns `NEXT`, `LEFT`, `LAST`, `PASSED`). Output: `journalctl -u report.service`.'
+		],
+		steps: [
+			{
+				title: 'Read the crontab line',
+				questions: [
+					{ q: 'In `30 2 * * 1-5`, what do `30` and `2` mean?', options: ['Day 30, month 2', 'Minute 30 of hour 2', 'Hour 30 is invalid, so minute 2', 'Every 30 minutes for 2 hours'], answer: 1, why: 'The first two crontab fields are the minute and the hour: 02:30.' },
+					{ q: 'What does the fifth field, `1-5`, mean?', options: ['The 1st to the 5th of the month', 'January to May', 'Monday to Friday', 'Five runs in a row'], answer: 2, why: 'The hint says it: the fifth field is the day of the week, and 1-5 is Monday to Friday.' },
+					{ q: 'What does this crontab line not do that the task asks for?', options: ['Run a report missed while the machine was off', 'Run on weekdays only', 'Run at a fixed minute', 'Run as root'], answer: 0, why: 'cron checks each minute whether a command is due. If the machine is off at 02:30, the run is lost.' },
+					{ q: 'How many files does the timer version need?', options: ['One `.timer` file holding the command', 'One line in `timers.target`', 'Three: a timer, a service and a socket', 'Two: `report.timer` for the schedule, `report.service` for the command'], answer: 3, why: 'A timer starts the service of the same name. The schedule and the command live apart.' }
+				]
+			},
+			{
+				title: 'Write the service',
+				questions: [
+					{ q: 'Which `Type=` fits a report that runs and exits?', options: ['`Type=oneshot`', '`Type=notify`', '`Type=simple`', '`Type=forking`'], answer: 0, why: 'A timer usually starts a `Type=oneshot` service: it runs to the end, then the unit goes back to inactive.' },
+					{ q: 'Which line runs the report?', options: ['`Exec=/usr/local/bin/report`', '`Command=/usr/local/bin/report`', '`ExecStart=/usr/local/bin/report`', '`Run=/usr/local/bin/report`'], answer: 2, why: '`ExecStart=` is the command systemd runs when the service starts.' },
+					{ q: 'Does `report.service` need an `[Install]` section?', options: ['Yes, `WantedBy=multi-user.target`', 'No: the timer starts it', 'Yes, `WantedBy=report.timer`', 'Yes, or the timer cannot find it'], answer: 1, why: 'The timer starts the service at each elapse. Only the timer is enabled, so only the timer needs `[Install]`.' },
+					{ q: 'Where does the report\'s output go?', options: ['To root\'s mailbox, like cron', 'To `/var/log/cron.log`', 'Nowhere unless you redirect it', 'To the journal, tagged with `report.service`'], answer: 3, why: 'A service writes to the journal by default (`DefaultStandardOutput=journal`).' }
+				]
+			},
+			{
+				title: 'Write the timer',
+				questions: [
+					{ q: 'Which `OnCalendar=` matches `30 2 * * 1-5`?', options: ['`OnCalendar=Mon..Fri 02:30`', '`OnCalendar=1-5 2:30`', '`OnCalendar=*-*-1..5 02:30`', '`OnCalendar=weekdays 30 2`'], answer: 0, why: 'A calendar event names the weekdays first, then the date and the time: `Mon..Fri *-*-* 02:30:00` in normalized form.' },
+					{ q: 'Which line catches up on a run missed during downtime?', options: ['`RandomizedDelaySec=1h`', '`WakeSystem=true`', '`Persistent=true`', '`AccuracySec=1us`'], answer: 2, why: 'With `Persistent=true`, systemd stores the last trigger time on disk and starts the service at boot if a run was missed.' },
+					{ q: 'Which `[Install]` line starts the timer at boot?', options: ['`WantedBy=multi-user.target`', '`WantedBy=timers.target`', '`After=time-sync.target`', '`Before=report.service`'], answer: 1, why: '`apt-daily.timer` does the same: `WantedBy=timers.target`.' },
+					{ q: 'Would `Persistent=true` work with `OnUnitActiveSec=1d` instead?', options: ['Yes, it works with every timer', 'Yes, if you add `AccuracySec=`', 'Only after a reboot', 'No: `Persistent=` works only with `OnCalendar=`'], answer: 3, why: 'A timer built on `OnUnitActiveSec=` does not catch up after downtime.' }
+				]
+			},
+			{
+				title: 'Check and watch it',
+				questions: [
+					{ q: 'Which command checks your schedule before you enable it?', options: ['`systemctl cat report.timer`', '`systemd-analyze calendar \'Mon..Fri 02:30\'`', '`crontab -l`', '`systemctl list-units --type=timer`'], answer: 1, why: 'It prints `Normalized form: Mon..Fri *-*-* 02:30:00` and the next elapse.' },
+					{ q: 'Which unit do you enable and start?', options: ['`report.service`', 'Both, one after the other', '`report.timer`', '`timers.target`'], answer: 2, why: '`systemctl enable --now report.timer`. The timer then starts the service at each elapse.' },
+					{ q: 'Which command shows when it last ran and when it runs next?', options: ['`systemctl list-timers report.timer`', '`journalctl -u report.timer`', '`systemctl status report.service`', '`systemd-analyze blame`'], answer: 0, why: 'Its columns are `NEXT`, `LEFT`, `LAST` and `PASSED`.' },
+					{ q: 'And what the report printed?', options: ['`journalctl -u report.timer`', '`cat /var/log/syslog`', '`systemctl list-timers --all`', '`journalctl -u report.service`'], answer: 3, why: 'The timer only starts the service. The output is tagged with the service unit, so you filter on `report.service`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -125,6 +163,28 @@ WantedBy=timers.target`,
 			why: 'The timer only starts `report.service`. The service\'s standard output goes to the journal by default (`DefaultStandardOutput=journal`) and is tagged with the service unit, so you filter on `report.service`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Run a timer as your own user, read its output in the journal, and watch `Persistent=true` catch up on a missed run.',
+		steps: [
+			'Check the task\'s schedule first: `systemd-analyze calendar \'Mon..Fri 02:30\'`.',
+			'Create `~/.config/systemd/user/dojo-report.service` with `[Service]`, `Type=oneshot` and `ExecStart=/bin/sh -c "date; echo report done"`.',
+			'Create `~/.config/systemd/user/dojo-report.timer` with `[Timer]`, `OnCalendar=*:*:0/20` (every 20 seconds, so you do not wait until 02:30), `AccuracySec=1s` and `Persistent=true`. Then `systemctl --user daemon-reload && systemctl --user start dojo-report.timer`.',
+			'After half a minute, run `systemctl --user list-timers dojo-report.timer` and `journalctl --user -u dojo-report.service -n 4 --no-pager`.',
+			'Miss a run on purpose: `systemctl --user stop dojo-report.timer`, wait 30 seconds, `date +%T`, then `systemctl --user start dojo-report.timer` and read the journal again with `-o short-precise`. Clean up: stop the timer, delete both files and `~/.local/share/systemd/timers/stamp-dojo-report.timer`, then `systemctl --user daemon-reload`.'
+		],
+		done: [
+			'`systemd-analyze calendar` prints `Normalized form: Mon..Fri *-*-* 02:30:00` and a next elapse on a weekday.',
+			'`list-timers` shows a `LAST` time and a `NEXT` time 20 seconds apart.',
+			'The journal shows `report done` lines for `dojo-report.service`.',
+			'After the stop and start, a `report done` line appears within a second of the start, not at the next 20-second slot.'
+		],
+		solution: [
+			'In the test run, the timer was stopped at 14:11:20, the 14:11:40 slot passed while it was inactive, and the service ran at 14:11:42, right after `start`.',
+			'The catch-up comes from the stamp file: for a user timer, `Persistent=true` keeps it in `~/.local/share/systemd/timers/`. For a system timer, it is `/var/lib/systemd/timers/`.',
+			'For the real task, the two files go in `/etc/systemd/system/` with `OnCalendar=Mon..Fri 02:30`, `[Install]` with `WantedBy=timers.target` in the timer, and `systemctl enable --now report.timer`.'
+		]
+	},
 	recall: {
 		q: 'Which `[Timer]` setting makes a job run after a boot if its slot passed while the machine was off, and where does systemd keep what it needs for that?',
 		a: '`Persistent=true`, with `OnCalendar=`. systemd stores the last trigger time on disk, in `/var/lib/systemd/timers/stamp-<name>.timer` on Ubuntu, and starts the service at boot if a run was missed.'

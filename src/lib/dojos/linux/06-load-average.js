@@ -113,6 +113,44 @@ export default {
 			'The load of about 6 is mostly D tasks: `vmstat` shows 6 processes blocked on I/O, and the CPUs spend 45% of their time waiting for I/O.',
 			'`ps -eo stat,pid,comm | grep ^D` lists the tasks in uninterruptible sleep. Then look at the disk with `iostat -x 1` (chapter 22).',
 			'On your own machine, run `cat /proc/loadavg; nproc; vmstat 1 5` and split the load the same way between `r` and `b`.'
+		],
+		steps: [
+			{
+				title: 'Read /proc/loadavg',
+				questions: [
+					{ q: 'What are `6.12 5.90 5.31`?', options: ['CPU usage in percent over the last three minutes', 'The load averaged over 1, 5 and 15 minutes', 'Tasks per CPU right now', 'Seconds of wait per minute'], answer: 1, why: 'The first three fields are the damped 1, 5 and 15 minute values of `avenrun`.' },
+					{ q: 'What does `1/388` say?', options: ['1 runnable task now, out of 388', '1 CPU busy out of 388', '1 task in D state', '1% of all tasks are blocked waiting for I/O'], answer: 0, why: 'The fourth field is runnable tasks right now over all tasks.' },
+					{ q: 'What does 6.12 count on Linux?', options: ['Only tasks using a CPU', 'Every task that exists', 'Tasks in R plus tasks in D', 'Tasks in S state'], answer: 2, why: 'Each CPU folds `nr_running + nr_uninterruptible` into the global count.' },
+					{ q: 'The 15 minute value is 5.31 and the 1 minute value is 6.12. What does that tell you?', options: ['The spike ended before you logged in to look', 'The machine just rebooted', 'The numbers are wrong', 'The load is sustained and rising a little'], answer: 3, why: 'All three values are close and the shortest one is highest: the load is sustained and slightly rising.' }
+				]
+			},
+			{
+				title: 'Read vmstat',
+				questions: [
+					{ q: 'In `vmstat 1`, what does `r` count?', options: ['Tasks reading from disk', 'Runnable tasks', 'Restarted tasks', 'Tasks waiting on a lock'], answer: 1, why: '`r` counts tasks running or waiting for a CPU, the same as the fourth field of `/proc/loadavg`.' },
+					{ q: 'What does `b` at 6 mean?', options: ['6 processes blocked waiting for I/O', '6 tasks waiting in the CPU run queue', '6 KB of buffers', '6 background jobs'], answer: 0, why: 'vmstat\'s `b` counts processes blocked waiting for I/O, the D tasks in the load.' },
+					{ q: '`id` is 50 and `wa` is 45. What are the CPUs doing?', options: ['Running at full speed on user code', 'Swapping to disk', 'Half idle, 45% waiting for I/O', 'Handling interrupts'], answer: 2, why: '`id` is idle time and `wa` is time spent waiting for I/O.' },
+					{ q: 'How do `r` and `b` add up against the load of about 6?', options: ['They cannot be compared', 'They add to 2', 'Only `r` counts toward the load average', '1 runnable + 6 blocked: 7, close to the load'], answer: 3, why: 'The load counts R plus D, so most of it here is the blocked tasks.' }
+				]
+			},
+			{
+				title: 'Decide on the CPUs',
+				questions: [
+					{ q: 'Are the CPUs the bottleneck?', options: ['No: 1 runnable task, CPUs 50% idle', 'Yes: the load of 6 is above the 4 CPUs', 'Yes: the 15 minute load is above 4', 'Cannot tell without `top`'], answer: 0, why: 'A CPU bottleneck would show many runnable tasks and little idle time.' },
+					{ q: 'Would two more CPUs make this VM faster?', options: ['Yes, the load would drop to 1.5 per CPU', 'Yes, `wa` would turn into `us`', 'No: the tasks wait for I/O, not a CPU', 'Only for the 15 minute value'], answer: 2, why: 'D tasks use no CPU. They wait for the disk whatever the CPU count.' },
+					{ q: 'Why not just divide 6.12 by 4 CPUs?', options: ['The load is already per CPU', 'D tasks use no CPU, so the ratio misleads', 'You should divide by the 388 tasks instead', 'Only the 15 minute value can be divided'], answer: 1, why: 'Load per CPU mixes disk waits with CPU demand. Gregg compares the load to the same server\'s usual value instead.' },
+					{ q: 'Where is the load mostly coming from?', options: ['A busy loop', 'Too many threads', 'Kernel threads flushing writes, only', 'Tasks in D state waiting on the disk'], answer: 3, why: '6 blocked processes and 45% I/O wait point at the disk.' }
+				]
+			},
+			{
+				title: 'List the tasks',
+				questions: [
+					{ q: 'Which command lists the tasks behind the load?', options: ['`ps -eo stat,pid,comm | grep ^D`', '`ps -eo stat,pid,comm | grep ^S`', '`top -o %CPU`', '`cat /proc/loadavg`'], answer: 0, why: 'The load is mostly D tasks, and `stat` starts with `D` for uninterruptible sleep.' },
+					{ q: 'What does `D` mean in `ps`?', options: ['Dead', 'Detached from the terminal', 'Uninterruptible sleep, usually I/O', 'Debugged'], answer: 2, why: 'ps(1) shows `D` as "uninterruptible sleep (usually I/O)".' },
+					{ q: 'A web server blocked in `accept()` shows `S`. Does it add to the load?', options: ['Yes, every task counts', 'No: S tasks are in neither counter', 'Yes, but only to the 15 minute value', 'Only if it holds a socket'], answer: 1, why: 'Only `nr_running` and `nr_uninterruptible` go into the sum.' },
+					{ q: 'You found the D tasks. What do you look at next?', options: ['The CPU frequency', 'The scheduler settings', 'The process limits', 'The disk, with `iostat -x 1`'], answer: 3, why: 'D tasks wait for the disk, so the disk is the next thing to measure (chapter 22).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,29 @@ export default {
 			why: 'Processes blocked on the disk wait in uninterruptible sleep, and `nr_uninterruptible` goes into the load sum. They use no CPU, so `top` shows the CPUs idle while the load climbs.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'See which tasks the load average counts, and watch the 1 minute value climb slowly.',
+		steps: [
+			'Note where you start: `cat /proc/loadavg; nproc` (on macOS, `uptime; sysctl -n hw.ncpu`).',
+			'Start two busy loops and one sleeper: `yes > /dev/null & a=$!; yes > /dev/null & b=$!; sleep 300 & c=$!`.',
+			'Read their states: `ps -o stat,pid,comm -p $a,$b,$c`.',
+			'On Linux, watch the run queue: `vmstat 1 5`. Then wait and read the load again: `sleep 60; cat /proc/loadavg`.',
+			'If you have Docker, compare with a container: `docker run --rm python:3.12-alpine cat /proc/loadavg`. Clean up with `kill $a $b $c`.'
+		],
+		done: [
+			'`ps` shows `R` for the two `yes` processes and `S` for `sleep`.',
+			'The `r` column of `vmstat` stays at 2 or more while the loops run.',
+			'After 60 seconds the 1 minute load has risen by about 1.2 (two loops times 0.62) on an otherwise quiet machine, and the 15 minute value has moved much less.',
+			'The container prints the same three load values as the host.'
+		],
+		solution: [
+			'The load counts R and D tasks. The `yes` loops are R, `sleep` is S and does not count.',
+			'Each sample keeps 1884/2048 of the old value, so one busy thread lifts the 1 minute load to about 0.62 after 60 seconds, not 1.0.',
+			'The kernel keeps one `avenrun` array for the whole machine, so a container sees the host\'s load.',
+			'D tasks are hard to make on purpose on a fast laptop disk. When a disk cannot keep up, they show in `vmstat`\'s `b` column and raise the load the same way, with the CPUs idle.'
+		]
+	},
 	recall: {
 		q: 'Which two task states does the Linux load average count, and how often does the kernel take a sample?',
 		a: 'R (running or waiting in a run queue) and D (uninterruptible sleep, usually disk I/O), sampled every 5 seconds in `calc_global_load()` with the constants 1884, 2014 and 2037.'

@@ -136,6 +136,44 @@ int journal_ratelimit_test(
 			'Crée `/etc/systemd/journald.conf.d/60-size.conf` avec `[Journal]` et `SystemMaxUse=500M`, puis lance `systemctl restart systemd-journald`. La page de journald dit que ce redémarrage est sans risque : les flux de logs des services y survivent.',
 			'`journalctl --vacuum-size=500M` supprime les plus vieux fichiers archivés jusqu’à passer sous 500M. Le fichier actif n’est pas touché, donc `--disk-usage` peut rester un peu au-dessus.',
 			'Erreurs du boot d’avant : `journalctl -u nginx -b -1 -p err`. Il faut un stockage persistant dans `/var/log/journal/` : avec seulement `/run/log/journal/`, les boots précédents sont perdus.'
+		],
+		steps: [
+			{
+				title: 'Explique les 3.9G',
+				questions: [
+					{ q: 'Que vaut `SystemMaxUse=` par défaut ?', options: ['500M', '10 % du système de fichiers, plafonné à 4G', '15 % du système de fichiers', '4G sur toutes les machines'], answer: 1, why: 'journald.conf(5) le fixe à 10 % du système de fichiers, avec un plafond de 4G.' },
+					{ q: 'Combien font 10 % de la racine de 40 GB ?', options: ['4 GB', '400 MB', '40 GB', '10 GB'], answer: 0, why: '40 × 0,1 = 4 GB, pile le plafond.' },
+					{ q: 'Que veulent donc dire 3.9G de journaux ?', options: ['journald est cassé et ignore sa limite', 'La limite de débit a échoué', 'Le journal reste dans ce que ses valeurs par défaut autorisent', 'Le disque va bientôt être plein'], answer: 2, why: 'Le journal a droit à 4G ici, et 3.9G reste en dessous.' },
+					{ q: 'Quelle commande a affiché les 3.9G ?', options: ['`du -sh /var/log`', '`df -h /var/log/journal`', '`journalctl --vacuum-size=0`', '`journalctl --disk-usage`'], answer: 3, why: 'Elle affiche `Archived and active journals take up ... in the file system.`' }
+				]
+			},
+			{
+				title: 'Baisse la limite',
+				questions: [
+					{ q: 'Où va le changement local ?', options: ['Dans `/usr/lib/systemd/journald.conf`, modifié', 'Dans un drop-in sous `/etc/systemd/journald.conf.d/`', 'Dans la section `[Service]` de `nginx.service`', 'Dans `/etc/logrotate.d/journal`'], answer: 1, why: 'L’indice le dit : les changements locaux vont dans un drop-in sous `/etc/systemd/journald.conf.d/`.' },
+					{ q: 'Que contient le drop-in ?', options: ['`[Journal]` et `SystemMaxUse=500M`', '`[Service]` et `LogRateLimitBurst=500`', '`[Journal]` et `SystemKeepFree=500M`', '`[Journal]` et `RuntimeMaxUse=500M`'], answer: 0, why: '`SystemMaxUse=` plafonne les fichiers de `/var/log/journal/`. `SystemKeepFree=` fixerait plutôt la place à laisser libre.' },
+					{ q: 'Comment faire lire ce fichier à journald ?', options: ['Redémarrer la VM', '`systemctl daemon-reload`', '`systemctl restart systemd-journald`', 'Seulement `journalctl --rotate`'], answer: 2, why: 'Redémarrer journald l’applique. La page de journald dit que les flux de logs des services survivent à ce redémarrage.' },
+					{ q: 'Redémarrer journald fait-il perdre les logs des services en cours ?', options: ['Oui, chaque flux est coupé', 'Oui, jusqu’au redémarrage de chaque service', 'Seulement pour les services `Type=notify`', 'Non : leurs flux de logs survivent au redémarrage'], answer: 3, why: 'La page systemd-journald dit que ce redémarrage est sans risque pour cette raison.' }
+				]
+			},
+			{
+				title: 'Libère la place tout de suite',
+				questions: [
+					{ q: 'Quelle commande supprime tout de suite les vieux fichiers jusqu’à 500M ?', options: ['`journalctl --vacuum-size=500M`', '`rm /var/log/journal/*/*.journal`', '`journalctl --disk-usage=500M`', '`systemctl clean systemd-journald`'], answer: 0, why: 'Elle supprime les plus vieux fichiers archivés jusqu’à passer sous 500M.' },
+					{ q: 'Quels fichiers le nettoyage ne supprime-t-il jamais ?', options: ['Les plus vieux fichiers archivés', 'Les fichiers actifs du journal', 'Les fichiers du boot d’avant', 'Les fichiers de plus de 100M'], answer: 1, why: 'Seuls les fichiers archivés partent. Le `system.journal` actif reste.' },
+					{ q: 'Après le nettoyage, `--disk-usage` affiche 540M. Y a-t-il un problème ?', options: ['Oui : le drop-in a été ignoré', 'Oui : le nettoyage s’est arrêté en route', 'Non : les fichiers actifs comptent aussi', 'Non : `--disk-usage` arrondit de 10 % vers le haut'], answer: 2, why: 'journalctl(1) dit que le nettoyage n’a qu’un « indirect effect » sur ce chiffre, puisque les fichiers actifs comptent.' },
+					{ q: 'Pourquoi ne pas faire un `rm` des fichiers à la main ?', options: ['`rm` ne peut pas supprimer les fichiers du journal', 'journald les recréerait aussitôt', 'Les fichiers du journal sont en lecture seule, même pour root', '`--vacuum-size` prend les plus vieux fichiers archivés et laisse le fichier actif tranquille'], answer: 3, why: 'Le nettoyage retire les fichiers par ordre d’âge et ne touche jamais au fichier actif dans lequel journald écrit.' }
+				]
+			},
+			{
+				title: 'Trouve les erreurs nginx du boot d’avant',
+				questions: [
+					{ q: 'Quelle option choisit le boot d’avant ?', options: ['`-b`', '`-b 1`', '`-b -1`', '`--since -1`'], answer: 2, why: '`-b -1` correspond au `_BOOT_ID=` du boot d’avant. `-b` seul désigne le boot en cours et `-b 1` le premier enregistré.' },
+					{ q: 'Quelle option ne garde que les erreurs et pire ?', options: ['`-p err`', '`-p 3..7`', '`-p info`', '`--errors`'], answer: 0, why: '`-p err` garde les priorités 0 à 3. `3..7` ajouterait avertissements, notices, infos et debug.' },
+					{ q: 'La commande complète est donc...', options: ['`journalctl nginx -b -1 | grep error`', '`journalctl -u nginx -b -p err`', '`journalctl -u nginx -b 1 -p 3`', '`journalctl -u nginx -b -1 -p err`'], answer: 3, why: '`-u nginx` correspond à `_SYSTEMD_UNIT=nginx.service`, et les filtres portent sur des champs, sans `grep`.' },
+					{ q: 'La commande n’affiche rien pour aucun boot précédent. Quelle est la cause probable ?', options: ['nginx n’a eu aucune erreur', 'Le journal ne vit que dans `/run/log/journal/`, perdu au reboot', 'La limite de 500M a effacé les fichiers de la nuit', '`-p err` cache les messages de nginx'], answer: 1, why: 'Les boots précédents demandent un stockage persistant dans `/var/log/journal/`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ int journal_ratelimit_test(
 			why: 'Le nettoyage retire les plus vieux fichiers archivés jusqu’à ce qu’ils passent sous la taille. `--disk-usage` compte en plus les fichiers actifs, jamais supprimés. journalctl(1) dit que le nettoyage n’a qu’un « indirect effect » sur ce chiffre.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Écrire des entrées avec une priorité, les retrouver par champ plutôt qu’avec `grep`, et lire la taille et les limites du journal de ta machine.',
+		steps: [
+			'Lis la taille et les valeurs par défaut : `journalctl --disk-usage`, puis `systemd-analyze cat-config systemd/journald.conf | grep -E "SystemMaxUse|RateLimit"`.',
+			'Regarde où le journal est gardé : `ls -d /var/log/journal/*/ /run/log/journal 2>/dev/null`.',
+			'Écris deux entrées de priorités différentes : `systemd-cat -t dojo-lab -p err echo "database connection refused"` et `systemd-cat -t dojo-lab -p info echo "request served"`.',
+			'Filtre-les : `journalctl -t dojo-lab -o cat`, puis `journalctl -t dojo-lab -p err -o cat`, puis regarde les champs de l’erreur avec `journalctl -t dojo-lab -p err -n 1 -o verbose`.',
+			'Liste les boots avec `journalctl --list-boots | tail -3`, puis lis les dernières erreurs du précédent : `journalctl -b -1 -p err -n 5`.'
+		],
+		done: [
+			'Le premier filtre affiche les deux lignes, le filtre `-p err` seulement `database connection refused`.',
+			'`-o verbose` montre `PRIORITY=3`, `SYSLOG_IDENTIFIER=dojo-lab` et un `_BOOT_ID=`.',
+			'`--list-boots` montre une ligne d’indice `-1`, et `-b -1 -p err` affiche des entrées de ce boot (ou rien si le journal n’est que dans `/run`).'
+		],
+		solution: [
+			'Sur le portable de test, `--disk-usage` affichait `798.2M` et `cat-config` montrait les valeurs par défaut en commentaire : `#RateLimitIntervalSec=30s`, `#RateLimitBurst=10000` et `#SystemMaxUse=`. Une valeur vide veut dire 10 % du système de fichiers, plafonné à 4G.',
+			'Le journal vivait dans `/var/log/journal/<machine-id>/`, donc les boots précédents étaient gardés et `-b -1` marchait.',
+			'`-t` correspond à `SYSLOG_IDENTIFIER=`, `-p err` à `PRIORITY=` de 0 à 3. Un utilisateur normal voit ses propres entrées. Les membres du groupe `adm` ou `systemd-journal` voient aussi celles du système.'
+		]
+	},
 	recall: {
 		q: 'Avec les réglages par défaut, combien de messages un service peut-il écrire dans le journal par 30 secondes quand le journal a 4 GB libres, et quelle ligne signale ceux qui ont été jetés ?',
 		a: '10 000 × 4 = 40 000, à partir de `RateLimitBurst=10000` ajusté selon l’espace libre. Le premier message après la fenêtre est précédé de `Suppressed N messages from app.service`.'

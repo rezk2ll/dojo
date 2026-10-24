@@ -113,6 +113,44 @@ export default {
 			'La charge d’environ 6 vient surtout de tâches D : `vmstat` montre 6 processus bloqués sur des I/O, et les CPU passent 45 % de leur temps à attendre des I/O.',
 			'`ps -eo stat,pid,comm | grep ^D` liste les tâches en sommeil non interruptible. Regarde ensuite le disque avec `iostat -x 1` (chapitre 22).',
 			'Sur ta machine, lance `cat /proc/loadavg; nproc; vmstat 1 5` et répartis la charge de la même façon entre `r` et `b`.'
+		],
+		steps: [
+			{
+				title: 'Lis /proc/loadavg',
+				questions: [
+					{ q: 'Que sont `6.12 5.90 5.31` ?', options: ['L’usage CPU en pourcentage sur les trois dernières minutes', 'La charge moyennée sur 1, 5 et 15 minutes', 'Les tâches par CPU à cet instant', 'Les secondes d’attente par minute'], answer: 1, why: 'Les trois premiers champs sont les valeurs amorties à 1, 5 et 15 minutes de `avenrun`.' },
+					{ q: 'Que dit `1/388` ?', options: ['1 tâche exécutable maintenant, sur 388', '1 CPU occupé sur 388', '1 tâche en état D', '1 % des tâches sont bloquées en attente d’I/O'], answer: 0, why: 'Le quatrième champ, ce sont les tâches exécutables à cet instant sur l’ensemble des tâches.' },
+					{ q: 'Que compte 6.12 sous Linux ?', options: ['Seulement les tâches qui utilisent un CPU', 'Toutes les tâches qui existent', 'Les tâches en R plus les tâches en D', 'Les tâches en état S'], answer: 2, why: 'Chaque CPU verse `nr_running + nr_uninterruptible` dans le compte global.' },
+					{ q: 'La valeur à 15 minutes vaut 5.31 et celle à 1 minute 6.12. Qu’est-ce que ça t’apprend ?', options: ['Le pic a fini avant que tu te connectes pour regarder', 'La machine vient de redémarrer', 'Les nombres sont faux', 'La charge dure et monte un peu'], answer: 3, why: 'Les trois valeurs sont proches et la plus courte est la plus haute : la charge dure et monte un peu.' }
+				]
+			},
+			{
+				title: 'Lis vmstat',
+				questions: [
+					{ q: 'Dans `vmstat 1`, que compte `r` ?', options: ['Les tâches qui lisent le disque', 'Les tâches exécutables', 'Les tâches redémarrées', 'Les tâches qui attendent un verrou'], answer: 1, why: '`r` compte les tâches sur un CPU ou en attente d’un CPU, comme le quatrième champ de `/proc/loadavg`.' },
+					{ q: 'Que veut dire `b` à 6 ?', options: ['6 processus bloqués en attente d’I/O', '6 tâches qui attendent dans la file des CPU', '6 Ko de buffers', '6 jobs en arrière-plan'], answer: 0, why: 'Le `b` de vmstat compte les processus bloqués en attente d’I/O, les tâches D de la charge.' },
+					{ q: '`id` vaut 50 et `wa` 45. Que font les CPU ?', options: ['Ils tournent à plein régime sur du code utilisateur', 'Ils swappent sur le disque', 'À moitié au repos, 45 % en attente d’I/O', 'Ils traitent des interruptions'], answer: 2, why: '`id` est le temps au repos et `wa` le temps passé à attendre des I/O.' },
+					{ q: 'Comment `r` et `b` se comparent-ils à la charge d’environ 6 ?', options: ['On ne peut pas les comparer', 'Ils font 2 à eux deux', 'Seul `r` compte dans la charge moyenne', '1 exécutable + 6 bloqués : 7, proche de la charge'], answer: 3, why: 'La charge compte R plus D : ici, elle vient surtout des tâches bloquées.' }
+				]
+			},
+			{
+				title: 'Tranche pour les CPU',
+				questions: [
+					{ q: 'Les CPU sont-ils le goulot ?', options: ['Non : 1 tâche exécutable, CPU au repos à 50 %', 'Oui : la charge de 6 dépasse les 4 CPU de la VM', 'Oui : la charge à 15 minutes dépasse 4', 'Impossible à dire sans `top`'], answer: 0, why: 'Un goulot CPU montrerait beaucoup de tâches exécutables et peu de temps au repos.' },
+					{ q: 'Deux CPU de plus rendraient-ils cette VM plus rapide ?', options: ['Oui, la charge tomberait à 1,5 par CPU', 'Oui, `wa` deviendrait du `us`', 'Non : elles attendent des I/O, pas un CPU', 'Seulement pour la valeur à 15 minutes'], answer: 2, why: 'Les tâches D n’utilisent aucun CPU. Elles attendent le disque quel que soit le nombre de CPU.' },
+					{ q: 'Pourquoi ne pas simplement diviser 6.12 par 4 CPU ?', options: ['La charge est déjà par CPU', 'Les tâches D n’utilisent aucun CPU : le rapport trompe', 'Il faudrait plutôt diviser par les 388 tâches', 'Seule la valeur à 15 minutes se divise'], answer: 1, why: 'La charge par CPU mélange l’attente du disque et la demande de CPU. Gregg compare plutôt la charge à la valeur habituelle du même serveur.' },
+					{ q: 'D’où vient surtout la charge ?', options: ['D’une boucle infinie', 'De trop de threads', 'Seulement des threads du noyau qui vident les écritures', 'Des tâches en état D qui attendent le disque'], answer: 3, why: '6 processus bloqués et 45 % d’attente d’I/O désignent le disque.' }
+				]
+			},
+			{
+				title: 'Liste les tâches',
+				questions: [
+					{ q: 'Quelle commande liste les tâches derrière la charge ?', options: ['`ps -eo stat,pid,comm | grep ^D`', '`ps -eo stat,pid,comm | grep ^S`', '`top -o %CPU`', '`cat /proc/loadavg`'], answer: 0, why: 'La charge vient surtout de tâches D, et `stat` commence par `D` pour le sommeil non interruptible.' },
+					{ q: 'Que veut dire `D` dans `ps` ?', options: ['Dead, terminé', 'Détaché du terminal', 'Sommeil non interruptible, en général des I/O', 'En cours de débogage'], answer: 2, why: 'ps(1) affiche `D` pour « uninterruptible sleep (usually I/O) ».' },
+					{ q: 'Un serveur web bloqué dans `accept()` affiche `S`. Ajoute-t-il à la charge ?', options: ['Oui, chaque tâche compte', 'Non : les tâches S ne sont dans aucun des deux compteurs', 'Oui, mais seulement à la valeur à 15 minutes', 'Seulement s’il tient une socket'], answer: 1, why: 'Seuls `nr_running` et `nr_uninterruptible` entrent dans la somme.' },
+					{ q: 'Tu as trouvé les tâches D. Que regardes-tu ensuite ?', options: ['La fréquence du CPU', 'Les réglages de l’ordonnanceur', 'Les limites du processus', 'Le disque, avec `iostat -x 1`'], answer: 3, why: 'Les tâches D attendent le disque : c’est la prochaine chose à mesurer (chapitre 22).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,29 @@ export default {
 			why: 'Les processus bloqués sur le disque attendent en sommeil non interruptible, et `nr_uninterruptible` entre dans la somme de la charge. Ils n’utilisent aucun CPU : `top` montre les CPU au repos pendant que la charge grimpe.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Voir quelles tâches la charge moyenne compte, et regarder la valeur à 1 minute monter lentement.',
+		steps: [
+			'Note ton point de départ : `cat /proc/loadavg; nproc` (sous macOS, `uptime; sysctl -n hw.ncpu`).',
+			'Lance deux boucles actives et un dormeur : `yes > /dev/null & a=$!; yes > /dev/null & b=$!; sleep 300 & c=$!`.',
+			'Lis leurs états : `ps -o stat,pid,comm -p $a,$b,$c`.',
+			'Sous Linux, regarde la file d’exécution : `vmstat 1 5`. Attends, puis relis la charge : `sleep 60; cat /proc/loadavg`.',
+			'Si tu as Docker, compare avec un conteneur : `docker run --rm python:3.12-alpine cat /proc/loadavg`. Nettoie avec `kill $a $b $c`.'
+		],
+		done: [
+			'`ps` affiche `R` pour les deux `yes` et `S` pour `sleep`.',
+			'La colonne `r` de `vmstat` reste à 2 ou plus tant que les boucles tournent.',
+			'Après 60 secondes, la charge à 1 minute a monté d’environ 1,2 (deux boucles fois 0,62) sur une machine calme, et la valeur à 15 minutes a beaucoup moins bougé.',
+			'Le conteneur affiche les trois mêmes valeurs de charge que l’hôte.'
+		],
+		solution: [
+			'La charge compte les tâches R et D. Les boucles `yes` sont en R, `sleep` est en S et ne compte pas.',
+			'Chaque échantillon garde 1884/2048 de l’ancienne valeur : un thread actif porte la charge à 1 minute à environ 0,62 après 60 secondes, pas à 1,0.',
+			'Le noyau garde un seul tableau `avenrun` pour toute la machine : un conteneur voit la charge de l’hôte.',
+			'Les tâches D sont dures à provoquer exprès sur un disque de portable rapide. Quand un disque ne suit pas, elles apparaissent dans la colonne `b` de `vmstat` et montent la charge de la même façon, CPU au repos.'
+		]
+	},
 	recall: {
 		q: 'Quels deux états de tâche la charge moyenne compte-t-elle sous Linux, et à quel rythme le noyau prend-il un échantillon ?',
 		a: 'R (sur un CPU ou dans une file d’exécution) et D (sommeil non interruptible, le plus souvent une I/O disque), échantillonnés toutes les 5 secondes dans `calc_global_load()` avec les constantes 1884, 2014 et 2037.'

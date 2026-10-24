@@ -125,6 +125,44 @@ export default {
 			'The file pages were charged to the cgroup up to the 50 MB limit. Each time the limit was hit, reclaim wrote file pages to disk and dropped them: 955 times, and the copy finished.',
 			'The 100 MB write to `/dev/shm` prints `Killed` with exit status 137, and the file stops at 49.2 MB. systemd logs "A process of this unit has been killed by the OOM killer".',
 			'`tmpfs` pages have no disk file behind them, and `MemorySwapMax=0` forbids swap. Reclaim freed nothing, so the OOM killer ran inside the cgroup.'
+		],
+		steps: [
+			{
+				title: 'Read the setup',
+				questions: [
+					{ q: 'What does `-p MemoryMax=50M` set for the scope?', options: ['A throttle: `memory.high` at 50 MB', 'A hard limit: `memory.max` at 50 MB', 'A reservation: `memory.low` at 50 MB', 'A cap on swap only'], answer: 1, why: '`MemoryMax` is the hard limit. When usage reaches it and reclaim cannot bring it down, the kernel runs the OOM killer in that cgroup.' },
+					{ q: 'Why add `-p MemorySwapMax=0`?', options: ['So anonymous and `tmpfs` pages cannot leave RAM through swap', 'So the write goes faster', 'So page cache is not counted', 'So the OOM killer never runs'], answer: 0, why: 'With swap at 0, pages with no file behind them have nowhere to go. That makes the test clear.' },
+					{ q: 'Which pages count against `memory.current`?', options: ['Only anonymous memory', 'Only page cache', 'Anonymous memory, page cache including `tmpfs`, and kernel memory', 'Only what the process asked for with `malloc`'], answer: 2, why: 'The cgroup v2 docs count page cache, anonymous memory, dentries, inodes and socket buffers. `tmpfs` counts as page cache.' },
+					{ q: 'What is the difference between `~/big.bin` and `/dev/shm/big.bin`?', options: ['The second one is compressed', 'Both are on disk, in different folders', 'The first one is in RAM, the second on disk', 'The first is on a disk, the second on `tmpfs`'], answer: 3, why: 'Your home directory sits on a disk. `/dev/shm` is `tmpfs`, so its files live only in memory.' }
+				]
+			},
+			{
+				title: 'Follow the disk write',
+				questions: [
+					{ q: '`head` writes 200 MB to `~/big.bin` under a 50 MB limit. Where do those pages go first?', options: ['Straight to disk, never in RAM', 'Into page cache, charged to the cgroup', 'Into swap', 'Into the host\'s free memory, charged to nobody'], answer: 1, why: 'A file page is charged to the cgroup that first wrote it. `memory.stat` showed `file 49397760` during the run.' },
+					{ q: 'Usage reaches 50 MB. What does the kernel do first?', options: ['Reclaims inside the cgroup: writes dirty file pages, then drops them', 'Kills `head` at once', 'Lets the cgroup go over the limit', 'Fails the `write` call with ENOMEM'], answer: 0, why: 'The kernel does not kill anything yet. It writes dirty file pages to disk and drops them.' },
+					{ q: '`memory.events` shows `max 955`. What is 955?', options: ['The number of OOM kills', 'The number of MB written', 'The number of times usage was about to go over the limit', 'The number of pages in swap'], answer: 2, why: 'The `max` field counts hits on the limit. Each hit ended in reclaim, not in a kill.' },
+					{ q: 'Why does the disk write finish with exit 0?', options: ['The limit does not apply to `head`', 'The file was smaller than the limit', 'Swap absorbed the extra pages', 'Every time the limit was hit, reclaim freed file pages'], answer: 3, why: 'File pages have a disk copy once written, so reclaim can drop them. `oom_kill` stayed at 0.' }
+				]
+			},
+			{
+				title: 'Follow the tmpfs write',
+				questions: [
+					{ q: 'The 100 MB write to `/dev/shm` prints `Killed`. What exit status does the shell report?', options: ['137', '139', '1', '9'], answer: 0, why: 'SIGKILL is signal 9. A shell reports a process killed by signal N as 128 + N.' },
+					{ q: 'The file stops at 49.2 MB. Why there?', options: ['`/dev/shm` is 49.2 MB in size', '`head` gave up at that size', 'Charged pages reached the 50 MB limit and could not be freed', 'The disk filled up'], answer: 2, why: 'The `tmpfs` pages stay charged to the cgroup. At the limit, reclaim had nothing to free.' },
+					{ q: 'Why can reclaim not drop the `tmpfs` pages?', options: ['They are locked by `head`', 'They have no disk file behind them, and swap is 0', 'They belong to the kernel', 'They are huge pages'], answer: 1, why: 'Dropping a `tmpfs` page would lose the data. With `MemorySwapMax=0`, swap is not an option either.' },
+					{ q: 'Which counter goes up in `memory.events` for this run?', options: ['Only `high`', 'Only `low`', 'Nothing: the kill is not counted', '`oom_kill`'], answer: 3, why: 'When the OOM killer picks a victim among the cgroup\'s processes, `oom_kill` goes up by 1.' }
+				]
+			},
+			{
+				title: 'Explain the difference',
+				questions: [
+					{ q: 'In one line, why does one survive?', options: ['Disk pages can be written back and dropped, `tmpfs` pages cannot', 'The disk write was slower, so the limit kept up', 'The disk file was smaller', 'systemd raises the limit for files in the home directory'], answer: 0, why: 'Reclaim frees file pages with a disk copy. `tmpfs` and anonymous pages need swap, and swap was 0.' },
+					{ q: 'A pod writes 100 MB to an emptyDir with `medium: Memory` under a 50 MB limit. What happens?', options: ['The kubelet moves the files to disk', 'The write succeeds, emptyDir is not counted', 'The writer is killed, as in the `/dev/shm` run', 'The pod is evicted but keeps the files'], answer: 2, why: 'A `medium: Memory` emptyDir is `tmpfs`, so it counts against the pod\'s limit like `/dev/shm`.' },
+					{ q: 'Which setting would have slowed the process instead of killing it?', options: ['`memory.low`', '`memory.high`', '`memory.swap.max`', '`memory.peak`'], answer: 1, why: 'Over `memory.high` the processes are throttled and made to reclaim. Going over it never calls the OOM killer.' },
+					{ q: 'The `tmpfs` writer was killed in the middle. What is left behind?', options: ['Nothing: the kernel deletes the file', 'The full 100 MB file', 'An empty file', 'A half-written file, as in the Argo CD hook'], answer: 3, why: 'SIGKILL stops the writer at once. The file stays at 49.2 MB, like the truncated binary in the hook.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,25 @@ export default {
 			why: 'The cgroup v2 docs: over the high boundary "the processes of the cgroup are throttled and put under heavy reclaim pressure", and "Going over the high limit never invokes the OOM killer". Only `memory.max` leads to an OOM kill.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run the chapter\'s two writes in a Docker container: page cache survives the limit, `tmpfs` does not.',
+		steps: [
+			'Write 200 MB to the container\'s disk under a 50 MB limit with no swap, then read the counters: `docker run --rm -m 50m --memory-swap 50m alpine sh -c \'head -c 200m /dev/zero > /big.bin; echo rc=$?; grep -E "^(max|oom_kill) " /sys/fs/cgroup/memory.events; grep "^file " /sys/fs/cgroup/memory.stat\'`.',
+			'Write 100 MB to `tmpfs` under the same limit. `--shm-size` makes `/dev/shm` big enough, so only the memory limit can stop it: `docker run --name cg-lab -m 50m --memory-swap 50m --shm-size 200m alpine sh -c \'head -c 100m /dev/zero > /dev/shm/big.bin\'`, then `echo $?`.',
+			'Ask Docker what happened: `docker inspect -f \'{{.State.OOMKilled}} {{.State.ExitCode}}\' cg-lab`. Then clean up with `docker rm cg-lab`.'
+		],
+		done: [
+			'Step 1 prints `rc=0`, a `max` count in the hundreds, `oom_kill 0`, and a `file` value close to 50 MB.',
+			'Step 2 prints 137.',
+			'`docker inspect` prints `true 137`.'
+		],
+		solution: [
+			'The disk write fills page cache up to the limit, and each hit on `memory.max` ends in reclaim: the kernel writes the pages to disk and drops them.',
+			'The `tmpfs` pages have no file behind them and swap is 0, so reclaim frees nothing. The OOM killer runs inside the container\'s cgroup.',
+			'Even a shell command after `head` can be killed in step 2: the `tmpfs` file stays charged at the limit, so the container has no room left. That is why step 3 asks Docker from the outside.'
+		]
+	},
 	recall: {
 		q: 'What does a container\'s `memory.current` count, and when does reaching `memory.max` end in exit code 137?',
 		a: 'Anonymous memory, page cache including `tmpfs`, and kernel memory. Reaching `memory.max` first triggers reclaim. Only when reclaim frees nothing (anon or `tmpfs` pages, no swap) does the OOM killer send SIGKILL: 128 + 9 = 137.'

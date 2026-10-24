@@ -120,6 +120,44 @@ export default {
 			'The shell uses 4,748 kB, a tiny share of 8 million pages, so its badness is almost all the adjustment: 100 units. (1000 + 100) × 2 / 3 gives 733.',
 			'sshd has -1000, so `oom_badness()` returns `LONG_MIN` and the file shows 0. It cannot be chosen. The shell would go first, and any process with a higher `oom_score` would go before it.',
 			'The 100 on the shell comes from systemd: `user@.service` sets `OOMScoreAdjust=100` for the user manager, and the issue in the hook shows services under it at 200.'
+		],
+		steps: [
+			{
+				title: 'Read the output',
+				questions: [
+					{ q: 'The shell line reads `4049997 zsh 100 733`. What is the 100?', options: ['Its `oom_score`', 'Its `oom_score_adj`', 'Its resident memory in MB', 'Its nice value'], answer: 1, why: 'The loop prints PID, name, `oom_score_adj`, then `oom_score`. The third column is the adjustment.' },
+					{ q: 'The sshd line reads `2313 sshd -1000 0`. What is the 0?', options: ['Its memory use, rounded down', 'Its `oom_score_adj` after reset', 'Its `oom_score`: the badness scaled for display', 'The number of times it was killed'], answer: 2, why: '`oom_score` is the read-only file that shows the badness scaled for display. 0 means the process is exempt.' },
+					{ q: 'Which of the two files can you write to change how the kernel ranks a process?', options: ['`oom_score_adj`', '`oom_score`', 'Both of them', 'Neither: only the kernel sets them'], answer: 0, why: '`oom_score` is read-only. `oom_score_adj` is the per-process value you set, from -1000 to 1000.' },
+					{ q: 'What range can `oom_score_adj` take?', options: ['0 to 100', '-1000 to 1000', '-20 to 19', '0 to 1000'], answer: 1, why: 'The value goes from -1000 to 1000. Each unit adds one thousandth of the allowed memory to the badness.' }
+				]
+			},
+			{
+				title: 'Work out the shell score',
+				questions: [
+					{ q: 'What does `oom_badness()` add up for a process?', options: ['CPU time, age and number of children', 'Resident pages and open files', 'Only the `oom_score_adj` value', 'Resident, swapped-out and page table pages, plus the `oom_score_adj` share'], answer: 3, why: 'The code counts pages only, then adds `oom_score_adj` × `totalpages` / 1000. CPU time and age play no part.' },
+					{ q: 'The shell uses 4,748 kB out of about 8 million pages. What makes up most of its badness?', options: ['Its resident pages', 'Its page tables', 'The 100 units of adjustment', 'Its pages in swap'], answer: 2, why: 'A few kilobytes are a tiny share of 8 million pages, so the badness is almost all the adjustment.' },
+					{ q: 'For a system-wide OOM, what is `totalpages`?', options: ['RAM plus swap', 'RAM only', 'The free memory at the time of the OOM', 'The memory of the largest process'], answer: 0, why: 'For a system OOM, `totalpages` is RAM plus swap. For a memory cgroup, it is the cgroup limit.' },
+					{ q: 'The display formula is `(1000 + badness * 1000 / totalpages) * 2 / 3`. With a badness of about 100 thousandths, what does the file show?', options: ['100', '667', '1100', '733'], answer: 3, why: '(1000 + 100) × 2 / 3 gives 733, the value in the output.' }
+				]
+			},
+			{
+				title: 'Explain the 0',
+				questions: [
+					{ q: 'Why does sshd show exactly 0?', options: ['It uses almost no memory', 'Its `oom_score_adj` is -1000, so `oom_badness()` returns `LONG_MIN`', 'It is PID 1', 'It runs as root, and root processes are skipped'], answer: 1, why: '-1000 is `OOM_SCORE_ADJ_MIN`. `oom_badness()` returns `LONG_MIN` for it, and `proc_oom_score()` prints 0 in that case.' },
+					{ q: 'How much memory would sshd need to use before the kernel picks it?', options: ['More than any other process', 'More than half of RAM plus swap', 'None: it can never be chosen', 'More than its cgroup limit'], answer: 2, why: '`oom_evaluate_task` always skips a `LONG_MIN` score, however much memory the process uses.' },
+					{ q: 'Which other processes does `oom_unkillable_task()` take out of the race?', options: ['PID 1 and kernel threads', 'Every process owned by root', 'Processes started before the OOM', 'Processes with open network sockets'], answer: 0, why: 'Line 6 of the example returns `LONG_MIN` for PID 1 and for kernel threads.' },
+					{ q: 'A process with -1000 starts to leak. What happens as memory runs out?', options: ['The kernel kills it anyway, as a last resort', 'The kernel moves it to swap and keeps it', 'The kernel resets its value to 0', 'The kernel kills the others one by one, then panics if none is left'], answer: 3, why: 'It is never chosen. The kernel kills other processes, and panics with "System is deadlocked on memory" if none is left.' }
+				]
+			},
+			{
+				title: 'Decide who goes first',
+				questions: [
+					{ q: 'Between these two processes, which one would the kernel kill first?', options: ['sshd, because it has the lower score', 'Neither: both are protected', 'The shell, because sshd can never be chosen', 'Whichever one asked for memory last'], answer: 2, why: 'The shell has a real score of 733. sshd is out of the race.' },
+					{ q: 'Is the shell the first victim on the whole machine?', options: ['Not if another process has a higher `oom_score`', 'Yes: shells are always picked first', 'Yes: 733 is the highest score possible', 'No: the kernel always picks the process that asked for memory'], answer: 0, why: 'The kernel kills the highest score. Any process above 733 goes before the shell.' },
+					{ q: 'Where does the shell\'s 100 come from?', options: ['The kernel default for every process', 'zsh sets it at startup', 'The kernel raises it when RAM is low', 'systemd: `user@.service` sets `OOMScoreAdjust=100`'], answer: 3, why: 'systemd sets 100 on the user manager, and the issue in the hook shows services under it at 200.' },
+					{ q: 'The shell is picked. What does it receive?', options: ['SIGTERM, so it can save its state', 'SIGKILL, which it cannot catch', 'A failed `malloc` it can handle', 'A warning on its terminal first'], answer: 1, why: 'The kernel sends SIGKILL. No handler runs and no buffer is flushed.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,28 @@ export default {
 			why: 'For a memory cgroup OOM, `out_of_memory()` prints "Memory cgroup out of memory" and `select_bad_process` scans only that cgroup\'s tasks. `totalpages` is the cgroup limit, so the host\'s free memory plays no part.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch `oom_score_adj` move the score, then watch a cgroup limit set off the OOM killer in a container.',
+		steps: [
+			'Read your shell\'s values: `cat /proc/$$/oom_score_adj /proc/$$/oom_score`.',
+			'Raise the adjustment in a child shell and read the score again: `sh -c \'echo 500 > /proc/self/oom_score_adj; cat /proc/self/oom_score_adj /proc/self/oom_score\'`.',
+			'Try to lower it below what you were given: `sh -c \'echo -1000 > /proc/self/oom_score_adj\'`.',
+			'Start a container with a 64 MB limit and no extra swap, running a process that grows forever: `docker run --name oom-lab -m 64m --memory-swap 64m alpine sh -c \'tail /dev/zero\'`, then `echo $?`.',
+			'Ask Docker why it stopped: `docker inspect -f \'{{.State.OOMKilled}}\' oom-lab`. Then clean up with `docker rm oom-lab`.'
+		],
+		done: [
+			'Step 2 prints 500, then a score of about 1000.',
+			'Step 3 fails with a write error: without root you can raise the value, not push it below where you started.',
+			'`echo $?` after the container prints 137, which is 128 + 9, the number of SIGKILL.',
+			'`docker inspect` prints `true`.'
+		],
+		solution: [
+			'(1000 + 500) × 2 / 3 is 1000. The shell\'s few pages barely count, so the adjustment is the whole score.',
+			'`tail /dev/zero` waits for a newline that never comes and keeps the bytes in memory, so it grows until the limit.',
+			'The kernel compared the container with its 64 MB limit, not with the host\'s RAM. It scored only the processes in that cgroup and sent SIGKILL to `tail`.'
+		]
+	},
 	recall: {
 		q: 'What does `oom_badness()` add up for each process, and what does `oom_score_adj` -1000 do?',
 		a: 'Resident pages, swapped-out pages and page table pages, plus `oom_score_adj` × `totalpages` / 1000. The highest score gets SIGKILL. -1000 returns `LONG_MIN`, so that process is never picked.'

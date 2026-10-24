@@ -120,6 +120,44 @@ export default {
 			'`pvresize /dev/sda1`: tells LVM the PV is now 100G. `vgs` shows about 50G of free space in `vg0`.',
 			'`lvextend -r -l +100%FREE vg0/data`: gives the LV all free extents of the VG, then `-r` runs fsadm, which calls resize2fs on the mounted ext4.',
 			'`df -h /data` should show about 100G, minus ext4 metadata. If you leave out `-r`, the LV grows and `df` stays at 50G until you run `resize2fs /dev/vg0/data`.'
+		],
+		steps: [
+			{
+				title: 'Read the tree',
+				questions: [
+					{ q: 'The disk `sda` shows 100G. Why does `df -h /data` still show 50G?', options: ['The cloud console has not finished the resize', 'The kernel needs a reboot to see the disk', 'The partition, PV, LV and filesystem kept their old sizes', '`df` caches sizes until the next mount'], answer: 2, why: 'Each layer has its own size. Growing the disk changes only the bottom one.' },
+					{ q: 'Which device is still 50G right above the 100G disk?', options: ['`vg0-data`', '`sda1`', '`/data`', '`sda`'], answer: 1, why: 'The hint says to start from the bottom. `sda1` sits directly on `sda` and still ends where the old disk ended.' },
+					{ q: 'What does type `LVM2_member` on `sda1` tell you?', options: ['The partition is an LVM physical volume', 'The partition holds an ext4 filesystem', 'The partition is a swap area', 'The partition is a logical volume'], answer: 0, why: '`lsblk` shows a PV prepared with `pvcreate` as `LVM2_member`.' },
+					{ q: 'In what order do you grow the layers?', options: ['Filesystem, LV, PV, partition', 'LV, partition, PV, filesystem', 'PV, partition, filesystem, LV', 'Partition, PV, LV, filesystem'], answer: 3, why: 'From the bottom up: each layer can only grow into space the layer below already has.' }
+				]
+			},
+			{
+				title: 'Grow the partition',
+				questions: [
+					{ q: 'Which command grows `sda1` to the end of the disk?', options: ['`resize2fs /dev/sda1`', '`growpart /dev/sda 1`', '`pvresize /dev/sda`', '`lvextend /dev/sda1`'], answer: 1, why: '`growpart` from cloud-utils rewrites the partition table "so that the given partition takes up as much space as it can".' },
+					{ q: 'Why not run `resize2fs` first?', options: ['resize2fs "does not manipulate the size of partitions"', 'resize2fs only works on XFS', 'resize2fs needs the disk unmounted', 'resize2fs deletes the LVM metadata'], answer: 0, why: 'resize2fs(8) says so. It can only grow a filesystem into a device that is already bigger.' },
+					{ q: 'Note the space between `/dev/sda` and `1`. What are the two arguments?', options: ['The partition and its new size in GB', 'The volume group and the LV number', 'The disk and the partition number', 'The source and the target disk'], answer: 2, why: '`growpart` takes the disk and the number of the partition on it to grow.' },
+					{ q: 'How do you check this step worked?', options: ['`df -h /data` shows 100G', '`vgs` shows 50G free', '`lvs` shows the LV at 100G', '`lsblk` shows `sda1` at 100G'], answer: 3, why: 'Only the partition changed. `df`, `vgs` and `lvs` still show the old sizes until the next steps.' }
+				]
+			},
+			{
+				title: 'Grow the PV',
+				questions: [
+					{ q: 'Which command tells LVM that the PV is now bigger?', options: ['`pvresize /dev/sda1`', '`vgextend vg0 /dev/sda1`', '`pvcreate /dev/sda1`', '`lvextend vg0/data`'], answer: 0, why: '`pvresize` "resizes a PV", even with active LVs on it.' },
+					{ q: 'Why not `pvcreate /dev/sda1` again?', options: ['It needs a reboot afterwards', 'It prepares a new PV, and `sda1` is already one that holds `vg0`', 'It only works on whole disks', 'It is the same command under another name'], answer: 1, why: '`pvcreate` prepares a fresh PV. `sda1` is already one and holds `vg0`.' },
+					{ q: 'After `pvresize`, what does `vgs` show?', options: ['No free space: the LV took it', 'The VG at 50G, unchanged', 'About 50G of free space in `vg0`', 'A second VG of 50G'], answer: 2, why: 'The new PV space joins the VG as free extents. No LV owns it yet.' },
+					{ q: 'Is `/data` bigger yet?', options: ['Yes, `df` now shows 100G', 'Only after a remount', 'Yes, but only for root', 'No: the LV and the filesystem are still 50G'], answer: 3, why: 'The space is in the VG pool. Two layers are left.' }
+				]
+			},
+			{
+				title: 'Grow the LV and the filesystem',
+				questions: [
+					{ q: 'Which command gives `vg0/data` all the free space and grows the filesystem?', options: ['`lvextend -l +100%FREE vg0/data`', '`lvextend -r -l +100%FREE vg0/data`', '`lvresize -L 100G vg0`', '`resize2fs -l +100%FREE vg0/data`'], answer: 1, why: '`-l +100%FREE` takes all free extents of the VG, and `-r` resizes the filesystem "together with the LV using fsadm(8)".' },
+					{ q: 'Does `/data` need to be unmounted?', options: ['No: resize2fs grows a mounted ext4 through `EXT4_IOC_RESIZE_FS`', 'Yes: resize2fs refuses on a mounted filesystem', 'Yes, unless you add `--force`', 'Only on the first resize'], answer: 0, why: 'resize2fs(8): "If the file system is mounted, it can be used to expand the size of the mounted file system". Only shrinking needs an unmount.' },
+					{ q: 'You forgot `-r`. `lvs` shows 100G and `df` shows 50G. What do you run?', options: ['`pvresize /dev/sda1`', '`growpart /dev/sda 1`', '`resize2fs /dev/vg0/data`', 'A reboot'], answer: 2, why: 'The LV grew, the ext4 on it did not. `df` reports the filesystem.' },
+					{ q: '`df -h /data` shows a bit less than 100G. Why?', options: ['LVM keeps 5% for snapshots', 'growpart leaves a gap at the end of the disk', 'The resize is still running in the background', 'ext4 metadata is left out of `df`\'s size'], answer: 3, why: 'Inode tables, the journal and bitmaps take space `df` never shows: 16 GB of a 1 TB LV on the test laptop.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,27 @@ export default {
 			why: 'The partition and the PV already have the space: the VG shows 40G free. Only the LV and the filesystem on it are short, and `lvextend -r` grows both.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a bigger disk leave the partition and the filesystem at their old size, then grow each layer yourself, on image files with no root.',
+		steps: [
+			'In a scratch folder, make a 50 MB "disk" with one partition: `truncate -s 50M disk.img && parted -s disk.img mklabel msdos mkpart primary ext4 1MiB 100%`, then `parted -s disk.img unit MiB print`. If a tool is not found, it lives in `/usr/sbin`: run `export PATH=$PATH:/usr/sbin`.',
+			'Grow the disk like the cloud console does: `truncate -s 100M disk.img`, and print the table again.',
+			'Grow the partition, the job `growpart` does on a VM: `parted -s disk.img resizepart 1 100%`, and print again.',
+			'Now the filesystem layer, in its own file: `truncate -s 50M fs.img && mkfs.ext4 -q -F fs.img && truncate -s 100M fs.img`, then `dumpe2fs -h fs.img | grep "^Block count"`.',
+			'Grow it: `resize2fs fs.img`, and read the block count again. Clean up with `rm disk.img fs.img`.'
+		],
+		done: [
+			'After `truncate -s 100M`, `parted` prints `Disk ... 100MiB` and the partition still ends at `50.0MiB`.',
+			'After `resizepart`, the partition ends at `100MiB`.',
+			'`dumpe2fs` shows `Block count: 12800` on the 100 MB file before `resize2fs`, and `25600` after.'
+		],
+		solution: [
+			'A bigger device changes nothing above it. The partition table still says where the partition ends, and the superblock still says how many blocks the filesystem has.',
+			'12800 blocks of 4 KiB is 50 MiB. resize2fs prints `The filesystem on fs.img is now 25600 (4k) blocks long`.',
+			'On a real VM with LVM, `pvresize` and `lvextend` sit between these two steps. The rule is the same: grow each layer from the bottom up.'
+		]
+	},
 	recall: {
 		q: 'A cloud disk grew from 50 to 100 GB under an LVM setup. Which layers still need to grow before `df` shows it, and with which commands?',
 		a: 'The partition (`growpart`), the physical volume (`pvresize`), the logical volume and its filesystem (`lvextend -r`, which runs resize2fs). Each layer keeps its old size until you grow it.'

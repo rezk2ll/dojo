@@ -134,6 +134,44 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 			'`lsof +L1` prints one line ending in `/dev/shm/big.log (deleted)`, with SIZE `524288000`, NLINK `0` and FD `3w` (descriptor 3, open for writing). The COMMAND is `sleep`, which inherited descriptor 3 from the subshell.',
 			'`: > /proc/<pid>/fd/3` truncates the file through the open descriptor. `df -h` drops to `248K` used while `sleep` still runs, and lsof now shows SIZE `0`.',
 			'On a real server the holder is often a daemon whose log was deleted by hand. Restarting it, or sending the signal it uses to reopen logs, closes the old descriptor and frees the blocks.'
+		],
+		steps: [
+			{
+				title: 'Set up the held file',
+				questions: [
+					{ q: 'Why does the task use `/dev/shm`?', options: ['It is the only place `rm` keeps the blocks', 'You can write there without root', 'It has no inodes, so only blocks count', 'It never appears in `df`'], answer: 1, why: 'The prompt asks to reproduce the hook without root. `/dev/shm` is writable by any user, so you can fill it and delete from it yourself.' },
+					{ q: 'Which command creates the 500 MB file?', options: ['`touch -s 500M /dev/shm/big.log`', '`du -c 500M /dev/shm/big.log`', '`head -c 500M /dev/zero > /dev/shm/big.log`', '`df --create 500M /dev/shm/big.log`'], answer: 2, why: '`head -c 500M` copies 500 MB of zeros from `/dev/zero` into the new file.' },
+					{ q: 'What does `(exec 3>>/dev/shm/big.log; sleep 300) &` do?', options: ['Opens the file on descriptor 3 and keeps it open while `sleep` runs', 'Writes the file 3 times, then waits 300 seconds', 'Locks the file so `rm` cannot delete it', 'Copies the file to descriptor 3 and closes it'], answer: 0, why: '`exec 3>>` opens the file for appending on descriptor 3. `sleep` inherits it and holds it open for 300 seconds.' },
+					{ q: 'You now run `rm /dev/shm/big.log`. What did `rm` remove?', options: ['The inode and all its blocks', 'Only the blocks, the name stays', 'The open descriptor in the process', 'The name, which lowers the link count to 0'], answer: 3, why: '`rm` removes a directory entry. unlink(2) says the file "will remain in existence until the last file descriptor referring to it is closed".' }
+				]
+			},
+			{
+				title: 'Compare du and df',
+				questions: [
+					{ q: 'After `rm`, what does `du -sh /dev/shm` print in the test run?', options: ['`501M`', '`248K`', '`0`', '`500M`'], answer: 1, why: '`du` walks the directory tree. The file has no name left, so `du` cannot count it.' },
+					{ q: 'And `df -h /dev/shm`?', options: ['Still `501M` used', '`248K` used, like `du`', 'An error, since the file is gone', '`0` used and 100% free'], answer: 0, why: '`df` asks the filesystem how many blocks are used. The blocks are still allocated to the open inode.' },
+					{ q: 'Why do `du` and `df` disagree?', options: ['`df` caches its numbers for a few minutes', '`du` rounds small files down to zero', '`df` counts used blocks, `du` only counts files it can reach by name', '`du` skips files owned by other users'], answer: 2, why: 'A deleted file that is still open has blocks but no name. Only `df` sees it.' },
+					{ q: 'Running `sync` now would...', options: ['Free the 500 MB at once', 'Change nothing: the process still holds the file', 'Make `du` show 501M too', 'Close descriptor 3 in `sleep`'], answer: 1, why: 'The space is held by an open descriptor, not by pending writes. Only closing or truncating the file gives it back.' }
+				]
+			},
+			{
+				title: 'Find the holder',
+				questions: [
+					{ q: 'Which command lists open files that have been deleted?', options: ['`df -i`', '`du --deleted`', '`ls -la /dev/shm`', '`lsof +L1`'], answer: 3, why: 'lsof(8) says `+L1` will "select open files that have been unlinked": link count below 1.' },
+					{ q: 'The lsof line ends in `/dev/shm/big.log (deleted)`. What does NLINK `0` tell you?', options: ['No name points to the inode any more', 'The file is empty', 'No process has the file open', 'The file is a hard link'], answer: 0, why: 'NLINK is the link count. 0 means `rm` removed the last name, and only the open descriptor keeps the inode alive.' },
+					{ q: 'The COMMAND column says `sleep`, not `bash`. Why?', options: ['`sleep` opened the file itself', 'lsof always shows the youngest process', '`sleep` inherited descriptor 3 from the subshell', 'The subshell renamed itself to `sleep`'], answer: 2, why: 'A child gets copies of its parent\'s descriptors. The subshell opened descriptor 3, then `sleep` inherited it.' },
+					{ q: 'The FD column says `3w`. What does it mean?', options: ['3 writers share the file', 'Descriptor 3, open for writing', 'The file was written 3 times', 'Descriptor 3 is waiting on a lock'], answer: 1, why: 'lsof prints the descriptor number, then the access mode: `w` for write.' }
+				]
+			},
+			{
+				title: 'Give the space back',
+				questions: [
+					{ q: 'How do you free the blocks without killing `sleep`?', options: ['`: > /proc/<pid>/fd/3`', '`rm /proc/<pid>/fd/3`', '`touch /dev/shm/big.log`', '`kill -STOP <pid>`'], answer: 0, why: 'The file is still reachable as `/proc/<pid>/fd/3`. Truncating it through that path frees the blocks while the descriptor stays open.' },
+					{ q: 'After the truncate, what does `df -h /dev/shm` show?', options: ['Still `501M` used until `sleep` exits', '`248K` used', 'An error: the descriptor is closed', '`0` used'], answer: 1, why: 'In the test run `df` dropped to `248K` used with the process still running, and lsof showed SIZE `0`.' },
+					{ q: 'On a real server, a daemon holds a log someone deleted by hand. What is the usual fix?', options: ['Run `fsck` to reclaim orphaned blocks', 'Delete the rotated `.gz` logs next to it', 'Wait for the next reboot', 'Restart it, or send the signal that makes it reopen its logs'], answer: 3, why: 'Closing the old descriptor frees the blocks. A reopen signal does it without downtime.' },
+					{ q: 'A program cannot be told to close its log. Which logrotate option fits?', options: ['`compress`', '`copytruncate`', '`delaycompress`', '`missingok`'], answer: 1, why: '`copytruncate` copies the log and truncates it in place, for a program that "cannot be told to close its logfile".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,27 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 			why: 'Creating a file needs a free inode, and open(2) returns ENOSPC when the device "has no room for the new file". With 60% of the blocks free, a deleted open file or the reserve cannot explain it. `df -i` shows IUse 100%.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See the two other `No space left on device` causes: running out of inodes, and the root reserve.',
+		steps: [
+			'Start a container with a tiny tmpfs that allows only 200 inodes: `docker run --rm -it --tmpfs /data:size=10m,nr_inodes=200 alpine:3.20 sh`.',
+			'Inside, check both numbers: `df -h /data` and `df -i /data`.',
+			'Fill the inodes with empty files: `i=0; while touch /data/f$i 2>/dev/null; do i=$((i+1)); done; echo $i`. Then try `touch /data/x`, and run `df -h /data` and `df -i /data` again. Leave with `exit`.',
+			'Back on your laptop, in a scratch folder, make a 100 MB ext4 image (no root needed, nothing is mounted): `truncate -s 100M disk.img && mkfs.ext4 -q -F disk.img`.',
+			'Read the reserve with `tune2fs -l disk.img | grep -E "^(Block count|Reserved block count)"`, lower it with `tune2fs -m 1 disk.img`, read it again, then `rm disk.img`. On some distros `tune2fs` lives in `/usr/sbin`, so call it by that path if it is not found.'
+		],
+		done: [
+			'`touch /data/x` fails with `No space left on device` while `df -h /data` still shows the 10 MB free.',
+			'`df -i /data` shows all 200 inodes used, 100%.',
+			'The image reports `Reserved block count: 1280` out of `Block count: 25600` (5%), then 256 after `tune2fs -m 1`.'
+		],
+		solution: [
+			'The loop stops at 199 files: the root directory of `/data` takes the 200th inode.',
+			'Empty files use no blocks, only inodes, which is why `df -h` stays at 0 used. `df -i` is the only command that shows the cause.',
+			'1280 is 5% of 25600, the `mke2fs` default. `tune2fs -m 1` sets it to 1%, the change you would make on a data disk where no root daemon needs the room.'
+		]
+	},
 	recall: {
 		q: 'You deleted a big log, `du` adds up to much less than `df`, and the disk is still full. Where is the space, and which command finds it?',
 		a: 'A process still has the deleted file open, so its blocks stay used until the last descriptor closes. `lsof +L1` lists open files with link count 0, marked `(deleted)`.'

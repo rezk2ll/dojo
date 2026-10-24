@@ -132,6 +132,44 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 			'Average CPU: 3.08 s of CPU in about 3.1 s (31 periods of 100 ms), close to 1 CPU, which is exactly the limit. The 4 loops wanted 4 CPUs on a machine with 16.',
 			'Per period, the 4 run queues spent the 100 ms of quota in about 25 ms and then each waited about 75 ms. 30 periods × 4 run queues × 75 ms = 9 s, which matches `throttled_usec 8975156`, because the kernel adds the throttled time of each run queue.',
 			'For a service, the same reading with a usage graph at 30% of the limit tells you requests are waiting inside periods. The limit or the number of busy threads has to change for latency to drop.'
+		],
+		steps: [
+			{
+				title: 'Read the counters',
+				questions: [
+					{ q: 'What does `usage_usec 3081196` count?', options: ['Wall time since the container started', 'CPU time used by the group, about 3.08 s', 'Time the group spent waiting for a CPU', 'The quota left in the current period'], answer: 1, why: '`usage_usec` is the CPU time the group used, summed over all its threads and CPUs, in microseconds.' },
+					{ q: 'What does `nr_periods 31` count?', options: ['Periods in which the group had work to run', 'Periods in which the group was throttled', 'Threads that ran in the group', 'Times the quota was changed'], answer: 0, why: '`nr_periods` counts the periods of 100 ms in which the group had work. About 3.1 s of test gives 31.' },
+					{ q: 'What does `nr_throttled 30` count?', options: ['Threads that were stopped at least once', 'Milliseconds lost per period', 'Seconds the group spent throttled', 'Periods in which the group ran out of quota'], answer: 3, why: 'A period counts as throttled when the pool ran dry and the group had to wait for the next refill.' },
+					{ q: 'Which `cpu.max` does `--cpus 1` give the container?', options: ['`max 100000`', '`1 100000`', '`100000 100000`', '`100000 1`'], answer: 2, why: 'One CPU is a quota of 100 ms per 100 ms period, the same value a Kubernetes limit of `1` gives.' }
+				]
+			},
+			{
+				title: 'Compute the throttled percentage',
+				questions: [
+					{ q: 'How do you compute the throttled percentage?', options: ['`throttled_usec` divided by `usage_usec`', '`nr_throttled` divided by `nr_periods`', '`usage_usec` divided by the test length', '`nr_periods` divided by `nr_throttled`'], answer: 1, why: 'Indeed\'s post defines it as `nr_throttled` divided by `nr_periods`: the share of periods that ended with the quota spent.' },
+					{ q: 'So what is it here?', options: ['About 3%', 'About 30%', 'About 97%', 'Over 100%'], answer: 2, why: '30 / 31 is about 97%. Nearly every period ended with the quota spent.' },
+					{ q: 'Why are there about 31 periods in a 3 s test?', options: ['The period is 100 ms', 'The kernel counts one period per thread', 'The period is 1 s and each CPU counts once', 'Docker sets one period per 10 loops'], answer: 0, why: 'The default period is 100000 µs. 3.1 s of activity is 31 periods.' },
+					{ q: 'A usage graph averaged per minute would show this container at what level?', options: ['Far below the limit, because it is idle most of the time', 'At about 4 CPUs, what the loops asked for', 'At zero, because throttled time is not counted', 'At about its limit, 1 CPU'], answer: 3, why: 'The group used 1 CPU on average, the full limit. A graph would show the limit reached, but not that 4 threads were waiting most of each period.' }
+				]
+			},
+			{
+				title: 'Compute the average CPU',
+				questions: [
+					{ q: '3.08 s of CPU in about 3.1 s of wall time is how many CPUs on average?', options: ['About 4', 'About 1', 'About 0.3', 'About 16'], answer: 1, why: 'CPU time divided by wall time: 3.08 / 3.1 is close to 1 CPU.' },
+					{ q: 'How does that compare with the limit?', options: ['It is exactly the limit', 'It is a quarter of the limit', 'It is four times the limit', 'It is unrelated to the limit'], answer: 0, why: 'The limit is 1 CPU, and the kernel enforced it in every period.' },
+					{ q: 'How many CPUs did the 4 busy loops want?', options: ['1', '2', '16', '4'], answer: 3, why: 'Each busy loop can keep one CPU busy, and the machine had 16 free. The limit held them to 1.' },
+					{ q: 'How long does it take 4 parallel threads to spend 100 ms of quota?', options: ['100 ms', '400 ms', 'About 25 ms', '5 ms, one slice'], answer: 2, why: 'Four threads spend 4 ms of quota per millisecond of wall time, so 100 ms is gone after about 25 ms.' }
+				]
+			},
+			{
+				title: 'Explain the 9 s',
+				questions: [
+					{ q: 'After the pool is empty at about 25 ms, how long does each run queue wait?', options: ['About 75 ms, until the next refill', 'About 25 ms, one more slice', 'A full 100 ms period', 'It does not wait, it borrows from the next period'], answer: 0, why: 'All four threads wait for the refill at the period boundary: 100 ms minus the 25 ms they ran.' },
+					{ q: 'How does the kernel add up `throttled_usec`?', options: ['Once per period, for the whole group', 'Only for the CPU that found the pool empty', 'Per CPU run queue, so four queues add four times the wall time', 'Per thread, but only for the main thread'], answer: 2, why: '`throttled_usec` is summed per CPU run queue in `unthrottle_cfs_rq`. Four run queues throttled together count four times.' },
+					{ q: 'Which product gives about 9 s?', options: ['31 periods × 100 ms × 3 s', '30 periods × 4 run queues × 75 ms', '4 loops × 3 s × 75%', '16 CPUs × 30 periods × 25 ms'], answer: 1, why: '30 × 4 × 75 ms is 9 s, which matches `throttled_usec 8975156`.' },
+					{ q: 'A real service shows the same counters while its graph says 30% of the limit. What lowers its latency?', options: ['A dashboard with a shorter average', 'More memory for the pod', 'A restart of the pod', 'A higher limit or fewer busy threads'], answer: 3, why: 'Requests wait inside periods because threads spend the quota early. The limit or the number of busy threads has to change.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,27 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 			why: 'In `unthrottle_cfs_rq`, each per-CPU run queue adds its own throttled time to the group total. Four run queues throttled for 75 ms in the same period add 300 ms.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Reproduce the chapter\'s `cpu.stat` reading, then change the limit and the number of threads and watch throttling come and go.',
+		steps: [
+			'Check that you have at least 4 CPUs: `nproc`.',
+			'Run 4 busy loops under a limit of 1 CPU for 3 seconds: `docker run --rm --cpus 1 busybox sh -c \'for i in 1 2 3 4; do (while :; do :; done) & done; sleep 3; grep -E "usage_usec|nr_|throttled_usec" /sys/fs/cgroup/cpu.stat\'`.',
+			'Compute `nr_throttled / nr_periods`, the average CPU (`usage_usec` divided by about 3100000), and `throttled_usec` in seconds.',
+			'Run one busy loop under the same limit: `docker run --rm --cpus 1 busybox sh -c \'(while :; do :; done) & sleep 3; grep -E "usage_usec|nr_|throttled_usec" /sys/fs/cgroup/cpu.stat\'`.',
+			'Run the 4 loops again with `--cpus 4` instead of `--cpus 1`.'
+		],
+		done: [
+			'Step 2: `nr_throttled` equals `nr_periods` or is one below it (about 30 of 31), `usage_usec` is about 3 million, and `throttled_usec` is between 8 and 9 million.',
+			'Step 4: `usage_usec` is still about 3 million, and `throttled_usec` stays below 10000 (10 ms), even if `nr_throttled` counts some periods.',
+			'Step 5: `usage_usec` is about 12 million, and `throttled_usec` stays below 10000 (10 ms), even if `nr_throttled` counts a few periods.'
+		],
+		solution: [
+			'Step 2 is the chapter\'s reading: about 97% of periods throttled, an average of 1 CPU, and 8 to 9 s of throttled time, because 4 run queues each wait about 75 ms per period.',
+			'With one thread, the loop spends the 100 ms quota over the whole period. It may run out a moment before the refill, but it never waits long, so `throttled_usec` stays tiny.',
+			'With `--cpus 4`, the quota is 400 ms per period, enough for the 4 loops: 4 CPUs × 3 s is the 12 s of `usage_usec`, with almost no time throttled. The same work, a different limit.'
+		]
+	},
 	recall: {
 		q: 'Why can a container at 30% of its CPU limit still have slow requests, and which file shows it?',
 		a: 'The quota in `cpu.max` is counted per period (100 ms) and summed over all threads. Several threads can spend it in a fraction of the period and then wait for the refill, while the average over a minute stays low. `cpu.stat` shows it: `nr_throttled` compared with `nr_periods`.'

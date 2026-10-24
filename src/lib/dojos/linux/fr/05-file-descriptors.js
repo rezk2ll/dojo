@@ -112,6 +112,44 @@ func init() {
 			'`ls -l /proc/<pid>/fd` montre ce qu’est chaque numéro : `socket:[...]` pour une connexion, un chemin pour un fichier, `pipe:[...]` pour un pipe. Des milliers de fois le même chemin, ou un nombre qui grimpe à trafic constant, indiquent une fuite de descripteurs, et une limite plus haute ne ferait que retarder l’erreur.',
 			'Si le nombre correspond à la vraie charge, le programme a besoin d’une limite souple plus haute. La doc de systemd conseille au programme de monter lui-même sa limite souple jusqu’à la limite dure, comme Go, tant qu’il n’utilise pas `select()`.',
 			'Pour comparer, capturé pendant cette session : sous `ulimit -Sn 1024`, Python a ouvert 1021 fichiers (fds 3 à 1023), et l’ouverture suivante a échoué avec l’errno 24.'
+		],
+		steps: [
+			{
+				title: 'Lis la ligne des limites',
+				questions: [
+					{ q: 'Dans `Max open files 1024 524288 files`, quel nombre le noyau applique-t-il ?', options: ['524288, la limite dure', '1024, la limite souple', 'Les deux additionnés', 'Aucun, c’est une simple indication'], answer: 1, why: 'Le noyau applique la limite souple. La limite dure est le plafond jusqu’où on peut la monter.' },
+					{ q: 'Que veut dire une limite souple de 1024 pour les numéros de descripteurs ?', options: ['Le plus grand fd que le processus peut obtenir est 1023', 'Le processus peut tenir 1024 fichiers en plus de 0, 1 et 2', 'Le plus grand fd que le processus peut obtenir est 1024', 'La limite ne compte que les fichiers, pas les sockets'], answer: 0, why: 'RLIMIT_NOFILE vaut « one greater than the maximum file descriptor number that can be opened ».' },
+					{ q: 'Le service peut-il monter sa propre limite souple sans privilège ?', options: ['Non, seul root peut changer les limites', 'Oui, à n’importe quelle valeur', 'Seulement avec `ulimit -n` dans le shell qui l’a lancé', 'Oui, jusqu’à la limite dure de 524288'], answer: 3, why: 'Un processus non privilégié peut monter sa limite souple jusqu’à la limite dure. Monter la limite dure demande `CAP_SYS_RESOURCE`.' },
+					{ q: 'D’où viennent 1024 et 524288 pour un service ?', options: ['Du maximum intégré au noyau, fixé à la compilation', 'Du `ulimit -n` de ton shell de login', 'Des valeurs par défaut de systemd pour les services qu’il lance', 'De la taille de la mémoire du processus'], answer: 2, why: 'systemd lance les services avec une limite souple de 1024 et une limite dure de 524288 par défaut.' }
+				]
+			},
+			{
+				title: 'Compare le nombre',
+				questions: [
+					{ q: '`ls /proc/<pid>/fd | wc -l` affiche 1024. Qu’est-ce que ça veut dire ?', options: ['Chaque numéro de 0 à 1023 est pris', 'Le processus a encore de la place pour un fd', 'La moitié de la limite dure est utilisée', 'Le compte inclut le processus `ls`'], answer: 0, why: 'Une entrée par descripteur ouvert, et 1024 entrées remplissent chaque numéro sous la limite souple.' },
+					{ q: 'Que devient le prochain `accept()` sur la socket d’écoute ?', options: ['Il reçoit le fd 1024', 'Il attend qu’un fd soit fermé', 'Il ferme la connexion la plus ancienne', 'Il échoue avec `EMFILE`'], answer: 3, why: 'Chaque appel qui a besoin d’un nouveau descripteur échoue avec `EMFILE` une fois tous les numéros pris.' },
+					{ q: 'Quels autres appels échouent de la même façon ?', options: ['Seulement `open()`', '`read()` et `write()` sur les fds existants', '`open()`, `pipe()` et `socket()`', 'Aucun : seules les sockets sont limitées'], answer: 2, why: 'Tout appel qui crée un descripteur a besoin d’un numéro libre. Les appels sur les fds existants marchent encore.' },
+					{ q: 'Pourquoi le gestionnaire d’erreur du service peut-il échouer en voulant décrire le problème ?', options: ['Les logs sont coupés à la limite', 'Lister `/proc/self/fd` demande un fd de plus', 'Le noyau tue le processus dès qu’il atteint la limite', 'stderr est fermé à la limite'], answer: 1, why: 'Dans le test du chapitre, `os.listdir("/proc/self/fd")` a échoué aussi : lister un dossier commence par l’ouvrir.' }
+				]
+			},
+			{
+				title: 'Regarde ce que sont les fds',
+				questions: [
+					{ q: 'Quelle commande montre vers quoi pointe chaque fd ?', options: ['`ls -l /proc/<pid>/fd`', '`cat /proc/<pid>/limits`', '`ulimit -n`', '`ps -o nlwp <pid>`'], answer: 0, why: 'Chaque entrée est un lien symbolique vers un chemin, `socket:[...]` ou `pipe:[...]`.' },
+					{ q: 'Comment une connexion réseau apparaît-elle là ?', options: ['Sous la forme de l’IP distante', 'Sous la forme de `/dev/tcp`', 'Comme un chemin sous `/proc/net`', 'Sous la forme `socket:[<inode>]`'], answer: 3, why: 'Une socket apparaît comme `socket:[2248868]`, avec le numéro d’inode de la socket.' },
+					{ q: 'Des milliers d’entrées pointent vers le même chemin. Qu’est-ce que ça suggère ?', options: ['Une charge normale pour un serveur actif', 'Une fuite : il ouvre le fichier sans jamais le fermer', 'Un bug du noyau', 'Une limite souple réglée trop haut pour ce service'], answer: 1, why: 'Un même fichier ouvert des milliers de fois, c’est rarement du vrai travail. Quelque chose oublie de le fermer.' },
+					{ q: 'Le trafic est constant mais le nombre grimpe sans cesse. Qu’est-ce que c’est ?', options: ['Un disque lent', 'La croissance normale d’un cache', 'Une fuite de descripteurs', 'Une tempête de signaux'], answer: 2, why: 'À trafic constant, le nombre devrait rester plat. Une hausse continue veut dire des fds ouverts et jamais fermés.' }
+				]
+			},
+			{
+				title: 'Choisis la correction',
+				questions: [
+					{ q: 'Tu trouves une fuite. Monter la limite, est-ce la correction ?', options: ['Non : une limite plus haute ne fait que retarder l’erreur', 'Oui : 524288 ne sera jamais atteint', 'Oui, à condition de redémarrer chaque nuit', 'Non : on ne peut pas monter la limite d’un service'], answer: 0, why: 'Une fuite continue de grandir quelle que soit la limite. Corrige le code qui oublie de fermer.' },
+					{ q: 'Le nombre correspond à la vraie charge, sans fuite. Que fais-tu ?', options: ['Baisser la limite dure', 'Fermer stdin, stdout et stderr pour libérer 3 fds', 'Lancer `ulimit -n 65536` dans ton propre shell', 'Laisser le programme monter sa limite souple'], answer: 3, why: 'La doc de systemd conseille au programme de monter lui-même sa limite souple, comme le runtime Go au démarrage.' },
+					{ q: 'Pourquoi `ulimit -n 65536` dans ton shell n’aide-t-il pas le service qui tourne ?', options: ['`ulimit` ne marche que pour root', 'Les limites s’héritent au `fork()`, et il tourne déjà', 'Le noyau ignore les limites posées depuis un shell interactif', 'Il ne change que la limite dure'], answer: 1, why: 'La limite de ton shell n’atteint que les enfants de ton shell.' },
+					{ q: 'Quand un programme doit-il garder la limite souple à 1024 ?', options: ['Quand il utilise `epoll`', 'Quand il tourne en root', 'Quand il passe des fds à `select()`', 'Quand il tourne sous systemd'], answer: 2, why: 'systemd.exec(5) : « select(2) cannot function with file descriptors above 1023 on Linux ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,29 @@ func init() {
 			why: 'systemd.exec(5) : « select(2) cannot function with file descriptors above 1023 on Linux ». La limite dure reste haute pour que les programmes qui utilisent `poll()` ou `epoll` puissent monter leur propre limite souple.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Épuiser les descripteurs d’un programme, lire les nombres dans `/proc`, puis lui donner une limite souple plus haute.',
+		steps: [
+			'Crée un dossier de travail : `mkdir -p ~/fd-lab && cd ~/fd-lab`.',
+			'Écris un programme qui fuit : `printf \'import time\\nfiles = []\\ntry:\\n    while True: files.append(open("/dev/null"))\\nexcept OSError as e:\\n    print(len(files), "opened, last fd", files[-1].fileno(), "then:", e, flush=True)\\ntime.sleep(60)\\n\' > leak.py`.',
+			'Lance-le sous une limite souple de 64, sans toucher à ton propre shell : `bash -c \'ulimit -Sn 64; exec python3 leak.py\' & p=$!; sleep 1`.',
+			'Inspecte-le (Linux) : `grep "Max open files" /proc/$p/limits`, `ls /proc/$p/fd | wc -l`, `ls -l /proc/$p/fd | tail -3`. Puis `kill $p`.',
+			'Relance-le avec une limite souple de 128 : `bash -c \'ulimit -Sn 128; exec python3 leak.py\' & p=$!; sleep 1; kill $p`.'
+		],
+		done: [
+			'La première exécution affiche `61 opened, last fd 63 then: [Errno 24] Too many open files`.',
+			'`/proc/$p/limits` montre une limite souple de 64, et `ls /proc/$p/fd | wc -l` affiche 64.',
+			'Les entrées de `ls -l` sont des liens vers `/dev/null`.',
+			'La deuxième exécution affiche `125 opened, last fd 127`.'
+		],
+		solution: [
+			'Les fds 0, 1 et 2 sont pris au départ, et une limite souple de 64 autorise les numéros 0 à 63 : 61 ouvertures passent, et la suivante reçoit `EMFILE`.',
+			'Le nombre égale la limite souple : chaque numéro est pris. Les liens pointent tous vers le même chemin, c’est à ça que ressemble une fuite.',
+			'Une limite souple plus haute ne fait que déplacer l’échec du fd 63 au fd 127. La vraie correction d’une fuite, c’est de fermer les fichiers.',
+			'Sous macOS il n’y a pas de `/proc` : la sortie de Python et la partie `ulimit` marchent pareil.'
+		]
+	},
 	recall: {
 		q: 'Avec une limite souple RLIMIT_NOFILE de 1024, quel est le plus grand fd qu’un processus peut obtenir, et que renvoie le `open()` suivant ?',
 		a: 'Le fd 1023, car la limite vaut un de plus que le plus grand numéro de fd. Le `open()` suivant échoue avec `EMFILE`, errno 24, « Too many open files ».'

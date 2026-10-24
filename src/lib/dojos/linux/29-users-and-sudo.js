@@ -99,6 +99,44 @@ root ALL=(ALL:ALL) ALL
 			'(2) `alice` and `bob`, if `/etc/sudoers` has `%sudo ALL=(ALL:ALL) ALL` as on Debian. They are in group `sudo` (GID 27). They type their own password.',
 			'(3) No. The rule lists the arguments `-a /srv/ /mnt/backup/`, and `/tmp/x/` does not match, so sudo prints `Sorry, user backup is not allowed to execute ...`.',
 			'(4) `visudo -c` checks `/etc/sudoers` and its includes. `visudo -c -f /etc/sudoers.d/backup` checks one file and prints `parsed OK` or the line and column of the error.'
+		],
+		steps: [
+			{
+				title: 'Read the passwd line',
+				questions: [
+					{ q: 'In `www-data:x:33:33:...`, what is the `x` in the second field?', options: ['The password is empty', 'The account is locked forever', 'The password hash is kept in `/etc/shadow`', 'The user may run setuid programs'], answer: 2, why: 'The second field is the password, and `x` points to `/etc/shadow`, where the hash lives.' },
+					{ q: 'Which fields are the UID and the GID?', options: ['The third and the fourth: 33 and 33', 'The first and the second', 'The fifth and the sixth', 'Only the third: UID and GID share it'], answer: 0, why: 'passwd(5) lists `name:password:UID:GID:GECOS:directory:shell`.' },
+					{ q: 'What do `/var/www` and `/usr/sbin/nologin` say?', options: ['The web root and the web server binary', 'The log folder and the log rotator', 'The home directory and the login shell', 'The mount point and its type'], answer: 2, why: 'The sixth field is the home directory, the seventh the program run at login.' },
+					{ q: 'Why is the shell `/usr/sbin/nologin`?', options: ['The kernel refuses `execve()` for UID 33', 'Nobody can log in to the account with a shell', 'nginx needs it to read `/etc/passwd`', 'UIDs below 1000 cannot own files'], answer: 1, why: '`nologin` prints a message and exits. The account can still own files and run a daemon.' }
+				]
+			},
+			{
+				title: 'Read the group line',
+				questions: [
+					{ q: 'In `sudo:x:27:alice,bob`, what does the last field list?', options: ['The users allowed to edit the group', 'The group\'s administrators only', 'The users who were removed', 'The members of the group'], answer: 3, why: 'The last field of a group line is its member list: `alice` and `bob`.' },
+					{ q: 'Does being in group `sudo` give root rights by itself?', options: ['Only if `/etc/sudoers` has a `%sudo` rule, as on Debian', 'Yes, on every Linux system', 'Yes, because GID 27 is a system group', 'No, never: only UID 0 can use sudo'], answer: 0, why: 'The group is just a name. Debian\'s packaged sudoers enables `%sudo ALL=(ALL:ALL) ALL`, and that rule gives the right.' },
+					{ q: 'What does `%` mean in `%sudo ALL=(ALL:ALL) ALL`?', options: ['A comment', 'A wildcard for any user', 'A group name follows', 'The rule needs no password'], answer: 2, why: '`%` marks a group, so the rule applies to every member of `sudo`.' },
+					{ q: 'Under that rule, whose password do alice and bob type?', options: ['Root\'s password', 'Their own password', 'No password at all', 'The password of group `sudo`'], answer: 1, why: 'Without `NOPASSWD:`, sudo asks for the calling user\'s own password, then skips the prompt for 5 minutes.' }
+				]
+			},
+			{
+				title: 'Match the backup rule',
+				questions: [
+					{ q: 'The rule lists `/usr/bin/rsync -a /srv/ /mnt/backup/`. What must `backup` type for it to match?', options: ['Any `rsync` command', 'Any command starting with `rsync -a`', '`rsync` with any destination under `/mnt`', 'Exactly `rsync -a /srv/ /mnt/backup/`'], answer: 3, why: 'When a rule lists arguments, the user\'s arguments must match them.' },
+					{ q: 'Does `sudo rsync -a /srv/ /tmp/x/` match?', options: ['No: `/tmp/x/` is not `/mnt/backup/`', 'Yes: the program is the same', 'Yes: `NOPASSWD:` allows any arguments', 'Only after a password prompt'], answer: 0, why: 'The destination differs, so no rule matches.' },
+					{ q: 'What does sudo print then?', options: ['`backup is not in the sudoers file.`', '`Sorry, user backup is not allowed to execute ...`', '`syntax error`', '`Permission denied`'], answer: 1, why: 'The user has rules, but none matches this command line, so sudo names the refused command.' },
+					{ q: 'Why does the rule pin the arguments at all?', options: ['sudo needs arguments to find the binary', 'It makes the rule faster to parse', 'So the account can do exactly one thing as root', 'NOPASSWD only works with arguments'], answer: 2, why: 'Like the `deploy` rule for CI, a pinned rule gives one task as root, with no root password or root shell.' }
+				]
+			},
+			{
+				title: 'Check the file',
+				questions: [
+					{ q: 'Which command checks `/etc/sudoers` and every file it includes?', options: ['`sudo -l`', '`visudo -c`', '`sudoedit /etc/sudoers`', '`cat /etc/sudoers`'], answer: 1, why: '`visudo -c` parses the main file and its includes without opening an editor.' },
+					{ q: 'And one file only?', options: ['`visudo -c -f /etc/sudoers.d/backup`', '`visudo /etc/sudoers.d/backup -n`', '`sudo -c /etc/sudoers.d/backup`', '`bash -n /etc/sudoers.d/backup`'], answer: 0, why: 'It prints `parsed OK`, or the line and column of the error and exit status 1.' },
+					{ q: 'You forget the colon after `NOPASSWD`. What does `visudo -c -f` print?', options: ['`parsed OK`, the colon is optional', 'A warning, then it installs the file', 'Nothing, and exits with 0', '`<file>:1:<column>: syntax error`'], answer: 3, why: 'The hook shows it: `bad.sudoers:1:67: syntax error`, exit 1.' },
+					{ q: 'You named the file `/etc/sudoers.d/backup.conf`. What happens?', options: ['It works like `backup`', 'visudo refuses to save it', 'sudo skips it with no warning', 'sudo reads it last'], answer: 2, why: 'sudo skips file names in `/etc/sudoers.d` that contain a `.` or end in `~`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -136,6 +174,28 @@ root ALL=(ALL:ALL) ALL
 			why: 'The last field of a passwd line is the program run at login. `nologin` prints a message and exits, so the account can own files and run a daemon, but a login as `www-data` gives no shell. The kernel treats UID 33 like any other non-zero UID.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Read real account lines on your machine and catch a sudoers syntax error with `visudo` before it can lock you out, all without root.',
+		steps: [
+			'Read the task\'s lines on your own system: `getent passwd www-data`, `getent group sudo` (on Fedora, try `getent group wheel`), and `id`.',
+			'Look at why sudo can act as root: `stat -c "%a %U %n" /usr/bin/sudo`. On macOS, use `ls -l /usr/bin/sudo`.',
+			'In a scratch folder, write a good rule: `printf \'backup ALL=(root) NOPASSWD: /usr/bin/rsync -a /srv/ /mnt/backup/\\n\' > good`.',
+			'Write the same rule without the colon after `NOPASSWD`: `printf \'backup ALL=(root) NOPASSWD /usr/bin/rsync -a /srv/ /mnt/backup/\\n\' > bad`.',
+			'Check both with `visudo -c -f good; echo $?` and `visudo -c -f bad; echo $?`. If `visudo` is not found, call it as `/usr/sbin/visudo`. Then `rm good bad`.'
+		],
+		done: [
+			'`getent passwd www-data` prints 7 fields ending in `/usr/sbin/nologin`, if the account exists on your system.',
+			'`stat` prints `4755 root /usr/bin/sudo`.',
+			'`visudo -c -f good` prints `good: parsed OK` and exit status 0.',
+			'`visudo -c -f bad` prints `bad:1:64: syntax error`, a `^` at the end of the line, and exit status 1.'
+		],
+		solution: [
+			'`4755` is the setuid bit (4) plus `rwxr-xr-x`: sudo runs with its owner\'s UID, 0, whoever starts it.',
+			'The caret sits at column 64, the end of the line, not under `NOPASSWD`: visudo only gives up when the line ends, so read the whole line to find the missing `:`. A file like `bad` installed by hand in `/etc/sudoers.d/` would stop sudo from parsing its rules.',
+			'`visudo -c -f` only reads the file, so it works as a normal user on a scratch copy. Check a rule this way before you put it in `/etc/sudoers.d/`, under a name with no dot.'
+		]
+	},
 	recall: {
 		q: 'Name two reasons a correct-looking sudoers rule for `deploy` can be refused.',
 		a: 'The file is in `/etc/sudoers.d/` with a dot in its name, like `deploy.conf`, so sudo skips it. Or the rule lists arguments, such as `restart shop.service`, and the command typed has different ones, such as `restart shop`.'

@@ -99,6 +99,44 @@ root ALL=(ALL:ALL) ALL
 			'(2) `alice` et `bob`, si `/etc/sudoers` contient `%sudo ALL=(ALL:ALL) ALL` comme sur Debian. Ils sont dans le groupe `sudo` (GID 27) et tapent leur propre mot de passe.',
 			'(3) Non. La règle fixe les arguments `-a /srv/ /mnt/backup/`, et `/tmp/x/` ne correspond pas : sudo affiche `Sorry, user backup is not allowed to execute ...`.',
 			'(4) `visudo -c` vérifie `/etc/sudoers` et ses inclusions. `visudo -c -f /etc/sudoers.d/backup` vérifie un seul fichier et affiche `parsed OK` ou la ligne et la colonne de l’erreur.'
+		],
+		steps: [
+			{
+				title: 'Lis la ligne passwd',
+				questions: [
+					{ q: 'Dans `www-data:x:33:33:...`, que veut dire le `x` du deuxième champ ?', options: ['Le mot de passe est vide', 'Le compte est verrouillé pour toujours', 'L’empreinte du mot de passe est dans `/etc/shadow`', 'L’utilisateur peut lancer des programmes setuid'], answer: 2, why: 'Le deuxième champ est le mot de passe, et `x` renvoie vers `/etc/shadow`, où vit l’empreinte.' },
+					{ q: 'Quels champs sont l’UID et le GID ?', options: ['Le troisième et le quatrième : 33 et 33', 'Le premier et le deuxième', 'Le cinquième et le sixième', 'Seulement le troisième : UID et GID le partagent'], answer: 0, why: 'passwd(5) donne `name:password:UID:GID:GECOS:directory:shell`.' },
+					{ q: 'Que disent `/var/www` et `/usr/sbin/nologin` ?', options: ['La racine web et le binaire du serveur web', 'Le dossier des logs et l’outil de rotation', 'Le dossier personnel et le shell de connexion', 'Le point de montage et son type'], answer: 2, why: 'Le sixième champ est le dossier personnel, le septième le programme lancé à la connexion.' },
+					{ q: 'Pourquoi le shell est-il `/usr/sbin/nologin` ?', options: ['Le noyau refuse `execve()` à l’UID 33', 'Personne ne peut ouvrir un shell avec ce compte', 'nginx en a besoin pour lire `/etc/passwd`', 'Les UID sous 1000 ne peuvent posséder aucun fichier'], answer: 1, why: '`nologin` affiche un message et sort. Le compte peut quand même posséder des fichiers et faire tourner un démon.' }
+				]
+			},
+			{
+				title: 'Lis la ligne group',
+				questions: [
+					{ q: 'Dans `sudo:x:27:alice,bob`, que liste le dernier champ ?', options: ['Les utilisateurs qui peuvent modifier le groupe', 'Seulement les administrateurs du groupe', 'Les utilisateurs retirés', 'Les membres du groupe'], answer: 3, why: 'Le dernier champ d’une ligne group est sa liste de membres : `alice` et `bob`.' },
+					{ q: 'Être dans le groupe `sudo` donne-t-il les droits root à lui seul ?', options: ['Seulement si `/etc/sudoers` a une règle `%sudo`, comme sur Debian', 'Oui, sur tous les systèmes Linux', 'Oui, car le GID 27 est un groupe système', 'Non, jamais : seul l’UID 0 peut utiliser sudo'], answer: 0, why: 'Le groupe n’est qu’un nom. Le sudoers packagé par Debian active `%sudo ALL=(ALL:ALL) ALL`, et c’est cette règle qui donne le droit.' },
+					{ q: 'Que veut dire `%` dans `%sudo ALL=(ALL:ALL) ALL` ?', options: ['Un commentaire', 'Un joker pour n’importe quel utilisateur', 'Un nom de groupe suit', 'La règle ne demande pas de mot de passe'], answer: 2, why: '`%` désigne un groupe : la règle vaut pour chaque membre de `sudo`.' },
+					{ q: 'Avec cette règle, quel mot de passe tapent alice et bob ?', options: ['Le mot de passe de root', 'Leur propre mot de passe', 'Aucun mot de passe', 'Le mot de passe du groupe `sudo`'], answer: 1, why: 'Sans `NOPASSWD:`, sudo demande le mot de passe de l’utilisateur appelant lui-même, puis ne le redemande plus pendant 5 minutes.' }
+				]
+			},
+			{
+				title: 'Confronte la règle de backup',
+				questions: [
+					{ q: 'La règle donne `/usr/bin/rsync -a /srv/ /mnt/backup/`. Que doit taper `backup` pour qu’elle corresponde ?', options: ['N’importe quelle commande `rsync`', 'Toute commande qui commence par `rsync -a`', '`rsync` vers n’importe quelle cible sous `/mnt`', 'Exactement `rsync -a /srv/ /mnt/backup/`'], answer: 3, why: 'Quand une règle donne des arguments, ceux de l’utilisateur doivent leur correspondre.' },
+					{ q: '`sudo rsync -a /srv/ /tmp/x/` correspond-il ?', options: ['Non : `/tmp/x/` n’est pas `/mnt/backup/`', 'Oui : le programme est le même', 'Oui : `NOPASSWD:` accepte tous les arguments', 'Seulement après une demande de mot de passe'], answer: 0, why: 'La destination diffère, donc aucune règle ne correspond.' },
+					{ q: 'Qu’affiche alors sudo ?', options: ['`backup is not in the sudoers file.`', '`Sorry, user backup is not allowed to execute ...`', '`syntax error`', '`Permission denied`'], answer: 1, why: 'L’utilisateur a des règles, mais aucune ne correspond à cette ligne de commande : sudo cite la commande refusée.' },
+					{ q: 'Pourquoi la règle fixe-t-elle les arguments ?', options: ['sudo a besoin d’arguments pour trouver le binaire', 'La règle s’analyse plus vite', 'Pour que le compte fasse une seule chose précise en root', 'NOPASSWD ne marche qu’avec des arguments'], answer: 2, why: 'Comme la règle `deploy` de la CI, une règle aux arguments fixés donne une seule tâche en root, sans mot de passe root ni shell root.' }
+				]
+			},
+			{
+				title: 'Vérifie le fichier',
+				questions: [
+					{ q: 'Quelle commande vérifie `/etc/sudoers` et tous les fichiers qu’il inclut ?', options: ['`sudo -l`', '`visudo -c`', '`sudoedit /etc/sudoers`', '`cat /etc/sudoers`'], answer: 1, why: '`visudo -c` analyse le fichier principal et ses inclusions sans ouvrir d’éditeur.' },
+					{ q: 'Et un seul fichier ?', options: ['`visudo -c -f /etc/sudoers.d/backup`', '`visudo /etc/sudoers.d/backup -n`', '`sudo -c /etc/sudoers.d/backup`', '`bash -n /etc/sudoers.d/backup`'], answer: 0, why: 'Elle affiche `parsed OK`, ou la ligne et la colonne de l’erreur avec le code de sortie 1.' },
+					{ q: 'Tu oublies le deux-points après `NOPASSWD`. Qu’affiche `visudo -c -f` ?', options: ['`parsed OK`, le deux-points est facultatif', 'Un avertissement, puis il installe le fichier', 'Rien, et il sort avec 0', '`<fichier>:1:<colonne>: syntax error`'], answer: 3, why: 'L’accroche le montre : `bad.sudoers:1:67: syntax error`, code 1.' },
+					{ q: 'Tu as nommé le fichier `/etc/sudoers.d/backup.conf`. Que se passe-t-il ?', options: ['Il marche comme `backup`', 'visudo refuse de l’enregistrer', 'sudo le saute sans avertissement', 'sudo le lit en dernier'], answer: 2, why: 'sudo saute les noms de fichiers de `/etc/sudoers.d` qui contiennent un `.` ou finissent par `~`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -136,6 +174,28 @@ root ALL=(ALL:ALL) ALL
 			why: 'Le dernier champ d’une ligne passwd est le programme lancé à la connexion. `nologin` affiche un message et sort : le compte peut posséder des fichiers et faire tourner un démon, mais une connexion en `www-data` ne donne aucun shell. Le noyau traite l’UID 33 comme n’importe quel UID non nul.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Lire de vraies lignes de comptes sur ta machine et attraper une erreur de syntaxe sudoers avec `visudo` avant qu’elle te bloque, le tout sans root.',
+		steps: [
+			'Lis les lignes de la tâche sur ton propre système : `getent passwd www-data`, `getent group sudo` (sous Fedora, essaie `getent group wheel`), et `id`.',
+			'Regarde pourquoi sudo peut agir en root : `stat -c "%a %U %n" /usr/bin/sudo`. Sous macOS, utilise `ls -l /usr/bin/sudo`.',
+			'Dans un dossier de travail, écris une bonne règle : `printf \'backup ALL=(root) NOPASSWD: /usr/bin/rsync -a /srv/ /mnt/backup/\\n\' > good`.',
+			'Écris la même règle sans le deux-points après `NOPASSWD` : `printf \'backup ALL=(root) NOPASSWD /usr/bin/rsync -a /srv/ /mnt/backup/\\n\' > bad`.',
+			'Vérifie les deux avec `visudo -c -f good; echo $?` et `visudo -c -f bad; echo $?`. Si `visudo` est introuvable, appelle-le par `/usr/sbin/visudo`. Puis `rm good bad`.'
+		],
+		done: [
+			'`getent passwd www-data` affiche 7 champs qui finissent par `/usr/sbin/nologin`, si le compte existe sur ton système.',
+			'`stat` affiche `4755 root /usr/bin/sudo`.',
+			'`visudo -c -f good` affiche `good: parsed OK` et le code de sortie 0.',
+			'`visudo -c -f bad` affiche `bad:1:64: syntax error`, un `^` en fin de ligne, et le code de sortie 1.'
+		],
+		solution: [
+			'`4755`, c’est le bit setuid (4) plus `rwxr-xr-x` : sudo tourne avec l’UID de son propriétaire, 0, quel que soit celui qui le lance.',
+			'Le `^` est à la colonne 64, en fin de ligne, pas sous `NOPASSWD` : visudo n’abandonne qu’à la fin de la ligne, donc relis toute la ligne pour trouver le `:` manquant. Un fichier comme `bad` posé à la main dans `/etc/sudoers.d/` empêcherait sudo d’analyser ses règles.',
+			'`visudo -c -f` ne fait que lire le fichier, donc il marche sans root sur une copie de travail. Vérifie une règle ainsi avant de la mettre dans `/etc/sudoers.d/`, sous un nom sans point.'
+		]
+	},
 	recall: {
 		q: 'Donne deux raisons pour lesquelles une règle sudoers d’apparence correcte pour `deploy` peut être refusée.',
 		a: 'Le fichier est dans `/etc/sudoers.d/` avec un point dans son nom, comme `deploy.conf`, donc sudo le saute. Ou la règle fixe des arguments, comme `restart shop.service`, et la commande tapée en a d’autres, comme `restart shop`.'

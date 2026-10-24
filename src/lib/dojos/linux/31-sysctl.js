@@ -101,6 +101,44 @@ export default {
 			'`fs.file-nr` is: open file handles allocated (17099), allocated but unused (always 0 since Linux 2.6), and the maximum (file-max).',
 			'Create `/etc/sysctl.d/90-somaxconn.conf` with one line: `net.core.somaxconn = 8192`. Apply all files now with `sudo sysctl --system`, or this file only with `sudo sysctl -p /etc/sysctl.d/90-somaxconn.conf`. Check with `sysctl net.core.somaxconn` or `cat /proc/sys/net/core/somaxconn`.',
 			'Restart Redis afterwards. Its socket got its queue length when it called `listen()`, so the new value only reaches sockets that call `listen()` after the change.'
+		],
+		steps: [
+			{
+				title: 'Read the numbers',
+				questions: [
+					{ q: '`net.core.somaxconn = 4096`. What does 4096 limit?', options: ['The number of sockets one process can open', 'The longest accept queue a `listen()` call can get', 'The number of TCP connections the whole machine can hold', 'The size in bytes of each socket\'s receive buffer'], answer: 1, why: 'A `listen()` backlog larger than `somaxconn` is lowered to it. 4096 is the kernel default since Linux 5.4.' },
+					{ q: '`fs.file-max = 9223372036854775807`. Why is it so large?', options: ['The kernel sized it from 10% of memory', 'An admin raised it by hand after a crash', 'systemd wrote `LONG_MAX` into it at boot', 'It is unset, and the kernel prints the type\'s maximum'], answer: 2, why: 'systemd\'s `bump_file_max_and_nr_open` writes the largest `long` into `fs/file-max`. Without that write, the kernel would size it from memory.' },
+					{ q: '`fs.file-nr = 17099 0 9223372036854775807`. What is 17099?', options: ['Open file handles allocated right now', 'Files opened since boot', 'Free file handles left before the limit', 'Open files of the current shell'], answer: 0, why: 'The first number of `fs.file-nr` is the count of allocated file handles. The third is the maximum, the same as `fs.file-max`.' },
+					{ q: 'And the 0 in the middle of `fs.file-nr`?', options: ['Handles that failed to open since boot', 'Processes that hit their `RLIMIT_NOFILE`', 'Files waiting to be closed by the kernel', 'Allocated but unused handles, always 0 since Linux 2.6'], answer: 3, why: 'The kernel docs for `/proc/sys/fs` say Linux 2.6 and later always report 0 there. It is not an error: allocated handles match used handles.' }
+				]
+			},
+			{
+				title: 'Read the config directories',
+				questions: [
+					{ q: 'What applies the files in `/etc/sysctl.d` and `/usr/lib/sysctl.d` at boot?', options: ['The kernel, before it mounts the root filesystem', '`systemd-sysctl.service`, early in boot', 'The `sysctl` command, run by cron at startup', 'Each package\'s post-install script'], answer: 1, why: '`systemd-sysctl.service` reads the `sysctl.d` directories early in every boot and writes each key to `/proc/sys`.' },
+					{ q: 'Who is meant to put files in `/usr/lib/sysctl.d`?', options: ['You, for settings that must survive upgrades', 'The kernel, when a module loads', 'Packages, for their default settings', 'systemd, to record values set with `sysctl -w`'], answer: 2, why: 'Packages ship their settings in `/usr/lib/sysctl.d`. Your own files go in `/etc/sysctl.d` and override them.' },
+					{ q: 'A file in `/etc/sysctl.d` has the same name as one in `/usr/lib/sysctl.d`. What happens?', options: ['The `/etc` file replaces the vendor file', 'Both files are applied, `/usr/lib` last', 'systemd refuses to boot until one is removed', 'Only keys missing from the vendor file are used'], answer: 0, why: 'Same name means the file in `/etc` wins and the vendor file is not read. With different names, the latest name in sort order wins per key.' },
+					{ q: 'Which two-digit prefix range do the systemd docs recommend for files in `/etc`?', options: ['00 to 09', '10 to 40', '95 to 99', '60 to 90'], answer: 3, why: 'sysctl.d(5) recommends 10 to 40 for vendor files and 60 to 90 for local ones, so local files sort after vendor defaults.' }
+				]
+			},
+			{
+				title: 'Write the file',
+				questions: [
+					{ q: 'Why not just run `sysctl -w net.core.somaxconn=8192`?', options: ['`sysctl -w` only works on kernels older than 5.4', 'The value takes effect only after a reboot', 'The value is lost at the next reboot', '`sysctl -w` cannot write `net.*` keys'], answer: 2, why: 'A value written with `sysctl -w` lives in kernel memory only. After a reboot the kernel starts again from its compiled default.' },
+					{ q: 'Where does the file go?', options: ['`/etc/sysctl.d/90-somaxconn.conf`', '`/usr/lib/sysctl.d/90-somaxconn.conf`', '`/proc/sys/net/core/somaxconn.conf`', '`/run/sysctl.d/somaxconn`'], answer: 0, why: '`/etc/sysctl.d` is for local settings, and the `.conf` suffix and a 60 to 90 prefix match sysctl.d(5).' },
+					{ q: 'What is the line inside it?', options: ['`/proc/sys/net/core/somaxconn = 8192`', '`sysctl -w net.core.somaxconn=8192`', '`somaxconn: 8192`', '`net.core.somaxconn = 8192`'], answer: 3, why: 'A `sysctl.d` line is the dotted name, `=`, and the value. The dotted name maps to the file under `/proc/sys`.' },
+					{ q: 'The server runs Redis in a container. Does the host file raise `somaxconn` inside it?', options: ['Yes, every container reads the host\'s `/etc/sysctl.d`', 'No, each network namespace starts at 4096 on its own', 'Yes, but only after the container image is rebuilt', 'No, containers cannot have `net.*` parameters'], answer: 1, why: '`net.*` values are per network namespace, and a new one starts at `SOMAXCONN`. Set it per container, for example with `securityContext.sysctls`.' }
+				]
+			},
+			{
+				title: 'Apply it and check',
+				questions: [
+					{ q: 'Which command loads every `sysctl.d` file now, without a reboot?', options: ['`sudo sysctl --system`', '`sudo systemctl daemon-reload`', '`sudo sysctl -a`', '`sudo modprobe sysctl`'], answer: 0, why: '`sysctl --system` reads all the config directories in the same order as at boot. `sysctl -a` only lists values.' },
+					{ q: 'Which command applies only your new file?', options: ['`sudo sysctl -w /etc/sysctl.d/90-somaxconn.conf`', '`sudo sysctl -n /etc/sysctl.d/90-somaxconn.conf`', '`sudo sysctl -p /etc/sysctl.d/90-somaxconn.conf`', '`sudo cat /etc/sysctl.d/90-somaxconn.conf > /proc/sys`'], answer: 2, why: '`sysctl -p <file>` loads the settings from that one file.' },
+					{ q: 'How do you check the running value?', options: ['`grep somaxconn /etc/sysctl.d/*.conf`', '`cat /proc/sys/net/core/somaxconn`', '`systemctl status systemd-sysctl`', '`journalctl -k | grep somaxconn`'], answer: 1, why: 'The file under `/proc/sys`, or `sysctl net.core.somaxconn`, shows what the kernel uses now. The config file only says what you asked for.' },
+					{ q: 'Redis was already running before the change. What else do you do?', options: ['Nothing, its queue grows on the next connection', 'Run `sysctl --system` a second time', 'Reboot, because sockets read the value at boot', 'Restart Redis so it calls `listen()` again'], answer: 3, why: 'The cap is applied when `listen()` runs. A socket that is already listening keeps its old queue length.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -138,6 +176,28 @@ export default {
 			why: '`somaxconn` is stored per network namespace, and `preinit_net_sysctl` sets it to `SOMAXCONN` (4096) for each new one. The host write changed only the host namespace. Set it for the container, for example with `securityContext.sysctls` in a Kubernetes pod.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch the kernel cap a listen backlog with no error, make Redis warn about it, and write the file that keeps a value across reboots.',
+		steps: [
+			'Read the values: `sysctl net.core.somaxconn fs.file-max fs.file-nr`, then `cat /proc/sys/net/core/somaxconn`.',
+			'Ask for a backlog of 10000 and read what you got: `python3 -c \'import socket,subprocess; s=socket.socket(); s.bind(("127.0.0.1",8099)); s.listen(10000); print(subprocess.run(["ss","-lnt","sport = :8099"],capture_output=True,text=True).stdout)\'`.',
+			'Start Redis in a container whose network namespace has `somaxconn` at 128: `docker run --rm --sysctl net.core.somaxconn=128 redis:7-alpine sh -c \'redis-server --daemonize yes --logfile /tmp/r.log; sleep 1; grep -i backlog /tmp/r.log; cat /proc/sys/net/core/somaxconn\'`.',
+			'Run the same command without `--sysctl net.core.somaxconn=128`, then `cat /proc/sys/net/core/somaxconn` on the host.',
+			'Write the file that would set 8192 on every boot: `mkdir -p ~/sysctl-lab && printf \'net.core.somaxconn = 8192\\n\' > ~/sysctl-lab/90-somaxconn.conf`, then try it as a normal user: `sysctl -p ~/sysctl-lab/90-somaxconn.conf; sysctl net.core.somaxconn`.'
+		],
+		done: [
+			'In step 2, the `Send-Q` column of the `LISTEN` line shows 4096 (your `somaxconn`), not 10000, and Python printed no error.',
+			'In step 3, Redis logs "The TCP backlog setting of 511 cannot be enforced because /proc/sys/net/core/somaxconn is set to the lower value of 128", and the container reads 128.',
+			'In step 4, Redis logs no backlog warning, the container reads 4096, and the host value did not change.',
+			'In step 5, `sysctl -p` prints `permission denied on key "net.core.somaxconn", ignoring` (then echoes the line it read, `= 8192`), and the last `sysctl net.core.somaxconn` still prints 4096.'
+		],
+		solution: [
+			'For a listening socket, `ss -lnt` shows the backlog in `Send-Q`. The kernel lowered 10000 to `somaxconn` in `__sys_listen_socket`, and `listen()` returned 0.',
+			'`--sysctl` sets the value in the container\'s own network namespace. Without it, the namespace starts at `SOMAXCONN`, 4096, whatever the host has.',
+			'`sysctl -p` read your file and tried to write it, but writing `/proc/sys` needs root, so it ignored the key. On a machine you own, copy the file to `/etc/sysctl.d/90-somaxconn.conf`, run `sudo sysctl --system`, and check with `sysctl net.core.somaxconn`.'
+		]
+	},
 	recall: {
 		q: 'A program calls `listen(fd, 511)` while `net.core.somaxconn` is 128. What queue length does it get, and where do you put a value that survives a reboot?',
 		a: '128: the kernel caps the backlog in `__sys_listen_socket` with no error. To keep a new value, write `net.core.somaxconn = 4096` in a `.conf` file under `/etc/sysctl.d`, applied at boot by `systemd-sysctl.service` or now by `sysctl --system`.'

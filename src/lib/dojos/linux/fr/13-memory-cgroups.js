@@ -125,6 +125,44 @@ export default {
 			'Les pages du fichier ont été comptées au cgroup jusqu’à la limite de 50 MB. À chaque passage sur la limite, la récupération a écrit des pages sur le disque puis les a jetées : 955 fois, et la copie s’est terminée.',
 			'L’écriture de 100 MB dans `/dev/shm` affiche `Killed` avec le statut 137, et le fichier s’arrête à 49,2 MB. systemd écrit "A process of this unit has been killed by the OOM killer".',
 			'Les pages `tmpfs` n’ont pas de fichier sur disque derrière elles, et `MemorySwapMax=0` interdit le swap. La récupération n’a rien libéré, donc l’OOM killer a tourné dans le cgroup.'
+		],
+		steps: [
+			{
+				title: 'Lis la configuration',
+				questions: [
+					{ q: 'Que fixe `-p MemoryMax=50M` pour le scope ?', options: ['Un frein : `memory.high` à 50 MB', 'Une limite dure : `memory.max` à 50 MB', 'Une réservation : `memory.low` à 50 MB', 'Un plafond pour le swap seulement'], answer: 1, why: '`MemoryMax` est la limite dure. Quand l’usage l’atteint et que la récupération ne le fait pas baisser, le noyau lance l’OOM killer dans ce cgroup.' },
+					{ q: 'Pourquoi ajouter `-p MemorySwapMax=0` ?', options: ['Pour que les pages anonymes et `tmpfs` ne puissent pas quitter la RAM par le swap', 'Pour que l’écriture aille plus vite', 'Pour que le cache de pages ne compte pas', 'Pour que l’OOM killer ne tourne jamais'], answer: 0, why: 'Avec le swap à 0, les pages sans fichier derrière elles n’ont nulle part où aller. Le test devient net.' },
+					{ q: 'Quelles pages comptent dans `memory.current` ?', options: ['Seulement la mémoire anonyme', 'Seulement le cache de pages', 'La mémoire anonyme, le cache de pages avec le `tmpfs`, et la mémoire du noyau', 'Seulement ce que le processus a demandé avec `malloc`'], answer: 2, why: 'La doc cgroup v2 compte le cache de pages, la mémoire anonyme, les dentries, les inodes et les buffers de sockets. Le `tmpfs` compte comme cache de pages.' },
+					{ q: 'Quelle différence entre `~/big.bin` et `/dev/shm/big.bin` ?', options: ['Le second est compressé', 'Les deux sont sur disque, dans des dossiers différents', 'Le premier est en RAM, le second sur disque', 'Le premier est sur un disque, le second sur un `tmpfs`'], answer: 3, why: 'Ton répertoire personnel est sur un disque. `/dev/shm` est un `tmpfs` : ses fichiers n’existent qu’en mémoire.' }
+				]
+			},
+			{
+				title: 'Suis l’écriture sur disque',
+				questions: [
+					{ q: '`head` écrit 200 MB dans `~/big.bin` sous une limite de 50 MB. Où vont ces pages d’abord ?', options: ['Directement sur le disque, jamais en RAM', 'Dans le cache de pages, comptées au cgroup', 'Dans le swap', 'Dans la mémoire libre de l’hôte, comptées à personne'], answer: 1, why: 'Une page de fichier est comptée au cgroup qui l’a écrite en premier. `memory.stat` affichait `file 49397760` pendant l’exécution.' },
+					{ q: 'L’usage atteint 50 MB. Que fait le noyau d’abord ?', options: ['Il récupère dans le cgroup : écrit les pages sales, puis les jette', 'Il tue `head` tout de suite', 'Il laisse le cgroup dépasser la limite', 'Il fait échouer `write` avec ENOMEM'], answer: 0, why: 'Le noyau ne tue rien pour l’instant. Il écrit les pages de fichiers sales sur le disque et les jette.' },
+					{ q: '`memory.events` affiche `max 955`. Que vaut 955 ?', options: ['Le nombre d’OOM kills', 'Le nombre de MB écrits', 'Le nombre de fois où l’usage allait dépasser la limite', 'Le nombre de pages dans le swap'], answer: 2, why: 'Le champ `max` compte les passages sur la limite. Chacun s’est fini en récupération, pas en kill.' },
+					{ q: 'Pourquoi l’écriture sur disque finit-elle avec 0 ?', options: ['La limite ne s’applique pas à `head`', 'Le fichier était plus petit que la limite', 'Le swap a absorbé les pages en trop', 'À chaque passage sur la limite, la récupération a libéré des pages de fichiers'], answer: 3, why: 'Une fois écrites, les pages de fichiers ont une copie sur disque : la récupération peut les jeter. `oom_kill` est resté à 0.' }
+				]
+			},
+			{
+				title: 'Suis l’écriture en tmpfs',
+				questions: [
+					{ q: 'L’écriture de 100 MB dans `/dev/shm` affiche `Killed`. Quel statut le shell rapporte-t-il ?', options: ['137', '139', '1', '9'], answer: 0, why: 'SIGKILL est le signal 9. Un shell rapporte un processus tué par le signal N comme 128 + N.' },
+					{ q: 'Le fichier s’arrête à 49,2 MB. Pourquoi là ?', options: ['`/dev/shm` fait 49,2 MB', '`head` a abandonné à cette taille', 'Les pages comptées ont atteint la limite de 50 MB sans pouvoir être libérées', 'Le disque était plein'], answer: 2, why: 'Les pages `tmpfs` restent comptées au cgroup. À la limite, la récupération n’avait rien à libérer.' },
+					{ q: 'Pourquoi la récupération ne peut-elle pas jeter les pages `tmpfs` ?', options: ['`head` les verrouille', 'Elles n’ont pas de fichier sur disque derrière elles, et le swap est à 0', 'Elles appartiennent au noyau', 'Ce sont des huge pages'], answer: 1, why: 'Jeter une page `tmpfs` perdrait les données. Avec `MemorySwapMax=0`, le swap n’est pas une option non plus.' },
+					{ q: 'Quel compteur de `memory.events` monte pour cette exécution ?', options: ['Seulement `high`', 'Seulement `low`', 'Aucun : le kill n’est pas compté', '`oom_kill`'], answer: 3, why: 'Quand l’OOM killer choisit une victime parmi les processus du cgroup, `oom_kill` monte de 1.' }
+				]
+			},
+			{
+				title: 'Explique la différence',
+				questions: [
+					{ q: 'En une ligne, pourquoi l’une passe-t-elle ?', options: ['Les pages sur disque peuvent être réécrites puis jetées, pas les pages `tmpfs`', 'L’écriture sur disque était plus lente, la limite a suivi', 'Le fichier sur disque était plus petit', 'systemd relève la limite pour les fichiers du répertoire personnel'], answer: 0, why: 'La récupération libère les pages de fichiers qui ont une copie sur disque. Les pages `tmpfs` et anonymes ont besoin du swap, et le swap était à 0.' },
+					{ q: 'Un pod écrit 100 MB dans un emptyDir `medium: Memory` sous une limite de 50 MB. Que se passe-t-il ?', options: ['Le kubelet déplace les fichiers sur le disque', 'L’écriture passe, l’emptyDir ne compte pas', 'Le processus qui écrit est tué, comme dans le test `/dev/shm`', 'Le pod est évincé mais garde les fichiers'], answer: 2, why: 'Un emptyDir `medium: Memory` est un `tmpfs` : il compte dans la limite du pod comme `/dev/shm`.' },
+					{ q: 'Quel réglage aurait ralenti le processus au lieu de le tuer ?', options: ['`memory.low`', '`memory.high`', '`memory.swap.max`', '`memory.peak`'], answer: 1, why: 'Au-dessus de `memory.high`, les processus sont ralentis et doivent récupérer de la mémoire. Le dépasser n’appelle jamais l’OOM killer.' },
+					{ q: 'Le processus qui écrivait en `tmpfs` a été tué en plein travail. Que reste-t-il ?', options: ['Rien : le noyau supprime le fichier', 'Le fichier complet de 100 MB', 'Un fichier vide', 'Un fichier à moitié écrit, comme dans l’introduction avec Argo CD'], answer: 3, why: 'SIGKILL arrête le processus d’un coup. Le fichier reste à 49,2 MB, comme le binaire tronqué de l’introduction.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,25 @@ export default {
 			why: 'La doc cgroup v2 : au-dessus de la limite haute, "the processes of the cgroup are throttled and put under heavy reclaim pressure", et "Going over the high limit never invokes the OOM killer". Seul `memory.max` mène à un OOM kill.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Refaire les deux écritures du chapitre dans un conteneur Docker : le cache de pages survit à la limite, le `tmpfs` non.',
+		steps: [
+			'Écris 200 MB sur le disque du conteneur sous une limite de 50 MB sans swap, puis lis les compteurs : `docker run --rm -m 50m --memory-swap 50m alpine sh -c \'head -c 200m /dev/zero > /big.bin; echo rc=$?; grep -E "^(max|oom_kill) " /sys/fs/cgroup/memory.events; grep "^file " /sys/fs/cgroup/memory.stat\'`.',
+			'Écris 100 MB en `tmpfs` sous la même limite. `--shm-size` agrandit `/dev/shm`, pour que seule la limite mémoire puisse l’arrêter : `docker run --name cg-lab -m 50m --memory-swap 50m --shm-size 200m alpine sh -c \'head -c 100m /dev/zero > /dev/shm/big.bin\'`, puis `echo $?`.',
+			'Demande à Docker ce qui s’est passé : `docker inspect -f \'{{.State.OOMKilled}} {{.State.ExitCode}}\' cg-lab`. Puis fais le ménage avec `docker rm cg-lab`.'
+		],
+		done: [
+			'L’étape 1 affiche `rc=0`, un compteur `max` de quelques centaines, `oom_kill 0`, et une valeur `file` proche de 50 MB.',
+			'L’étape 2 affiche 137.',
+			'`docker inspect` affiche `true 137`.'
+		],
+		solution: [
+			'L’écriture sur disque remplit le cache de pages jusqu’à la limite, et chaque passage sur `memory.max` finit en récupération : le noyau écrit les pages sur le disque et les jette.',
+			'Les pages `tmpfs` n’ont pas de fichier derrière elles et le swap est à 0 : la récupération ne libère rien. L’OOM killer tourne dans le cgroup du conteneur.',
+			'À l’étape 2, même une commande shell après `head` peut être tuée : le fichier `tmpfs` reste compté à la limite, et le conteneur n’a plus de place. C’est pour ça que l’étape 3 interroge Docker de l’extérieur.'
+		]
+	},
 	recall: {
 		q: 'Que compte le `memory.current` d’un conteneur, et quand l’arrivée à `memory.max` finit-elle en code de sortie 137 ?',
 		a: 'La mémoire anonyme, le cache de pages y compris `tmpfs`, et la mémoire noyau. Atteindre `memory.max` lance d’abord la récupération. L’OOM killer n’envoie SIGKILL que si elle ne libère rien (pages anon ou `tmpfs`, pas de swap) : 128 + 9 = 137.'

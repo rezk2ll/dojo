@@ -137,6 +137,44 @@ export default {
 			'Default profile: `io_uring_setup` returns -1 with "Operation not permitted". No rule names it, so the default action returns `EPERM` and the call never runs.',
 			'Unconfined: it returns 3, a new file descriptor for the ring. The kernel ran the call.',
 			'With `--cap-add=SYS_ADMIN` it still returns `EPERM`. That capability unlocks the 26 calls of the `CAP_SYS_ADMIN` rule, and `io_uring_setup` is not one of them. Only a custom profile or `unconfined` lets it through.'
+		],
+		steps: [
+			{
+				title: 'Check the filter is on',
+				questions: [
+					{ q: 'The default run prints `Seccomp: 2`. What does 2 mean?', options: ['Two profiles are stacked', 'A seccomp filter is active', 'seccomp is in strict mode', 'The filter has blocked 2 calls so far'], answer: 1, why: 'proc_pid_status(5): 2 is filter mode. `Seccomp_filters: 1` says one filter is attached.' },
+					{ q: 'With `--security-opt seccomp=unconfined`, what do the two lines show?', options: ['`Seccomp: 2`, `Seccomp_filters: 0`', '`Seccomp: 1`, `Seccomp_filters: 1`', 'Both lines are missing', 'Both 0'], answer: 3, why: 'Unconfined means Docker attaches no filter, so the process has none.' },
+					{ q: 'When does Docker attach the default profile?', options: ['To every container, unless you pass `seccomp=unconfined`', 'Only to containers that run as root', 'Only when the image asks for it', 'Only on hosts with AppArmor'], answer: 0, why: 'Docker applies the profile to every container unless you opt out with `--security-opt seccomp=unconfined`.' },
+					{ q: 'A process in the container forks and runs `sh`. Does `sh` have the filter?', options: ['No, `execve` clears it', 'Only if `sh` is setuid', 'Yes, children keep it and it survives `execve`', 'Only until `sh` calls `prctl`'], answer: 2, why: 'seccomp(2): children are "constrained to the same system call filters as the parent", and filters are "preserved across a call to execve(2)".' }
+				]
+			},
+			{
+				title: 'Call it under the default profile',
+				questions: [
+					{ q: 'What does `libc.syscall(425, 8, buf)` return there?', options: ['-1 with "Operation not permitted"', '-1 with "Function not implemented"', '3, a file descriptor', '0, with nothing set up'], answer: 0, why: 'In this session it returned -1 and errno `EPERM` under the default profile.' },
+					{ q: 'Which rule in the profile produced that error?', options: ['A rule that names `io_uring_setup` with `errnoRet` `EPERM`', 'The `CAP_SYS_ADMIN` rule', 'The `clone3` rule', 'None: the default action, `SCMP_ACT_ERRNO` with `EPERM`'], answer: 3, why: 'No rule names `io_uring_setup`, so the call reaches `DefaultAction: ActErrno` with `EPERM`.' },
+					{ q: 'Did the kernel run any of `io_uring_setup`?', options: ['Yes, then undid it', 'Yes, but it skipped the capability checks', 'No, the filter answers before the call executes', 'Only the argument checks'], answer: 2, why: 'The filter runs on entry to the kernel, before the call. An `ERRNO` action returns the error and the call never runs.' },
+					{ q: 'Why does the profile leave `io_uring_setup` out?', options: ['It does not exist on x86-64', 'It was judged unsafe: moby/moby#46762 quotes "io_uring to be unsafe"', 'It needs `CAP_SYS_ADMIN`', 'It is too slow inside containers'], answer: 1, why: 'Since moby/moby#46762 in 2023, `io_uring_*` calls have no rule, citing containerd: "Security experts generally believe io_uring to be unsafe."' }
+				]
+			},
+			{
+				title: 'Call it unconfined',
+				questions: [
+					{ q: 'With `seccomp=unconfined`, what does the same call return?', options: ['-1 with `EPERM`', '3, a new file descriptor for the ring', '-1 with `ENOSYS`', 'The container fails to start'], answer: 1, why: 'With no filter, the kernel ran the call and returned the descriptor of the new ring.' },
+					{ q: 'What does that result prove?', options: ['The default profile, not the kernel, refused the call', 'The call needs root on the host', 'Python caches syscall results', 'The kernel lacks io_uring support'], answer: 0, why: 'Same kernel, same image, same code: only the filter changed between the two runs.' },
+					{ q: 'What else does `unconfined` open?', options: ['Only `io_uring_*`', 'Only calls that need a capability', 'Every call the default profile blocks, such as `keyctl` and `kexec_load`', 'Nothing, capabilities still block all of them'], answer: 2, why: '`unconfined` removes the whole filter, so the roughly 44 calls Docker blocks are back. Capability checks still apply, but not the filter.' },
+					{ q: 'In Kubernetes, a pod sets no `seccompProfile` and the kubelet has no `--seccomp-default`. What does it get?', options: ['Docker\'s default profile', 'A profile that blocks everything', '`RuntimeDefault`', '`Unconfined`'], answer: 3, why: 'Kubernetes runs pods `Unconfined` unless the pod sets `RuntimeDefault` or the kubelet runs with `--seccomp-default`.' }
+				]
+			},
+			{
+				title: 'Try CAP_SYS_ADMIN',
+				questions: [
+					{ q: 'With `--cap-add=SYS_ADMIN`, what does `io_uring_setup` return?', options: ['3, a file descriptor', '-1 with `ENOSYS`', '-1 with `EPERM`, as before', 'The container exits with `SIGSYS`'], answer: 2, why: 'The call is still in no rule, so the default action still answers `EPERM`.' },
+					{ q: 'What does `CAP_SYS_ADMIN` change in the profile?', options: ['It allows a list of 26 calls such as `mount`, `unshare` and `setns`', 'It switches the default action to allow', 'It removes the filter', 'Nothing, the profile ignores capabilities'], answer: 0, why: 'The rule with `Includes: Caps: CAP_SYS_ADMIN` adds those 26 calls. "The default seccomp profile will adjust to the selected capabilities".' },
+					{ q: 'What about `clone3` with `CAP_SYS_ADMIN`?', options: ['Still `ENOSYS`', 'Allowed: the `CAP_SYS_ADMIN` rule names it, and the `ENOSYS` rule excludes that capability', 'Blocked with `EPERM`', 'Killed with `SIGSYS`'], answer: 1, why: 'The `ENOSYS` rule has `Excludes: Caps: CAP_SYS_ADMIN`, and line 6 lists `clone3` in the allowed rule.' },
+					{ q: 'A service really needs io_uring. What lets the call through and keeps the rest of the filter?', options: ['`--cap-add=ALL`', '`--privileged` is the only way', 'Running the container as root', 'A custom profile that allows `io_uring_setup`'], answer: 3, why: 'Only a custom profile or `unconfined` lets it through, and a custom profile keeps every other rule.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -174,6 +212,29 @@ export default {
 			why: 'The `CAP_SYS_ADMIN` rule allows 26 calls such as `mount` and `unshare`. `io_uring_setup` is in none of the rules, so the default action still answers `EPERM`. In this session it failed the same way with the capability added.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'See the default profile answer `EPERM` and `ENOSYS`, then write a small profile of your own and watch it block one call.',
+		steps: [
+			'Check the filter: `docker run --rm alpine:3.20 grep Seccomp /proc/self/status`, then the same with `--security-opt seccomp=unconfined` before the image name.',
+			'Save a test that calls `io_uring_setup` (425) and `clone3` (435) on x86-64: `PY=\'import ctypes,os; libc=ctypes.CDLL(None,use_errno=True); b=ctypes.create_string_buffer(120); r=libc.syscall(425,8,b); print("io_uring_setup", r, os.strerror(ctypes.get_errno()) if r<0 else "fd"); r=libc.syscall(435,None,0); print("clone3", r, os.strerror(ctypes.get_errno()))\'`.',
+			'Run it three ways: `docker run --rm python:3.12-alpine python -c "$PY"`, then with `--security-opt seccomp=unconfined`, then with `--cap-add=SYS_ADMIN`.',
+			'Write a profile that allows everything except `mkdir`: `mkdir -p ~/seccomp-lab && cd ~/seccomp-lab && printf \'{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["mkdir","mkdirat"],"action":"SCMP_ACT_ERRNO"}]}\\n\' > no-mkdir.json`.',
+			'Use it: `docker run --rm --security-opt seccomp="$PWD/no-mkdir.json" alpine:3.20 sh -c \'mkdir /tmp/x; echo "exit $?"; touch /tmp/y && echo touch ok\'`.'
+		],
+		done: [
+			'Step 1 prints `Seccomp: 2` and `Seccomp_filters: 1`, then 0 and 0.',
+			'Default profile: `io_uring_setup -1 Operation not permitted` and `clone3 -1 Function not implemented`.',
+			'Unconfined: `io_uring_setup 3 fd`, and `clone3` fails with `Invalid argument`, the kernel\'s own answer to a NULL argument.',
+			'With `SYS_ADMIN`: `io_uring_setup` still says `Operation not permitted`, and `clone3` now says `Invalid argument`.',
+			'Your profile: `mkdir` fails with `Operation not permitted`, while `touch ok` prints.'
+		],
+		solution: [
+			'`EPERM` is the default action for calls with no rule. `ENOSYS` is the `errnoRet` of the `clone3` rule, so glibc falls back to `clone`.',
+			'`Invalid argument` comes from the kernel itself: the filter let `clone3` through and the kernel rejected the empty arguments. With `SYS_ADMIN`, the profile allows `clone3` but still has no rule for `io_uring_setup`.',
+			'A rule with `SCMP_ACT_ERRNO` and no `errnoRet` returns `EPERM`. Both `mkdir` and `mkdirat` are named because the program may use either one. Real profiles do the opposite: `SCMP_ACT_ERRNO` by default and an allowlist, like Docker\'s.'
+		]
+	},
 	recall: {
 		q: 'What does Docker\'s default seccomp profile return for a system call it does not name, and what does it return for `clone3`?',
 		a: '`EPERM` ("Operation not permitted"), the default action, without running the call. For `clone3` it returns `ENOSYS`, so glibc falls back to `clone` (the fix for moby/moby#42680 in July 2021).'

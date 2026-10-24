@@ -120,6 +120,44 @@ export default {
 			'`sudo findmnt --verify` vérifie le fichier. Ensuite `sudo systemctl daemon-reload`, comme le recommande fstab(5) sur un système systemd, puis `sudo mount /var/tmp`, qui lit le reste de la ligne dans fstab.',
 			'`findmnt /var/tmp` doit montrer `rw,nosuid,nodev,noexec` et la taille. Teste : copie `/bin/true` dedans et lance-le. Tu dois obtenir `Permission denied` et le code de sortie 126.',
 			'Ce qui était dans `/var/tmp` avant reste sur la racine, caché sous le nouveau montage jusqu’au démontage.'
+		],
+		steps: [
+			{
+				title: 'Remplis les champs',
+				questions: [
+					{ q: 'Dans quel ordre viennent les six champs de fstab ?', options: ['Point de montage, périphérique, type, options, ordre de fsck, dump', 'Périphérique, point de montage, type, options, dump, ordre de fsck', 'Type, périphérique, point de montage, options, dump, ordre de fsck', 'Périphérique, type, point de montage, options, ordre de fsck, dump'], answer: 1, why: 'fstab(5) : le périphérique, le point de montage, le type, les options, un drapeau pour dump et l’ordre de fsck.' },
+					{ q: 'Que mets-tu dans le champ périphérique pour un tmpfs ?', options: ['`/dev/shm`', 'L’UUID du disque racine', '`/dev/tmpfs0`', 'Juste `tmpfs`'], answer: 3, why: 'Un tmpfs vit en mémoire et n’a pas de périphérique bloc. Le champ vaut juste le mot `tmpfs`.' },
+					{ q: 'Que mets-tu dans les deux derniers champs ?', options: ['`0 0`', '`0 1`', '`1 1`', '`0 2`'], answer: 0, why: 'Il n’y a rien à sauvegarder ni à vérifier sur un système de fichiers en mémoire. `1` sert pour la racine, vérifiée en premier.' },
+					{ q: 'Comment écris-tu la taille de 2 GiB ?', options: ['`size=2GiB`', '`blocks=2g`', '`size=2g`', '`maxsize=2048`'], answer: 2, why: 'tmpfs accepte une option `size=` avec un suffixe `k`, `m` ou `g`.' }
+				]
+			},
+			{
+				title: 'Choisis les options',
+				questions: [
+					{ q: 'Quelle option empêche de lancer directement un programme depuis `/var/tmp` ?', options: ['`noexec`', '`ro`', '`nodev`', '`noatime`'], answer: 0, why: 'mount(8) : `noexec` veut dire « Do not permit direct execution of any binaries on the mounted filesystem ».' },
+					{ q: 'Quelle option fait ignorer le bit setuid au noyau ?', options: ['`nodev`', '`nosuid`', '`noexec`', '`nouser`'], answer: 1, why: '`nosuid` : « Do not honor set-user-ID and set-group-ID bits or file capabilities ». Le programme tournerait sous son appelant.' },
+					{ q: 'Quelle option rend inopérants les fichiers de périphérique ?', options: ['`nosuid`', '`noexec`', '`private`', '`nodev`'], answer: 3, why: '`nodev` : « Do not interpret character or block special devices on the filesystem ».' },
+					{ q: 'La ligne complète est donc...', options: ['`/var/tmp tmpfs tmpfs size=2g,nosuid,nodev,noexec 0 0`', '`tmpfs /var/tmp ext4 size=2g,nosuid,nodev,noexec 0 1`', '`tmpfs /var/tmp tmpfs size=2g,nosuid,nodev,noexec 0 0`', '`tmpfs /var/tmp tmpfs size=2g,ro,noexec 0 0`'], answer: 2, why: 'Périphérique `tmpfs`, point de montage `/var/tmp`, type `tmpfs`, la taille et les trois options, puis `0 0`.' }
+				]
+			},
+			{
+				title: 'Applique-la sans redémarrer',
+				questions: [
+					{ q: 'Que lances-tu d’abord, avant de monter quoi que ce soit ?', options: ['`sudo reboot`', '`sudo findmnt --verify`', '`sudo mount -a --fake`', '`sudo fsck /var/tmp`'], answer: 1, why: 'Une faute de frappe dans fstab peut bloquer le prochain démarrage sur un shell de secours. `findmnt --verify` vérifie le fichier avant.' },
+					{ q: 'Que recommande fstab(5) après une modification du fichier sur un système systemd ?', options: ['`sudo systemctl daemon-reload`', '`sudo systemctl restart fstab`', '`sudo update-fstab`', 'Rien : systemd le relit à chaque montage'], answer: 0, why: 'fstab(5) : « it’s recommended to use systemctl daemon-reload after fstab modification ».' },
+					{ q: 'Quelle commande le monte avec les options de la ligne ?', options: ['`sudo mount --fake /var/tmp`', '`sudo mount -o remount /var/tmp`', '`sudo mount --bind /var/tmp /var/tmp`', '`sudo mount /var/tmp`'], answer: 3, why: 'Avec seulement le point de montage, `mount` lit le reste de la ligne dans fstab.' },
+					{ q: 'Que deviennent les fichiers déjà présents dans `/var/tmp` ?', options: ['Ils sont copiés dans le tmpfs', 'Ils sont supprimés', 'Ils restent sur la racine, cachés jusqu’au démontage', 'Ils partent dans `/tmp`'], answer: 2, why: 'Un montage recouvre le répertoire. Les anciens fichiers sont toujours sur le disque, dessous.' }
+				]
+			},
+			{
+				title: 'Vérifie les options',
+				questions: [
+					{ q: 'Quelle commande montre les options réelles du montage ?', options: ['`cat /etc/fstab`', '`findmnt /var/tmp`', '`ls -ld /var/tmp`', '`df -i /var/tmp`'], answer: 1, why: 'fstab, c’est ce que tu as demandé. `findmnt` montre le montage en place : `rw,nosuid,nodev,noexec` et la taille.' },
+					{ q: 'Tu copies `/bin/true` dans `/var/tmp` et tu le lances. Que dois-tu voir ?', options: ['`Permission denied` et le code de sortie 126', 'Rien, et le code de sortie 0', '`Read-only file system`', '`Operation not permitted` et le code 1'], answer: 0, why: '`execve` renvoie `EACCES` sur un montage noexec, et bash renvoie 126 pour une commande trouvée mais pas exécutable.' },
+					{ q: 'Un utilisateur lance ensuite `sh /var/tmp/script.sh`. Que se passe-t-il ?', options: ['`Permission denied`, comme `./script.sh`', 'Le noyau tue `sh`', 'Il tourne seulement si le script n’est pas setuid', 'Le script tourne'], answer: 3, why: '`execve` lance `/bin/sh` depuis le montage racine, et `sh` ne fait que lire le script. `noexec` ne bloque pas ça.' },
+					{ q: 'Un collègue pense que `noexec` bloque aussi `python3 /var/tmp/x.py`. Est-ce le cas ?', options: ['Oui : `noexec` bloque tout programme qui lit le fichier', 'Oui, mais seulement pour les scripts en mode `+x`', 'Non : python3 vit sur un autre montage et ne fait que lire le fichier', 'Non : `noexec` ne s’applique qu’aux fichiers setuid'], answer: 2, why: '`noexec` est vérifié à l’`execve`, pour le fichier exécuté. Ici ce fichier est `python3`, sur le montage racine, et le script est ouvert comme des données.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,29 @@ export default {
 			why: 'Dans `bprm_fill_uid`, `mnt_may_suid()` est faux sur un montage nosuid, donc la fonction s’arrête avant de prendre l’UID effectif du propriétaire du fichier. Le programme tourne, sans privilège en plus.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Appliquer la ligne fstab de la tâche dans un conteneur jetable, puis voir `noexec` et un montage bind en lecture seule à l’œuvre.',
+		steps: [
+			'Lance un conteneur qui a le droit de monter (rien ne change sur ton hôte) : `docker run --rm -it --privileged debian:12-slim bash`.',
+			'Ajoute la ligne et vérifie le fichier : `echo "tmpfs /var/tmp tmpfs size=2g,nosuid,nodev,noexec 0 0" >> /etc/fstab`, puis `findmnt --verify`.',
+			'Monte-le depuis fstab et lis les options en place : `mount /var/tmp`, puis `findmnt /var/tmp`.',
+			'Essaie d’y lancer du code : `cp /bin/true /var/tmp/true; /var/tmp/true; echo $?`. Puis `printf \'#!/bin/sh\\necho hello\\n\' > /var/tmp/hello.sh; chmod +x /var/tmp/hello.sh`, et lance `/var/tmp/hello.sh` puis `sh /var/tmp/hello.sh`.',
+			'Crée une seconde vue en lecture seule : `mkdir /ro; mount --bind /var/tmp /ro; mount -o remount,bind,ro /ro`. Lance `touch /ro/x`, `touch /var/tmp/y`, `ls /ro`, puis sors avec `exit`.'
+		],
+		done: [
+			'`findmnt --verify` affiche `Success, no errors or warnings detected`.',
+			'`findmnt /var/tmp` montre `rw,nosuid,nodev,noexec` et `size=2097152k`.',
+			'`/var/tmp/true` affiche `Permission denied` et `echo $?` affiche `126`, alors que `sh /var/tmp/hello.sh` affiche `hello`.',
+			'`touch /ro/x` échoue avec `Read-only file system`, et `ls /ro` liste le `y` créé par `/var/tmp`.'
+		],
+		solution: [
+			'`--privileged` donne au conteneur le droit d’appeler `mount`. Sans lui, `mount` échoue avec `Permission denied`.',
+			'`2g` s’affiche comme `2097152k` : 2 × 1024 × 1024 KiB.',
+			'Le script en mode `-rwxr-xr-x` échoue quand même lancé directement : le drapeau du montage l’emporte sur le mode du fichier à l’`execve`. `sh` vit sur le montage racine et lit le script comme des données.',
+			'`findmnt -o TARGET,OPTIONS /ro` montre `ro` sur `/ro` alors que `/var/tmp` reste en `rw` : le drapeau appartient au montage, pas au système de fichiers.'
+		]
+	},
 	recall: {
 		q: 'Un script sur un montage `noexec` a le mode `-rwxr-xr-x`. Que font `./script.sh` et `sh script.sh`, et pourquoi ?',
 		a: '`./script.sh` échoue avec `Permission denied` et le code 126 : l’ouverture pour exécution voit `MNT_NOEXEC` par `path_noexec` et renvoie `EACCES`. `sh script.sh` tourne : `execve` lance `/bin/sh` depuis un autre montage, qui lit le script comme des données.'

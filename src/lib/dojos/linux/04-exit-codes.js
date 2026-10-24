@@ -87,6 +87,44 @@ func ExitStatus(status unix.WaitStatus) int {
 			'127: the command was not found, for example a typo in `command:` or a binary missing from the image. 126: the file was found but could not be run. Captured in this session with bash: a script with mode 664 gives `Permission denied` and 126, `./nope` gives 127.',
 			'137 = 128 + 9: SIGKILL. With reason `OOMKilled`, the container went over its memory limit and the OOM killer sent the signal.',
 			'143 = 128 + 15: SIGTERM, the default stop signal of containerd and CRI-O when Kubernetes stops a Pod. 139 = 128 + 11: SIGSEGV, an invalid memory reference in the program.'
+		],
+		steps: [
+			{
+				title: 'Sort the codes',
+				questions: [
+					{ q: 'Which of the seven codes encode a death by signal?', options: ['127 and 126', '137, 143 and 139', 'Only 137', '1, 127 and 126'], answer: 1, why: 'Codes above 128 follow the 128 + N rule. 127 and 126 are below it and come from the shell.' },
+					{ q: 'Which codes mean the command never started?', options: ['127 and 126', '0 and 1', '137 and 143', '139 and 1'], answer: 0, why: 'bash(1): 127 is "not found", 126 is "found but is not executable".' },
+					{ q: 'Which code did the program choose itself, by calling `exit()`?', options: ['137', '143', '139', '1'], answer: 3, why: '1 is below 126 and is not a shell code, so it is the program\'s own failure code.' },
+					{ q: 'Why can a process killed by a signal still show a single exit code?', options: ['The process calls `exit(128 + N)` in its handler', 'The kernel writes 137 into the process', 'The runtime turns "killed by signal N" into 128 + N', 'Kubernetes guesses it from the logs'], answer: 2, why: 'runc\'s `ExitStatus()` returns 128 plus the signal number when `Signaled()` is true.' }
+				]
+			},
+			{
+				title: 'Read 0 and 1',
+				questions: [
+					{ q: 'What does 0 mean?', options: ['The job was skipped', 'Success', 'The Pod was evicted', 'The program printed nothing'], answer: 1, why: '0 is the success code. Everything else is some kind of failure.' },
+					{ q: 'What does 1 mean in general?', options: ['A failure, in the program\'s own terms', 'The command named in `command:` was not found', 'SIGHUP, signal 1', 'The memory limit was hit'], answer: 0, why: 'Below 126, the meaning belongs to the program. Read its own man page.' },
+					{ q: 'For `grep`, what does exit code 1 mean?', options: ['An error occurred', 'The file was not found', 'No lines were selected', 'Too many matches'], answer: 2, why: 'grep(1): 1 means "no lines were selected". 2 means "an error occurred".' },
+					{ q: 'Why is `exit 300` not a way to report a custom code?', options: ['Bash refuses values above 255', 'The kernel turns it into SIGKILL', 'It is reported as 255', 'Only the low 8 bits survive: 44'], answer: 3, why: '300 is 256 + 44, and `WEXITSTATUS` keeps the low 8 bits.' }
+				]
+			},
+			{
+				title: 'Read 127 and 126',
+				questions: [
+					{ q: 'A Pod ended with 127. What is the likely cause?', options: ['A typo in `command:`, or a missing binary', 'The file exists in the image but is not executable', 'The container ran out of memory and was killed', 'The node was drained'], answer: 0, why: '127 means the command was not found.' },
+					{ q: 'A Pod ended with 126. What is the likely cause?', options: ['The binary is missing from the image', 'The process got SIGTERM', 'The file was found but could not be run', 'The program crashed on a bad pointer'], answer: 2, why: 'bash(1): "found but is not executable" gives 126.' },
+					{ q: 'How did the chapter reproduce 126 in bash?', options: ['`./nope`, a path that does not exist at all', 'A mode 664 script: `Permission denied`', '`exit 126` written at the end of a script', '`kill -126` on a process'], answer: 1, why: 'Mode 664 has no execute bit, so the shell finds the file but cannot run it.' },
+					{ q: 'Do you need the program\'s logs to explain 127 or 126?', options: ['Yes, the program writes the reason', 'Yes, only the logs show the signal', 'Only for 126', 'No: the program never started'], answer: 3, why: 'These codes say the command never ran, before you read any of its logs.' }
+				]
+			},
+			{
+				title: 'Read the signal codes',
+				questions: [
+					{ q: '137 with reason `OOMKilled`. What happened?', options: ['The program called `exit(137)`', 'SIGTERM during a normal stop of the Pod', 'SIGKILL from the OOM killer', 'A segmentation fault'], answer: 2, why: '137 - 128 = 9, SIGKILL. The `OOMKilled` reason says the memory limit sent it.' },
+					{ q: '143. What happened?', options: ['SIGTERM, sent when Kubernetes stops a Pod', 'SIGKILL after the grace period timed out', 'An invalid memory reference in the program', 'The command was not found'], answer: 0, why: '143 - 128 = 15, SIGTERM. containerd and CRI-O send it when a Pod is stopped.' },
+					{ q: '139. What happened?', options: ['SIGKILL from the OOM killer at the memory limit', 'SIGTERM during a rolling update', 'The file was not executable', 'SIGSEGV, an invalid memory reference'], answer: 3, why: '139 - 128 = 11, SIGSEGV.' },
+					{ q: 'Why does Kubernetes add a `reason` next to 137?', options: ['137 means a different signal in each container runtime', 'A program can call `exit(137)` itself', 'The exit code is lost after a restart', 'Only the reason says which container it was'], answer: 1, why: 'The integer cannot tell a real SIGKILL from `exit(137)`. The reason says what sent the signal.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -124,6 +162,29 @@ func ExitStatus(status unix.WaitStatus) int {
 			why: 'wait(2): `WEXITSTATUS` keeps "the least significant 8 bits" of the value. 256 is 1 0000 0000 in binary, so the low 8 bits are all 0, and the shell reports success.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Make a shell produce each exit code from the task, and read it with `echo $?`.',
+		steps: [
+			'Make a scratch folder: `mkdir -p ~/exit-lab && cd ~/exit-lab`. Run each command below, then `echo $?` right after it.',
+			'Exit codes the program picks: `bash -c \'exit 300\'`, `bash -c \'exit 256\'`, `grep -q nothing-here /etc/hosts`, `grep -q x /nonexistent`.',
+			'Commands that never start: `./nope`, then `printf \'echo hi\\n\' > run.sh && chmod 664 run.sh && ./run.sh`.',
+			'Deaths by signal: `sleep 60 & kill -KILL $!; wait $!`, then the same with `-TERM` and with `-SEGV`.',
+			'A fake: `bash -c \'exit 137\'`.'
+		],
+		done: [
+			'`exit 300` gives 44 and `exit 256` gives 0.',
+			'The two `grep` commands give 1 and 2.',
+			'`./nope` gives 127 and `./run.sh` gives `Permission denied` and 126.',
+			'`-KILL`, `-TERM` and `-SEGV` give 137, 143 and 139, and `exit 137` also gives 137.'
+		],
+		solution: [
+			'Only the low 8 bits of `exit()` reach the parent: 300 is 256 + 44.',
+			'grep uses 1 for "no lines were selected" and 2 for "an error occurred".',
+			'127 is not found, 126 is found but not executable. A signal N gives 128 + N: 9, 15 and 11 give 137, 143 and 139.',
+			'`exit 137` shows the same integer as a real SIGKILL. That is why Kubernetes adds a `reason` field.'
+		]
+	},
 	recall: {
 		q: 'A container shows exit code 137. What happened to the process, and how is 137 computed?',
 		a: 'It was killed by signal 9, SIGKILL, and never called `exit()`. runc and bash report a death by signal N as 128 + N, so 128 + 9 = 137. SIGTERM gives 143.'

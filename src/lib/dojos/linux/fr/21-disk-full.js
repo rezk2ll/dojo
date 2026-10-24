@@ -134,6 +134,44 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 			'`lsof +L1` affiche une ligne qui finit par `/dev/shm/big.log (deleted)`, avec SIZE `524288000`, NLINK `0` et FD `3w` (descripteur 3, ouvert en écriture). La colonne COMMAND dit `sleep`, qui a hérité du descripteur 3 du sous-shell.',
 			'`: > /proc/<pid>/fd/3` tronque le fichier à travers le descripteur ouvert. `df -h` redescend à `248K` utilisés alors que `sleep` tourne encore, et lsof affiche maintenant SIZE `0`.',
 			'Sur un vrai serveur, c’est souvent un démon dont quelqu’un a supprimé le log à la main. Le redémarrer, ou lui envoyer le signal qui lui fait rouvrir ses logs, ferme l’ancien descripteur et libère les blocs.'
+		],
+		steps: [
+			{
+				title: 'Prépare le fichier retenu',
+				questions: [
+					{ q: 'Pourquoi la tâche utilise-t-elle `/dev/shm` ?', options: ['C’est le seul endroit où `rm` garde les blocs', 'Tu peux y écrire sans être root', 'Il n’a pas d’inodes, seuls les blocs comptent', 'Il n’apparaît jamais dans `df`'], answer: 1, why: 'La consigne demande de reproduire l’accroche sans être root. Tout utilisateur peut écrire dans `/dev/shm`, donc tu peux le remplir et y supprimer toi-même.' },
+					{ q: 'Quelle commande crée le fichier de 500 MB ?', options: ['`touch -s 500M /dev/shm/big.log`', '`du -c 500M /dev/shm/big.log`', '`head -c 500M /dev/zero > /dev/shm/big.log`', '`df --create 500M /dev/shm/big.log`'], answer: 2, why: '`head -c 500M` copie 500 MB de zéros depuis `/dev/zero` dans le nouveau fichier.' },
+					{ q: 'Que fait `(exec 3>>/dev/shm/big.log; sleep 300) &` ?', options: ['Ouvre le fichier sur le descripteur 3 et le garde ouvert pendant `sleep`', 'Écrit le fichier 3 fois, puis attend 300 secondes', 'Verrouille le fichier pour que `rm` ne puisse pas le supprimer', 'Copie le fichier vers le descripteur 3 et le ferme'], answer: 0, why: '`exec 3>>` ouvre le fichier en ajout sur le descripteur 3. `sleep` en hérite et le garde ouvert 300 secondes.' },
+					{ q: 'Tu lances maintenant `rm /dev/shm/big.log`. Qu’est-ce que `rm` a retiré ?', options: ['L’inode et tous ses blocs', 'Seulement les blocs, le nom reste', 'Le descripteur ouvert dans le processus', 'Le nom, ce qui fait tomber le compteur de liens à 0'], answer: 3, why: '`rm` retire une entrée de répertoire. D’après unlink(2), le fichier « will remain in existence until the last file descriptor referring to it is closed ».' }
+				]
+			},
+			{
+				title: 'Compare du et df',
+				questions: [
+					{ q: 'Après `rm`, qu’affiche `du -sh /dev/shm` dans l’essai ?', options: ['`501M`', '`248K`', '`0`', '`500M`'], answer: 1, why: '`du` parcourt l’arbre des répertoires. Le fichier n’a plus de nom, donc `du` ne peut pas le compter.' },
+					{ q: 'Et `df -h /dev/shm` ?', options: ['Toujours `501M` utilisés', '`248K` utilisés, comme `du`', 'Une erreur, puisque le fichier a disparu', '`0` utilisé et 100 % libre'], answer: 0, why: '`df` demande au système de fichiers combien de blocs sont utilisés. Les blocs sont toujours alloués à l’inode ouvert.' },
+					{ q: 'Pourquoi `du` et `df` ne sont-ils pas d’accord ?', options: ['`df` garde ses chiffres en cache quelques minutes', '`du` arrondit les petits fichiers à zéro', '`df` compte les blocs utilisés, `du` seulement les fichiers qu’il atteint par leur nom', '`du` saute les fichiers des autres utilisateurs'], answer: 2, why: 'Un fichier supprimé mais encore ouvert a des blocs et plus de nom. Seul `df` le voit.' },
+					{ q: 'Lancer `sync` maintenant...', options: ['Libère les 500 MB d’un coup', 'Ne change rien : le processus garde le fichier', 'Fait afficher 501M à `du` aussi', 'Ferme le descripteur 3 de `sleep`'], answer: 1, why: 'La place est retenue par un descripteur ouvert, pas par des écritures en attente. Seul fermer ou tronquer le fichier la rend.' }
+				]
+			},
+			{
+				title: 'Trouve qui le garde',
+				questions: [
+					{ q: 'Quelle commande liste les fichiers ouverts qui ont été supprimés ?', options: ['`df -i`', '`du --deleted`', '`ls -la /dev/shm`', '`lsof +L1`'], answer: 3, why: 'D’après lsof(8), `+L1` sert à « select open files that have been unlinked » : compteur de liens sous 1.' },
+					{ q: 'La ligne de lsof finit par `/dev/shm/big.log (deleted)`. Que te dit NLINK `0` ?', options: ['Plus aucun nom ne pointe vers l’inode', 'Le fichier est vide', 'Aucun processus n’a le fichier ouvert', 'Le fichier est un lien physique'], answer: 0, why: 'NLINK est le compteur de liens. 0 veut dire que `rm` a retiré le dernier nom, et seul le descripteur ouvert garde l’inode en vie.' },
+					{ q: 'La colonne COMMAND dit `sleep`, pas `bash`. Pourquoi ?', options: ['`sleep` a ouvert le fichier lui-même', 'lsof montre toujours le processus le plus jeune', '`sleep` a hérité du descripteur 3 du sous-shell', 'Le sous-shell s’est renommé en `sleep`'], answer: 2, why: 'Un enfant reçoit des copies des descripteurs de son parent. Le sous-shell a ouvert le descripteur 3, puis `sleep` en a hérité.' },
+					{ q: 'La colonne FD dit `3w`. Qu’est-ce que ça veut dire ?', options: ['3 écrivains partagent le fichier', 'Descripteur 3, ouvert en écriture', 'Le fichier a été écrit 3 fois', 'Le descripteur 3 attend un verrou'], answer: 1, why: 'lsof affiche le numéro du descripteur, puis le mode d’accès : `w` pour l’écriture.' }
+				]
+			},
+			{
+				title: 'Rends la place',
+				questions: [
+					{ q: 'Comment libérer les blocs sans tuer `sleep` ?', options: ['`: > /proc/<pid>/fd/3`', '`rm /proc/<pid>/fd/3`', '`touch /dev/shm/big.log`', '`kill -STOP <pid>`'], answer: 0, why: 'Le fichier reste joignable par `/proc/<pid>/fd/3`. Le tronquer par ce chemin libère les blocs, et le descripteur reste ouvert.' },
+					{ q: 'Après la troncature, qu’affiche `df -h /dev/shm` ?', options: ['Toujours `501M` utilisés jusqu’à la fin de `sleep`', '`248K` utilisés', 'Une erreur : le descripteur est fermé', '`0` utilisé'], answer: 1, why: 'Dans l’essai, `df` est redescendu à `248K` utilisés, processus toujours en vie, et lsof affichait SIZE `0`.' },
+					{ q: 'Sur un vrai serveur, un démon garde un log que quelqu’un a supprimé à la main. Quelle est la correction habituelle ?', options: ['Lancer `fsck` pour récupérer les blocs orphelins', 'Supprimer les vieux logs `.gz` à côté', 'Attendre le prochain redémarrage', 'Le redémarrer, ou lui envoyer le signal qui lui fait rouvrir ses logs'], answer: 3, why: 'Fermer l’ancien descripteur libère les blocs. Un signal de réouverture le fait sans coupure.' },
+					{ q: 'Un programme ne sait pas fermer son log sur demande. Quelle option de logrotate convient ?', options: ['`compress`', '`copytruncate`', '`delaycompress`', '`missingok`'], answer: 1, why: '`copytruncate` copie le log et le tronque sur place, pour un programme qui « cannot be told to close its logfile ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,27 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 			why: 'Créer un fichier demande un inode libre, et open(2) renvoie ENOSPC quand le périphérique « has no room for the new file ». Avec 60 % des blocs libres, ni un fichier supprimé ouvert ni la réserve ne l’expliquent. `df -i` montre IUse 100 %.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir les deux autres causes de `No space left on device` : plus d’inodes, et la réserve de root.',
+		steps: [
+			'Lance un conteneur avec un tout petit tmpfs limité à 200 inodes : `docker run --rm -it --tmpfs /data:size=10m,nr_inodes=200 alpine:3.20 sh`.',
+			'Dedans, regarde les deux chiffres : `df -h /data` et `df -i /data`.',
+			'Remplis les inodes avec des fichiers vides : `i=0; while touch /data/f$i 2>/dev/null; do i=$((i+1)); done; echo $i`. Puis essaie `touch /data/x`, et relance `df -h /data` et `df -i /data`. Sors avec `exit`.',
+			'De retour sur ton portable, dans un dossier de travail, crée une image ext4 de 100 MB (pas besoin de root, rien n’est monté) : `truncate -s 100M disk.img && mkfs.ext4 -q -F disk.img`.',
+			'Lis la réserve avec `tune2fs -l disk.img | grep -E "^(Block count|Reserved block count)"`, baisse-la avec `tune2fs -m 1 disk.img`, relis-la, puis `rm disk.img`. Sur certaines distributions `tune2fs` est dans `/usr/sbin` : appelle-le par ce chemin s’il est introuvable.'
+		],
+		done: [
+			'`touch /data/x` échoue avec `No space left on device` alors que `df -h /data` montre toujours les 10 MB libres.',
+			'`df -i /data` montre les 200 inodes utilisés, 100 %.',
+			'L’image annonce `Reserved block count: 1280` sur `Block count: 25600` (5 %), puis 256 après `tune2fs -m 1`.'
+		],
+		solution: [
+			'La boucle s’arrête à 199 fichiers : le répertoire racine de `/data` prend le 200e inode.',
+			'Les fichiers vides n’utilisent aucun bloc, seulement des inodes, d’où `df -h` qui reste à 0 utilisé. `df -i` est la seule commande qui montre la cause.',
+			'1280, c’est 5 % de 25600, la valeur par défaut de `mke2fs`. `tune2fs -m 1` la passe à 1 %, le réglage que tu ferais sur un disque de données où aucun démon root n’a besoin de cette place.'
+		]
+	},
 	recall: {
 		q: 'Tu as supprimé un gros log, `du` trouve bien moins que `df`, et le disque reste plein. Où est la place, et quelle commande la retrouve ?',
 		a: 'Un processus garde le fichier supprimé ouvert, donc ses blocs restent pris jusqu’à la fermeture du dernier descripteur. `lsof +L1` liste les fichiers ouverts dont le compteur de liens vaut 0, marqués `(deleted)`.'

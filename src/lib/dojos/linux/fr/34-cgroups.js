@@ -108,6 +108,44 @@ export default {
 			'Pour comparer, le conteneur `--cpus 0.5 --memory 256m` de la machine où ce chapitre a été écrit affichait `50000 100000` et `268435456`, dans `/sys/fs/cgroup/system.slice/docker-<id>.scope`. `systemctl show` sur ce scope donnait `CPUQuotaPerSecUSec=500ms` et `MemoryMax=268435456`.',
 			'Le drop-in, dans `/etc/systemd/system/myapp.service.d/limits.conf` : `[Service]`, puis `CPUQuota=150%` et `MemoryMax=512M`. Lance `systemctl daemon-reload`, redémarre le service, puis vérifie `cpu.max` sous `/sys/fs/cgroup/system.slice/myapp.service`.',
 			'`systemd-cgls /system.slice/myapp.service` liste les processus de ce cgroup, comme il listait `1786 sleep 300` pour le scope du conteneur.'
+		],
+		steps: [
+			{
+				title: 'Prédis les valeurs',
+				questions: [
+					{ q: 'Quel est le format de `cpu.max` ?', options: ['Un pourcentage d’un CPU', 'Le quota puis la période, en microsecondes', 'La période puis le quota, en millisecondes', 'Un nombre de CPU, comme `1.5`'], answer: 1, why: '`cpu.max` vaut `$MAX $PERIOD` en microsecondes, avec `max 100000` par défaut.' },
+					{ q: 'Que contiendra donc `cpu.max` pour `--cpus 1.5` ?', options: ['`1.5 100000`', '`100000 150000`', '`150000 100000`', '`max 150000`'], answer: 2, why: 'La doc de Docker dit que `--cpus="1.5"` équivaut à une période de 100000 et un quota de 150000 : 150 ms de CPU par période de 100 ms.' },
+					{ q: 'Que contiendra `memory.max` pour `--memory 512m` ?', options: ['`536870912`', '`512000000`', '`512m`', '`524288`'], answer: 0, why: '`m` veut dire Mio, et `memory.max` compte des octets : 512 × 1024 × 1024 = 536870912.' },
+					{ q: 'Quelle partie du système applique ces nombres une fois écrits ?', options: ['Le démon Docker, qui surveille le conteneur', 'containerd, avec un thread de surveillance', 'systemd, qui redémarre le scope quand il dépasse', 'Le noyau, qui lit les fichiers du cgroup'], answer: 3, why: 'Aucun démon ne surveille le conteneur. L’ordonnanceur arrête le groupe à son quota, et l’OOM killer se lance dans le groupe à sa limite mémoire.' }
+				]
+			},
+			{
+				title: 'Trouve le cgroup',
+				questions: [
+					{ q: '`cat /proc/<pid>/cgroup` affiche `0::/system.slice/docker-<id>.scope`. Où est le dossier ?', options: ['`/proc/<pid>/system.slice/docker-<id>.scope`', '`/sys/fs/cgroup/system.slice/docker-<id>.scope`', '`/var/lib/docker/cgroups/<id>`', '`/etc/systemd/system/docker-<id>.scope`'], answer: 1, why: 'cgroup v2 est un seul système de fichiers monté sur `/sys/fs/cgroup`, et le chemin de `/proc/<pid>/cgroup` part de là.' },
+					{ q: 'Pourquoi le cgroup du conteneur est-il un « scope » systemd ?', options: ['Un scope contient des processus lancés hors de systemd', 'Les scopes sont les seuls cgroups qui acceptent des limites', 'Docker lance le conteneur comme un service systemd', 'Les scopes sont plus rapides que les slices'], answer: 0, why: 'Une slice regroupe d’autres unités, et un scope contient des processus que systemd n’a pas lancés lui-même, comme un conteneur Docker.' },
+					{ q: 'Pourquoi le processus du conteneur est-il dans une feuille de l’arbre, et pas dans `system.slice` ?', options: ['Les feuilles reçoivent plus de CPU que les cgroups intermédiaires', 'Le noyau ne lit les limites que dans les feuilles', 'Docker ne peut pas écrire dans `system.slice`', 'Un cgroup qui active des contrôleurs de domaine pour ses enfants ne peut pas contenir de processus'], answer: 3, why: 'C’est une règle de cgroup v2. Les processus vivent donc dans les feuilles, comme le scope du conteneur.' },
+					{ q: 'Le PID 1 du conteneur forke un enfant. Dans quel cgroup est l’enfant ?', options: ['Le cgroup racine, jusqu’à ce que le runtime le déplace', 'Un nouveau cgroup que Docker crée pour lui', 'Le même scope que son parent', 'Celui qui a le plus de mémoire libre'], answer: 2, why: 'Un enfant forké "is born into the cgroup that the forking process belongs to" : les limites couvrent tout l’arbre de processus.' }
+				]
+			},
+			{
+				title: 'Lis les fichiers',
+				questions: [
+					{ q: '`cpu.max` affiche `150000 100000`. Que fait l’ordonnanceur ?', options: ['Il fixe le conteneur sur un cœur et demi', 'Il arrête le groupe dès qu’il a pris 150 ms de CPU dans une période de 100 ms', 'Il donne au groupe 150 % de priorité sur les autres', 'Il laisse le groupe tourner 100 ms puis le met en pause 150 ms'], answer: 1, why: 'Le quota est du temps CPU, tous CPU confondus, par période. 150 ms par 100 ms, c’est un CPU et demi occupés toute la période.' },
+					{ q: 'Que compte `memory.max` dans la limite ?', options: ['Seulement le tas du processus principal', 'Seulement la mémoire anonyme, pas les fichiers', 'La mémoire du groupe, cache de pages compris', 'La mémoire des processus du conteneur et celle de dockerd'], answer: 2, why: 'Le contrôleur mémoire compte aussi le cache de pages : un conteneur qui lit de gros fichiers peut atteindre sa limite avec un petit tas.' },
+					{ q: 'Que se passe-t-il quand le groupe atteint `memory.max` et que le noyau ne peut pas récupérer assez ?', options: ['L’OOM killer se lance dans le cgroup', 'Le noyau monte la limite de 10 %', 'Le conteneur est mis en pause jusqu’à ce que de la mémoire se libère', 'Docker redémarre le conteneur avec plus de mémoire'], answer: 0, why: 'La doc : "the OOM killer is invoked in the cgroup". Il choisit un processus de ce groupe, pas de toute la machine.' },
+					{ q: 'Sur un autre hôte, le scope n’a pas du tout de fichier `cpu.max`. Quelle est la cause probable ?', options: ['Le conteneur n’a encore pris aucun CPU', 'Le fichier n’apparaît qu’après un redémarrage', '`cpu.max` doit d’abord être créé avec `touch`', 'Le parent n’a pas activé `cpu` dans son `cgroup.subtree_control`'], answer: 3, why: 'Activer un contrôleur dans le `subtree_control` du parent crée ses fichiers dans les enfants. Sans ça, l’enfant n’a aucun fichier `cpu.*`.' }
+				]
+			},
+			{
+				title: 'Écris le drop-in',
+				questions: [
+					{ q: 'Où va le drop-in de `myapp.service` ?', options: ['`/etc/systemd/system/myapp.service.d/limits.conf`', '`/sys/fs/cgroup/system.slice/myapp.service/limits.conf`', '`/usr/lib/systemd/limits.d/myapp.conf`', '`/etc/sysctl.d/myapp.conf`'], answer: 0, why: 'Un dossier `.d` au nom de l’unité contient les drop-ins qui la complètent. systemd écrit ensuite les fichiers du cgroup pour toi.' },
+					{ q: 'Quelle ligne donne au service un CPU et demi ?', options: ['`CPUQuota=1.5`', '`CPUQuota=150000`', '`CPUQuota=150%`', '`CPUMax=150000 100000`'], answer: 2, why: '`CPUQuota=` prend un pourcentage d’un CPU. systemd en tire `cpu.max`, comme `CPUQuota=20%` dans les compromis.' },
+					{ q: 'Quelle ligne lui donne 512 Mio ?', options: ['`MemoryLimit=512`', '`MemoryMax=512M`', '`memory.max=536870912`', '`MemoryHigh=512%`'], answer: 1, why: '`MemoryMax=` écrit `memory.max`. systemd lit le suffixe `M` comme des Mio, donc le fichier contient 536870912.' },
+					{ q: 'Tu as enregistré le fichier. Que lances-tu avant de vérifier `cpu.max` ?', options: ['`sysctl --system`', '`systemctl restart systemd-cgls`', 'Rien, systemd relit les drop-ins à chaque accès', '`systemctl daemon-reload`, puis un redémarrage du service'], answer: 3, why: 'systemd ne relit les fichiers d’unité qu’au `daemon-reload`. Vérifie ensuite `cpu.max` sous `/sys/fs/cgroup/system.slice/myapp.service`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,30 @@ export default {
 			why: '`cpu.max` donne le quota puis la période, en microsecondes. `--cpus 2` avec la période par défaut de 100000 µs donne un quota de 200000 µs : 200 ms de CPU par 100 ms, ce qui demande deux CPU occupés pendant toute la période.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire les limites que Docker écrit dans le cgroup d’un conteneur, voir la limite mémoire tuer un processus, et obtenir les mêmes fichiers avec systemd sans root.',
+		steps: [
+			'Note ce que tu attends dans `cpu.max` et `memory.max`, puis lance le conteneur : `docker run -d --name cg-lab --cpus 1.5 --memory 512m busybox sleep 600`.',
+			'Trouve son cgroup et lis-le : `P=$(docker inspect -f \'{{.State.Pid}}\' cg-lab); cat /proc/$P/cgroup; CG=/sys/fs/cgroup$(cut -d: -f3 /proc/$P/cgroup); cat $CG/cpu.max $CG/memory.max $CG/cgroup.procs`.',
+			'Lance un deuxième processus dans le conteneur et relis `cgroup.procs` : `docker exec -d cg-lab sleep 500; cat $CG/cgroup.procs`.',
+			'Dépasse une limite mémoire : `docker run --name cg-oom --memory 64m python:3.12-alpine python -c \'x = bytearray(200 * 1024 * 1024)\'; echo "exit $?"`, puis `docker inspect -f \'{{.State.OOMKilled}}\' cg-oom`.',
+			'Demande les mêmes limites à systemd dans ta session : `systemd-run --user --scope -p MemoryMax=64M -p CPUQuota=50% sh -c \'CG=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo $CG; cat $CG/cpu.max $CG/memory.max\'`.',
+			'Fais le ménage : `docker rm -f cg-lab cg-oom`.'
+		],
+		done: [
+			'L’étape 2 affiche `0::/system.slice/docker-<id>.scope`, puis `150000 100000`, `536870912` et un PID.',
+			'L’étape 3 liste deux PID dans `cgroup.procs`.',
+			'L’étape 4 affiche `exit 137`, et `docker inspect` affiche `true`.',
+			'L’étape 5 affiche un chemin qui finit par `run-<aléatoire>.scope`, puis `50000 100000` et `67108864`.'
+		],
+		solution: [
+			'`--cpus 1.5` donne un quota de 150000 µs par période de 100000 µs, et `512m` fait 512 × 1024 × 1024 octets. Le noyau applique les deux à partir de ces fichiers.',
+			'`docker exec` met le nouveau processus dans le cgroup du conteneur : les limites le couvrent aussi, comme tout enfant que forke le conteneur.',
+			'Python a demandé 200 Mio dans un groupe de 64 Mio. L’OOM killer s’est lancé dans le cgroup et l’a tué : code de sortie 137.',
+			'`CPUQuota=50%` est devenu `50000 100000` et `MemoryMax=64M` est devenu `67108864`. Un drop-in de `myapp.service` avec `CPUQuota=150%` et `MemoryMax=512M` écrit les mêmes fichiers sous `system.slice`.'
+		]
+	},
 	recall: {
 		q: 'Où `docker run --cpus 0.5 --memory 256m` range-t-il ses limites, et quelles valeurs contiennent les fichiers ?',
 		a: 'Dans le dossier du cgroup du conteneur, ici `/sys/fs/cgroup/system.slice/docker-<id>.scope` : `cpu.max` contient `50000 100000` et `memory.max` contient `268435456`. Le noyau applique les deux à chaque processus du cgroup.'

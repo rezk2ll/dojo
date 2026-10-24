@@ -121,6 +121,44 @@ export default {
 			'`NetworkManager-wait-online.service` a démarré à 3,112 s et a pris 10,778 s, donc `network-online.target` est atteint à 3,112 + 10,778 = 13,890 s (affiché 13,892 s). docker démarre 5 ms plus tard et prend 5,983 s, ce qui mène la chaîne à 19,880 s.',
 			'Les deux unités sont sur la chaîne, donc elles fixent la durée du démarrage. Si docker n’attendait pas `network-online.target`, les 10,778 s d’attente sortiraient de cette chaîne. Un nouveau `critical-chain` après redémarrage montrerait quel chemin est alors le plus lent.',
 			'Une unité en tête de `blame` mais absente de la chaîne, comme `snapd.seeded.service` à 916 ms ici, a tourné en parallèle. L’accélérer ne changerait pas le moment où `graphical.target` est atteint.'
+		],
+		steps: [
+			{
+				title: 'Lis les étapes',
+				questions: [
+					{ q: 'Quelle étape est la plus longue sur le portable de test ?', options: ['Le firmware, 9,346 s', 'Le noyau, 3,721 s', 'L’espace utilisateur, 19,993 s', 'Le chargeur, 3,185 s'], answer: 2, why: '`Startup finished in 9.346s (firmware) + 3.185s (loader) + 3.721s (kernel) + 19.993s (userspace)` : plus de la moitié des 36,246 s.' },
+					{ q: 'À quel moment commence l’espace utilisateur ?', options: ['Quand le noyau lance le PID 1', 'Quand le firmware passe la main au chargeur', 'Quand `graphical.target` est atteint', 'Quand la première unité de service démarre'], answer: 0, why: 'L’étape userspace, c’est ce que fait systemd après que le noyau l’a lancé en PID 1.' },
+					{ q: 'Un fichier d’unité ou un paramètre du noyau peut-il raccourcir les 9,346 s du firmware ?', options: ['Oui, avec `quiet` sur la ligne de commande', 'Oui, en masquant les unités lentes', 'Seulement avec un initramfs plus petit', 'Non : le firmware tourne avant le noyau'], answer: 3, why: 'L’étape du firmware vient en premier. Rien de ce que lisent le noyau ou systemd ne peut la changer.' },
+					{ q: 'Pendant l’étape du noyau, quel programme tourne en premier en PID 1 ?', options: ['`/init` dans l’initramfs', '`/sbin/init` sur la vraie racine', '`/bin/sh` en secours', 'Le chargeur de démarrage'], answer: 0, why: '`kernel_init` essaie d’abord `ramdisk_execute_command` (`/init`). Celui-ci monte la vraie racine, puis exécute `/sbin/init`.' }
+				]
+			},
+			{
+				title: 'Lis blame',
+				questions: [
+					{ q: 'Qu’y a-t-il en tête de `blame` sur le portable de test ?', options: ['`docker.service` à 5,983 s', '`NetworkManager-wait-online.service` à 10,778 s', '`snapd.seeded.service` à 916 ms', '`graphical.target` à 19,880 s'], answer: 1, why: '`blame` trie les unités par temps de démarrage, et celle-ci a pris 10,778 s.' },
+					{ q: 'Que mesure le temps d’une unité dans `blame` ?', options: ['Le moment où elle est devenue active', 'Le temps que d’autres unités l’ont attendue', 'Le temps que l’unité a mis à démarrer', 'Sa part dans tout le démarrage'], answer: 2, why: '`blame` liste le temps de démarrage par unité. Il ne dit rien de qui a attendu.' },
+					{ q: 'Pourquoi systemd-analyze(1) dit-il que `blame` peut tromper ?', options: ['Une unité peut être lente juste parce qu’elle en attend une autre', 'Il arrondit les temps à la seconde', 'Il oublie l’étape du firmware', 'Il ne liste que les dix unités les plus lentes'], answer: 0, why: 'systemd-analyze(1) : « the initialization of one service might be slow simply because it waits for the initialization of another service to complete ».' },
+					{ q: 'Être en tête de `blame` prouve-t-il qu’une unité fixe la durée du démarrage ?', options: ['Oui : la plus lente le fait toujours', 'Oui, si elle a pris plus de 5 s', 'Non : seulement si c’est une target', 'Non : il faut vérifier qu’elle est sur la chaîne critique'], answer: 3, why: 'systemd lance les unités en parallèle. Une unité lente hors de la chaîne a tourné à côté de quelque chose de plus lent.' }
+				]
+			},
+			{
+				title: 'Lis la chaîne critique',
+				questions: [
+					{ q: 'Dans `critical-chain`, que veulent dire `@` et `+` ?', options: ['`@` l’heure de départ, `+` le temps depuis le démarrage', '`@` le moment où l’unité est devenue active, `+` le temps qu’elle a mis à démarrer', '`@` le temps CPU, `+` le temps réel', '`@` le PID, `+` le code de sortie'], answer: 1, why: 'systemd-analyze l’affiche en haut de sa sortie : après `@`, le moment où l’unité est devenue active, après `+`, le temps qu’elle a mis à démarrer.' },
+					{ q: 'Wait-online démarre à 3,112 s et prend 10,778 s. Quand `network-online.target` est-il atteint ?', options: ['Vers 13,89 s', 'À 10,778 s', 'À 3,112 s', 'À 19,880 s'], answer: 0, why: '3,112 + 10,778 = 13,890 s, affiché 13,892 s.' },
+					{ q: 'Pourquoi `docker.service` démarre-t-il juste après `network-online.target` ?', options: ['docker est l’unité la plus lente', 'systemd lance les unités par ordre alphabétique', 'Son unité a `Wants=` et `After=network-online.target`', 'NetworkManager lance docker lui-même'], answer: 2, why: 'Le fichier d’unité de moby place docker après la mise en route du réseau, donc il attend.' },
+					{ q: 'docker prend 5,983 s à partir de 13,897 s. Où finit la chaîne ?', options: ['À 13,897 s', 'À 36,246 s', 'À 5,983 s', 'À `graphical.target` @19,880 s'], answer: 3, why: '13,897 + 5,983 = 19,880 s, le moment où `graphical.target` est atteint.' }
+				]
+			},
+			{
+				title: 'Compare et conclus',
+				questions: [
+					{ q: 'L’unité en tête de `blame` est-elle sur la chaîne critique du portable de test ?', options: ['Non, elle a tourné en parallèle', 'Oui, avec docker', 'Seulement pendant la première seconde', 'Seulement au redémarrage'], answer: 1, why: '`NetworkManager-wait-online.service` et `docker.service` sont toutes deux sur la chaîne, donc elles fixent la durée du démarrage.' },
+					{ q: '`snapd.seeded.service` est dans `blame` à 916 ms mais pas dans la chaîne. Que change son accélération ?', options: ['Environ 816 ms de démarrage en moins', 'L’étape du firmware raccourcit', 'Presque rien : elle tournait en parallèle', 'docker démarre 916 ms plus tôt'], answer: 2, why: 'Seules les unités de la chaîne décident du moment où la target par défaut est atteinte.' },
+					{ q: 'Qu’est-ce qui sortirait les 10,778 s d’attente de cette chaîne ?', options: ['Que docker n’attende plus `network-online.target`', 'Placer docker en tête de `blame`', 'Un firmware plus rapide', 'Retirer `quiet` de la ligne de commande'], answer: 0, why: 'Ici, docker est le seul lien entre l’attente et `graphical.target`. systemd.io note qu’un logiciel serveur « should generally not pull this in ».' },
+					{ q: 'Après un tel changement, comment voir le nouveau chemin le plus lent ?', options: ['Relancer `blame` et prendre la première ligne', 'Lire `/proc/cmdline`', 'Compter les unités de `blame`', 'Redémarrer et relancer `critical-chain`'], answer: 3, why: 'Retirer une attente fait apparaître le chemin lent suivant, et seul un nouveau `critical-chain` montre lequel.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ export default {
 			why: 'systemd lance les unités en parallèle. Seules les unités de la chaîne critique décident du moment où la target par défaut est atteinte, et celle-ci n’en fait pas partie.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Suivre les passages de main du démarrage de ta propre machine, de la ligne de commande du noyau à l’unité qui retient la chaîne, sans être root.',
+		steps: [
+			'Lis ce que le chargeur a passé au noyau : `cat /proc/cmdline`. Repère `root=`.',
+			'Regarde dans l’initramfs son `/init` et les outils dont il a besoin pour atteindre la racine. Sur Debian ou Ubuntu : `lsinitramfs /boot/initrd.img-$(uname -r) | grep -E "^init$|sbin/lvm$"`. Sur Fedora, `lsinitrd` fait le même travail.',
+			'Regarde ce qui est devenu PID 1 après le passage sur la vraie racine : `ps -p 1 -o args=` et `readlink -f /sbin/init`.',
+			'Trouve la chaîne : `systemd-analyze critical-chain --no-pager | head -8`.',
+			'Prends l’unité la plus lente de cette chaîne et demande à systemd pourquoi elle attend : `systemctl show -p Wants -p After <unité>`, puis `systemd-analyze critical-chain --no-pager <unité>`.'
+		],
+		done: [
+			'Tu sais montrer la valeur de `root=` qu’a utilisée le noyau.',
+			'La liste de l’initramfs montre `init` (et `usr/sbin/lvm` si ta racine est sur LVM).',
+			'`readlink -f /sbin/init` affiche le binaire de systemd, comme `/usr/lib/systemd/systemd`.',
+			'Tu sais nommer l’unité qu’attend l’unité la plus lente de la chaîne, d’après sa ligne `After=`.'
+		],
+		solution: [
+			'Sur le portable de test, `/proc/cmdline` commence par `BOOT_IMAGE=/boot/vmlinuz-6.17.0-1033-oem root=/dev/mapper/data-root ro`, et l’initramfs liste `init` et `usr/sbin/lvm` : LVM doit tourner avant que le volume racine existe.',
+			'`ps -p 1 -o args=` affiche `/sbin/init splash` et `readlink -f /sbin/init` affiche `/usr/lib/systemd/systemd`.',
+			'La chaîne passe par `NetworkManager-wait-online.service`, puis `network-online.target`, puis `docker.service`, puis `multi-user.target`. `systemctl show -p Wants -p After docker.service` cite `network-online.target` sur les deux lignes, d’où l’attente de docker. Tes chiffres changeront de ceux du chapitre d’un démarrage à l’autre.'
+		]
+	},
 	recall: {
 		q: 'Cite les étapes d’un démarrage Linux dans l’ordre, et le premier programme que le noyau lance en PID 1.',
 		a: 'Firmware, chargeur de démarrage, noyau, initramfs, puis systemd depuis la vraie racine. Le premier PID 1 est `/init` dans l’initramfs, qui monte la racine puis exécute `/sbin/init` (systemd).'

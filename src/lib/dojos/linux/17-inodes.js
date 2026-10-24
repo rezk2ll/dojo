@@ -123,6 +123,44 @@ next_group:
 			'Output captured on an ext4 laptop for this chapter: `55646733 -rw-rw-r-- 2 ... 6 copy.txt`, `55646734 lrwxrwxrwx 1 ... 10 link.txt -> report.txt`, `55646733 -rw-rw-r-- 2 ... 6 report.txt`. Two names share inode 55646733 with link count 2. The symlink has its own inode and a size of 10, the length of `report.txt`.',
 			'After `rm report.txt`, `copy.txt` shows link count 1 and `cat copy.txt` prints `hello`. `cat link.txt` prints `No such file or directory`: the symlink still exists, the name it points to does not.',
 			'`df -i .` printed `62251008` inodes, `18931731` used, `43319277` free, `31%`. That filesystem can take about 43 million more files, directories, symlinks or sockets, whatever the free bytes.'
+		],
+		steps: [
+			{
+				title: 'Count the inodes',
+				questions: [
+					{ q: 'Which of the three commands allocate a new inode?', options: ['All three', '`echo` and `ln -s`', 'Only `echo`', '`echo` and `ln`'], answer: 1, why: '`echo > report.txt` creates a file. `ln -s` creates a symlink, a separate file with its own inode. `ln` only adds a directory entry.' },
+					{ q: 'What inode number will `copy.txt` show?', options: ['The same as `report.txt`', 'The next free number', 'The same as `link.txt`', 'None: hard links have no inode'], answer: 0, why: 'A hard link is a second directory entry with the same inode number as the first.' },
+					{ q: 'Where is the name `report.txt` stored?', options: ['In the inode', 'In the data blocks of the file', 'In the parent directory, next to the inode number', 'In the inode bitmap'], answer: 2, why: 'The inode has a number and no name. The directory entry maps the name to that number.' },
+					{ q: 'Which of the two names is the original after `ln`?', options: ['`report.txt`, because it came first', '`copy.txt`, because it is newer', 'The one with the lower link count', 'Neither: both entries point at the same inode'], answer: 3, why: 'link(2): "it is impossible to tell which name was the \'original\'."' }
+				]
+			},
+			{
+				title: 'Predict the counts',
+				questions: [
+					{ q: 'What link count does `ls -li` show for `report.txt` and `copy.txt`?', options: ['1 each', '2 each', '3 each', '2 for `report.txt`, 1 for `copy.txt`'], answer: 1, why: 'Both names share one inode, and that inode\'s link count went up by one with `ln`.' },
+					{ q: 'Does the symlink raise the link count of `report.txt`?', options: ['Yes, by one', 'Yes, by two', 'No: it has its own inode and stores a path', 'Only while it is open'], answer: 2, why: 'A symlink is a separate file. It holds a path string and never touches the target\'s link count.' },
+					{ q: 'What size does `ls -l` show for `link.txt`?', options: ['6, the size of the target', '0', '4096, one block', '10, the length of `report.txt`'], answer: 3, why: 'inode(7): the size of a symlink "is the length of the pathname it contains". `report.txt` is 10 bytes.' },
+					{ q: 'What size do `report.txt` and `copy.txt` show?', options: ['6 each: `hello` and a newline', '12: 6 for each name', '6 for one, 0 for the other', '10 each'], answer: 0, why: 'They are the same inode, so the same 6 bytes. Two names do not double the data.' }
+				]
+			},
+			{
+				title: 'Predict the rm',
+				questions: [
+					{ q: 'After `rm report.txt`, what link count does `copy.txt` show?', options: ['0', '2', '1', 'It is gone'], answer: 2, why: 'unlink(2) removes one name and lowers the link count by one.' },
+					{ q: 'What does `cat copy.txt` print?', options: ['`hello`', 'Nothing: the file is empty', '`No such file or directory`', 'Random bytes from freed blocks'], answer: 0, why: 'The inode still has one link, so its blocks are still there.' },
+					{ q: 'What does `cat link.txt` print?', options: ['`hello`, through `copy.txt`', 'An empty line', '`Permission denied`', '`No such file or directory`'], answer: 3, why: 'The symlink still exists, but the path it holds, `report.txt`, does not. It is dangling.' },
+					{ q: 'When does the inode go back to the bitmap?', options: ['Now: one name is gone', 'When the link count reaches 0 and no process has the file open', 'At the next reboot', 'When `fsck` runs'], answer: 1, why: 'unlink(2): the file is deleted only when the last link is gone and no process has it open.' }
+				]
+			},
+			{
+				title: 'Read df -i',
+				questions: [
+					{ q: '`df -i .` shows `62251008` inodes, `18931731` used. About how many more files fit?', options: ['About 18 million', 'About 62 million', 'About 43 million', 'It depends on the free bytes'], answer: 2, why: '62251008 − 18931731 = 43319277 free inodes, one per new file.' },
+					{ q: 'Which of these also uses up one of those inodes?', options: ['A new directory, symlink or socket', 'A new hard link', 'Writing more bytes to an existing file', 'Reading a file'], answer: 0, why: 'Every file, directory, symlink and socket needs an inode. A hard link reuses one.' },
+					{ q: 'Can you add inodes to this ext4 filesystem later?', options: ['Yes, with `df -i --grow`', 'Yes, they grow with the free bytes', 'Only by deleting directories', 'No: the count is fixed at mkfs time'], answer: 3, why: 'mke2fs(8): "it is not possible to change this ratio on a file system after it is created".' },
+					{ q: 'All inodes are used and `df -h` shows 40% free. What does `touch new` print?', options: ['Nothing: it succeeds', '`No space left on device`', '`Too many open files`', '`Read-only file system`'], answer: 1, why: '`__ext4_new_inode` returns `-ENOSPC` when no block group has a free inode. It never looks at free data blocks.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ next_group:
 			why: 'A directory entry holds an inode number, and inode numbers are unique only inside one filesystem, so link(2) fails with `EXDEV`. A symlink holds the path string `/etc/app/config.yaml` and the kernel resolves it at open time.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Run a filesystem out of inodes while it still has free bytes, and get `No space left on device`.',
+		steps: [
+			'Start a container with a small `tmpfs` that has room for 10 MB but only 200 inodes: `docker run --rm -it --tmpfs /small:size=10m,nr_inodes=200 alpine sh`.',
+			'Inside it, go there and read both views: `cd /small && df -i . && df -h .`.',
+			'Create empty files until it refuses: `i=0; while touch f$i 2>/dev/null; do i=$((i+1)); done; echo $i`.',
+			'Read both views again, then try one more: `df -i . && df -h . && touch extra`.',
+			'Remove one file and try again: `rm f1 && touch extra && echo ok`. Then `exit`.'
+		],
+		done: [
+			'Step 3 prints 199: the directory itself took the first inode.',
+			'Step 4 shows `Use%` at 100% in `df -i` and 0% in `df -h`, then `touch: extra: No space left on device`.',
+			'Step 5 prints `ok`.'
+		],
+		solution: [
+			'Empty files take no data blocks, so `df -h` never moves. Each one still takes an inode, and the 200 run out.',
+			'The error is `ENOSPC`, the same as a full disk. Only `df -i` tells the two apart.',
+			'Removing the last name of a file that no process has open frees its inode, so one more file fits.'
+		]
+	},
 	recall: {
 		q: 'Why can `df -h` show free space while creating a file fails with `ENOSPC`, and which command shows it?',
 		a: 'Every file, directory, symlink and socket needs an inode, and ext4 fixes the inode count at mkfs time, one per 16384 bytes by default. `df -i` shows `IUse%`, which was 100 in the Rancher report.'

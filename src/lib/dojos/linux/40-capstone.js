@@ -125,6 +125,44 @@ export default {
 			'`r` is 32 to 34 on 32 CPUs: the CPUs are fully used and right at saturation. The post: "This isn’t necessarily a problem; check for the degree of saturation using the “r” column."',
 			'pidstat\'s %CPU is summed across CPUs, so 1591 % is almost 16 CPUs for one java process, and the two together hold nearly all 32.',
 			'Next: run `mpstat -P ALL 1` to check the load is spread across CPUs, then profile the java processes to see which code uses the CPU.'
+		],
+		steps: [
+			{
+				title: 'Read uptime',
+				questions: [
+					{ q: '`load average: 30.02, 26.43, 19.02`. What does the trend say?', options: ['The load is falling', 'The load is rising: 30 for 1 minute against 19 for 15', 'The load has been flat for 15 minutes', 'The server just rebooted'], answer: 1, why: 'The three numbers are the 1, 5 and 15 minute averages. The 1-minute one is the highest, so load is going up.' },
+					{ q: 'Does the load average name the busy resource?', options: ['Yes, load counts only tasks on a CPU', 'Yes, a load above the CPU count means disk', 'No, Linux load also counts tasks waiting for disk', 'No, load only counts network waits'], answer: 2, why: 'Linux load averages include tasks "blocked in uninterruptible I/O", so load alone cannot tell CPU from disk.' },
+					{ q: 'A load of 30 on 32 CPUs. Is that saturation by itself?', options: ['You cannot tell yet, you need a column that splits CPU from disk', 'Yes, any load over 16 saturates 32 CPUs', 'No, load is only a problem above 100', 'Yes, the 1-minute value is always saturation'], answer: 0, why: 'Load mixes runnable and disk-blocked tasks. The next command, `vmstat 1`, splits them into `r` and `b`.' },
+					{ q: 'Which of these commands splits runnable tasks from disk-blocked ones?', options: ['`top`', '`free -m`', '`sar -n DEV 1`', '`vmstat 1`'], answer: 3, why: '`vmstat 1` counts runnable tasks in `r` and disk-blocked ones in `b`. After `uptime` and `dmesg | tail`, it is the post\'s next command.' }
+				]
+			},
+			{
+				title: 'Read vmstat',
+				questions: [
+					{ q: '`r` is 32 to 34 on 32 CPUs. What does it say?', options: ['The CPUs are idle', 'The CPUs are fully used, right at saturation', 'The disks are saturated', 'Memory is running out'], answer: 1, why: 'Gregg: an `r` value greater than the CPU count is saturation. 32 to 34 on 32 CPUs is right at the edge.' },
+					{ q: 'What do `b` 0 and `wa` 0 rule out?', options: ['Disk: no task is blocked on I/O', 'Network: no packets are queued', 'Swapping: no pages move', 'CPU: no task is waiting'], answer: 0, why: '`b` counts tasks "blocked waiting for I/O to complete", and `wa` is CPU time waiting for disk. Both at 0 clear the disk.' },
+					{ q: 'What do `si` and `so` at 0 rule out?', options: ['Disk reads', 'Network retransmits', 'Swapping', 'CPU steal'], answer: 2, why: '`si` and `so` are pages swapped in and out per second. Zero after the first line means no swapping.' },
+					{ q: '`us` is 96 to 99. Where is the CPU time going?', options: ['Into the kernel', 'Into waiting for disk', 'To other virtual machines', 'Into user code'], answer: 3, why: '`us` is the share of ticks that ran user code. Almost every tick ran application code.' }
+				]
+			},
+			{
+				title: 'Read pidstat',
+				questions: [
+					{ q: 'A `java` process shows 1591 %CPU. How many CPUs is that?', options: ['About 1.6', 'About 16', 'About 159', 'About 32'], answer: 1, why: 'pidstat\'s %CPU is summed across CPUs, so 100% is one CPU and 1591% is almost 16.' },
+					{ q: 'What do the two java lines together hold?', options: ['Nearly all 32 CPUs', 'About half the CPUs', 'One CPU each', 'Less than the idle time'], answer: 0, why: '1591% plus 1573% is about 31.6 CPUs out of 32.' },
+					{ q: 'So which process do you name?', options: ['The kernel', 'Whichever process has the lowest PID', 'The two `java` processes', '`pidstat` itself'], answer: 2, why: 'They hold the CPU time that `vmstat` showed as `us`.' },
+					{ q: 'Which resource is saturated, if any?', options: ['Disk', 'Memory', 'Network', 'CPU, right at its limit'], answer: 3, why: '`r` matches the CPU count, `us` is near 100, and disk and swap are clear. The CPUs are the busy resource.' }
+				]
+			},
+			{
+				title: 'Pick the next command',
+				questions: [
+					{ q: 'Is `r` at the CPU count always a problem?', options: ['Not necessarily: check the degree of saturation with `r`', 'Yes, it always means an outage', 'No, `r` never matters on Linux', 'Only if `wa` is also high'], answer: 0, why: 'The post: "This isn’t necessarily a problem; check for the degree of saturation using the “r” column."' },
+					{ q: 'Which command checks that the load is spread across CPUs?', options: ['`iostat -xz 1`', '`mpstat -P ALL 1`', '`free -m`', '`sar -n TCP,ETCP 1`'], answer: 1, why: '`mpstat -P ALL 1` prints each CPU. Even numbers mean the work is spread out, not one hot thread.' },
+					{ q: 'After that, how do you find which code uses the CPU?', options: ['Run `top` for longer', 'Add more CPUs and compare', 'Profile the java processes', 'Read `dmesg` again'], answer: 2, why: 'The ten commands name the resource and the process. A profiler shows which code runs.' },
+					{ q: 'When you paste the `vmstat 1` output into your notes, which line do you leave out?', options: ['The last one, it is cut short', 'The header line', 'Any line with `r` above the CPU count', 'The first line of numbers: it averages since boot'], answer: 3, why: 'The man page: "The first report produced gives averages since the last reboot." Only the later lines are rates over the last second.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,28 @@ export default {
 			why: 'pidstat(1) defines %wait as the "Percentage of CPU spent by the task while waiting to run". With 64 busy loops on 16 CPUs, each loop ran about a fifth of the time and waited the rest.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Saturate your own CPUs from a container, then find the resource, the process and the container with the first-minute commands.',
+		steps: [
+			'Start twice as many busy loops as you have CPUs: `N=$(( $(nproc) * 2 )); docker run -d --name slow-lab -e N=$N busybox sh -c \'for i in $(seq $N); do (while :; do :; done) & done; wait\'`. Your laptop will be slow until the last step.',
+			'Wait half a minute, then run `uptime` and `vmstat 1 5`. Compare `r` with `nproc`, and read `us`, `id` and `wa`.',
+			'Clear memory and disk: `free -m`, and `iostat -xz 1 3` if sysstat is installed.',
+			'Find a busy process and its cgroup: `PID=$(ps -eo pid,comm,pcpu --sort=-pcpu | awk \'$2=="sh"{print $1; exit}\'); cat /proc/$PID/cgroup`.',
+			'Map the cgroup to a container: `ID=$(sed \'s/.*docker-\\(.*\\)\\.scope/\\1/\' /proc/$PID/cgroup); docker ps --no-trunc --format \'{{.ID}} {{.Names}}\' | grep "$ID"`. Stop the load with `docker rm -f slow-lab`.'
+		],
+		done: [
+			'The 1-minute load average is above the 15-minute one and climbing.',
+			'After the first line, `vmstat` shows `r` at about twice `nproc` or more, `us` above 80, `id` at 0 and `wa` at 0.',
+			'`free -m` still shows memory available, and `iostat` (if run) shows low `%util`.',
+			'`/proc/$PID/cgroup` names a `docker-<id>.scope`, and the `docker ps` line prints `slow-lab`.'
+		],
+		solution: [
+			'`r` above the CPU count with `wa` 0 is CPU saturation, not disk: Gregg says `r` "does not include I/O", unlike the load average.',
+			'The first `vmstat` line averages since boot, so read from the second line on.',
+			'A container is a cgroup on the host (chapter 34), so the cgroup path of any busy PID leads to the container ID, and `docker ps --no-trunc` turns that ID into a name.'
+		]
+	},
 	recall: {
 		q: 'Name Gregg\'s ten commands in order, and the column that shows CPU saturation.',
 		a: '`uptime`, `dmesg | tail`, `vmstat 1`, `mpstat -P ALL 1`, `pidstat 1`, `iostat -xz 1`, `free -m`, `sar -n DEV 1`, `sar -n TCP,ETCP 1`, `top`. The `r` column of vmstat, when it is higher than the CPU count.'

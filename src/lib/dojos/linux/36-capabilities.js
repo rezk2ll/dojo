@@ -124,6 +124,44 @@ export default {
 			'Second run: `CapPrm`, `CapEff` and `CapBnd` are all `0000000000000400`, which decodes to `cap_net_bind_service`, bit 10.',
 			'Third run: `CapEff: 0000000000000000` and `CapBnd: 0000000000000400`. `grep` runs as UID 1000 and has no file capabilities, so the formula P\'(permitted) = (P(inheritable) & F(inheritable)) | (F(permitted) & P(bounding)) | P\'(ambient) gives 0. The capability stays in the bounding set as a ceiling.',
 			'To give it to a non-root program, the image runs `setcap cap_net_bind_service=+ep` on that binary, which writes the `security.capability` attribute. For a port below 1024 in Docker you do not need it, because Docker sets `ip_unprivileged_port_start` to 0.'
+		],
+		steps: [
+			{
+				title: 'Read the default run',
+				questions: [
+					{ q: 'The first run prints `CapEff: 00000000a80425fb`. Where does that set come from?', options: ['The kernel gives it to every UID 0 process', 'Docker\'s default list of 14 capabilities', 'The `alpine:3.20` image declares it', 'It is the host\'s own `CapEff` copied in'], answer: 1, why: 'With no flags, `TweakCapabilities` returns `basics`, the 14 names in `defaults.go`, from `CAP_CHOWN` to `CAP_AUDIT_WRITE`.' },
+					{ q: 'How do you turn the mask into names?', options: ['`capsh --decode=00000000a80425fb`', '`getcap 00000000a80425fb`', '`setcap -d 00000000a80425fb`', '`grep a80425fb /etc/capabilities`'], answer: 0, why: '`capsh --decode` reads the hexadecimal mask and prints one name per set bit.' },
+					{ q: 'Which bit does `cap_chown` use?', options: ['Bit 10', 'Bit 1', 'Bit 31', 'Bit 0'], answer: 3, why: '`capsh --decode=1` prints `cap_chown`, so it is bit 0, the lowest bit of the mask.' },
+					{ q: 'This process is UID 0. What does the kernel check when it calls `chown`?', options: ['That the UID is 0', 'That the file belongs to UID 0', '`CAP_CHOWN` in the effective set', 'The `security.capability` attribute of the file being changed'], answer: 2, why: 'Since Linux 2.2, a privileged action checks the one capability it needs. chown(2) needs `CAP_CHOWN` in the effective set.' }
+				]
+			},
+			{
+				title: 'Read the dropped run',
+				questions: [
+					{ q: 'With `--cap-drop=ALL --cap-add=NET_BIND_SERVICE`, what list does Docker build?', options: ['The 14 defaults plus `NET_BIND_SERVICE`', 'The 14 defaults minus `NET_BIND_SERVICE`', 'Only `NET_BIND_SERVICE`', 'An empty list, because `ALL` wins'], answer: 2, why: 'When the drops contain `ALL`, Docker throws the default list away and keeps only the adds.' },
+					{ q: 'The second run prints `0000000000000400` three times. What does it decode to?', options: ['`cap_net_bind_service`, bit 10', '`cap_net_raw`, bit 13', '`cap_chown`, bit 0', '`cap_sys_admin`, bit 21'], answer: 0, why: '0x400 is bit 10, which `capsh` decodes to `cap_net_bind_service`.' },
+					{ q: 'Which three lines show it?', options: ['`CapInh`, `CapEff`, `CapAmb`', '`CapPrm`, `CapEff`, `CapBnd`', '`CapInh`, `CapPrm`, `CapBnd`', '`CapEff`, `CapBnd`, `CapAmb`'], answer: 1, why: 'Root keeps the capability in its permitted and effective sets, and the bounding set holds only that one too.' },
+					{ q: 'A setuid-root binary in this container runs. Which capabilities can it gain?', options: ['All of them, because setuid root means full root', 'The 14 defaults', 'None, setuid is ignored in containers', 'At most `cap_net_bind_service`, what `CapBnd` allows'], answer: 3, why: 'The bounding set is ANDed with what a file grants during execve. Nothing outside `CapBnd` can come back.' }
+				]
+			},
+			{
+				title: 'Read the non-root run',
+				questions: [
+					{ q: 'With `--user 1000` added, what do `CapEff` and `CapBnd` show?', options: ['`CapEff` 0, `CapBnd` `0000000000000400`', 'Both `0000000000000400`', 'Both 0', '`CapEff` `0000000000000400`, `CapBnd` 0'], answer: 0, why: 'The process has no effective capability, but the bounding set still holds bit 10 as a ceiling.' },
+					{ q: 'Why is `CapEff` empty?', options: ['Docker ignores `--cap-add` when `--user` is set', 'The kernel strips capabilities from UIDs above 999', 'A non-root execve of a file with no file capabilities gives an empty permitted set', 'The capability appears only after the first `bind`'], answer: 2, why: 'The execve formula in capabilities(7) builds the new permitted set from the inheritable, file and ambient sets. For UID 1000 running `grep`, all of them are empty.' },
+					{ q: 'In that formula, which part would give `grep` the capability if it had one?', options: ['`CapBnd` alone', '`F(permitted) & P(bounding)`: a file capability, within the bounding set', 'The UID of the process', 'The capabilities of the Docker daemon'], answer: 1, why: 'A file capability set with `setcap` is ANDed with the bounding set. Bit 10 is in `CapBnd`, so such a file could gain it.' },
+					{ q: 'Is the third result a Docker bug?', options: ['Yes, Docker should copy the adds into `CapEff`', 'Yes, the kernel lost the capability during `fork`', 'No, `--user` always disables capabilities', 'No, it is how execve computes capabilities for a non-root process'], answer: 3, why: 'Docker passed the capability as asked. The kernel\'s execve rules decide what a non-root program keeps.' }
+				]
+			},
+			{
+				title: 'Give it to a non-root program',
+				questions: [
+					{ q: 'How does an image give `cap_net_bind_service` to one non-root binary?', options: ['`setcap cap_net_bind_service=+ep` on that binary', '`chmod u+s` on that binary', '`--cap-add=ALL` at run time', 'An `ENV CAP_NET_BIND_SERVICE=1` line'], answer: 0, why: '`setcap ... +ep` gives the file permitted and effective capabilities, so a process gains them when it runs that file.' },
+					{ q: 'Where does `setcap` store this?', options: ['In `/etc/capabilities`', 'In the image\'s `config.json`', 'In the file\'s extended attribute `security.capability`', 'In the binary\'s ELF header'], answer: 2, why: 'File capabilities live in the `security.capability` extended attribute of the executable.' },
+					{ q: 'In Docker, does a non-root process need this capability to bind port 80?', options: ['Yes, ports below 1024 always need it', 'No, Docker sets `ip_unprivileged_port_start` to 0 in the container', 'Only if the host has a firewall', 'Only with the default seccomp profile'], answer: 1, why: 'Docker sets `net.ipv4.ip_unprivileged_port_start` to 0 in each container with its own network namespace, so any UID can bind port 80.' },
+					{ q: 'Under the Kubernetes Restricted policy, can you add it back after dropping ALL?', options: ['No, the add list must stay empty', 'Only with `privileged: true`', 'Only on nodes with cgroup v2', 'Yes, `NET_BIND_SERVICE` is the one capability it allows'], answer: 3, why: 'Restricted says containers "must drop ALL capabilities, and are only permitted to add back the NET_BIND_SERVICE capability".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ export default {
 			why: 'The Restricted policy says containers "must drop ALL capabilities, and are only permitted to add back the NET_BIND_SERVICE capability". The Baseline policy allows 13 names: Docker\'s default list without `NET_RAW`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Read the capability sets Docker gives a container, then find the smallest list nginx needs by adding back one capability at a time.',
+		steps: [
+			'Read the default sets: `docker run --rm alpine:3.20 grep Cap /proc/self/status`, then decode `CapEff` on the host with `capsh --decode=00000000a80425fb` (`capsh` comes with libcap, the `libcap2-bin` package on Debian and Ubuntu).',
+			'Run the same `grep` with `--cap-drop=ALL --cap-add=NET_BIND_SERVICE`, then again with `--user 1000` added before the image name.',
+			'Start nginx with nothing: `docker run --rm --cap-drop=ALL nginx:1.27-alpine`. Read the last log line.',
+			'Add one capability: `timeout 5 docker run --rm --cap-drop=ALL --cap-add=CHOWN nginx:1.27-alpine 2>&1 | grep emerg`.',
+			'Add the missing ones and serve: `docker run -d --name cap-lab -p 8080:80 --cap-drop=ALL --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID nginx:1.27-alpine`, then `curl -I localhost:8080` and `docker exec cap-lab grep CapEff /proc/1/status`. Clean up with `docker rm -f cap-lab`.'
+		],
+		done: [
+			'The default `CapEff` is `00000000a80425fb` and decodes to 14 names.',
+			'With the drop and add, `CapPrm`, `CapEff` and `CapBnd` are `0000000000000400`. With `--user 1000`, `CapEff` is all zeros and `CapBnd` is still `0000000000000400`.',
+			'nginx with nothing exits on `chown("/var/cache/nginx/client_temp", 101) failed (1: Operation not permitted)`. With `CHOWN`, the workers log `setgid(101) failed`.',
+			'`curl -I localhost:8080` returns `HTTP/1.1 200 OK`, and nginx\'s `CapEff` is `00000000000000c1`.'
+		],
+		solution: [
+			'`--cap-drop=ALL` throws Docker\'s list away, so root in the container fails the kernel\'s check for `CAP_CHOWN`.',
+			'nginx reports only the first missing capability, so you add them one by one: `CHOWN` for the cache directory, then `SETGID` and `SETUID` for the workers to drop to UID 101.',
+			'`capsh --decode=00000000000000c1` prints `cap_chown,cap_setgid,cap_setuid`: bits 0, 6 and 7, the three you added and nothing else.'
+		]
+	},
 	recall: {
 		q: 'Root in a container started with `--cap-drop=ALL` calls `chown`. What happens, and what does `CapEff` show?',
 		a: 'The call fails with `EPERM`, "Operation not permitted", because `CAP_CHOWN` is not in the effective set. `CapEff` is `0000000000000000`; Docker\'s default is `00000000a80425fb`, 14 capabilities.'

@@ -136,6 +136,44 @@ export default {
 			'SIGTERM n’est pas intercepté, sa disposition vaut `SIG_DFL`. Le PID 1 du namespace est `SIGNAL_UNKILLABLE`, et le noyau jette le SIGTERM. `docker stop` attend 10 secondes et envoie SIGKILL.',
 			'Avec `--init`, le PID 1 est `docker-init`, c’est-à-dire tini. Il récupère SIGTERM avec `sigtimedwait()` et le transmet à python, qui n’est plus le PID 1 : l’action par défaut le termine tout de suite.',
 			'Le conteneur sort alors avec le code 143, soit 128 plus 15, la valeur que tini calcule dans `reap_zombies()`.'
+		],
+		steps: [
+			{
+				title: 'Décode le masque',
+				questions: [
+					{ q: '`SigCgt: 0000000000000002`. Quel bit est à 1 ?', options: ['Le bit 2', 'Le bit 0', 'Le bit 1', 'Le bit 15'], answer: 2, why: '0x2 vaut 2 puissance 1 : seul le bit 1 est à 1.' },
+					{ q: 'Le bit 1 représente quel signal ?', options: ['Le signal 2, SIGINT', 'Le signal 1, SIGHUP', 'Le signal 15, SIGTERM', 'Le signal 9, SIGKILL'], answer: 0, why: 'Le bit n-1 est le signal n : le bit 1 est le signal 2, SIGINT.' },
+					{ q: 'Pourquoi un simple `python3` intercepte-t-il ce signal ?', options: ['Pour vider ses tampons avant un `docker stop`', 'Pour lever `KeyboardInterrupt`', 'Parce que le PID 1 doit l’intercepter', 'Pour le transmettre à ses enfants'], answer: 1, why: 'Python intercepte SIGINT pour lever `KeyboardInterrupt`, et rien d’autre par défaut.' },
+					{ q: 'SIGTERM est-il dans le masque ?', options: ['Oui, tous les processus l’interceptent', 'Oui, c’est le bit 1', 'Seulement si le conteneur tourne en root', 'Non, le bit 14 n’est pas à 1'], answer: 3, why: 'SIGTERM vaut 15, ce serait donc le bit 14, 0x4000. Ce bit vaut 0.' }
+				]
+			},
+			{
+				title: 'Vérifie ce que le PID 1 fait de SIGTERM',
+				questions: [
+					{ q: 'SIGTERM n’est pas intercepté. Quelle est sa disposition ?', options: ['`SIG_DFL`, l’action par défaut', '`SIG_IGN`, posé par Docker', 'Bloqué jusqu’à ce que le programme lise stdin', 'Intercepté par le noyau pour le programme'], answer: 0, why: 'Pas de handler et pas d’ignore : c’est la disposition par défaut, `SIG_DFL`.' },
+					{ q: 'Quel flag le noyau pose-t-il sur le PID 1 d’un nouveau namespace PID ?', options: ['`SIGCHLD`', '`SIG_IGN`', '`SIGNAL_UNKILLABLE`', '`WNOHANG`'], answer: 2, why: '`kernel/fork.c` pose `SIGNAL_UNKILLABLE` quand le nouveau processus est le child reaper du namespace.' },
+					{ q: 'Un SIGTERM en `SIG_DFL` arrive sur un PID 1 `SIGNAL_UNKILLABLE`. Que se passe-t-il ?', options: ['Il termine le processus', 'Il attend en file qu’un handler apparaisse', 'Il est transformé en SIGKILL', 'Le noyau le jette avant de le mettre en file'], answer: 3, why: '`sig_task_ignored()` renvoie vrai dans ce cas, et le signal est jeté.' },
+					{ q: 'Lancer `kill -TERM 1` en root dans le conteneur change-t-il quelque chose ?', options: ['Oui, root peut envoyer n’importe quel signal à n’importe qui', 'Non, la règle s’applique même aux processus privilégiés', 'Oui, s’il est envoyé par `docker exec` depuis l’hôte', 'Seulement si SELinux est désactivé'], answer: 1, why: 'pid_namespaces(7) dit que la règle « applies even to privileged processes ».' }
+				]
+			},
+			{
+				title: 'Prévois le docker stop',
+				questions: [
+					{ q: '`docker stop` envoie SIGTERM au PID 1. Que fait python ?', options: ['Rien : le signal ne lui arrive jamais', 'Il lève `KeyboardInterrupt` et sort proprement', 'Il sort avec 143', 'Il le transmet à ses enfants'], answer: 0, why: 'Le noyau le jette : python ne le voit jamais et continue de tourner.' },
+					{ q: 'Combien de temps prend `docker stop` ?', options: ['Moins d’une seconde', 'Jusqu’à ce que python finisse le travail en cours', 'Environ 10 secondes, le délai de grâce par défaut', 'Indéfiniment, jusqu’à un Ctrl-C dans le terminal'], answer: 2, why: 'Docker attend ses 10 secondes une sortie qui ne vient jamais.' },
+					{ q: 'Qu’est-ce qui termine python à la seconde 10 ?', options: ['Un deuxième SIGTERM', 'SIGKILL envoyé par l’hôte, qui passe de force', 'SIGINT, puisque python intercepte celui-là et sort', 'L’OOM killer du noyau'], answer: 1, why: 'SIGKILL venu d’un namespace ancêtre est « forcibly delivered », même à l’init.' },
+					{ q: 'Que deviennent les autres processus du conteneur quand le PID 1 meurt ?', options: ['Ils sont rattachés au PID 1 de l’hôte', 'Ils tournent jusqu’au `docker rm`', 'Ils reçoivent SIGHUP', 'Le noyau les tue tous avec SIGKILL'], answer: 3, why: 'pid_namespaces(7) : quand l’init se termine, le noyau tue chaque processus du namespace avec SIGKILL.' }
+				]
+			},
+			{
+				title: 'Ajoute --init',
+				questions: [
+					{ q: 'Avec `docker run --init`, quel processus est le PID 1 ?', options: ['python3', '`docker-init`, c’est-à-dire tini', 'Le systemd de l’hôte', 'Un shell que Docker lance pour exécuter ta commande'], answer: 1, why: '`--init` lance tini en PID 1, et tini lance ton programme comme enfant.' },
+					{ q: 'Comment SIGTERM passe-t-il la règle de rejet pour arriver à tini ?', options: ['tini installe un handler SIGTERM', 'Docker l’envoie comme SIGKILL, qu’aucun PID 1 ne peut jeter', 'tini le bloque et l’attend avec `sigtimedwait()`', 'tini tourne en root sur l’hôte'], answer: 2, why: '`sig_ignored()` ne jette jamais un signal bloqué : il arrive à tini, qui l’attend avec `sigtimedwait()`.' },
+					{ q: 'tini transmet SIGTERM à python. Pourquoi python s’arrête-t-il tout de suite ?', options: ['Python n’est plus le PID 1 : le défaut s’applique', 'tini envoie SIGKILL à la place', 'Python intercepte maintenant SIGTERM', 'Docker raccourcit le délai de grâce quand `--init` est là'], answer: 0, why: 'Seul l’init d’un namespace subit la règle de rejet. En tant qu’enfant, python prend l’action par défaut : terminer.' },
+					{ q: 'Quel code de sortie le conteneur rapporte-t-il ?', options: ['137', '0', '15', '143'], answer: 3, why: 'tini sort avec 128 plus le numéro du signal : 128 + 15 = 143.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,28 @@ export default {
 			why: 'Un zombie est déjà terminé : un signal ne lui fait rien. wait(2) : il reste « as long as a zombie is not removed from the system via a wait ». Seul son parent, ici le PID 1, peut faire ce wait, et tini appelle `waitpid(-1, ..., WNOHANG)` en boucle.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir le PID 1 d’un conteneur jeter SIGTERM, puis corriger avec `--init`.',
+		steps: [
+			'Lance Python en PID 1 : `docker run -d --name pid1-lab python:3.12-alpine python3 -c \'import time; time.sleep(600)\'`.',
+			'Lis son nom et son masque : `docker exec pid1-lab grep -E "Name|SigCgt" /proc/1/status`.',
+			'Arrête-le en mesurant le temps : `time docker stop pid1-lab`, puis `docker inspect -f \'{{.State.ExitCode}}\' pid1-lab`.',
+			'Supprime-le et relance-le avec tini : `docker rm pid1-lab && docker run -d --init --name pid1-lab python:3.12-alpine python3 -c \'import time; time.sleep(600)\'`. Regarde qui est le PID 1 avec `docker exec pid1-lab ps -o pid,comm`.',
+			'Arrête et inspecte de nouveau : `time docker stop pid1-lab`, `docker inspect -f \'{{.State.ExitCode}}\' pid1-lab`, puis nettoie avec `docker rm pid1-lab`.'
+		],
+		done: [
+			'Le premier conteneur montre `Name: python3` et `SigCgt: 0000000000000002`.',
+			'Le premier `docker stop` prend environ 10 secondes et le code de sortie vaut 137.',
+			'Avec `--init`, le PID 1 est `docker-init` et python a un autre PID.',
+			'Le deuxième `docker stop` rend la main en une seconde environ et le code de sortie vaut 143.'
+		],
+		solution: [
+			'Python n’intercepte que SIGINT (bit 1). SIGTERM garde `SIG_DFL`, et le noyau le jette pour un PID 1 `SIGNAL_UNKILLABLE`. Docker envoie SIGKILL à la seconde 10 : 128 + 9 = 137.',
+			'Avec `--init`, tini est le PID 1. Il récupère SIGTERM avec `sigtimedwait()` et le transmet à python, devenu un enfant normal, qui se termine. tini sort avec 128 + 15 = 143.',
+			'Sans `--init`, l’autre correction est un handler SIGTERM dans le programme : un signal intercepté n’est pas jeté, même au PID 1.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi le PID 1 d’un conteneur ignore-t-il SIGTERM quand il n’a pas de handler, et comment tini fait-il passer le signal ?',
 		a: 'Le noyau marque l’init d’un namespace `SIGNAL_UNKILLABLE` et jette les signaux dont la disposition vaut `SIG_DFL`. tini bloque les signaux, les récupère avec `sigtimedwait()` et les transmet avec `kill()` à ton programme, qui n’est pas le PID 1 et subit l’action par défaut.'

@@ -108,6 +108,44 @@ func subMono(t, u int64) Duration {
 			'(b) et (d) sont exposés : `UTC()` et `Round(0)` enlèvent la lecture monotone, `Sub` retombe sur l’horloge murale et un recul peut donner un résultat négatif, le bug de RRDNS.',
 			'(c) utilise l’horloge murale exprès : `time.Unix` n’a pas de lecture monotone. Une expiration stockée en base doit désigner le même instant sur toutes les machines, donc l’horloge murale est le bon choix. Un step décale le résultat de la taille du saut.',
 			'Sortie de `timedatectl timesync-status` sur la machine où ce chapitre a été écrit : `Offset: +1.620ms`, `Frequency: -1.233ppm`, serveur `ntp.ubuntu.com`, stratum 2. L’horloge a 1,6 ms d’écart avec son serveur, assez peu pour un slew. Dans `chronyc tracking`, l’écart est sur la ligne `System time`, et `Frequency` est "the rate by which the system’s clock would be wrong if chronyd was not correcting it".'
+		],
+		steps: [
+			{
+				title: 'Regarde ce que porte chaque valeur',
+				questions: [
+					{ q: '(a) `start := time.Now()`. `start` porte-t-il une lecture monotone ?', options: ['Non, `time.Now()` ne lit que l’horloge murale', 'Oui, `time.Now()` lit les deux horloges', 'Seulement si le programme tourne en root', 'Seulement avec Go avant 1.9'], answer: 1, why: 'Depuis Go 1.9, `time.Now()` appelle `clock_gettime` pour `CLOCK_REALTIME` et `CLOCK_MONOTONIC`, et la valeur `Time` garde les deux.' },
+					{ q: '(b) `start := time.Now().UTC()`. Que fait `UTC()` à la lecture monotone ?', options: ['Il l’enlève', 'Il la convertit en UTC', 'Il la garde telle quelle', 'Il double sa précision'], answer: 0, why: 'La doc de `time` cite `t.UTC()`, `t.In()` et `t.Round(0)` parmi les appels qui enlèvent la lecture monotone.' },
+					{ q: '(c) `exp := time.Unix(row.ExpiresAt, 0)`. `exp` a-t-il une lecture monotone ?', options: ['Oui, `time.Unix` lit `CLOCK_MONOTONIC`', 'Oui, mais seulement si la ligne vient du même processus', 'Non, une valeur construite à partir d’un nombre n’en a pas', 'Non, parce que `ExpiresAt` est dans le futur'], answer: 2, why: 'Les valeurs de `time.Unix`, `time.Parse` ou `UnmarshalJSON` n’ont pas de lecture monotone. Un compteur monotone n’a aucun sens hors du processus.' },
+					{ q: '(d) `start := time.Now().Round(0)`. Que reste-t-il dans `start` ?', options: ['Les deux lectures, arrondies à la seconde', 'La lecture monotone seule', 'Rien, `Round(0)` renvoie le temps zéro', 'La lecture de l’horloge murale seule'], answer: 3, why: '`Round(0)` est la façon documentée d’enlever la lecture monotone en gardant l’horloge murale.' }
+				]
+			},
+			{
+				title: 'Suis un recul',
+				questions: [
+					{ q: 'Dans (a), comment `time.Since(start)` calcule-t-il le résultat ?', options: ['Il soustrait les deux lectures monotones', 'Il soustrait les deux lectures de l’horloge murale', 'Il demande l’écart courant à chronyd', 'Il lit `/proc/uptime` deux fois'], answer: 0, why: '`Sub` vérifie le bit `hasMonotonic` des deux valeurs et appelle `subMono`. Un step de l’horloge murale ne touche pas `CLOCK_MONOTONIC`.' },
+					{ q: 'Dans (b), l’horloge murale recule d’1 s pendant un appel de 4 ms. Que peut renvoyer `time.Since(start)` ?', options: ['4 ms, car Go corrige le step', 'Une durée négative, environ -996 ms', 'Zéro, car Go ramène les négatifs à zéro', 'Une panique, car les horloges ne sont pas d’accord'], answer: 1, why: 'Une des valeurs n’a pas de lecture monotone, donc `Sub` soustrait les heures murales. Un recul d’1 s entre deux lectures à 4 ms d’écart donne -996 ms, le bug de RRDNS.' },
+					{ q: 'Dans (c), que fait ce même recul à `time.Until(exp)` ?', options: ['Il rend le résultat négatif', 'Rien, `Until` est toujours monotone', 'Il décale le résultat de la taille du saut', 'Il fait retomber Go sur `CLOCK_BOOTTIME`'], answer: 2, why: '`time.Until` soustrait ici des heures murales. Un recul d’1 s fait paraître l’expiration 1 s plus loin.' },
+					{ q: 'Pourquoi l’horloge murale est-elle le bon choix dans (c) ?', options: ['Elle est plus rapide à lire que l’horloge monotone', 'L’horloge monotone n’existe pas dans les conteneurs', 'L’horloge murale ne saute jamais sur un serveur avec NTP', 'Une expiration stockée doit désigner le même instant sur toutes les machines'], answer: 3, why: 'Une lecture monotone compte depuis le démarrage du processus, elle ne peut pas être stockée en base et relue ailleurs. Une expiration a besoin d’une vraie date.' }
+				]
+			},
+			{
+				title: 'Nomme les extraits exposés',
+				questions: [
+					{ q: 'Quels extraits peuvent donner une durée négative après un recul d’1 s ?', options: ['(b) et (d)', '(a) et (c)', '(c) seulement', 'Les quatre'], answer: 0, why: 'Dans (b) et (d), `start` a perdu sa lecture monotone, donc `Sub` prend le chemin de l’horloge murale. (c) bouge de la taille du saut, mais c’est une comparaison murale voulue.' },
+					{ q: 'Quel extrait est sûr tel quel ?', options: ['(b), car UTC n’a pas de seconde intercalaire', '(d), car la valeur est arrondie', '(c), car il lit une base de données', '(a), car les deux valeurs viennent de `time.Now()`'], answer: 3, why: 'Seul (a) garde deux lectures monotones, donc le résultat reste positif malgré le step.' },
+					{ q: 'Comment corriges-tu (b) tout en loguant le début en UTC ?', options: ['Appeler aussi `UTC()` sur l’heure de fin', 'Mesurer avec la valeur brute de `time.Now()` et n’appeler `UTC()` que pour l’affichage', 'Remplacer `time.Since` par `time.Until`', 'Ajouter `Round(0)` aux deux valeurs'], answer: 1, why: 'Garde la valeur de `time.Now()` pour la soustraction. Convertir une copie pour l’afficher ne touche pas la valeur qui sert à mesurer.' },
+					{ q: 'Après la correction, une ligne de log écrite juste après le step affiche une heure plus tôt que la précédente. Pourquoi ?', options: ['La correction a cassé le logger', 'Go trie les lignes de log par temps monotone', 'Les horodatages des logs viennent toujours de l’horloge murale', 'Le noyau écrit les logs avant le step'], answer: 2, why: 'La lecture monotone ne corrige que les durées. Les heures que tu affiches sont des heures murales, elles sautent avec l’horloge.' }
+				]
+			},
+			{
+				title: 'Lis l’état de la synchro',
+				questions: [
+					{ q: 'Sur une machine avec systemd-timesyncd, quelle commande montre l’écart ?', options: ['`timedatectl timesync-status`', '`date --offset`', '`hwclock --show`', '`sysctl kernel.time`'], answer: 0, why: '`timedatectl timesync-status` affiche le serveur, le stratum, `Offset` et `Frequency` de systemd-timesyncd. Avec chrony, lance `chronyc tracking`.' },
+					{ q: 'La sortie affiche `Offset: +1.620ms`. Que va faire le démon ?', options: ['Reculer l’horloge de 1,6 ms d’un coup', 'Attendre un redémarrage pour l’appliquer', 'L’ignorer, un écart sous 1 s n’est jamais corrigé', 'L’effacer par un slew, en changeant un peu le rythme de l’horloge'], answer: 3, why: '1,6 ms, c’est assez peu pour un slew, et l’horloge murale continue d’avancer. Les steps sont pour les gros écarts, comme une horloge très décalée au démarrage.' },
+					{ q: 'Dans `chronyc tracking`, quelle ligne donne l’écart ?', options: ['`Frequency`', '`System time`', '`Stratum`', '`Reference ID`'], answer: 1, why: 'La doc de chronyc place l’écart de l’horloge système sur la ligne `System time`.' },
+					{ q: 'Que veut dire `Frequency` dans cette sortie ?', options: ['La fréquence à laquelle le démon interroge son serveur', 'Le nombre de secondes intercalaires prévues', 'La vitesse à laquelle l’horloge dériverait si le démon ne la corrigeait plus', 'Le nombre de serveurs auxquels le démon fait confiance'], answer: 2, why: 'chronyc(1) : le rythme auquel l’horloge "would be wrong if chronyd was not correcting it", en ppm.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ func subMono(t, u int64) Duration {
 			why: '`t.UTC()` enlève la lecture monotone, donc `Sub` prend le chemin de l’horloge murale, ligne 9 de l’exemple. Un recul d’une seconde entre les deux lectures rend l’écart négatif. Sans `UTC()`, les deux valeurs ont une lecture monotone et le résultat reste positif.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lire les deux horloges côte à côte, voir quelles valeurs Go gardent une lecture monotone, et lire l’écart NTP de ta machine.',
+		steps: [
+			'Lis l’horloge murale, l’horloge monotone et l’uptime : `python3 -c \'import time; print(time.clock_gettime(time.CLOCK_REALTIME), time.clock_gettime(time.CLOCK_MONOTONIC))\'; cat /proc/uptime`.',
+			'Crée un dossier : `mkdir -p ~/clock-lab && cd ~/clock-lab`. Écris `main.go` (paquet `main`, imports `fmt` et `time`) dont le `main` affiche quatre valeurs avec `fmt.Println` : `time.Now()`, `time.Now().UTC()`, `time.Now().Round(0)` et `time.Unix(time.Now().Unix(), 0)`.',
+			'Lance-le : `go run main.go`. Regarde la fin de chaque ligne.',
+			'Lis l’état de la synchro : `timedatectl timesync-status` avec systemd-timesyncd, ou `chronyc tracking` avec chrony.'
+		],
+		done: [
+			'Sur une machine qui n’a pas été mise en veille depuis le démarrage, la valeur monotone de Python est proche du premier nombre de `/proc/uptime`, et la valeur murale dépasse 1,79 milliard de secondes.',
+			'Seule la ligne `time.Now()` finit par `m=+0.0000...`. Les lignes `UTC()`, `Round(0)` et `time.Unix` n’ont pas de partie `m=`.',
+			'Tu sais lire une ligne `Offset` (timesyncd) ou `System time` (chrony) et dire si l’écart est assez petit pour un slew.'
+		],
+		solution: [
+			'`CLOCK_MONOTONIC` compte depuis le démarrage, veille exclue, donc sur un serveur il suit `/proc/uptime`. `CLOCK_REALTIME` compte les secondes depuis 1970.',
+			'`main.go` : `package main`, `import ("fmt"; "time")`, puis `func main() { fmt.Println(time.Now()); fmt.Println(time.Now().UTC()); fmt.Println(time.Now().Round(0)); fmt.Println(time.Unix(time.Now().Unix(), 0)) }`.',
+			'Go affiche `m=+<secondes>` quand une valeur porte une lecture monotone. Les trois autres lignes l’ont perdue, donc `Sub` retombe sur l’horloge murale avec elles, comme les extraits (b), (c) et (d) de l’exercice.',
+			'Un écart de quelques millisecondes est normal et s’efface par un slew. Tu ne peux pas faire de step sans root, et tu ne dois pas le faire sur une machine partagée : la leçon, c’est que seules les valeurs avec `m=` survivent à un step.'
+		]
+	},
 	recall: {
 		q: 'Quelle horloge Linux faut-il utiliser pour mesurer un délai, et qu’est-il arrivé à RRDNS chez Cloudflare le 1er janvier 2017 ?',
 		a: '`CLOCK_MONOTONIC`, qui ne recule jamais. RRDNS a soustrait deux lectures de l’horloge murale à travers la seconde intercalaire, a obtenu une durée négative, et `rand.Int63n()` a paniqué ; 0,2 % des requêtes DNS ont échoué au pic.'

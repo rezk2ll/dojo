@@ -130,6 +130,44 @@ export default {
 			'Cache HTTP (chapitre 22) : pour la RFC 9111, une réponse est fraîche tant que sa durée de fraîcheur dépasse son âge. 14400 moins 11173 laisse 3227 secondes, environ 54 minutes, avant qu’un cache de navigateur doive revalider cette copie.',
 			'Alt-Svc (chapitre 19) : la RFC 7838 compte `ma` en secondes "since the response was generated". Le client peut essayer HTTP/3 sur le port UDP 443 pendant les 86400 secondes suivantes, un jour.',
 			'Certificat (chapitre 21) : du 17 octobre 00:10 au 25 décembre 22:13, il reste 69 jours et 22 heures. Il a été émis le 26 septembre, donc sa durée de vie totale est d’environ 90 jours.'
+		],
+		steps: [
+			{
+				title: 'Calcule le TTL DNS',
+				questions: [
+					{ q: 'Le stub montre un TTL de 122 sur les enregistrements A. Combien de temps peut-il encore les garder ?', options: ['300 secondes', '178 secondes', '122 secondes', 'Jusqu’au prochain redémarrage'], answer: 2, why: 'Un cache renvoie un enregistrement avec le TTL qui lui reste. 122, c’est ce qui reste.' },
+					{ q: 'Pourquoi `dig +trace` montre-t-il 300 pour les mêmes enregistrements ?', options: ['Il interroge le serveur autoritaire, qui donne le TTL complet', 'Le trace double chaque TTL', 'Les deux serveurs ne sont pas d’accord', 'Le trace passe par IPv6'], answer: 0, why: 'mitch.ns.cloudflare.com donne l’enregistrement neuf, avec toute sa durée de vie de 300 secondes.' },
+					{ q: 'Depuis combien de temps un cache gardait-il les enregistrements ?', options: ['122 secondes', '300 secondes', '422 secondes', '178 secondes'], answer: 3, why: '300 moins 122 donne 178 secondes depuis que le cache a reçu la réponse.' },
+					{ q: 'Que se passe-t-il quand les 122 secondes sont écoulées ?', options: ['Le stub garde l’ancienne réponse pour toujours', 'Le stub redemande et reçoit un nouveau TTL de 300', 'curl ne résout plus example.org', 'Le TTL devient négatif'], answer: 1, why: 'Une fois le TTL épuisé, le cache doit redemander. Cela relève du chapitre 11.' }
+				]
+			},
+			{
+				title: 'Calcule le cache HTTP',
+				questions: [
+					{ q: 'Que dit `age: 11173` ?', options: ['La copie expire dans 11173 secondes', 'Le serveur a mis 11173 ms', 'La copie est dans un cache depuis 11173 secondes', 'La page fait 11173 octets'], answer: 2, why: 'Cloudflare met `Age` sur les réponses servies depuis le cache : l’âge de cette copie stockée.' },
+					{ q: 'Quand une réponse est-elle fraîche, selon la RFC 9111 ?', options: ['Tant que sa durée de fraîcheur dépasse son âge', 'Tant que `cf-cache-status` vaut `HIT`', 'Jusqu’à la fin du TTL DNS', 'Jusqu’à la requête suivante'], answer: 0, why: 'La fraîcheur compare la durée de vie, ici `max-age=14400`, à l’âge.' },
+					{ q: 'Dans combien de temps un cache de navigateur doit-il revalider cette copie ?', options: ['14400 secondes', '11173 secondes', 'Environ 4 heures', '3227 secondes, environ 54 minutes'], answer: 3, why: '14400 moins 11173 donne 3227 secondes.' },
+					{ q: 'À quel chapitre appartient cette valeur ?', options: ['Chapitre 11, DNS', 'Chapitre 22, cache HTTP', 'Chapitre 21, certificats', 'Chapitre 19, HTTP/3'], answer: 1, why: '`cache-control` et `age` sont des en-têtes de cache HTTP : chapitre 22.' }
+				]
+			},
+			{
+				title: 'Calcule l’Alt-Svc',
+				questions: [
+					{ q: 'Que propose `alt-svc: h3=":443"` ?', options: ['Un second certificat TLS', 'Une redirection vers le port 443', 'HTTP/3 sur le port UDP 443', 'HTTP/2 sur le port TCP 443'], answer: 2, why: '`h3`, c’est HTTP/3, qui tourne sur QUIC en UDP.' },
+					{ q: 'À partir de quand `ma=86400` compte-t-il ?', options: ['Depuis la génération de la réponse', 'Depuis la première requête de la journée', 'Depuis l’émission du certificat', 'Depuis la mise en cache de la réponse DNS'], answer: 0, why: 'La RFC 7838 compte `ma` en secondes "since the response was generated".' },
+					{ q: 'Combien font 86400 secondes ?', options: ['Une heure', 'Une semaine', '90 jours', 'Un jour'], answer: 3, why: '86400, c’est 24 × 3600.' },
+					{ q: 'Quel chapitre couvre cet en-tête ?', options: ['Le chapitre 22', 'Le chapitre 19', 'Le chapitre 11', 'Le chapitre 38'], answer: 1, why: 'Le `h3` d’Alt-Svc propose HTTP/3, et le chapitre 19 est celui d’HTTP/3. L’étape du schéma pour cet en-tête le cite en premier.' }
+				]
+			},
+			{
+				title: 'Calcule le certificat',
+				questions: [
+					{ q: 'Le run date du 17 octobre à 00:10 UTC, et le certificat expire le 25 décembre à 22:13 GMT. Combien reste-t-il ?', options: ['69 jours et 22 heures', '90 jours', '68 jours et 2 heures', '2 mois pile'], answer: 0, why: 'Il reste 14 jours en octobre après le 17, 30 en novembre, 25 en décembre : 69 jours, plus 22 heures de 00:10 à 22:13.' },
+					{ q: 'Le certificat a été émis le 26 septembre. Quelle est sa durée de vie totale ?', options: ['Environ un an', 'Environ 30 jours', 'Environ 90 jours', 'Environ 69 jours'], answer: 2, why: 'Du 26 septembre au 25 décembre, cela fait environ 90 jours. Les 69 jours ne sont que ce qui reste.' },
+					{ q: 'Quelle ligne de `curl -v` te dit que la chaîne a été vérifiée ?', options: ['`ALPN: server accepted h2`', '`cf-cache-status: HIT`', '`Connection #0 ... left intact`', '`SSL certificate verify ok.`'], answer: 3, why: 'curl affiche cette ligne une fois la chaîne de certificats vérifiée.' },
+					{ q: 'Laquelle des quatre valeurs expire en premier ?', options: ['Le certificat', 'Le TTL DNS, dans 122 secondes', 'La copie du cache HTTP', 'L’entrée Alt-Svc'], answer: 1, why: '122 secondes, puis 3227 secondes, puis un jour, puis environ 70 jours.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -167,6 +205,29 @@ export default {
 			why: '`HIT` veut dire que la ressource était dans le cache de Cloudflare, et Cloudflare met `Age` sur les réponses servies depuis le cache. curl n’a jamais parlé au serveur d’example.org.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Refaire le run du chapitre vers example.org depuis ta machine, et calculer les quatre durées de vie avec tes propres chiffres.',
+		steps: [
+			'Mesure et trace une requête : `curl -sv -o /dev/null -w \'dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} start=%{time_starttransfer} total=%{time_total}\\n\' https://example.org/`.',
+			'Dans la sortie, trouve l’adresse à laquelle curl s’est connecté, la version de TLS, le résultat ALPN, l’`expire date` du certificat, et les en-têtes `age`, `cache-control`, `cf-cache-status` et `alt-svc`.',
+			'Interroge ton stub resolver : `dig example.org A +noall +answer`. Note le TTL.',
+			'Interroge depuis la racine : `dig +trace example.org`. Note le TTL dans la réponse du serveur de noms Cloudflare.',
+			'Relance le `curl` une minute plus tard et compare `dns=` et `age`.'
+		],
+		done: [
+			'Tu as les quatre phases de ton run en millisecondes : DNS, TCP, TLS et premier octet.',
+			'Tu as le TTL du stub, le TTL de 300 du trace, et l’écart entre les deux.',
+			'Tu as `max-age` moins `age` en secondes, et les jours restants sur le certificat.',
+			'Au second `curl`, `age` a augmenté d’environ le temps attendu, sauf si l’edge a récupéré une copie neuve entre-temps.'
+		],
+		solution: [
+			'Chaque phase est un timer moins celui d’avant, comme au chapitre 38. Un `dns=` sous la milliseconde veut dire qu’un cache a répondu.',
+			'TTL du stub sous 300 : un cache garde l’enregistrement depuis 300 moins ce TTL secondes.',
+			'Si `cf-cache-status` vaut `HIT`, tes octets viennent du data center Cloudflare nommé à la fin de `cf-ray`, pas du serveur d’example.org.',
+			'Si `curl` montre une adresse IPv4, ton réseau n’a pas de route IPv6 qui marche, ou IPv6 ne s’est pas connecté dans le délai Happy Eyeballs de 200 ms.'
+		]
+	},
 	recall: {
 		q: 'Donne les étapes de `curl https://example.org/` dans ce run, dans l’ordre, avec le chapitre et la durée de chacune.',
 		a: 'DNS depuis le cache du stub en 0,8 ms (09, 11). TCP en IPv6 vers une adresse anycast de Cloudflare en 5,7 ms (05, 15, 39). TLS 1.3 avec ALPN `h2` en 16,9 ms (20, 21). Un seul GET HTTP/2, servi par le cache edge en 12,2 ms (18, 22, 30).'

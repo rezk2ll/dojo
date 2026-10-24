@@ -136,6 +136,44 @@ int journal_ratelimit_test(
 			'Create `/etc/systemd/journald.conf.d/60-size.conf` with `[Journal]` and `SystemMaxUse=500M`, then run `systemctl restart systemd-journald`. The journald page says restarting it is safe: service log streams survive the restart.',
 			'`journalctl --vacuum-size=500M` deletes the oldest archived files until they use less than 500M. The active file is not touched, so `--disk-usage` may stay a little higher.',
 			'Errors from the previous boot: `journalctl -u nginx -b -1 -p err`. This needs persistent storage in `/var/log/journal/`: with only `/run/log/journal/`, older boots are lost.'
+		],
+		steps: [
+			{
+				title: 'Explain the 3.9G',
+				questions: [
+					{ q: 'What is the default `SystemMaxUse=`?', options: ['500M', '10% of the file system, capped at 4G', '15% of the file system', '4G on every machine'], answer: 1, why: 'journald.conf(5) sets it to 10% of the file system, with a 4G cap.' },
+					{ q: 'What is 10% of the 40 GB root?', options: ['4 GB', '400 MB', '40 GB', '10 GB'], answer: 0, why: '40 × 0.1 = 4 GB, which is exactly the cap.' },
+					{ q: 'So what does 3.9G of journals mean?', options: ['journald is broken and ignores its limit', 'The rate limit failed', 'The journal is within what its defaults allow', 'The disk is about to fill up'], answer: 2, why: 'The journal is allowed 4G here, and 3.9G is under that.' },
+					{ q: 'Which command printed the 3.9G?', options: ['`du -sh /var/log`', '`df -h /var/log/journal`', '`journalctl --vacuum-size=0`', '`journalctl --disk-usage`'], answer: 3, why: 'It prints `Archived and active journals take up ... in the file system.`' }
+				]
+			},
+			{
+				title: 'Lower the limit',
+				questions: [
+					{ q: 'Where does the local change go?', options: ['Edit `/usr/lib/systemd/journald.conf`', 'A drop-in under `/etc/systemd/journald.conf.d/`', 'The `[Service]` section of `nginx.service`', '`/etc/logrotate.d/journal`'], answer: 1, why: 'The hint says local changes go in a drop-in under `/etc/systemd/journald.conf.d/`.' },
+					{ q: 'What does the drop-in contain?', options: ['`[Journal]` and `SystemMaxUse=500M`', '`[Service]` and `LogRateLimitBurst=500`', '`[Journal]` and `SystemKeepFree=500M`', '`[Journal]` and `RuntimeMaxUse=500M`'], answer: 0, why: '`SystemMaxUse=` caps the files in `/var/log/journal/`. `SystemKeepFree=` would set the space to leave free instead.' },
+					{ q: 'How do you make journald read it?', options: ['Reboot the VM', '`systemctl daemon-reload`', '`systemctl restart systemd-journald`', '`journalctl --rotate` only'], answer: 2, why: 'Restarting journald applies it. The journald page says service log streams survive the restart.' },
+					{ q: 'Does restarting journald lose the logs of running services?', options: ['Yes, every stream is cut', 'Yes, until each service restarts', 'Only for services with `Type=notify`', 'No: their log streams survive the restart'], answer: 3, why: 'The systemd-journald page says the restart is safe for that reason.' }
+				]
+			},
+			{
+				title: 'Free the space now',
+				questions: [
+					{ q: 'Which command deletes old files down to 500M right away?', options: ['`journalctl --vacuum-size=500M`', '`rm /var/log/journal/*/*.journal`', '`journalctl --disk-usage=500M`', '`systemctl clean systemd-journald`'], answer: 0, why: 'It deletes the oldest archived files until they use less than 500M.' },
+					{ q: 'Which files does vacuuming never delete?', options: ['The oldest archived files', 'The active journal files', 'Files from the previous boot', 'Files over 100M'], answer: 1, why: 'Only archived files are removed. The active `system.journal` stays.' },
+					{ q: 'After the vacuum, `--disk-usage` shows 540M. Is something wrong?', options: ['Yes: the drop-in was ignored', 'Yes: the vacuum failed halfway', 'No: the active files are counted too', 'No: `--disk-usage` rounds up by 10%'], answer: 2, why: 'journalctl(1) says the vacuum has "only an indirect effect" on that number, because active files count.' },
+					{ q: 'Why not just `rm` the files by hand?', options: ['`rm` cannot delete journal files', 'journald would recreate them at once', 'Journal files are read-only, even for root', '`--vacuum-size` picks the oldest archived files and leaves the active one alone'], answer: 3, why: 'The vacuum removes files in age order and never touches the active file journald is writing.' }
+				]
+			},
+			{
+				title: 'Find last boot\'s nginx errors',
+				questions: [
+					{ q: 'Which option picks the boot before the current one?', options: ['`-b`', '`-b 1`', '`-b -1`', '`--since -1`'], answer: 2, why: '`-b -1` matches the `_BOOT_ID=` of the boot before the current one. `-b` alone is the current boot and `-b 1` the first recorded.' },
+					{ q: 'Which option keeps only errors and worse?', options: ['`-p err`', '`-p 3..7`', '`-p info`', '`--errors`'], answer: 0, why: '`-p err` keeps priorities 0 to 3. `3..7` would add warnings, notices, info and debug.' },
+					{ q: 'So the full command is...', options: ['`journalctl nginx -b -1 | grep error`', '`journalctl -u nginx -b -p err`', '`journalctl -u nginx -b 1 -p 3`', '`journalctl -u nginx -b -1 -p err`'], answer: 3, why: '`-u nginx` matches `_SYSTEMD_UNIT=nginx.service`, and the filters work on fields, with no `grep`.' },
+					{ q: 'The command prints nothing for any earlier boot. What is the likely cause?', options: ['nginx had no errors', 'The journal lives only in `/run/log/journal/`, lost at reboot', 'The 500M limit deleted last night\'s files', '`-p err` hides nginx messages'], answer: 1, why: 'Older boots need persistent storage in `/var/log/journal/`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ int journal_ratelimit_test(
 			why: 'Vacuuming removes the oldest archived files until those fall below the size. `--disk-usage` adds the active files, which are never deleted. journalctl(1) says the vacuum has "only an indirect effect" on that number.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Write entries with a priority, find them by field instead of `grep`, and read your machine\'s journal size and limits.',
+		steps: [
+			'Read the size and the defaults: `journalctl --disk-usage`, then `systemd-analyze cat-config systemd/journald.conf | grep -E "SystemMaxUse|RateLimit"`.',
+			'Check where the journal is kept: `ls -d /var/log/journal/*/ /run/log/journal 2>/dev/null`.',
+			'Write two entries with different priorities: `systemd-cat -t dojo-lab -p err echo "database connection refused"` and `systemd-cat -t dojo-lab -p info echo "request served"`.',
+			'Filter them: `journalctl -t dojo-lab -o cat`, then `journalctl -t dojo-lab -p err -o cat`, then look at the fields of the error with `journalctl -t dojo-lab -p err -n 1 -o verbose`.',
+			'List the boots with `journalctl --list-boots | tail -3`, then read the last errors of the previous one: `journalctl -b -1 -p err -n 5`.'
+		],
+		done: [
+			'The first filter prints both lines, the `-p err` filter prints only `database connection refused`.',
+			'`-o verbose` shows `PRIORITY=3`, `SYSLOG_IDENTIFIER=dojo-lab` and a `_BOOT_ID=`.',
+			'`--list-boots` shows a line with index `-1`, and `-b -1 -p err` prints entries from that boot (or nothing if the journal is only in `/run`).'
+		],
+		solution: [
+			'On the test laptop, `--disk-usage` printed `798.2M` and `cat-config` showed the commented defaults `#RateLimitIntervalSec=30s`, `#RateLimitBurst=10000` and `#SystemMaxUse=`: an empty value means 10% of the file system, capped at 4G.',
+			'The journal lived in `/var/log/journal/<machine-id>/`, so older boots were kept and `-b -1` worked.',
+			'`-t` matches `SYSLOG_IDENTIFIER=`, `-p err` matches `PRIORITY=` 0 to 3. A normal user sees their own entries. Members of the `adm` or `systemd-journal` group see the system ones too.'
+		]
+	},
 	recall: {
 		q: 'With default settings, how many messages may one service log to the journal per 30 seconds when the journal has 4 GB free, and what line marks the dropped ones?',
 		a: '10,000 × 4 = 40,000, from `RateLimitBurst=10000` scaled by the free space. The next message after the window is preceded by `Suppressed N messages from app.service`.'

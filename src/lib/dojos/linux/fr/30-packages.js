@@ -109,6 +109,44 @@ bool DoUpgradeWithAllowNewPackages(CommandLine &CmdL)
 			'(1) `apt-get upgrade --with-new-pkgs`, ou `apt upgrade`. Les deux acceptent de nouvelles dépendances, comme le nouveau paquet de noyau, et aucun ne retire de paquet. Garde `full-upgrade` pour le cas où la sortie montre un retrait nécessaire que tu as lu.',
 			'(2) `apt-mark hold postgresql-16`. `apt-mark showhold` le liste, et `dpkg -l postgresql-16` commence par `hi` : action voulue Hold, état installé. Plus tard, `apt-mark unhold postgresql-16`.',
 			'(3) `i` est l’action voulue Install, `U` l’état Unpacked : les fichiers sont sur le disque, l’étape de configuration n’a jamais tourné. Lance `sudo dpkg --configure -a`, puis `apt-get -f install` s’il manque encore des dépendances.'
+		],
+		steps: [
+			{
+				title: 'Lis la liste kept back',
+				questions: [
+					{ q: 'Pourquoi `apt-get upgrade` garde-t-il `linux-image-amd64` en arrière ?', options: ['Sa nouvelle version demande un paquet de noyau pas encore installé', 'apt ne met jamais à jour le noyau qui tourne', 'Les paquets de noyau sont en hold par défaut', 'Les listes de paquets sont trop vieilles'], answer: 0, why: 'Le méta-paquet dépend d’un paquet de noyau qui porte la version dans son nom : un nouveau noyau est un nouveau paquet.' },
+					{ q: 'Quels drapeaux passe le `apt-get upgrade` simple ?', options: ['`ALLOW_EVERYTHING`', 'Seulement `FORBID_REMOVE_PACKAGES`', 'Seulement `FORBID_INSTALL_NEW_PACKAGES`', '`FORBID_REMOVE_PACKAGES` et `FORBID_INSTALL_NEW_PACKAGES`'], answer: 3, why: '`DoUpgradeNoNewPackages` interdit les deux : une mise à jour qui demande un nouveau paquet est sautée.' },
+					{ q: '`nginx` est aussi gardé en arrière. Quelle est une raison probable ?', options: ['nginx est toujours en hold', 'Sa nouvelle version demande un paquet pas encore installé', 'nginx tourne, donc il ne peut pas être mis à jour', 'nginx vient d’une autre source'], answer: 1, why: 'Le `apt-get upgrade` simple n’installe aucun nouveau paquet, donc une mise à jour qui en demande un est gardée en arrière. La correction de la tâche, qui autorise les nouveaux paquets, la fait passer.' },
+					{ q: 'Un paquet kept back affiche-t-il une erreur ?', options: ['Oui, apt sort en erreur', 'Oui, au prochain boot', 'Non : la machine garde simplement l’ancienne version', 'Seulement dans `/var/log/dpkg.log`'], answer: 2, why: 'Le chapitre prévient de ce coût : les vieilles versions restent, sans la moindre erreur.' }
+				]
+			},
+			{
+				title: 'Mets à jour sans rien retirer',
+				questions: [
+					{ q: 'Quelle commande met les deux à jour sans rien retirer ?', options: ['`apt-get upgrade --with-new-pkgs`', '`apt-get dist-upgrade`', '`apt full-upgrade`', '`apt-get install --reinstall nginx`'], answer: 0, why: 'Elle active `APT::Get::Upgrade-Allow-New`, qui ne garde que `FORBID_REMOVE_PACKAGES`.' },
+					{ q: 'Quelle autre commande fait la même chose ?', options: ['`apt-get upgrade`', '`apt upgrade`', '`apt full-upgrade`', '`dpkg --configure -a`'], answer: 1, why: 'apt(8) : `apt upgrade` installe de nouveaux paquets « if required to satisfy dependencies », et n’en retire jamais.' },
+					{ q: 'Que peut faire `full-upgrade` que ces deux-là ne font jamais ?', options: ['Installer de nouveaux paquets', 'Mettre à jour les paquets en hold', 'Télécharger les listes de paquets', 'Retirer des paquets installés pour résoudre un conflit'], answer: 3, why: '`full-upgrade` appelle `DoDistUpgrade` avec `ALLOW_EVERYTHING`.' },
+					{ q: 'Quand `full-upgrade` est-il le bon choix ?', options: ['Toujours, c’est le plus complet', 'Quand la sortie montre un retrait nécessaire que tu as lu', 'Jamais sur un serveur', 'Seulement après `apt-mark hold`'], answer: 1, why: 'Un `Y` donné trop vite peut retirer un paquet dont ton service a besoin : lis d’abord la liste des retraits.' }
+				]
+			},
+			{
+				title: 'Bloque PostgreSQL',
+				questions: [
+					{ q: 'Quelle commande garde `postgresql-16` à sa version ?', options: ['`apt-get remove --keep postgresql-16`', '`dpkg --pin postgresql-16`', '`apt-mark hold postgresql-16`', '`apt-get upgrade --exclude postgresql-16`'], answer: 2, why: 'Un hold veut dire « no automatic new installs, upgrades or removals » pour ce paquet.' },
+					{ q: 'Le hold résiste-t-il à `apt full-upgrade` ?', options: ['Oui, sauf si tu passes `--ignore-hold`', 'Non : `full-upgrade` permet tout', 'Seulement jusqu’au prochain `apt update`', 'Seulement avec `apt-get`, pas avec `apt`'], answer: 0, why: 'Il tient à travers `upgrade` et `full-upgrade`, jusqu’à `apt-mark unhold` ou un `--ignore-hold` explicite.' },
+					{ q: 'Comment vérifier le hold ?', options: ['Seulement `apt-cache policy`', '`systemctl status postgresql`', '`cat /etc/apt/sources.list`', '`apt-mark showhold`, ou `dpkg -l` qui commence par `hi`'], answer: 3, why: '`showhold` liste les paquets en hold. Dans `hi`, `h` est l’action voulue Hold et `i` l’état installé.' },
+					{ q: 'Le mois prochain, comment le libérer ?', options: ['`apt-mark auto postgresql-16`', '`apt-mark unhold postgresql-16`', '`dpkg --purge postgresql-16`', '`apt-get autoremove`'], answer: 1, why: '`unhold` efface la sélection, et la mise à jour suivante peut de nouveau faire bouger le paquet.' }
+				]
+			},
+			{
+				title: 'Répare le paquet `iU`',
+				questions: [
+					{ q: 'Dans `iU`, que sont les deux lettres ?', options: ['Installed et Upgraded', 'Ignored et Unknown', 'L’action voulue Install, puis l’état Unpacked', 'L’état Installed, puis l’action Update'], answer: 2, why: 'dpkg-query(1) l’explique : d’abord l’action voulue, puis l’état du paquet.' },
+					{ q: 'Que veut dire `Unpacked` pour nginx ?', options: ['Les fichiers sont sur le disque, mais l’étape de configuration n’a jamais tourné', 'Le paquet est retiré mais sa config reste', 'Le téléchargement est incomplet', 'Le paquet est en hold'], answer: 0, why: 'dpkg fait passer un paquet de `unpacked` à `installed` en lançant son étape de configuration. Un passage coupé le laisse à mi-chemin.' },
+					{ q: 'Quelle commande finit le travail ?', options: ['`apt-get clean`', '`dpkg --remove nginx`', '`apt update`', '`sudo dpkg --configure -a`'], answer: 3, why: 'Elle configure « all unpacked but unconfigured packages ».' },
+					{ q: 'Il manque encore des dépendances ensuite. Et après ?', options: ['`apt-get -f install`', '`apt-mark hold nginx`', '`dpkg --unpack nginx`', 'Un redémarrage'], answer: 0, why: 'La réponse de la tâche lance `apt-get -f install` quand des dépendances manquent encore après la configuration.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -146,6 +184,28 @@ bool DoUpgradeWithAllowNewPackages(CommandLine &CmdL)
 			why: '`debSystem::CheckUpdates()` ouvre le dossier `updates/` à côté de `/var/lib/dpkg/status` et signale un problème si un nom d’entrée n’est fait que de chiffres. Le commentaire du code appelle cet état « dirty », et apt refuse de continuer tant que dpkg n’a pas fini le travail.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire un petit `.deb`, le laisser à moitié installé, le mettre en hold et déclencher le message `dpkg was interrupted`, le tout dans un conteneur jetable sans réseau.',
+		steps: [
+			'Lance un conteneur : `docker run --rm -it --network none debian:12-slim bash`. Tout ce qui suit tourne dedans.',
+			'Construis un paquet : `mkdir -p /tmp/hello/DEBIAN /tmp/hello/usr/local/bin`, puis `printf "Package: dojo-hello\\nVersion: 1.0\\nArchitecture: all\\nMaintainer: lab <lab@example.invalid>\\nDescription: lab package\\n" > /tmp/hello/DEBIAN/control`, puis `dpkg-deb --build /tmp/hello /tmp/dojo-hello_1.0_all.deb`.',
+			'Dépaquette-le sans le configurer : `dpkg --unpack /tmp/dojo-hello_1.0_all.deb`, puis `dpkg -l dojo-hello | tail -1`. Termine avec `dpkg --configure -a` et regarde encore.',
+			'Mets-le en hold : `apt-mark hold dojo-hello`, `apt-mark showhold`, `dpkg -l dojo-hello | tail -1`, puis `apt-mark unhold dojo-hello`.',
+			'Simule un passage coupé comme apt le détecte : `touch /var/lib/dpkg/updates/0001`, puis `apt-get check; echo $?`. Répare avec `dpkg --configure -a`, relance `apt-get check`, et sors avec `exit`.'
+		],
+		done: [
+			'Après `--unpack`, `dpkg -l` montre `iU  dojo-hello`. Après `--configure -a`, il affiche `Setting up dojo-hello (1.0) ...` et montre `ii`.',
+			'Après le hold, `showhold` liste `dojo-hello` et `dpkg -l` montre `hi`.',
+			'Avec le fichier au nom fait de chiffres, `apt-get check` affiche `E: dpkg was interrupted, you must manually run \'dpkg --configure -a\' to correct the problem.` et sort avec 100.',
+			'Après `dpkg --configure -a`, `/var/lib/dpkg/updates/` est vide et `apt-get check` sort avec 0.'
+		],
+		solution: [
+			'`--unpack` est la première moitié d’une installation : les fichiers arrivent sur le disque et l’état passe à Unpacked. Une session SSH perdue au milieu d’un `apt upgrade` laisse des paquets dans le même état.',
+			'`hi` se lit action voulue Hold, état installé. Le hold vit dans les sélections de dpkg, donc `apt` comme `apt-get` le respectent.',
+			'apt ne regarde pas les paquets pour afficher le message. Il cherche seulement un nom fait de chiffres dans `/var/lib/dpkg/updates/`, comme le fait `debSystem::CheckUpdates()`, et `dpkg --configure -a` vide ce journal.'
+		]
+	},
 	recall: {
 		q: 'Quelles options de mise à jour passe le `apt-get upgrade` simple, et que fait-il d’une mise à jour qui demande un nouveau paquet ?',
 		a: '`FORBID_REMOVE_PACKAGES` et `FORBID_INSTALL_NEW_PACKAGES`. Le paquet est sauté et listé sous `The following packages have been kept back:`, par exemple `linux-image-generic`.'

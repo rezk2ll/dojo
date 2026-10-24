@@ -121,6 +121,44 @@ export default {
 			'The ReplicaSet controller saw current state 2, desired state 3, and asked the API server to create a new Pod, with a new random name.',
 			'The scheduler picked a node for it, and the kubelet on that node started the containers.',
 			'To really remove the app, change the desired state: scale it to 0 or delete the Deployment that owns the ReplicaSet.'
+		],
+		steps: [
+			{
+				title: 'Read what happened',
+				questions: [
+					{ q: 'After `kubectl delete pod web-7d4b9c-x2k8p`, did the delete work?', options: ['No: the API server refused it', 'Yes: the old Pod is gone, a new one replaced it', 'No: the Pod only restarted under a new name', 'Only on the node where the Pod ran'], answer: 1, why: 'The new Pod has a different name, `q9m3z`. The old Pod was removed, and something created a new one.' },
+					{ q: 'Why does the new Pod have a new random name?', options: ['kubelet renames a Pod each time it restarts', 'etcd adds a suffix when it saves an object again', 'The scheduler gives each Pod a name for its node', 'It is a brand new Pod, created from the same template'], answer: 3, why: 'The controller asked for a new Pod. It is a new object, so it gets a new random suffix.' },
+					{ q: 'What does the name `web-7d4b9c-...` tell you about who owns the Pod?', options: ['A ReplicaSet named `web-7d4b9c`', 'A node named `web-7d4b9c`', 'Nothing: Pod names are fully random', 'A Service named `web`'], answer: 0, why: 'The Pod belongs to a ReplicaSet, and its name starts with that ReplicaSet\'s name.' },
+					{ q: 'Which field holds what the owner wants, such as 3 replicas?', options: ['The object\'s `status`', 'The node\'s kubelet config', 'The object\'s `spec`', 'The file `~/.kube/config`'], answer: 2, why: 'The desired state lives in `spec`. What really runs is reported in `status`.' }
+				]
+			},
+			{
+				title: 'Find the loop that acted',
+				questions: [
+					{ q: 'Which component noticed that a Pod was missing?', options: ['The kube-scheduler', 'The ReplicaSet controller, in the controller manager', 'The kubelet on the old node', 'etcd'], answer: 1, why: 'A controller watches its kind of object and compares desired with current state. Here it saw 2 running for 3 wanted.' },
+					{ q: 'What did that controller compare?', options: ['CPU use on each node', 'Desired state 3 with current state 2', 'The image tag with the latest one in the registry', 'The Pod name with the Deployment name'], answer: 1, why: 'A controller is a loop: compare desired and current state, then act on the difference.' },
+					{ q: 'How did the controller create the new Pod?', options: ['It started a container on a node by itself', 'It wrote the Pod straight into etcd', 'It sent a request to the API server', 'It asked kubectl to apply the file again'], answer: 2, why: 'Controllers talk to the API server, which stores the object in etcd. They do not start containers.' },
+					{ q: 'Why did this take seconds, not a full timer cycle?', options: ['Controllers watch the API server, so a change wakes them up', 'The controller polls every second', 'kubectl told the controller about the delete', 'The scheduler restarts the controller after each delete'], answer: 0, why: 'Controllers register handlers on the objects they watch. A deleted Pod wakes the loop right away.' }
+				]
+			},
+			{
+				title: 'Follow the new Pod to a node',
+				questions: [
+					{ q: 'The new Pod exists in the API but has no node yet. Who picks one?', options: ['The ReplicaSet controller', 'The kube-scheduler', 'The kubelet with the most free memory', 'The API server, at random'], answer: 1, why: 'The scheduler looks for Pods with no node and binds each one to a node. It does not start anything.' },
+					{ q: 'What does the scheduler write?', options: ['A new container image', 'A new replica count', 'The Pod\'s logs', '"This Pod goes on node 2"'], answer: 3, why: 'It only records the binding. Starting the containers is another component\'s job.' },
+					{ q: 'Who starts the containers on that node?', options: ['The scheduler, over SSH', 'The controller manager', 'The kubelet, through the container runtime', 'etcd'], answer: 2, why: 'Each node\'s kubelet asks the API server which Pods are its own, then has the runtime start them.' },
+					{ q: 'How does the cluster learn that the new Pod really runs?', options: ['The kubelet reports it back as current state', 'The scheduler checks the node every minute', 'kubectl asks the container runtime directly', 'The controller pings the Pod on port 80'], answer: 0, why: 'The kubelet reports what really runs. That is the current state the controller compares next time.' }
+				]
+			},
+			{
+				title: 'Remove the app for real',
+				questions: [
+					{ q: 'Your colleague wants the app gone. What does he change?', options: ['He deletes the Pods faster than they come back', 'The desired state: scale to 0, or delete the Deployment', 'He stops the kubelet on every node', 'He edits the Pod\'s `status` to say stopped'], answer: 1, why: 'The loop keeps fixing any difference from the desired state. Change the desired state, and the loop removes the Pods for you.' },
+					{ q: 'Why delete the Deployment and not only the ReplicaSet?', options: ['The Deployment owns the ReplicaSet and would recreate it', 'A ReplicaSet cannot be deleted', 'Deleting a ReplicaSet also deletes the node', 'The ReplicaSet has no Pods'], answer: 0, why: 'The same rule one level up: the Deployment\'s controller would bring its ReplicaSet back.' },
+					{ q: 'He ssh-es into the node and stops the container with the runtime. What happens next?', options: ['The app stays down until someone restarts it', 'The scheduler moves the app to the control plane', 'The kubelet sees the Pod is not running and starts it again', 'The Deployment is deleted for him'], answer: 2, why: 'A change made by hand on a node is undone by the next pass of the loop.' },
+					{ q: 'Which command changes the desired state to zero copies?', options: ['`kubectl delete pod web-7d4b9c-q9m3z`', '`kubectl get pods`', '`kubectl describe node`', '`kubectl scale deployment web --replicas=0`'], answer: 3, why: '`scale` edits the replica count in the Deployment\'s `spec`. The controllers then remove the Pods.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,27 @@ export default {
 			why: 'kubectl reads `$HOME/.kube/config`. You can point it elsewhere with the `KUBECONFIG` variable or the `--kubeconfig` flag.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Delete a Pod, watch a controller bring it back, then change the desired state so it stays gone.',
+		steps: [
+			'Start a local cluster: `minikube start` (it runs in Docker). Check it with `kubectl get nodes`.',
+			'Ask for three copies of nginx: `kubectl create deployment web --image=nginx:1.27 --replicas=3`, then `kubectl rollout status deployment web` and `kubectl get pods -l app=web`. Note the three names.',
+			'Delete one Pod: `kubectl delete $(kubectl get pods -l app=web -o name | head -n 1)`, then run `kubectl get pods -l app=web` right away.',
+			'Find who did it: `kubectl get rs -l app=web` and `kubectl get events --field-selector reason=SuccessfulCreate`.',
+			'Change the desired state: `kubectl scale deployment web --replicas=0`, then `kubectl get pods -l app=web`. Clean up with `kubectl delete deployment web`.'
+		],
+		done: [
+			'After the delete, `kubectl get pods -l app=web` shows three Pods again, one with a new name and a younger AGE.',
+			'The events list a `SuccessfulCreate` from `replicaset/web-...` for the new Pod.',
+			'After the scale, `kubectl get pods -l app=web` prints `No resources found`, and `kubectl get deploy web` shows `0/0`.'
+		],
+		solution: [
+			'The new Pod is not a restart: it is a new object, created by the ReplicaSet controller because current state (2) differed from desired state (3).',
+			'`kubectl get pod <name> -o jsonpath=\'{.metadata.ownerReferences[0].name}\'` prints the owning ReplicaSet, `web-` plus a hash.',
+			'Deleting Pods never wins against the loop. `kubectl scale` edits the Deployment\'s `spec`, and the controllers remove the Pods for you.'
+		]
+	},
 	recall: {
 		q: 'You delete one Pod of a ReplicaSet that wants 3 replicas. Which components act, in which order?',
 		a: 'The ReplicaSet controller sees current state 2 and desired state 3, and asks the API server for a new Pod. The scheduler binds it to a node, and that node\'s kubelet starts it.'

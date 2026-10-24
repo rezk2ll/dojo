@@ -127,6 +127,44 @@ resource "aws_instance" "app_server" {
 			'Dans l’instance : `tags = { Name = var.instance_name, Backups = aws_s3_bucket.backups.bucket }`.',
 			'La référence rend l’instance dépendante du bucket, donc le bucket est créé d’abord.',
 			'Plan : `+` pour `aws_s3_bucket.backups`, et `~` (modification sur place) pour `aws_instance.app_server`, parce que seul un tag change. Pas de `-/+`.'
+		],
+		steps: [
+			{
+				title: 'Écris le bloc du bucket',
+				questions: [
+					{ q: 'Quel bloc ajoute le bucket ?', options: ['`data "aws_s3_bucket" "backups"`', '`resource "aws_s3_bucket" "backups" { bucket = "myteam-backups-1234" }`', '`module "backups" { bucket = "myteam-backups-1234" }`', '`provider "aws_s3_bucket" { name = "backups" }`'], answer: 1, why: 'Un bloc `resource` est une chose que Terraform crée et gère.' },
+					{ q: 'Pourquoi pas un bloc `data` ?', options: ['Une data source lit seulement quelque chose qui existe déjà', 'Les blocs data ne marchent que pour les AMI', 'Les blocs data tournent après chaque resource', 'Les blocs data ne peuvent pas avoir de nom'], answer: 0, why: 'Terraform ne fait que lire une data source. Il crée, modifie et détruit une resource.' },
+					{ q: 'Dans `resource "aws_s3_bucket" "backups"`, qu’est-ce que `backups` ?', options: ['Le nom du bucket dans AWS', 'La Region', 'Le nom local que tu utilises dans les références', 'Un tag'], answer: 2, why: 'Une resource a un type, un nom local, et ses arguments. Le nom dans AWS est l’argument `bucket`.' },
+					{ q: 'Que doit respecter `myteam-backups-1234` ?', options: ['Il doit correspondre au nom de l’instance', 'Il doit commencer par la Region', 'Il doit faire moins de 10 caractères', 'Il doit être unique parmi tous les comptes AWS'], answer: 3, why: 'Dans le namespace global partagé, celui par défaut, deux comptes ne peuvent pas avoir le même nom de bucket.' }
+				]
+			},
+			{
+				title: 'Référence-le depuis l’instance',
+				questions: [
+					{ q: 'Quelle ligne change dans l’instance ?', options: ['`tags = { Name = var.instance_name, Backups = aws_s3_bucket.backups.bucket }`', '`tags = { Name = var.instance_name, Backups = "myteam-backups-1234" }`', '`ami = aws_s3_bucket.backups.id`', '`subnet_id = aws_s3_bucket.backups.bucket`'], answer: 0, why: 'Une référence garde une seule source pour le nom, et signale le lien à Terraform.' },
+					{ q: 'Que fait cette référence à l’ordre ?', options: ['Rien : les blocs tournent de haut en bas', 'L’instance est créée d’abord, puis le bucket', 'L’instance dépend maintenant du bucket, donc le bucket passe en premier', 'Les deux sont créés au même moment'], answer: 2, why: 'Terraform construit son graphe de dépendances à partir des références entre les blocs.' },
+					{ q: 'Faut-il aussi `depends_on = [aws_s3_bucket.backups]` ?', options: ['Oui, toujours, pour chaque lien', 'Oui, sinon le plan échoue', 'Seulement pour les buckets S3', 'Non : il sert seulement aux dépendances cachées que Terraform ne voit pas'], answer: 3, why: 'La référence rend déjà la dépendance visible.' },
+					{ q: 'Deux resources ne se référencent pas. Comment Terraform les crée-t-il ?', options: ['Une à la fois, dans l’ordre du fichier', 'En parallèle, jusqu’à 10 à la fois', 'Par ordre alphabétique', 'Seulement après un `depends_on`'], answer: 1, why: 'Ce qui ne dépend pas l’un de l’autre tourne en parallèle.' }
+				]
+			},
+			{
+				title: 'Prédis le plan',
+				questions: [
+					{ q: 'Quel symbole le plan affiche-t-il pour `aws_s3_bucket.backups` ?', options: ['`~`', '`-/+`', '`-`', '`+`'], answer: 3, why: 'Il n’existe pas encore, donc il sera créé.' },
+					{ q: 'Quel symbole affiche-t-il pour `aws_instance.app_server` ?', options: ['`~`, modification sur place', '`+`, création', '`-/+`, destruction et recréation', 'Aucun : les tags ne sont pas suivis'], answer: 0, why: 'L’instance existe, et un seul argument change.' },
+					{ q: 'Pourquoi pas de `-/+` sur l’instance ?', options: ['Terraform ne remplace jamais les instances', 'Seul un tag change, et un tag se modifie sur place', 'Le bucket la protège', 'Tu n’as pas relancé `init`'], answer: 1, why: '`-/+` apparaît quand un argument modifié ne peut pas changer sur place. Les tags, si.' },
+					{ q: 'Que dit la dernière ligne du plan ?', options: ['`Plan: 2 to add, 0 to change, 0 to destroy.`', '`Plan: 1 to add, 0 to change, 1 to destroy.`', '`Plan: 1 to add, 1 to change, 0 to destroy.`', '`Plan: 0 to add, 2 to change, 0 to destroy.`'], answer: 2, why: 'Un `+` pour le bucket, un `~` pour l’instance, rien de détruit.' }
+				]
+			},
+			{
+				title: 'Applique sans risque',
+				questions: [
+					{ q: 'Que change `terraform plan` dans AWS ?', options: ['Rien', 'Seulement les tags', 'Seulement les nouvelles resources', 'Tout, puis il revient en arrière'], answer: 0, why: '`plan` compare et liste les changements. Il ne change rien.' },
+					{ q: 'Que fait `terraform apply` en premier ?', options: ['Il crée le bucket tout de suite', 'Il relance `init`', 'Il efface le state', 'Il affiche le plan et demande `yes`'], answer: 3, why: 'Ensuite il fait les changements dans l’ordre des dépendances.' },
+					{ q: 'Le plan affiche finalement `-/+` sur l’instance. Que fais-tu ?', options: ['Tu tapes yes : `-/+` est sans danger', 'Tu t’arrêtes et tu lis : l’instance et ce qu’elle contient vont être détruits', 'Tu ajoutes `depends_on` et tu appliques', 'Tu relances `plan` jusqu’à ce que le symbole change'], answer: 1, why: '`-/+` veut dire détruire et créer un remplaçant. Tout ce qui est stocké dessus part avec.' },
+					{ q: 'Des mois plus tard, tu supprimes le bloc du bucket. Que propose le plan suivant ?', options: ['Rien : Terraform ne supprime jamais rien', 'Une erreur, parce que le bucket existe encore', 'De détruire le bucket', 'De garder le bucket avec un avertissement'], answer: 2, why: 'Une resource gérée absente du code ne devrait pas exister, donc le plan affiche `-`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -164,6 +202,28 @@ resource "aws_instance" "app_server" {
 			why: '`-/+` veut dire que Terraform détruit la resource puis en crée une de remplacement, en général parce qu’un argument modifié ne peut pas être changé sur place. Tout ce qui est stocké sur cette instance part avec.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire chaque symbole du plan pour de vrai, sans compte cloud : un fichier local remplace le bucket et une resource `terraform_data` remplace l’instance.',
+		steps: [
+			'Installe Terraform depuis [developer.hashicorp.com/terraform/install](https://developer.hashicorp.com/terraform/install), puis `mkdir -p ~/tf-lab && cd ~/tf-lab`.',
+			'Écris `main.tf` avec une `resource "local_file" "backups"` (`filename = "${path.module}/backups/README.txt"`, `content = "Backups live here.\\n"`) et une `resource "terraform_data" "app_server"` dont l’`input` vaut `{ Name = "app-server", Backups = local_file.backups.filename }`.',
+			'Lance `terraform init`, `terraform plan`, puis `terraform apply` et tape `yes`. Relance `terraform plan`.',
+			'Remplace `"app-server"` par `"web-server"` et lance `terraform plan`. Puis change le `content` du fichier et relance `terraform plan`.',
+			'Supprime tout le bloc `terraform_data` et lance `terraform plan`.'
+		],
+		done: [
+			'Le premier plan finit par `Plan: 2 to add, 0 to change, 0 to destroy.`, et `apply` affiche `local_file.backups: Creation complete` avant `terraform_data.app_server: Creating...`.',
+			'Le plan juste après `apply` dit `No changes`.',
+			'Le renommage montre `~ update in-place`. Le nouveau `content` montre `-/+` et `# forces replacement`. Le bloc supprimé montre `will be destroyed`.'
+		],
+		solution: [
+			'`init` télécharge le provider `hashicorp/local` et écrit `.terraform.lock.hcl`. `terraform_data` est intégré et n’a besoin d’aucun provider.',
+			'La référence `local_file.backups.filename` fait attendre `app_server` jusqu’à ce que le fichier existe, comme l’instance attend le bucket.',
+			'`local_file` ne sait pas changer son contenu sur place, donc Terraform le détruit et le recrée. Sur une base de données, c’est la ligne où t’arrêter.',
+			'Lance `terraform destroy` pour nettoyer. Il liste tout ce qui est dans le state avec `-`.'
+		]
+	},
 	recall: {
 		q: 'Que compare `terraform plan`, et quel symbole de sa sortie annonce qu’une resource sera détruite puis recréée ?',
 		a: 'Il compare ta configuration avec l’état actuel de ce que Terraform gère, et ne change rien. `-/+` veut dire détruire puis recréer, et tout ce qui est stocké sur cette resource part avec.'

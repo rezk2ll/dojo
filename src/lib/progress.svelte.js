@@ -7,9 +7,11 @@ export const INTERVAL_DAYS = [1, 3, 7, 21, 45];
 // The mixed review on the hub stops after this many cards a day, so it never piles up.
 export const DAILY_MIX = 10;
 
+/** @typedef {{ box: number, due: number }} Card */
 /**
- * @typedef {{ box: number, due: number }} Card
- * @typedef {{ done: Record<string, number>, cards: Record<string, Card>, at: Record<string, number>, days: string[] }} State
+ * `picks` holds each chapter's answers by section id so they survive a reload: the option picked,
+ * the line clicked in the hunt, or 1/0 for a rep typed right first time. e.g. picks['adrs'].q0 = 2
+ * @typedef {{ done: Record<string, number>, cards: Record<string, Card>, at: Record<string, number>, days: string[], picks: Record<string, Record<string, number>> }} State
  */
 
 const key = (/** @type {string} */ dojo) => `dojo:${dojo}:v1`;
@@ -20,7 +22,7 @@ const stores = Object.fromEntries(dojos.map((d) => [d.id, blank()]));
 
 function blank() {
 	/** @type {State} */
-	const state = $state({ done: {}, cards: {}, at: {}, days: [] });
+	const state = $state({ done: {}, cards: {}, at: {}, days: [], picks: {} });
 	return state;
 }
 
@@ -59,8 +61,8 @@ export function restore(dojo) {
 }
 
 /** @param {string} dojo @param {Partial<State>} saved */
-function apply(dojo, { done = {}, cards = {}, at = {}, days = [] }) {
-	Object.assign(progressOf(dojo), { done, cards, at, days });
+function apply(dojo, { done = {}, cards = {}, at = {}, days = [], picks = {} }) {
+	Object.assign(progressOf(dojo), { done, cards, at, days, picks });
 }
 
 /** @param {string} dojo */
@@ -83,6 +85,15 @@ export function markDone(dojo, slug) {
 /** Remembers the section a reader is on, so leaving mid-chapter resumes there. @param {string} dojo @param {string} slug @param {number} section */
 export function savePosition(dojo, slug, section) {
 	progressOf(dojo).at[slug] = section;
+	save(dojo);
+}
+
+/** @param {string} dojo @param {string} slug @param {string} section @param {number} option */
+export function savePick(dojo, slug, section, option) {
+	const picks = progressOf(dojo).picks;
+	// Through the proxy: `??=` evaluates to the raw object, and writes to it are not tracked.
+	picks[slug] ??= {};
+	picks[slug][section] = option;
 	save(dojo);
 }
 
@@ -134,17 +145,19 @@ const isCard = (/** @type {any} */ c) =>
 
 /** Throws when the text is not this dojo's exportProgress file. @param {string} dojo @param {string} text @returns {State} */
 export function parseProgress(dojo, text) {
-	const { dojo: from, ...saved } = JSON.parse(text);
+	// Files exported before picks were saved have no `picks`.
+	const { dojo: from, picks = {}, ...saved } = JSON.parse(text);
 	const ok =
 		from === dojo &&
 		Object.keys(saved).sort().join() === 'at,cards,days,done' &&
+		isRecord(picks, (p) => isRecord(p, (n) => Number.isInteger(n) && Number(n) >= 0)) &&
 		isRecord(saved.done, isTime) &&
 		isRecord(saved.cards, isCard) &&
 		isRecord(saved.at, Number.isInteger) &&
 		Array.isArray(saved.days) &&
 		saved.days.every((/** @type {unknown} */ d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d));
 	if (!ok) throw new Error(`This file is not a ${dojo} progress file.`);
-	return saved;
+	return { ...saved, picks };
 }
 
 /** @param {string} dojo @param {State} saved */

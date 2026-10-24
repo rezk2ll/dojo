@@ -3,7 +3,7 @@
 	import { fmt } from '#lib/text.js';
 	import { source, render, layout } from '#lib/mermaid.js';
 	import IsoDiagram from '#lib/components/iso-diagram.svelte';
-	import { answer, markDone, progressOf, restore, savePosition } from '#lib/progress.svelte.js';
+	import { answer, markDone, progressOf, restore, savePick, savePosition } from '#lib/progress.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
@@ -54,14 +54,8 @@
 	let showHint = $state(false);
 	let showAnswer = $state(false);
 	let showRecall = $state(false);
-	/** @type {number | undefined} */
-	let guess = $state();
-	/** Option picked per question id, e.g. picked['adrs#0'] = 2 */
-	let picked = $state(/** @type {Record<string, number>} */ ({}));
-	/** Option picked per incident step. These are not review cards, so they stay on this page. */
-	let decided = $state(/** @type {Record<number, number>} */ ({}));
-	/** Whether each rep was typed right first time. */
-	let typed = $state(/** @type {Record<number, boolean>} */ ({}));
+	let picked = $derived(progress.picks[c.slug] ?? {});
+	let guess = $derived(picked.hunt);
 	/** @type {HTMLElement | undefined} */
 	let top = $state();
 
@@ -105,7 +99,7 @@
 	}
 	let decision = $derived(decisionAt(current.id));
 	let lastStep = $derived(Math.max(0, steps.length - 1));
-	let unanswered = $derived(sections.filter((s) => s.id.startsWith('q') && picked[s.quiz ?? ''] === undefined));
+	let unanswered = $derived(sections.filter((s) => s.id.startsWith('q') && picked[s.id] === undefined));
 
 	const VIEW_KEY = 'dojo:view';
 	/** @type {('flow' | 'cubes')[]} */
@@ -172,10 +166,6 @@
 			step = 0;
 			scene = undefined;
 			showHint = showAnswer = showRecall = false;
-			picked = {};
-			decided = {};
-			typed = {};
-			guess = undefined;
 		});
 	});
 
@@ -193,15 +183,15 @@
 	$effect(() => {
 		// A kata has no quiz: reading the sample answer finishes it.
 		if (c.kata && current.id !== 'sample') return;
-		if (c.reps?.some((_, i) => typed[i] === undefined)) return;
-		if (!c.quiz.every((_, i) => picked[`${c.slug}#${i}`] !== undefined)) return;
+		if (c.reps?.some((_, i) => picked[`r${i}`] === undefined)) return;
+		if (!c.quiz.every((_, i) => picked[`q${i}`] !== undefined)) return;
 		// Only the first time: re-answering a finished chapter is not a new win.
 		if (!untrack(() => progress.done[c.slug])) cue('done');
 		markDone(dojo, c.slug);
 	});
 
 	$effect(() => {
-		companion.hint = asked && picked[current.quiz ?? ''] === undefined ? hintFor(asked.from, asked.q) : undefined;
+		companion.hint = asked && picked[current.id] === undefined ? hintFor(asked.from, asked.q) : undefined;
 		return () => (companion.hint = undefined);
 	});
 
@@ -243,7 +233,7 @@
 		else if (/^[1-9]$/.test(e.key) && current.quiz !== undefined) {
 			const q = asked?.q;
 			const i = Number(e.key) - 1;
-			if (q && i < q.options.length) pick(current.quiz, q, i);
+			if (q && i < q.options.length) pick(current, q, i);
 		} else if (/^[1-9]$/.test(e.key) && decision) {
 			const i = Number(e.key) - 1;
 			if (i < decision.step.options.length) decide(decision.n, i);
@@ -255,7 +245,7 @@
 		/** @param {MouseEvent} e */
 		const onclick = (e) => {
 			const line = e.target instanceof Element && e.target.closest('[data-line]');
-			if (line instanceof HTMLElement && guess === undefined) guess = Number(line.dataset.line);
+			if (line instanceof HTMLElement && guess === undefined) savePick(dojo, c.slug, 'hunt', Number(line.dataset.line));
 		};
 		el.addEventListener('click', onclick);
 		return () => el.removeEventListener('click', onclick);
@@ -272,16 +262,16 @@
 
 	/** @param {number} n @param {number} i */
 	function decide(n, i) {
-		if (decided[n] !== undefined || !c.incident) return;
-		decided[n] = i;
+		if (picked[`s${n}`] !== undefined || !c.incident) return;
+		savePick(dojo, c.slug, `s${n}`, i);
 		answered(i === c.incident.steps[n].answer);
 	}
 
-	/** @param {string} id @param {import('#lib/content.js').Question} q @param {number} i */
-	function pick(id, q, i) {
-		if (picked[id] !== undefined) return;
-		picked[id] = i;
-		answer(dojo, id, i === q.answer);
+	/** @param {Section} s @param {import('#lib/content.js').Question} q @param {number} i */
+	function pick(s, q, i) {
+		if (picked[s.id] !== undefined || s.quiz === undefined) return;
+		savePick(dojo, c.slug, s.id, i);
+		answer(dojo, s.quiz, i === q.answer);
 		answered(i === q.answer);
 	}
 </script>
@@ -317,8 +307,8 @@
 	</div>
 {/snippet}
 
-{#snippet question(/** @type {string} */ id, /** @type {import('#lib/content.js').Question} */ q)}
-	{@render choice(picked[id], q, (i) => pick(id, q, i))}
+{#snippet question(/** @type {import('#lib/content.js').Question} */ q)}
+	{@render choice(picked[current.id], q, (i) => pick(current, q, i))}
 {/snippet}
 
 {#snippet picture(/** @type {'inline' | 'fit' | 'free'} */ size)}
@@ -405,7 +395,7 @@
 			<nav aria-label={t().sections}>
 				<ol class="space-y-0.5">
 					{#each sections as s, i (s.id)}
-						{@const answered = s.quiz !== undefined && picked[s.quiz] !== undefined}
+						{@const answered = s.quiz !== undefined && picked[s.id] !== undefined}
 						{#if i === 0 || i === breakAt}
 							<li class="text-muted-foreground px-2 pt-3 pb-1 font-mono text-[11px] uppercase first:pt-0">
 								{i === 0 ? t().learn : t().practice} · ~{Math.max(
@@ -450,7 +440,7 @@
 		<div class="flex-1 [overflow-wrap:anywhere]">
 			{#if current.id === 'warmup' && prev}
 				<p class="text-muted-foreground mb-4">{t().warmupIntro}</p>
-				{@render question(`${prev.slug}#0`, prev.quiz[0])}
+				{@render question(prev.quiz[0])}
 			{:else if current.id === 'problem'}
 				<div class="max-w-3xl space-y-4 text-lg leading-relaxed">
 					{#each c.hook as p, i (i)}<p>{@html fmt(p)}</p>{/each}
@@ -531,7 +521,7 @@
 					<div class="border-brand/60 space-y-3 border-l-2 pl-4 text-lg leading-relaxed">
 						{#each decision.step.situation as p, i (i)}<p>{@html fmt(p)}</p>{/each}
 					</div>
-					{@render choice(decided[decision.n], decision.step, (i) => decide(decision.n, i))}
+					{@render choice(picked[`s${decision.n}`], decision.step, (i) => decide(decision.n, i))}
 				</div>
 			{:else if current.id === 'outcome' && c.incident}
 				<div class="max-w-3xl space-y-4 text-lg leading-relaxed">
@@ -578,7 +568,11 @@
 			{:else if /^r\d+$/.test(current.id) && c.reps}
 				{@const n = Number(current.id.slice(1))}
 				{#key `${c.slug}/${current.id}`}
-					<DrillRep rep={c.reps[n]} result={typed[n]} onresult={(right) => ((typed[n] = right), answered(right))} />
+					<DrillRep
+						rep={c.reps[n]}
+						result={picked[current.id] === undefined ? undefined : picked[current.id] === 1}
+						onresult={(right) => (savePick(dojo, c.slug, current.id, right ? 1 : 0), answered(right))}
+					/>
 				{/key}
 			{:else if current.id === 'brief' && c.kata}
 				<div class="max-w-3xl space-y-4">
@@ -605,7 +599,7 @@
 				</div>
 			{:else if current.quiz !== undefined && current.id.startsWith('q')}
 				<p class="text-muted-foreground mb-4">{t().quizIntro}</p>
-				{@render question(current.quiz, c.quiz[Number(current.id.slice(1))])}
+				{@render question(c.quiz[Number(current.id.slice(1))])}
 			{:else if current.id === 'wrap'}
 				<div class="max-w-3xl space-y-6">
 					{#if c.recall}

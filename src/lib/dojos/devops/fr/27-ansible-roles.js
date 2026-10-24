@@ -104,6 +104,44 @@ export default {
 			'`roles/web/templates/site.conf.j2` pour la config nginx, et la tâche template a `notify: reload nginx`.',
 			'`roles/web/handlers/main.yml` : `- name: reload nginx` avec `ansible.builtin.service: name=nginx state=reloaded`.',
 			'`site.yml` ne contient plus que `- hosts: web`, `become: yes`, `roles: [web]`. Deuxième exécution : aucun changement, aucun reload.'
+		],
+		steps: [
+			{
+				title: 'Pose les dossiers',
+				questions: [
+					{ q: 'Où vont les tâches paquet, service et motd ?', options: ['`roles/web/handlers/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/meta/main.yml`'], answer: 1, why: '`tasks/` contient le travail du rôle. Ansible charge son `main.yml` pour toi.' },
+					{ q: 'Quel fichier Ansible charge-t-il dans chaque dossier du rôle ?', options: ['Tous les fichiers `.yml` du dossier', '`role.yml`', '`main.yml`', '`index.yml`'], answer: 2, why: 'La structure est fixe : Ansible cherche `main.yml` dans chaque dossier.' },
+					{ q: 'Que reste-t-il dans `site.yml` ?', options: ['`- hosts: web`, `become: yes`, `roles: [web]`', 'Toutes les tâches, plus `roles: [web]`', 'Seulement le handler', 'Seulement les variables'], answer: 0, why: 'Le playbook se réduit à une liste de rôles.' },
+					{ q: 'Un deuxième projet a besoin du même serveur web. Pourquoi un rôle et pas une copie du playbook ?', options: ['Ansible refuse de lancer deux copies d’un playbook', 'Un rôle tourne plus vite qu’un playbook', 'Les copies demandent leur propre inventaire', 'Les copies divergent, et un rôle s’écrit une fois et se réutilise'], answer: 3, why: 'Un seul rôle sert tous les projets, donc une correction s’écrit et se teste à un seul endroit.' }
+				]
+			},
+			{
+				title: 'Fais du motd une variable',
+				questions: [
+					{ q: 'Où va `web_motd: "Managed by Ansible"` ?', options: ['`roles/web/vars/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/templates/motd.j2`'], answer: 2, why: '`defaults/` contient les valeurs que les utilisateurs sont censés changer, à la priorité la plus basse.' },
+					{ q: 'Comment la tâche motd lit-elle la variable ?', options: ['`content: "{{ web_motd }}"`', '`content: "$web_motd"`', '`content: web_motd`', '`vars: web_motd`'], answer: 0, why: 'Ansible remplace `{{ }}` par la valeur de chaque hôte.' },
+					{ q: 'Pourquoi ne pas mettre `web_motd` dans `vars/main.yml` ?', options: ['`vars/` n’accepte que des nombres', 'Les `vars` du rôle l’emportent sur l’inventaire, donc les utilisateurs ne pourraient pas l’écraser facilement', 'Ansible ne charge pas `vars/`', '`vars/` est réservé aux secrets'], answer: 1, why: 'Tu veux l’inverse : une valeur que `group_vars` et `host_vars` peuvent écraser.' },
+					{ q: 'Un projet veut un autre motd. Où le règle-t-il ?', options: ['En modifiant `roles/web/defaults/main.yml`', 'Dans une tâche `set_fact` du rôle', 'Dans `meta/main.yml`', 'Dans ses propres `group_vars`'], answer: 3, why: 'Écrase les defaults depuis l’inventaire, jamais en modifiant le rôle.' }
+				]
+			},
+			{
+				title: 'Passe la config en template',
+				questions: [
+					{ q: 'Où vit la config nginx ?', options: ['`roles/web/templates/site.conf.j2`', '`roles/web/files/nginx.conf`, modifié à la main sur chaque serveur', '`roles/web/defaults/site.conf`', 'Dans `site.yml`, en une longue chaîne'], answer: 0, why: 'Un template, c’est le même texte pour chaque serveur, avec les variables remplies par hôte.' },
+					{ q: 'Quel module la pose sur le serveur ?', options: ['`ansible.builtin.copy`', '`ansible.builtin.command`', '`ansible.builtin.service`', '`ansible.builtin.template`'], answer: 3, why: 'Le module `template` génère le fichier Jinja2 sur le serveur.' },
+					{ q: 'Quelle ligne de la tâche template demande un reload ?', options: ['`state: reloaded`', '`notify: reload nginx`', '`handler: true`', '`when: changed`'], answer: 1, why: '`notify` désigne le handler par son nom. Il ne part que si la tâche répond `changed`.' },
+					{ q: 'Dans le rôle nginx de geerlingguy, quelle ligne empêche une config cassée de remplacer la bonne ?', options: ['`mode: 0644`', '`owner: root`', '`validate: nginx -t -c %s`', '`enabled: yes`'], answer: 2, why: '`validate` lance `nginx -t` sur une copie temporaire avant de remplacer le vrai fichier.' }
+				]
+			},
+			{
+				title: 'Recharge seulement sur changement',
+				questions: [
+					{ q: 'Où va le handler ?', options: ['`roles/web/tasks/main.yml`, en dernière tâche', '`roles/web/handlers/main.yml`', '`roles/web/defaults/main.yml`', '`site.yml`, sous `post_tasks`'], answer: 1, why: '`handlers/` contient les tâches qui ne tournent que si on les notifie.' },
+					{ q: 'Que fait le handler `reload nginx` ?', options: ['`ansible.builtin.service: name=nginx state=reloaded`', '`ansible.builtin.service: name=nginx state=restarted`', '`ansible.builtin.command: nginx -s stop`', '`ansible.builtin.package: name=nginx state=latest`'], answer: 0, why: 'Un reload prend la nouvelle config sans couper de connexions.' },
+					{ q: 'Tu relances le rôle et rien n’a changé. Que se passe-t-il ?', options: ['nginx recharge, comme à chaque exécution', 'Le handler tourne mais répond `ok`', 'Le rôle est sauté', 'Aucun changement, et aucun reload'], answer: 3, why: 'La tâche template répond `ok`, donc rien ne notifie le handler.' },
+					{ q: 'Le template et deux autres tâches notifient tous `reload nginx`. Combien de reloads ?', options: ['Trois, un après chaque tâche', 'Aucun, sauf si tu ajoutes `meta: flush_handlers`', 'Un, après les tâches du play', 'Un par tâche qui a répondu `ok`'], answer: 2, why: 'Un handler tourne une seule fois, quel que soit le nombre de tâches qui le notifient.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,27 @@ export default {
 			why: 'Ansible Vault chiffre un fichier ou une valeur. Le texte chiffré vit dans ton repo, et tu passes le mot de passe avec `--ask-vault-pass` ou `--vault-password-file` à l’exécution.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Transformer le playbook web en rôle `web` et voir le handler recharger nginx seulement quand sa config change.',
+		steps: [
+			'Pars du lab du jour 26 : le virtualenv dans `~/ansible-lab`, le conteneur `web1` avec Python, et `hosts.ini`. Refais ces étapes si tu as tout nettoyé.',
+			'Crée la structure avec `ansible-galaxy role init roles/web`. Dans `defaults/main.yml`, mets `web_motd: "Managed by Ansible"` et `web_port: 8080`.',
+			'Écris `templates/site.conf.j2` : `server { listen {{ web_port }}; return 200 "{{ web_motd }}\\n"; }`. Dans `tasks/main.yml` : la tâche paquet, une tâche `template` vers `/etc/nginx/conf.d/site.conf` avec `notify: reload nginx`, la tâche service, et la tâche motd avec `content: "{{ web_motd }}\\n"`. Dans `handlers/main.yml` : `reload nginx` avec `state: reloaded`.',
+			'Écris `web.yml` avec `- hosts: web`, `become: yes`, `roles: [web]`. Lance `ansible-playbook -i hosts.ini web.yml` deux fois.',
+			'Écrase la valeur par défaut côté inventaire : `mkdir -p group_vars && printf \'web_motd: "Hello from group_vars"\\n\' > group_vars/web.yml`, puis relance le playbook.'
+		],
+		done: [
+			'La première exécution affiche `RUNNING HANDLER [web : reload nginx]`. La deuxième n’affiche aucune ligne de handler, et `changed=0`.',
+			'Après l’exécution avec `group_vars`, le handler tourne encore une fois et `docker exec web1 cat /etc/motd` affiche `Hello from group_vars`.',
+			'`roles/web/defaults/main.yml` dit toujours `Managed by Ansible` : tu as changé la valeur sans modifier le rôle.'
+		],
+		solution: [
+			'Tâche template : `ansible.builtin.template:` avec `src: site.conf.j2` et `dest: /etc/nginx/conf.d/site.conf`, puis `notify: reload nginx` au niveau de la tâche.',
+			'Handler : `- name: reload nginx` puis `ansible.builtin.service:` avec `name: nginx` et `state: reloaded`. Le nom doit correspondre exactement au texte du `notify`.',
+			'Lance une fois avec `-e web_motd=cli` : les extra vars battent `group_vars`, qui battent les defaults du rôle.'
+		]
+	},
 	recall: {
 		q: 'Dans un rôle, quel fichier contient les valeurs que l’utilisateur écrase depuis son inventaire, et lequel contient le reload qui ne tourne qu’après un changement de config ?',
 		a: '`defaults/main.yml` contient les valeurs, à la priorité la plus basse, donc les `group_vars` les écrasent. `handlers/main.yml` contient `reload nginx`, qui tourne une fois après les tâches du play, et seulement si une tâche qui l’a notifié a répondu `changed`.'

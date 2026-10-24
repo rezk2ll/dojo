@@ -104,6 +104,44 @@ export default {
 			'`roles/web/templates/site.conf.j2` for the nginx config, and the template task has `notify: reload nginx`.',
 			'`roles/web/handlers/main.yml`: `- name: reload nginx` with `ansible.builtin.service: name=nginx state=reloaded`.',
 			'`site.yml` now holds only `- hosts: web`, `become: yes`, `roles: [web]`. A second run: no change, no reload.'
+		],
+		steps: [
+			{
+				title: 'Lay out the folders',
+				questions: [
+					{ q: 'Where do the package, service and motd tasks go?', options: ['`roles/web/handlers/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/meta/main.yml`'], answer: 1, why: '`tasks/` holds the work the role does. Ansible loads its `main.yml` for you.' },
+					{ q: 'Which file does Ansible load from each role folder?', options: ['Every `.yml` file in it', '`role.yml`', '`main.yml`', '`index.yml`'], answer: 2, why: 'The layout is fixed: Ansible looks for `main.yml` in each folder.' },
+					{ q: 'What is left in `site.yml`?', options: ['`- hosts: web`, `become: yes`, `roles: [web]`', 'All the tasks, plus `roles: [web]`', 'Only the handler', 'Only the variables'], answer: 0, why: 'The playbook shrinks to a list of roles.' },
+					{ q: 'A second project needs the same web server. Why a role and not a copy of the playbook?', options: ['Ansible refuses to run two copies of a playbook', 'A role runs faster than a playbook', 'Copies need their own inventory', 'Copies drift apart, and a role is written once and reused'], answer: 3, why: 'One role serves every project, so a fix is written and tested in one place.' }
+				]
+			},
+			{
+				title: 'Make the motd a variable',
+				questions: [
+					{ q: 'Where does `web_motd: "Managed by Ansible"` go?', options: ['`roles/web/vars/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/templates/motd.j2`'], answer: 2, why: '`defaults/` holds the values users are expected to change, at the lowest precedence.' },
+					{ q: 'How does the motd task read the variable?', options: ['`content: "{{ web_motd }}"`', '`content: "$web_motd"`', '`content: web_motd`', '`vars: web_motd`'], answer: 0, why: 'Ansible fills in `{{ }}` with the value for each host.' },
+					{ q: 'Why not put `web_motd` in `vars/main.yml`?', options: ['`vars/` only takes numbers', 'Role `vars` win over inventory, so users could not override it easily', 'Ansible does not load `vars/`', '`vars/` is for secrets only'], answer: 1, why: 'You want the opposite: a value that `group_vars` and `host_vars` can beat.' },
+					{ q: 'A project wants another motd. Where does it set it?', options: ['By editing `roles/web/defaults/main.yml`', 'In a `set_fact` task inside the role', 'In `meta/main.yml`', 'In its own `group_vars`'], answer: 3, why: 'Override defaults from the inventory, never by editing the role.' }
+				]
+			},
+			{
+				title: 'Template the config',
+				questions: [
+					{ q: 'Where does the nginx config live?', options: ['`roles/web/templates/site.conf.j2`', '`roles/web/files/nginx.conf`, edited by hand on each server', '`roles/web/defaults/site.conf`', 'In `site.yml`, as a long string'], answer: 0, why: 'A template is the same text for every server, with variables filled in per host.' },
+					{ q: 'Which module puts it on the server?', options: ['`ansible.builtin.copy`', '`ansible.builtin.command`', '`ansible.builtin.service`', '`ansible.builtin.template`'], answer: 3, why: 'The `template` module renders the Jinja2 file onto the server.' },
+					{ q: 'Which line on the template task asks for a reload?', options: ['`state: reloaded`', '`notify: reload nginx`', '`handler: true`', '`when: changed`'], answer: 1, why: '`notify` points at the handler by name. It fires only if the task reports `changed`.' },
+					{ q: 'In the geerlingguy nginx role, which line stops a broken config from replacing the good one?', options: ['`mode: 0644`', '`owner: root`', '`validate: nginx -t -c %s`', '`enabled: yes`'], answer: 2, why: '`validate` runs `nginx -t` on a temporary copy before the real file is replaced.' }
+				]
+			},
+			{
+				title: 'Reload only on change',
+				questions: [
+					{ q: 'Where does the handler go?', options: ['`roles/web/tasks/main.yml`, as the last task', '`roles/web/handlers/main.yml`', '`roles/web/defaults/main.yml`', '`site.yml`, under `post_tasks`'], answer: 1, why: '`handlers/` holds tasks that run only when notified.' },
+					{ q: 'What does the `reload nginx` handler do?', options: ['`ansible.builtin.service: name=nginx state=reloaded`', '`ansible.builtin.service: name=nginx state=restarted`', '`ansible.builtin.command: nginx -s stop`', '`ansible.builtin.package: name=nginx state=latest`'], answer: 0, why: 'A reload picks up the new config with no dropped connections.' },
+					{ q: 'You run the role a second time and nothing changed. What happens?', options: ['nginx reloads, as on every run', 'The handler runs but reports `ok`', 'The role is skipped', 'No change, and no reload'], answer: 3, why: 'The template task reports `ok`, so nothing notifies the handler.' },
+					{ q: 'The template and two other tasks all notify `reload nginx`. How many reloads?', options: ['Three, one after each task', 'None, unless you add `meta: flush_handlers`', 'One, after the tasks of the play', 'One per task that reported `ok`'], answer: 2, why: 'A handler runs once, however many tasks notify it.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,27 @@ export default {
 			why: 'Ansible Vault is file or value encryption. The encrypted text lives in your repo, and you pass the password with `--ask-vault-pass` or `--vault-password-file` when you run.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Turn the web playbook into a `web` role and watch the handler reload nginx only when its config changes.',
+		steps: [
+			'Start from the day 26 lab: the virtualenv in `~/ansible-lab`, the `web1` container with Python, and `hosts.ini`. Redo those steps if you cleaned up.',
+			'Create the layout with `ansible-galaxy role init roles/web`. In `defaults/main.yml` put `web_motd: "Managed by Ansible"` and `web_port: 8080`.',
+			'Write `templates/site.conf.j2`: `server { listen {{ web_port }}; return 200 "{{ web_motd }}\\n"; }`. In `tasks/main.yml`: the package task, a `template` task to `/etc/nginx/conf.d/site.conf` with `notify: reload nginx`, the service task, and the motd task with `content: "{{ web_motd }}\\n"`. In `handlers/main.yml`: `reload nginx` with `state: reloaded`.',
+			'Write `web.yml` with `- hosts: web`, `become: yes`, `roles: [web]`. Run `ansible-playbook -i hosts.ini web.yml` twice.',
+			'Override the default from the inventory side: `mkdir -p group_vars && printf \'web_motd: "Hello from group_vars"\\n\' > group_vars/web.yml`, then run the playbook again.'
+		],
+		done: [
+			'The first run prints `RUNNING HANDLER [web : reload nginx]`. The second run prints no handler line and `changed=0`.',
+			'After the `group_vars` run, the handler runs once more and `docker exec web1 cat /etc/motd` prints `Hello from group_vars`.',
+			'`roles/web/defaults/main.yml` still says `Managed by Ansible`: you changed the value without editing the role.'
+		],
+		solution: [
+			'Template task: `ansible.builtin.template:` with `src: site.conf.j2` and `dest: /etc/nginx/conf.d/site.conf`, then `notify: reload nginx` at the task level.',
+			'Handler: `- name: reload nginx` then `ansible.builtin.service:` with `name: nginx` and `state: reloaded`. The name must match the `notify` text exactly.',
+			'Run once with `-e web_motd=cli`: extra vars beat `group_vars`, which beat the role defaults.'
+		]
+	},
 	recall: {
 		q: 'In a role, which file holds the values users override from their inventory, and which one holds the reload that runs only after a config change?',
 		a: '`defaults/main.yml` holds the values at the lowest precedence, so `group_vars` override them. `handlers/main.yml` holds `reload nginx`, which runs once after the play\'s tasks, and only if a task that notified it reported `changed`.'

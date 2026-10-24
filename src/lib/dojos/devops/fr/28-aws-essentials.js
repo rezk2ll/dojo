@@ -115,6 +115,44 @@ Resources:
 			'Security group web : autoriser HTTP et HTTPS **uniquement depuis le security group du load balancer**, pas depuis une plage d’IP.',
 			'Security group de la base : autoriser le port de la base uniquement depuis le security group web.',
 			'Un serveur web par AZ, pour qu’une AZ puisse tomber. Les serveurs web ont un rôle IAM pour tout ce qu’ils lisent dans AWS, pas d’access keys.'
+		],
+		steps: [
+			{
+				title: 'Choisis les AZ',
+				questions: [
+					{ q: 'Sur combien d’Availability Zones répartis-tu l’appli ?', options: ['Une, pour garder le trafic local', 'Deux', 'Une par serveur, donc quatre', 'Aucune : un VPC n’est pas lié aux AZ'], answer: 1, why: 'Deux emplacements isolés dans une Region permettent à l’appli de survivre à la perte d’une zone.' },
+					{ q: 'Pourquoi ne pas tout mettre dans `eu-west-1a` ?', options: ['AWS interdit plus de deux serveurs par AZ', 'Une AZ coûte plus cher que deux', 'Une panne d’AZ ferait tout tomber', 'Les load balancers ont besoin d’une deuxième Region'], answer: 2, why: 'Les AZ sont isolées les unes des autres. Tout ce qui est dans une seule AZ tombe ensemble.' },
+					{ q: 'Sur combien d’AZ un subnet peut-il s’étendre ?', options: ['Exactement une', 'Deux', 'Toutes les AZ de sa Region', 'Toutes les AZ de toutes les Regions'], answer: 0, why: 'Un VPC peut couvrir plusieurs AZ, mais **chaque subnet est dans une seule AZ**.' },
+					{ q: 'Alors, comment organises-tu les subnets ?', options: ['Un grand subnet sur les deux AZ', 'Un subnet public en 1a, un subnet privé en 1b', 'Un subnet par serveur', 'Un subnet public et un subnet privé dans chaque AZ'], answer: 3, why: 'Chaque AZ a besoin d’une place pour le load balancer et d’une place pour les serveurs derrière lui.' }
+				]
+			},
+			{
+				title: 'Sépare public et privé',
+				questions: [
+					{ q: 'Quelle partie fait face à internet ?', options: ['Seulement le load balancer', 'Le load balancer et les serveurs web', 'Les serveurs web et la base', 'Tous'], answer: 0, why: 'Les serveurs web et la base n’ont aucune raison d’être joignables de l’extérieur.' },
+					{ q: 'Où vont les serveurs web ?', options: ['Dans les subnets publics, à côté du load balancer', 'Dans un VPC à part', 'Dans les subnets privés', 'Dans S3'], answer: 2, why: 'Ils n’ont besoin que du trafic du load balancer, donc ils restent privés.' },
+					{ q: 'Qu’est-ce qui rend un subnet public ?', options: ['Sa plage CIDR', 'Le nom que tu lui donnes', 'Des clés publiques sur ses instances', 'Une route vers l’internet gateway dans sa table de routage'], answer: 3, why: 'Public ou privé, c’est seulement une question de route.' },
+					{ q: 'Un serveur web dans un subnet privé doit télécharger des mises à jour. De quoi a-t-il besoin ?', options: ['D’un security group qui autorise tout le trafic entrant', 'D’un équipement NAT', 'D’une deuxième internet gateway', 'D’un utilisateur IAM'], answer: 1, why: 'Un subnet privé n’a pas de route vers l’internet gateway, donc il sort par le NAT.' }
+				]
+			},
+			{
+				title: 'Écris les règles',
+				questions: [
+					{ q: 'Que laisse entrer le security group du load balancer ?', options: ['HTTP et HTTPS depuis `0.0.0.0/0`', 'SSH depuis `0.0.0.0/0`', 'Tout ce qui vient des serveurs web', 'Rien : un load balancer n’a pas besoin de règles'], answer: 0, why: 'C’est le seul point d’entrée public, donc il accepte le trafic web de partout.' },
+					{ q: 'Que laisse entrer le security group web ?', options: ['HTTP et HTTPS depuis `0.0.0.0/0`', 'HTTP et HTTPS depuis `10.0.0.0/16`', 'HTTP et HTTPS uniquement depuis le security group du load balancer', 'Le port de la base depuis la base'], answer: 2, why: 'Une règle peut désigner un autre security group comme source. Seul le load balancer passe.' },
+					{ q: 'Que laisse entrer le security group de la base ?', options: ['Le port de la base depuis le load balancer', 'Le port de la base uniquement depuis le security group web', 'Tous les ports depuis le VPC', 'Le port de la base depuis ton IP perso'], answer: 1, why: 'Seuls les serveurs web parlent à la base.' },
+					{ q: 'Comment bloques-tu tout le reste ?', options: ['Une règle de refus pour chaque port', 'Une règle de refus pour `0.0.0.0/0`', 'En mettant les serveurs dans une autre Region', 'Rien à écrire : ce qui n’est pas autorisé est bloqué'], answer: 3, why: 'Les security groups n’ont que des règles d’autorisation. Un nouveau ne laisse rien entrer.' }
+				]
+			},
+			{
+				title: 'Donne l’accès aux serveurs',
+				questions: [
+					{ q: 'Les serveurs web lisent dans S3. Comment obtiennent-ils des identifiants ?', options: ['Un rôle IAM attaché à chaque instance', 'Les access keys d’un utilisateur IAM dans `/etc/app.env`', 'Les clés de l’utilisateur root', 'Un bucket public, donc pas d’identifiants'], answer: 0, why: 'Les humains et les applis devraient utiliser des rôles. Aucune clé ne reste sur le serveur.' },
+					{ q: 'Que reçoit l’appli grâce au rôle ?', options: ['Un mot de passe à changer tous les 90 jours', 'Des access keys permanentes', 'Des identifiants temporaires qu’AWS renouvelle', 'Une paire de clés SSH'], answer: 2, why: 'Un rôle n’a pas d’identifiants permanents. Celui qui l’endosse en reçoit des temporaires.' },
+					{ q: 'Comment le rôle est-il attaché à une instance ?', options: ['Par son security group', 'Par un instance profile', 'Par la table de routage de son subnet', 'Par l’AMI'], answer: 1, why: 'L’instance profile porte le rôle jusqu’à l’instance.' },
+					{ q: 'Le security group web laisse entrer le HTTPS du load balancer. Les réponses ont-elles besoin d’une règle sortante ?', options: ['Oui, une par port', 'Oui, vers l’IP du load balancer', 'Seulement pour le HTTPS', 'Non : les security groups sont stateful'], answer: 3, why: 'Les réponses au trafic entrant autorisé sortent sans règle en plus.' }
+				]
+			}
 		]
 	},
 	quiz: [

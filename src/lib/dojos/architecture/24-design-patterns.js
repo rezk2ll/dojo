@@ -123,17 +123,17 @@ export default {
 			{
 				title: 'Find what decides',
 				questions: [
-					{ q: 'Which piece decides whether the key is valid?', options: ['The new filter', 'A new `AuthenticationProvider`', '`FilterChainProxy`', '`DelegatingPasswordEncoder`'], answer: 1, why: 'A provider\'s `authenticate` looks the key up and returns a result or fails.' },
+					{ q: 'Your provider finds the key and accepts it. What must `authenticate` return?', options: ['`null`', 'An authenticated token that says who the caller is', 'The raw key, unchanged', 'The next filter in the chain'], answer: 1, why: 'A non-null result ends the loop, and it is what the rest of the request sees as the logged-in caller, like the success token the template method builds.' },
 					{ q: 'What does the new provider\'s `supports` accept?', options: ['Every token class', 'Only username and password tokens', 'Only the API key token class', 'Only JWTs'], answer: 2, why: 'Saying "not mine" to every other token keeps it out of the other login methods.' },
 					{ q: 'Which pattern is each `AuthenticationProvider`?', options: ['Template method', 'Factory', 'Chain of responsibility', 'Strategy'], answer: 3, why: 'Interchangeable implementations of one interface, tried in turn by a caller that never names their classes.' },
-					{ q: 'How does the new provider join the others?', options: ['You register it with the other providers', 'You add an `if` for API keys in `ProviderManager`', 'You subclass `ProviderManager`', 'You replace `DaoAuthenticationProvider`'], answer: 0, why: 'A new login method is a new provider in the list.' }
+					{ q: 'Which two methods does the `AuthenticationProvider` interface ask you to write?', options: ['`supports` and `authenticate`', '`retrieveUser` and `additionalAuthenticationChecks`', '`doFilter` and `supports`', '`matches` and `encode`'], answer: 0, why: '`supports` says "mine or not", and `authenticate` does the check. The other pairs belong to the template method, the filters and the encoder.' }
 				]
 			},
 			{
 				title: 'Say what you leave alone',
 				questions: [
-					{ q: 'Do you change `ProviderManager`?', options: ['Yes: add a branch for API keys', 'No: its loop already tries every provider that supports the token', 'Yes: move it in front of the filters', 'No, but you copy it into a new manager'], answer: 1, why: 'The strategy loop is the reason the new provider needs no change anywhere else.' },
-					{ q: 'How does `ProviderManager` pick a result?', options: ['It skips providers whose `supports` says no and keeps the first non-null result', 'It asks every provider and keeps the last result', 'It picks one provider at random', 'It only calls the first provider in the list'], answer: 0, why: 'It breaks on the first result that is not null.' },
+					{ q: 'Do you change `UsernamePasswordAuthenticationFilter` to read the key too?', options: ['Yes: add an API key branch to it', 'No: your new filter sits beside it in the chain', 'Yes: replace it with your filter', 'No, but remove it from the chain'], answer: 1, why: 'Each filter does its own part and passes the request on. Password logins keep working untouched.' },
+					{ q: 'A listener of the success event throws on API key logins. With Spring\'s default multicaster and no error handler, what happens to the login?', options: ['The publisher throws, so the login fails', 'Nothing: listeners cannot affect the login', 'Only the audit line is lost', 'Spring retries the listener'], answer: 0, why: 'The observers run inside the publisher\'s call. A listener that throws breaks the code that published.' },
 					{ q: 'A listener writes an audit line on every successful login. Do you update it for API keys?', options: ['Yes: it only knows passwords', 'Yes: register it on the new filter', 'No: `ProviderManager` already publishes the success event for every provider', 'Only if the key is a JWT'], answer: 2, why: 'The event comes from `ProviderManager`, not from a provider, so the new method is covered for free.' },
 					{ q: 'Which pattern lets that listener work without `ProviderManager` knowing it?', options: ['Adapter', 'Observer', 'Decorator', 'Template method'], answer: 1, why: 'Every listener receives the event, and the publisher does not know who they are.' }
 				]

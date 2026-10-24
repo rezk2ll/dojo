@@ -118,10 +118,10 @@ export default {
 			{
 				title: 'Confie le reste au propriétaire',
 				questions: [
-					{ q: '(4) Alice peut-elle modifier cette facture ?', options: ['La gateway, avec une copie de la règle', 'Le SSO, puisqu’il connaît Alice', 'Le service de facturation, propriétaire de la facture', 'L’appli du navigateur, avant l’envoi'], answer: 2, why: 'La règle a besoin des données de la facture, donc c’est le service qui les détient qui décide.' },
+					{ q: '(4) Alice demande une facture d’une autre entreprise, et le service de facturation dit non. Que doit-il répondre, comme Mastodon pour un post privé ?', options: ['401, pour qu’elle se reconnecte', '503, réessaie plus tard', 'Introuvable, comme pour une facture qui n’existe pas', 'La facture, en lecture seule'], answer: 2, why: 'Le `set_status` de Mastodon répond introuvable quand `show?` est faux, donc un inconnu ne peut même pas savoir que l’enregistrement existe.' },
 					{ q: 'Que sait le service de facturation que la gateway ignore ?', options: ['L’adresse IP d’Alice', 'Qui a créé la facture, si elle est déjà envoyée, et le rôle d’Alice', 'La signature du token', 'Les règles CORS'], answer: 1, why: 'Ce sont des faits sur la facture et l’entreprise. Ils vivent chez le propriétaire.' },
 					{ q: 'Tu recopies aussi la règle de modification dans la gateway. Que se passe-t-il avec le temps ?', options: ['Elle s’éloigne des données qu’elle protège', 'Elle rend le service plus rapide', 'Le SSO la reprend à son compte', 'Rien, tant que les deux tournent'], answer: 0, why: 'Quand le propriétaire change sa règle, la copie dans la gateway n’est plus à jour.' },
-					{ q: 'Dans Mastodon, que dit `doorkeeper_authorize! :write` au contrôleur ?', options: ['Qu’Alice possède le post', 'Que le post est public', 'Qu’Alice suit l’auteur', 'Que cette appli peut écrire des posts, mais pas lesquels'], answer: 3, why: 'Le scope fait partie de l’authentification. `StatusPolicy` décide encore pour chaque post.' }
+					{ q: 'Dans Mastodon, quelle règle du propriétaire permet à Alice de modifier seulement ses propres posts ?', options: ['`show?`, qui lit la visibilité', '`doorkeeper_authorize! :write`', 'Le réglage `audiences` d’Envoy', '`update?`, qui renvoie `owned?`'], answer: 3, why: 'Le droit de modifier dépend de qui a écrit le post, un fait que seul le service des posts détient. Ta règle de modification de facture a sa place au même genre d’endroit.' }
 				]
 			},
 			{

@@ -144,7 +144,7 @@ export default {
 				title: 'Check it against Mastodon',
 				questions: [
 					{ q: 'Mastodon\'s timelines are core. Where does it store home feeds?', options: ['In a storage engine of its own', 'In Redis sorted sets', 'In Elasticsearch', 'In S3'], answer: 1, why: 'The core rules are in-house, and the storage under them is adopted.' },
-					{ q: 'Where do you see what Mastodon adopted?', options: ['In `app/services`', 'In the README', 'In the ActivityPub spec', 'In the `Gemfile`'], answer: 3, why: 'Devise, Doorkeeper, Sidekiq and Chewy are all listed there.' },
+					{ q: 'Mastodon needs more from Chewy and Paperclip than they offer. Where does it put that code?', options: ['In a fork of each gem', 'In `app/services`, next to the core', 'In patches sent to the gems\' authors', 'In its own `lib/` folder, under the libraries\' module names'], answer: 3, why: 'It adopts the library and keeps its extensions apart. You can do the same with your PDF library.' },
 					{ q: 'What does an adopted payment provider cost you, like Doorkeeper in Mastodon?', options: ['Nothing: adopted parts are free', 'It makes the core slower', 'A dependency you do not control, whose data model limits yours', 'A rewrite every year'], answer: 2, why: 'Every Mastodon post points at a Doorkeeper table, so replacing it would touch every post.' },
 					{ q: 'One feature holds three kinds of subdomain. What follows?', options: ['You sort each part on its own', 'You label the whole feature core', 'You label it generic and adopt it all', 'You let the team vote once for the feature'], answer: 0, why: 'The labels belong to parts, not features. Each part gets its own answer.' }
 				]

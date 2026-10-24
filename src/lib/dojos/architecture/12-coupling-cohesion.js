@@ -124,7 +124,7 @@ export default {
 				title: 'Try a service',
 				questions: [
 					{ q: 'Second way: one service owns the arithmetic. Which one fits best?', options: ['`emailservice`', '`cartservice`', '`currencyservice`, since it already converts amounts', '`shippingservice`'], answer: 2, why: 'It already works on amounts, so the arithmetic sits next to a related job.' },
-					{ q: 'Which coupling does that add?', options: ['Static coupling through imports', 'None, since no code is imported', 'A shared Go module dependency', 'Dynamic coupling, a gRPC call at run time'], answer: 3, why: 'No import links the two sides. The call happens at run time, so grep cannot see it.' },
+					{ q: 'How would `frontend` find `currencyservice` for the new call?', options: ['By importing its Node.js code', 'By scanning the cluster network', 'From `protos/demo.proto`', 'From an address in an environment variable, read at start up'], answer: 3, why: 'Like checkout\'s six `mustMapEnv` calls, the address comes from the deployment config. No import links the two sides, so grep cannot see this coupling.' },
 					{ q: 'What does it cost?', options: ['Both services must upgrade to get a fix', 'One more network call per price, and one more service that must be up', 'The compiler stops checking the build', 'The `.proto` file goes away'], answer: 1, why: 'Dynamic coupling trades build checks for run time ones: the service must answer each time.' },
 					{ q: 'Where would the new call\'s contract live?', options: ['In `protos/demo.proto`, like every other call', 'In the `money` package', 'In an environment variable', 'In the frontend templates'], answer: 0, why: 'Every service builds on the same `demo.proto`. A new call is a new entry there.' }
 				]

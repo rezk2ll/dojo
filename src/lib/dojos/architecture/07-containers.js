@@ -111,8 +111,8 @@ export default {
 			{
 				title: 'Set the test',
 				questions: [
-					{ q: 'Which question do you ask of each item?', options: ['Is it packaged as a Docker image?', 'Does it have its own Git repository?', 'Does it run, or store data, on its own, and can it crash while the rest keeps going?', 'Does it expose a REST API?'], answer: 2, why: 'A container is something that must be running for the system to work, as its own process or store.' },
-					{ q: 'What does "container" mean in C4?', options: ['A Docker container', 'A runtime boundary: a process or store you start, stop, deploy and monitor on its own', 'A Kubernetes pod', 'A folder of code in the repo'], answer: 1, why: 'Simon Brown chose the word so it says nothing about how the thing is run.' },
+					{ q: 'Someone hands you a new machine for the Mastodon server. Which question does your sorted list answer?', options: ['Which external systems the server talks to', 'Which classes the Rails app holds', 'What to install and run on it', 'Who the users of the server are'], answer: 2, why: 'The context diagram shows nothing inside the box. The containers are what you install, start and monitor.' },
+					{ q: 'Is a C4 "container" the same thing as a Docker container?', options: ['Yes: one box per Docker container', 'No: the word says nothing about how the thing is run', 'Yes, but only in production', 'No: it means a Kubernetes pod'], answer: 1, why: 'Simon Brown picked the word so it stays neutral about how things run. The React app, for one, runs in a browser.' },
 					{ q: 'Two pieces of code sit on the two sides of a process boundary. What can they not do?', options: ['Talk over a network', 'Talk through a queue', 'Crash one without the other', 'Share memory'], answer: 3, why: 'They talk over a network, a queue or a file, and either side can crash alone.' },
 					{ q: 'At which C4 level do containers appear?', options: ['Level 2', 'Level 1, context', 'Level 3, components', 'Level 4, code'], answer: 0, why: 'Level 2 opens the system box from the context diagram.' }
 				]
@@ -140,8 +140,8 @@ export default {
 				questions: [
 					{ q: 'The `ghcr.io/mastodon/mastodon` image?', options: ['A container: it is in `docker-compose.yml`', 'An external system: it lives on ghcr.io', 'Not a container: one build that runs as two containers, `web` and `sidekiq`', 'Two containers drawn in one box'], answer: 2, why: 'An image is only the build a container starts from.' },
 					{ q: 'In `docker-compose.yml`, what differs between `web` and `sidekiq`?', options: ['The image', 'The `env_file`', 'The `restart` policy', 'The `command`'], answer: 3, why: 'Same image, different command: `puma` for one, `sidekiq` for the other.' },
-					{ q: 'Sidekiq dies. What does the API do?', options: ['It keeps answering: posts are saved and jobs wait in Redis', 'It fails too, since they share an image', 'It runs the jobs itself', 'It drops the queued jobs'], answer: 0, why: 'Separate processes fail apart. Feeds and other servers get the post once Sidekiq runs again.' },
-					{ q: 'One image, two commands. How many boxes on the container diagram?', options: ['One', 'Two', 'None', 'Three'], answer: 1, why: 'C4 draws one box per process or store, not per image.' }
+					{ q: 'Sidekiq has been down for an hour. What does a graph of the API\'s error rate show?', options: ['Nothing unusual: no request fails', 'A spike of `500` errors', 'Failed logins for every user', 'Errors on every new post'], answer: 0, why: 'Separate processes fail apart. Posts are saved, and feeds and deliveries just stop, so you need to watch Sidekiq on its own.' },
+					{ q: 'Mastodon\'s main Dockerfile ends on an `ENTRYPOINT` with no `CMD`. Why?', options: ['To make the image smaller', 'So whoever runs the image picks the role, web or worker', 'Because Sidekiq needs no command', 'So the image can run only one process'], answer: 1, why: 'The `command` line in `docker-compose.yml` picks `puma` or `sidekiq`, so one build serves both roles.' }
 				]
 			}
 		]

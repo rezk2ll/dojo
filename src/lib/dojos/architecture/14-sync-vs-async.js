@@ -115,7 +115,7 @@ export default {
 			{
 				title: 'Tell the user',
 				questions: [
-					{ q: 'Why can the transcode result not come back in the upload response?', options: ['The response is sent before the work runs', 'HTTP cannot carry video', 'Workers have no network access', 'The status must stay secret'], answer: 0, why: 'A job runs after the answer, so its result has to reach the user by another path.' },
+					{ q: 'The user closes the browser right after the 202. Does transcoding stop?', options: ['No: the jobs run on the workers, whatever the browser does', 'Yes: closing the tab cancels the request', 'Yes, unless the page keeps polling', 'Only the 4K job stops'], answer: 0, why: 'The work left the request when it was queued. The result waits in the video row until the user looks again.' },
 					{ q: 'How does the user learn the video is ready?', options: ['The upload request stays open until it ends', 'The user uploads it again to check', 'The video page polls the status, or a notification says it is ready', 'The user reads the queue in Redis'], answer: 2, why: 'The video row holds the status. The page can read it, or a notification can push it.' },
 					{ q: 'What does the video page show while the jobs run?', options: ['`failed`', '`processing`', 'An empty player', 'A 404 page'], answer: 1, why: 'The request saved the row with status `processing`. The jobs change it when they finish.' },
 					{ q: 'Mastodon tells no one when a delivery is dropped. Why is that not enough here?', options: ['Videos are larger than posts', 'Sidekiq forbids it for video jobs', 'Polling only works with a dead set', 'The user waits for a result, and a silent drop leaves them waiting forever'], answer: 3, why: 'For one post to one server, Mastodon accepts the loss. Here the user\'s own video is the result.' }
@@ -126,7 +126,7 @@ export default {
 				questions: [
 					{ q: 'A transcode job fails. What happens first?', options: ['It retries forever', 'It retries, with a limit', 'It is dropped at once', 'The upload request fails'], answer: 1, why: 'A retry gets past a short-lived error. A limit stops a broken job from looping.' },
 					{ q: 'After the last retry, where does the job go?', options: ['Into a dead set, and the video is set to `failed`', 'Dropped, with `dead: false`', 'Back to the start of the queue', 'Only into the request log'], answer: 0, why: 'The dead set keeps it for a person, and `failed` lets the user see it.' },
-					{ q: 'In Sidekiq, what does `dead: false` do?', options: ['Sends the job to the dead set', 'Retries the job forever', 'Discards the job after its last retry', 'Deletes the saved record'], answer: 2, why: 'In `job_retry.rb`, `dead == false` means discarded: the job never reaches the dead set.' },
+					{ q: 'The request saves the video row, then pushes the four jobs to Redis, with no transaction around both. The process dies between the two. What is left?', options: ['Nothing: PostgreSQL rolls the row back', 'Four jobs and no row', 'A row at `processing` and no job to transcode it', 'A row at `failed`'], answer: 2, why: 'Two writes to two stores, and only the first happened. Mastodon has the same gap between saving a post and queueing its jobs.' },
 					{ q: 'What is the worst outcome?', options: ['A 4K job that retries twice', 'A user who sees `failed`', 'A 202 answer to the upload', 'A dropped job and a row stuck at `processing` forever'], answer: 3, why: 'No one knows the work stopped, and the user waits for nothing.' }
 				]
 			}

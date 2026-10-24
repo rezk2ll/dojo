@@ -106,10 +106,10 @@ class InterestsViewModel @AssistedInject constructor(
 			{
 				title: 'Find the leak',
 				questions: [
-					{ q: 'Why can `InterestsViewModel` import `UserDataRepository` today?', options: ['Kotlin allows any import in the same app', 'The repository class is `internal`', '`core/domain` declares `api(projects.core.data)`', 'Hilt injects it, so no import is checked'], answer: 2, why: 'The feature module only declares `core.domain`. The `api` passes `core.data` on to it.' },
-					{ q: 'What does Gradle\'s `api` do?', options: ['It hides the dependency from consumers', 'It passes the dependency on to every consumer', 'It publishes the module online', 'It turns the module into an API server'], answer: 1, why: 'With `implementation`, the dependency stays private to the module that declares it.' },
+					{ q: 'Which line of `InterestsViewModel.kt` shows the leak?', options: ['The import of `core.domain.GetFollowableTopicsUseCase`', 'The `SavedStateHandle` constructor parameter', 'The import of `core.data.repository.UserDataRepository`', 'The call to `getFollowableTopics(sortBy = TopicSortField.NAME)`'], answer: 2, why: 'A UI file importing from `core.data` is the sign. Imports from `core.domain` are what the rule expects.' },
+					{ q: 'Which classes stay hidden from the ViewModel even with the leak?', options: ['Interfaces like `TopicsRepository`', '`internal` classes like `OfflineFirstTopicsRepository`', 'Use cases like `GetFollowableTopicsUseCase`', 'Every class in `core/data`'], answer: 1, why: 'Kotlin\'s `internal` keeps the implementation inside `core/data`. What leaks is the public interface, `UserDataRepository`.' },
 					{ q: 'Which call skips the domain today?', options: ['`getFollowableTopics(...)` in `uiState`', 'The `@Binds` in `DataModule`', '`OfflineFirstTopicsRepository` reading Room', '`userDataRepository.setTopicIdFollowed` in `followTopic`'], answer: 3, why: 'Reads go through the use case, writes go straight to the repository.' },
-					{ q: 'What does a **closed** domain mean?', options: ['Every call from the UI has to go through it', 'Nobody may change its code', 'It has no interfaces', 'Tests cannot see it'], answer: 0, why: 'An open layer may be skipped. A closed one may not.' }
+					{ q: 'Is the open domain a bug someone forgot to fix?', options: ['Yes: nobody noticed the `api`', 'No: the repo\'s docs describe the UI calling repositories directly for events', 'Yes: Hilt opened it by mistake', 'No: the domain has no use cases yet'], answer: 1, why: 'The architecture guide calls it the current design. Closing the domain is a choice with a cost, not a bug fix.' }
 				]
 			},
 			{

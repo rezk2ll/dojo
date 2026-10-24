@@ -186,6 +186,28 @@ export default {
 			why: 'Devs want to launch features, ops want the service not to break. Since change is the main cause of outages, each side\'s goal works against the other\'s.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Look for the wall in a real project\'s history: who changes the ops files, who changes the app code, and who does both.',
+		steps: [
+			'Clone a real project with its history but without the file contents: `mkdir -p ~/devops-lab && cd ~/devops-lab && git clone --filter=blob:none https://github.com/louislam/uptime-kuma.git && cd uptime-kuma`.',
+			'Find the files that say how the app runs: `git ls-files | grep -iE "dockerfile|compose|\\.github/workflows"`. They sit in the same repo as the app code in `src/` and `server/`.',
+			'List who changed those ops files in the last year, bots left out: `git log --since="1 year ago" --format=%an -- docker .github/workflows compose.yaml | grep -v "\\[bot\\]" | sort -u > ../ops.txt`.',
+			'Do the same for the app code: `git log --since="1 year ago" --format=%an -- src server | grep -v "\\[bot\\]" | sort -u > ../dev.txt`. Compare with `wc -l ../ops.txt ../dev.txt`, `comm -12 ../ops.txt ../dev.txt` (people on both sides) and `comm -23 ../ops.txt ../dev.txt` (people who touch only ops files).',
+			'Write `~/devops-lab/calms.txt` with one line per CALMS letter: the evidence you found in this repo, or "not visible in git".'
+		],
+		done: [
+			'`ops.txt` and `dev.txt` exist and are not empty.',
+			'`comm -12` prints the people who changed both ops files and app code in the last year.',
+			'`calms.txt` has five lines, and each one names a file, a command output, or "not visible in git".'
+		],
+		solution: [
+			'At the time of writing, 7 of the 9 people in `ops.txt` also appear in `dev.txt`. Deploy files and code change in the same repo through the same review: no wall at the file level.',
+			'A few names only in `ops.txt` are normal. Many names only in `ops.txt` and few in both is what a separate ops team looks like in git.',
+			'Automation shows in `.github/workflows`, and Sharing in the `comm -12` list. Culture, Lean and Measurement (who carries the pager, how big the changes are, which numbers both sides watch) are mostly not in git: you ask the people.',
+			'Run the same commands on a repo from your own work to see your own wall. Clean up with `rm -rf ~/devops-lab`.'
+		]
+	},
 	recall: {
 		q: 'What do the five letters of CALMS stand for, and what goes wrong when a company adds a "DevOps team" between dev and ops?',
 		a: 'Culture, Automation, Lean, Measurement, Sharing. The new team adds a second wall (dev to DevOps team to ops), the DevOps team silo anti-pattern.'

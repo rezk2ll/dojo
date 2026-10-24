@@ -173,6 +173,30 @@ HAVING max(bug) is True
 			why: 'DORA cites Goodhart\'s law: once the metric is the target, teams find ways to hit the number without improving delivery.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Compute DORA numbers from a real project\'s git history, and find the ones git cannot give you.',
+		steps: [
+			'Clone the GitHub CLI with its history and tags, without the file contents: `mkdir -p ~/dora-lab && cd ~/dora-lab && git clone --filter=blob:none https://github.com/cli/cli.git && cd cli`.',
+			'List its releases, newest first, as a CSV you can open in a spreadsheet: `git for-each-ref --sort=-creatordate --format=\'%(creatordate:short),%(refname:short)\' \'refs/tags/v*\' > ../releases.csv && head ../releases.csv`. Count each release as one deployment.',
+			'Count the releases of the last 12 weeks, and the patch releases among them (a last number other than 0, like `v2.103.1`): `awk -F, -v since="$(date -d \'12 weeks ago\' +%F)" \'$1 >= since {n++; if ($2 !~ /\\.0$/) p++} END {print n " releases, " p " patch releases"}\' ../releases.csv`. On macOS, use `date -v-12w +%F`.',
+			'Measure the change lead time of the latest minor release, from each commit to the release: `last=$(grep \'\\.0$\' ../releases.csv | sed -n 1p | cut -d, -f2); prev=$(grep \'\\.0$\' ../releases.csv | sed -n 2p | cut -d, -f2); t=$(git log -1 --format=%ct "$last"); git log --no-merges --format=%ct "$prev..$last" | awk -v t="$t" \'{print (t - $1) / 86400}\' | sort -n | awk \'{a[NR] = $1} END {print NR " commits, median " a[int((NR + 1) / 2)] " days"}\'`. Compare it with the days between `$prev` and `$last` in `releases.csv`.',
+			'Write `~/dora-lab/notes.txt` with one line per metric: deployments per week, deployment rework rate, change lead time, and for change fail rate and recovery time, a number or the data you would need.'
+		],
+		done: [
+			'`releases.csv` has one line per `v*` tag, newest first, each with a date.',
+			'Step 3 prints two counts, and you turned them into releases per week (count / 12) and a share of patch releases.',
+			'Step 4 prints a number of commits and a median in days.',
+			'`notes.txt` has a line for each of the five metrics.'
+		],
+		solution: [
+			'At the time of writing: 9 releases in 12 weeks (about 0.75 a week), 3 of them patches (33%), and a median lead time of 6 days over the 193 commits of `v2.103.0`. Your numbers will differ, because the project keeps releasing.',
+			'A patch release is an unplanned fix, so patches / all releases is a deployment rework rate. For change fail rate, count the `.0` releases that got a `.1`: `v2.103.0` got two in two days.',
+			'A commit merged just after a release waits for the next one, so the lead time follows the gap between releases. That wait is the release window from the lesson, not the build.',
+			'Recovery time is not in git: you need when each failure started and ended, from an issue tracker or a pager. That is the Four Keys problem: the numbers count only what someone records.',
+			'A tag is a release that users install themselves, not a deploy to a server. Use these numbers to follow one project over time, not to rank it against a web service. Clean up with `rm -rf ~/dora-lab`.'
+		]
+	},
 	recall: {
 		q: 'Which five numbers does DORA track per service, and why should a manager not set one of them as a target?',
 		a: 'Change lead time, deployment frequency, failed deployment recovery time, change fail rate and deployment rework rate. A target invites gaming (Goodhart\'s law), like splitting one deploy into ten.'

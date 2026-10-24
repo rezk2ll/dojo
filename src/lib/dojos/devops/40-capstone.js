@@ -206,6 +206,31 @@ env:
 			why: 'Promotion copies the tag of the image staging tested. A rebuild can pull different dependencies, so production would run bytes nobody tested.'
 		}
 	],
+	lab: {
+		minutes: 45,
+		goal: 'Run the whole chain on your machine with Docker and Git: build once, deploy by commit, catch a bad release, roll back with `git revert`.',
+		steps: [
+			'Set up two repos and a registry: `mkdir -p ~/capstone-lab/{app,config} && git -C ~/capstone-lab/app init -b main && git -C ~/capstone-lab/config init -b main`, then `docker run -d --rm --name capstone-registry -p 5001:5000 registry:2`.',
+			'In `app`, write `server.py` (an `http.server` app on port 8000 that answers 200 and `hello`), a `Dockerfile` (`FROM python:3.12-alpine`, copy the file, `USER nobody`, run it) and `ci.sh`. `ci.sh` checks `python3 -m py_compile server.py`, builds and pushes `localhost:5001/web:sha-<commit>`, and commits `tag: sha-<commit>` to `../config/values-staging.yaml`. Commit the app, then run `bash ci.sh`.',
+			'In `config`, write `deploy.sh`, which plays Argo CD: it reads the tag from `values-staging.yaml` and replaces the container `capstone-web` with one from that image, on `-p 8081:8000`. Write `alert.sh`, which plays Prometheus: it prints `PAGE` when `localhost:8081/` does not answer 200. Run `bash deploy.sh`, then `bash alert.sh`.',
+			'Ship a bad release: in `server.py`, return 500 on every path except `/healthz`. Commit, run `bash ci.sh` in `app`, then `bash deploy.sh` and `bash alert.sh` in `config`.',
+			'Roll back in `config`: `git revert --no-edit HEAD`, then `bash deploy.sh` and `bash alert.sh`. Write a three-line blameless postmortem of the drill. Clean up with `docker rm -f capstone-web && docker stop capstone-registry && rm -rf ~/capstone-lab`.'
+		],
+		done: [
+			'`curl -s localhost:5001/v2/web/tags/list` lists two `sha-` tags, one per app commit.',
+			'After the bad release, `curl -s -o /dev/null -w "%{http_code}" localhost:8081/healthz` still prints 200, but `alert.sh` prints `PAGE`.',
+			'After the revert, `values-staging.yaml` names the first tag again and `alert.sh` prints `ok`, with no rebuild.',
+			'`git log --oneline` in `config` shows one commit per deploy, with the revert on top.',
+			'`docker exec capstone-web id` shows `uid=65534(nobody)`.'
+		],
+		solution: [
+			'`server.py`: a `BaseHTTPRequestHandler` whose `do_GET` sets `code = 200`, then calls `self.send_response(code)`, `self.end_headers()` and `self.wfile.write(b"hello\\n")`. Serve it with `HTTPServer(("", 8000), Handler).serve_forever()`. The bad release is `code = 200 if self.path == "/healthz" else 500`.',
+			'`ci.sh`: `set -euo pipefail`, `python3 -m py_compile server.py`, `tag=sha-$(git rev-parse --short HEAD)`, `docker build -t localhost:5001/web:$tag .`, `docker push localhost:5001/web:$tag`, then `cd ../config && echo "tag: $tag" > values-staging.yaml && git add values-staging.yaml && git commit -m "staging: $tag"`.',
+			'`deploy.sh`: `set -euo pipefail`, `tag=$(sed -n "s/^tag: //p" values-staging.yaml)`, `docker rm -f capstone-web 2>/dev/null || true`, then `docker run -d --name capstone-web -p 8081:8000 localhost:5001/web:$tag`. CI never runs it: the deploy follows the config repo.',
+			'`alert.sh`: `code=$(curl -s -o /dev/null -w "%{http_code}" localhost:8081/)`, then `[ "$code" = 200 ] && echo ok || echo "PAGE: / returned $code"`. It watches what users get. `/healthz` stays green in the bad release, so a probe alone would not page.',
+			'The rollback rebuilds nothing: the old image is still in the registry under its immutable tag, and the revert points the config back at it. On the real stack, `deploy.sh` is an Argo CD Application with self-heal and `alert.sh` is a burn-rate rule in Prometheus.'
+		]
+	},
 	recall: {
 		q: 'In this chain, what does CI commit after a push to `main`, and how does on-call roll back a bad release?',
 		a: 'CI commits the immutable image tag, like `sha-ad132f5`, to the staging values file in the config repo, and Argo CD syncs it. To roll back, on-call runs `git revert` on that commit.'

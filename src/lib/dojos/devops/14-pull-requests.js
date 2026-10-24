@@ -185,6 +185,30 @@ export default {
 			why: 'GitHub requires each required check to end successful, skipped or neutral. A failing check keeps the merge blocked.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Protect `main` on a throwaway GitHub repo, then watch it refuse a direct push and a PR with a red check, from you, the admin.',
+		steps: [
+			'You need a free GitHub account and `gh auth login`. Make the repo with a script and a CODEOWNERS file where one owner does not exist: `mkdir -p ~/pr-lab && cd ~/pr-lab && git init -q -b main && echo \'echo deploying\' > deploy.sh && mkdir -p .github && printf \'* @%s\\n/prod/ @acme/ops\\n\' "$(gh api user --jq .login)" > .github/CODEOWNERS`.',
+			'Add a `lint` job that checks the script, then publish the repo: `mkdir -p .github/workflows && printf \'on: [push, pull_request]\\njobs:\\n  lint:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - run: bash -n deploy.sh\\n\' > .github/workflows/lint.yml && git add . && git commit -qm start && gh repo create pr-lab --public --source=. --push`. It is public because free accounts get branch protection only on public repos. Then ask GitHub to check CODEOWNERS: `gh api repos/{owner}/{repo}/codeowners/errors --jq \'.errors[] | {line, kind}\'`.',
+			'Protect `main`: on the repo page, open Settings, Branches, Add classic branch protection rule, with the pattern `main`. Turn on "Require a pull request before merging" and turn off "Require approvals", since you cannot approve your own PR. Turn on "Require status checks to pass before merging" and pick `lint`. Turn on "Do not allow bypassing the above settings" and save. Check it with `gh api repos/{owner}/{repo}/branches/main/protection --jq \'.required_status_checks.contexts, .enforce_admins.enabled\'`.',
+			'Push a broken change straight to `main`: `printf \'if then\\n\' >> deploy.sh && git commit -qam "break deploy" && git push origin main`. Then move that commit to a branch and open a PR: `git switch -c break && git branch -f main origin/main && git push -u origin break && gh pr create --fill`.',
+			'Give the run a few seconds to start, then `gh pr checks --watch` and try `gh pr merge --merge`. Fix the script on the branch: `echo \'echo deploying v2\' > deploy.sh && git commit -qam "fix deploy" && git push`, then `gh pr checks --watch` and `gh pr merge --merge --delete-branch`.',
+			'Delete the repo: `gh auth refresh -h github.com -s delete_repo`, then `gh repo delete "$(gh api user --jq .login)/pr-lab" --yes` and `rm -rf ~/pr-lab`.'
+		],
+		done: [
+			'Step 2 reports an error on line 2, where GitHub does not know `@acme/ops`. Line 1, with your own login, has no error.',
+			'Step 3 prints `["lint"]` and `true`.',
+			'The direct push is rejected with `GH006: Protected branch update failed`, although you are the repo admin.',
+			'With `lint` red, `gh pr merge` refuses. After the fix, `lint` is green and the PR merges.'
+		],
+		solution: [
+			'GitHub skips a CODEOWNERS line it cannot use and keeps the rest. An owner must exist and have write access, so a typo in a team name quietly stops the review requests for that path until someone reads the errors.',
+			'"Require a pull request before merging" means `main` changes only through a PR. "Do not allow bypassing the above settings" is why your push failed too: without it, an admin\'s direct push goes through.',
+			'`bash -n` reads the script without running it, and fails on `if then`. The required check kept the merge blocked until it was green, so the broken script never reached `main`.',
+			'The rule lives in the repo settings, not in Git: delete the repo and the rule is gone with it. On a team repo you would also turn on "Require approvals" and "Require review from Code Owners".'
+		]
+	},
 	recall: {
 		q: 'CODEOWNERS lists `/prod/ @acme/ops`. What makes an ops approval mandatory before a change to `prod/` can merge?',
 		a: 'A branch protection rule (or a ruleset) on `main` with "Require review from Code Owners" turned on. CODEOWNERS on its own only requests the review.'

@@ -207,6 +207,29 @@ deploy:
 			why: 'Si aucune règle ne correspond, le job n’est pas ajouté au pipeline du tout. Un seul fichier peut donc donner des jobs différents aux branches de feature et à la branche par défaut.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lancer un pipeline à trois stages sur ta machine et voir le cache, les artefacts et les `rules` se comporter comme dans GitLab.',
+		steps: [
+			'Crée un repo de test : `mkdir ~/gitlab-ci-lab && cd ~/gitlab-ci-lab && git init -b main`.',
+			'Écris `.gitlab-ci.yml` avec `image: alpine:3.20` et `stages: [build, test, deploy]`. `build` lance `ls .cache || echo "cache empty"`, puis écrit `.cache/deps.txt` et `build/app.txt`. Il met `.cache/` en cache et garde `build/` en artefacts. `test` lance `cat build/app.txt` et `ls .cache || echo "no cache"`. `deploy` lance `cat build/app.txt`, a `environment: production` et une règle pour la branche par défaut avec `when: manual`.',
+			'Commite-le avec `git add . && git commit -m "add pipeline"`. Liste les jobs avec `npx gitlab-ci-local --list`, puis lance le pipeline avec `npx gitlab-ci-local`. Docker doit tourner : chaque job démarre dans son propre conteneur `alpine:3.20`.',
+			'Lance `npx gitlab-ci-local` une deuxième fois, puis clique sur le bouton en local : `npx gitlab-ci-local --manual deploy`.',
+			'Passe sur une branche de feature avec `git switch -c feature` et liste de nouveau les jobs. Nettoie avec `cd ~ && rm -rf ~/gitlab-ci-lab`.'
+		],
+		done: [
+			'`--list` montre `deploy` dans le stage `deploy`, avec `when` à `manual`.',
+			'Au premier passage, `build` affiche `cache empty` et `test` affiche `no cache`, mais `test` affiche quand même le contenu de `build/app.txt`.',
+			'Au deuxième passage, `build` affiche `deps.txt`. `deploy` ne tourne qu’avec `--manual deploy`.',
+			'Sur la branche `feature`, `--list` ne montre que `build` et `test`.'
+		],
+		solution: [
+			'`build` : `stage: build`, `cache:` avec `paths: [.cache/]`, `artifacts:` avec `paths: [build/]`. Seul `build` déclare le cache, donc `test` démarre sans.',
+			'`test` récupère `build/app.txt` sans ligne en plus : les stages suivants téléchargent les artefacts des stages précédents. Le cache ne fait qu’accélérer le prochain `build`.',
+			'`deploy` : `rules:` puis `- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` avec `when: manual`. Le repo n’a pas de remote, donc gitlab-ci-local affiche un avertissement et prend `main` comme branche par défaut.',
+			'Sur `feature` aucune règle ne correspond, donc `deploy` n’est pas du tout dans le pipeline. Sur `main` il attend un clic, et `--manual deploy` est ce clic.'
+		]
+	},
 	recall: {
 		q: 'Un job de build produit `build/*`, et un job de déploiement d’un stage suivant en a besoin. Tu le mets dans `cache` ou dans `artifacts`, et pourquoi ?',
 		a: 'Dans `artifacts`. GitLab les stocke et les stages suivants les téléchargent par défaut. Le cache sert aux téléchargements comme `.cache/pip`, et un job peut démarrer avec un cache vide.'

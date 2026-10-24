@@ -190,6 +190,29 @@ export default {
 			why: 'Jenkins est auto-hébergé de bout en bout et fait tourner des agents n’importe où, y compris sur un réseau sans accès à internet. Pour zéro maintenance ou un petit projet GitHub, un service hébergé est plus simple.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Lancer un Jenkinsfile déclaratif sur un Jenkins dans Docker, et voir `input` passer avant `when` tant que tu n’ajoutes pas `beforeInput true`.',
+		steps: [
+			'Lance Jenkins : `docker run -d --rm --name jenkins-lab -p 8080:8080 jenkins/jenkins:lts`. Affiche le mot de passe d’installation avec `docker exec jenkins-lab cat /var/jenkins_home/secrets/initialAdminPassword`, ouvre `http://localhost:8080`, choisis "Install suggested plugins" et crée un utilisateur admin.',
+			'Clique sur "New Item", choisis "Pipeline" et nomme-le `lab`. Dans la case "Pipeline script", écris un `pipeline { agent any ... }` avec trois stages. `Build` lance `sh \'mkdir -p out && date > out/build.txt\'`. `Test` lance `sh \'test -s out/build.txt\'` avec `post { always { echo \'Test stage finished\' } }`. `Deploy` a `when { branch \'main\' }`, `input { message \'Deploy to production?\' }` et `sh \'echo deploying\'`.',
+			'Clique sur "Build Now" et ouvre la sortie console. Quand le build s’arrête, clique sur "Proceed" et lis la fin du log.',
+			'Change le `when` en `when { beforeInput true; branch \'main\' }`, enregistre, et relance un build.',
+			'Casse le test : remplace-le par `sh \'test -s out/missing.txt\'` et relance un build. Nettoie avec `docker stop jenkins-lab` : `--rm` supprime le conteneur et ses données.'
+		],
+		done: [
+			'Le build 1 s’arrête sur `Deploy to production?` et attend un clic, alors que ce job ne construit aucune branche.',
+			'Après "Proceed", le log affiche `Stage "Deploy" skipped due to when conditional`.',
+			'Le build 2 ne demande rien : il saute `Deploy` tout de suite et finit par `Finished: SUCCESS`.',
+			'Le build 3 affiche `Test stage finished`, puis `Stage "Deploy" skipped due to earlier failure(s)`, et finit par `Finished: FAILURE`.'
+		],
+		solution: [
+			'Un job Pipeline simple n’a pas de `BRANCH_NAME`, donc `branch \'main\'` est faux ici, comme sur une branche de feature d’un pipeline multibranche.',
+			'Par défaut Jenkins évalue `input` avant `when`, donc le build 1 demande à un humain de valider un stage qu’il saute ensuite. `beforeInput true` fait passer la vérification en premier, et le build 2 saute le stage sans rien demander.',
+			'`post { always }` a tourné dans le build 3 alors que le test a échoué. C’est pour ça que le tutoriel y met `junit` : le rapport est gardé quand tu en as besoin.',
+			'`agent any` a fait tourner tous les stages sur le controller. Ça va pour un lab seulement : une vraie installation ajoute un agent avec un label et le vise avec `agent { label \'...\' }`.'
+		]
+	},
 	recall: {
 		q: 'Un stage `Deploy` a `when { branch \'main\' }` et un `input`. Sans `beforeInput true`, que se passe-t-il sur une branche de feature ?',
 		a: 'Jenkins demande l’`input` avant de vérifier `when`, donc le build de la branche de feature s’arrête et attend une validation. Avec `beforeInput true`, le stage est sauté sur toutes les branches sauf `main`.'

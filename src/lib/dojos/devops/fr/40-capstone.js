@@ -206,6 +206,31 @@ env:
 			why: 'La promotion recopie le tag de l’image que staging a testée. Une reconstruction peut tirer d’autres dépendances, et la production ferait tourner des octets que personne n’a testés.'
 		}
 	],
+	lab: {
+		minutes: 45,
+		goal: 'Faire tourner toute la chaîne sur ta machine avec Docker et Git : construire une fois, déployer par un commit, repérer une mauvaise release, revenir en arrière avec `git revert`.',
+		steps: [
+			'Prépare deux repos et un registry : `mkdir -p ~/capstone-lab/{app,config} && git -C ~/capstone-lab/app init -b main && git -C ~/capstone-lab/config init -b main`, puis `docker run -d --rm --name capstone-registry -p 5001:5000 registry:2`.',
+			'Dans `app`, écris `server.py` (une appli `http.server` sur le port 8000 qui répond 200 et `hello`), un `Dockerfile` (`FROM python:3.12-alpine`, copie le fichier, `USER nobody`, lance-le) et `ci.sh`. `ci.sh` vérifie `python3 -m py_compile server.py`, construit et pousse `localhost:5001/web:sha-<commit>`, et commite `tag: sha-<commit>` dans `../config/values-staging.yaml`. Commite l’appli, puis lance `bash ci.sh`.',
+			'Dans `config`, écris `deploy.sh`, qui joue le rôle d’Argo CD : il lit le tag dans `values-staging.yaml` et remplace le conteneur `capstone-web` par un conteneur de cette image, sur `-p 8081:8000`. Écris `alert.sh`, qui joue le rôle de Prometheus : il affiche `PAGE` quand `localhost:8081/` ne répond pas 200. Lance `bash deploy.sh`, puis `bash alert.sh`.',
+			'Livre une mauvaise release : dans `server.py`, renvoie 500 sur tous les chemins sauf `/healthz`. Commite, lance `bash ci.sh` dans `app`, puis `bash deploy.sh` et `bash alert.sh` dans `config`.',
+			'Reviens en arrière dans `config` : `git revert --no-edit HEAD`, puis `bash deploy.sh` et `bash alert.sh`. Écris un postmortem sans blâme de trois lignes sur l’exercice. Nettoie avec `docker rm -f capstone-web && docker stop capstone-registry && rm -rf ~/capstone-lab`.'
+		],
+		done: [
+			'`curl -s localhost:5001/v2/web/tags/list` liste deux tags `sha-`, un par commit de l’appli.',
+			'Après la mauvaise release, `curl -s -o /dev/null -w "%{http_code}" localhost:8081/healthz` affiche toujours 200, mais `alert.sh` affiche `PAGE`.',
+			'Après le revert, `values-staging.yaml` nomme de nouveau le premier tag et `alert.sh` affiche `ok`, sans reconstruction.',
+			'`git log --oneline` dans `config` montre un commit par déploiement, avec le revert au-dessus.',
+			'`docker exec capstone-web id` affiche `uid=65534(nobody)`.'
+		],
+		solution: [
+			'`server.py` : un `BaseHTTPRequestHandler` dont le `do_GET` met `code = 200`, puis appelle `self.send_response(code)`, `self.end_headers()` et `self.wfile.write(b"hello\\n")`. Sers-le avec `HTTPServer(("", 8000), Handler).serve_forever()`. La mauvaise release, c’est `code = 200 if self.path == "/healthz" else 500`.',
+			'`ci.sh` : `set -euo pipefail`, `python3 -m py_compile server.py`, `tag=sha-$(git rev-parse --short HEAD)`, `docker build -t localhost:5001/web:$tag .`, `docker push localhost:5001/web:$tag`, puis `cd ../config && echo "tag: $tag" > values-staging.yaml && git add values-staging.yaml && git commit -m "staging: $tag"`.',
+			'`deploy.sh` : `set -euo pipefail`, `tag=$(sed -n "s/^tag: //p" values-staging.yaml)`, `docker rm -f capstone-web 2>/dev/null || true`, puis `docker run -d --name capstone-web -p 8081:8000 localhost:5001/web:$tag`. La CI ne le lance jamais : le déploiement suit le repo de config.',
+			'`alert.sh` : `code=$(curl -s -o /dev/null -w "%{http_code}" localhost:8081/)`, puis `[ "$code" = 200 ] && echo ok || echo "PAGE: / returned $code"`. Il surveille ce que reçoivent les utilisateurs. `/healthz` reste vert dans la mauvaise release, donc une sonde seule n’aurait pas déclenché d’alerte.',
+			'Le retour arrière ne reconstruit rien : l’ancienne image est toujours dans le registry sous son tag immuable, et le revert y fait de nouveau pointer la config. Sur la vraie stack, `deploy.sh` est une Application Argo CD avec self-heal et `alert.sh` est une règle de burn rate dans Prometheus.'
+		]
+	},
 	recall: {
 		q: 'Dans cette chaîne, que commite la CI après un push sur `main`, et comment l’astreinte annule-t-elle une mauvaise release ?',
 		a: 'La CI commite le tag d’image immuable, comme `sha-ad132f5`, dans le fichier de values de staging du repo de config, et Argo CD le synchronise. Pour annuler, l’astreinte lance `git revert` sur ce commit.'

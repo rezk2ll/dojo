@@ -101,6 +101,44 @@ export default {
 			'6.3.0 : vulnérable (`>= 6.0.0, < 6.3.1`). Passe en 6.3.1. Moins urgent : `tool-a` lit ses plages dans des fichiers que tu contrôles. Lance `npm explain semver` pour voir si une version plus récente de `tool-a` embarque déjà 6.3.1.',
 			'5.7.1 : vulnérable (`>= 2.0.0-alpha, < 5.7.2`). Passe en 5.7.2, même raisonnement que pour `tool-a`.',
 			'Vérifie : `npm explain semver` liste 7.5.2, 6.3.1 et 5.7.2 ou plus, et `npm audit` sort avec 0. Corrige la copie de l’API en premier, et déploie-la seule si les deux autres demandent plus de tests.'
+		],
+		steps: [
+			{
+				title: 'Liste chaque copie',
+				questions: [
+					{ q: 'Quelle commande liste chaque copie installée et le paquet qui l’a amenée ?', options: ['`npm ls --depth=0`', '`npm outdated`', '`npm view semver versions`', '`npm explain semver`'], answer: 3, why: 'Elle affiche "the chain of dependencies causing a given package to be installed", un bloc par version.' },
+					{ q: 'Combien de copies de semver ce lockfile contient-il ?', options: ['Trois : 7.5.1, 6.3.0 et 5.7.1', 'Une : npm n’en garde qu’une', 'Deux : une par majeure au-dessus de 5', 'Quatre : une par dossier, plus la racine'], answer: 0, why: 'La copie racine pour l’API, une imbriquée sous `tool-a`, et une sous `tool-b`.' },
+					{ q: 'Pourquoi `tool-a` a-t-il sa propre copie ?', options: ['npm copie chaque paquet par défaut', '`tool-a` a été installé avec `--force`', 'Il demandait une plage 6.x, que 7.5.1 ne satisfait pas', 'Les copies imbriquées sont toujours plus vieilles'], answer: 2, why: 'La dépendance demandait une plage 6.x, donc elle a reçu sa propre copie 6.x : une dépendance transitive.' },
+					{ q: 'Que notes-tu pour chaque copie ?', options: ['Son nombre de téléchargements par semaine', 'Sa version et le paquet qui l’a amenée', 'Sa taille sur le disque', 'Sa licence'], answer: 1, why: 'La version dit si elle est vulnérable. Le parent dit comment elle est utilisée.' }
+				]
+			},
+			{
+				title: 'Compare chaque copie à une plage',
+				questions: [
+					{ q: '7.5.1 est-elle vulnérable ?', options: ['Non : elle est au-dessus de 7.0.0', 'Oui : elle est dans `>= 7.0.0, < 7.5.2`', 'Non : seules les 6.x et 5.x sont touchées', 'Seulement sur les vieilles versions de Node.js'], answer: 1, why: 'Le correctif de la branche 7.x, c’est 7.5.2.' },
+					{ q: 'Quelle version corrige la copie 6.x ?', options: ['6.3.0', '7.5.2', '6.3.1', '6.4.0'], answer: 2, why: 'La première version corrigée de la branche 6.x est 6.3.1.' },
+					{ q: '5.7.1 est-elle vulnérable, et vers quoi la passer ?', options: ['Oui : passe-la en 5.7.2', 'Non : la 5.x est antérieure au bug', 'Oui : passe-la en 6.3.1', 'Oui, et la 5.x n’a aucun correctif'], answer: 0, why: 'La plage est `>= 2.0.0-alpha, < 5.7.2`, et 5.7.2 corrige tout ce qui précède 6.0.0.' },
+					{ q: 'Pourquoi rester dans la même majeure, comme 6.3.0 vers 6.3.1 ?', options: ['Deux majeures ne peuvent pas coexister', 'npm refuse les montées de majeure dans un lockfile', 'C’est la seule version du registre', 'Le parent qui demandait `^6.0.0` reçoit encore une version qu’il accepte'], answer: 3, why: 'Rester dans la branche respecte la plage du parent. Un override vers la 7.x lui fait tourner une majeure jamais testée avec lui.' }
+				]
+			},
+			{
+				title: 'Classe par exposition',
+				questions: [
+					{ q: 'Quelle copie reçoit `req.query.range` ?', options: ['La 7.5.1 racine, utilisée par l’API', 'La 6.3.0 sous `tool-a`', 'La 5.7.1 sous `tool-b`', 'Les trois, de la même façon'], answer: 0, why: 'Seule l’API appelle `satisfies` avec une plage venue de la query string.' },
+					{ q: 'Pourquoi est-ce urgent ?', options: ['La branche 7.x a le score CVSS le plus haut', 'La copie de l’API est la plus récente', 'L’API sert le plus d’utilisateurs', 'Une entrée non fiable arrive droit dans `new Range` via `satisfies`'], answer: 3, why: 'L’avis exige "untrusted user data" comme plage. Une chaîne forgée occupe la boucle d’événements, et l’API ne répond plus à rien d’autre.' },
+					{ q: 'Pourquoi les copies de `tool-a` et `tool-b` sont-elles moins urgentes ?', options: ['Les vieilles copies tournent plus lentement', 'Elles lisent leurs plages dans des fichiers que tu contrôles', '`npm audit` ignore les copies imbriquées', 'Elles ne tournent que sur les portables des devs'], answer: 1, why: 'Aucune entrée extérieure ne les atteint. Elles seront corrigées quand même, à la prochaine mise à jour de routine.' },
+					{ q: 'Que dit `npm audit` de ce classement ?', options: ['Il met la copie de l’API en premier', 'Il cache les copies des outils de build', 'Il donne la même sévérité à chaque copie', 'Il marque les copies imbriquées comme sûres'], answer: 2, why: '`npm audit` compare des versions à des plages. Il ne voit pas quelle copie reçoit une entrée extérieure, donc le classement reste manuel.' }
+				]
+			},
+			{
+				title: 'Corrige et vérifie',
+				questions: [
+					{ q: 'Que lances-tu en premier ?', options: ['`npm install semver@latest --force`', 'Supprimer `package-lock.json` et réinstaller', '`npm audit fix`', 'Une entrée `overrides` pour chaque copie'], answer: 2, why: 'Il met à jour dans les plages que tes dépendances acceptent. `--force` et `overrides` ne viennent que si ça ne suffit pas.' },
+					{ q: '`npm audit fix` dit que le correctif exige `--force`. Qu’est-ce que ça veut dire ?', options: ['Le registre n’a pas encore de version corrigée', 'Une plage de dépendance doit changer jusqu’à ton projet', 'Le lockfile est corrompu', 'Le paquet n’est qu’une dépendance de dev'], answer: 1, why: 'La doc npm dit qu’un tel correctif "will require the --force option", ce qui peut vouloir dire une montée de majeure. Lis d’abord le plan avec `--dry-run`.' },
+					{ q: 'Où va une entrée `overrides` ?', options: ['Dans n’importe quel `package.json` sous `node_modules`', 'Dans `package-lock.json`', 'Dans `.npmrc`', 'Seulement dans le `package.json` racine'], answer: 3, why: 'npm ne lit `overrides` que dans le `package.json` racine de ton projet.' },
+					{ q: 'Quelle sortie prouve que tu as fini ?', options: ['`npm explain semver` montre des versions corrigées, et `npm audit` sort avec 0', '`npm install` n’affiche aucun avertissement', '`npm audit` liste moins de problèmes qu’avant', '`npm outdated` n’affiche rien'], answer: 0, why: 'Compare chaque copie à la version corrigée de sa branche. La doc dit que `npm audit` sort avec 0 quand il ne trouve aucune vulnérabilité.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -138,6 +176,28 @@ export default {
 			why: 'L’avis exige des "untrusted user data" comme plage. `satisfies` passe son deuxième argument à `new Range`, donc la query string atteint les regex lentes. Les autres chemins ne lisent que des chaînes contrôlées par ton propre dépôt.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Installe un `semver` vulnérable, chronomètre toi-même le ReDoS, puis trouve, corrige et vérifie chaque copie.',
+		steps: [
+			'Crée un projet avec une copie vulnérable et une copie imbriquée : `mkdir -p ~/semver-lab && cd ~/semver-lab && npm init -y`, puis `npm install semver@7.5.1 make-dir@3.1.0`.',
+			'Liste chaque copie : `npm explain semver | grep -E "^semver@|node_modules"`. Puis lance `npm audit; echo $?`.',
+			'Chronomètre une plage forgée contre 7.5.1 : `node -e "const s=require(\'semver\'); const r=\'1.2.3\'+\' \'.repeat(50000)+\'<1.3.0x\'; const t=Date.now(); try { s.satisfies(\'1.2.3\', r) } catch (e) {} console.log(Date.now()-t, \'ms\')"`.',
+			'Corrige avec `npm audit fix`. Puis relance `npm explain semver | grep "^semver@"` et `npm audit; echo $?`.',
+			'Relance la commande de chronométrage de l’étape 3.'
+		],
+		done: [
+			'Avant le correctif, `npm audit` signale `semver  7.0.0 - 7.5.1` avec `Severity: high`, et `echo $?` affiche `1`.',
+			'`npm explain semver` montre deux copies : `node_modules/semver` en 7.5.1 et `node_modules/make-dir/node_modules/semver` sur la branche 6.x.',
+			'Sur 7.5.1, la plage forgée prend des secondes. Après le correctif, quelques millisecondes.',
+			'Après `npm audit fix`, la copie racine est en 7.5.2 ou plus et `npm audit` sort avec `0`.'
+		],
+		solution: [
+			'La copie imbriquée est déjà en 6.3.1 : `make-dir` demande `^6.0.0`, et npm a pris la version la plus récente de cette plage. C’est la comparaison de chaque copie à sa propre branche qui te dit qu’elle est sûre.',
+			'Les 50 000 espaces font revenir en arrière les anciennes regex de plage. Node.js le fait sur la boucle d’événements, donc un serveur ne répondrait à rien d’autre pendant ce temps. La 7.5.2 réduit les espaces avant toute regex.',
+			'`npm audit fix` pouvait rester dans ta plage `^7.5.1`, donc il n’a pas eu besoin de `--force`. Un correctif qui change de majeure l’aurait demandé.'
+		]
+	},
 	recall: {
 		q: 'Quelles sont les cinq étapes face à un avis, et quelles versions de semver corrigent la CVE-2022-25883 ?',
 		a: 'Trouver chaque copie (`npm explain`), évaluer si une entrée non fiable atteint `new Range`, mettre à jour, vérifier (`npm audit` sort avec 0), livrer. Les correctifs sont 7.5.2, 6.3.1 et 5.7.2.'

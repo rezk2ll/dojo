@@ -118,6 +118,44 @@ export default {
 			'La ligne 3 vient ensuite. AES-GCM avec un nonce neuf cache mieux les mots de passe égaux que l’ECB d’Adobe, mais quiconque lit `settings.py` déchiffre toutes les lignes. Même problème qu’Adobe : une seule clé pour tous.',
 			'La ligne 2 est la meilleure : salée, lente, à sens unique. À la prochaine connexion réussie, `must_update` voit 600000, différent de 1 800 000 : `check_password` appelle `setter`, qui enregistre `pbkdf2_sha256$1800000$<nouveau sel>$<hash>` dans la ligne.',
 			'Correction pour les lignes 1 et 3 : les passer en PBKDF2 ou Argon2 maintenant. La ligne 3 peut être déchiffrée et hachée dans une seule migration. La ligne 1 demande la méthode du hasher enveloppant décrite dans la doc de Django.'
+		],
+		steps: [
+			{
+				title: 'Identifie chaque ligne',
+				questions: [
+					{ q: 'La ligne 1 fait 32 caractères hexadécimaux, sans `$`. Qu’est-ce que c’est ?', options: ['Un MD5 sans sel', 'Un hash PBKDF2 de Django', 'Un chiffré AES-GCM', 'Un mot de passe encodé en base64'], answer: 0, why: 'MD5 donne 32 caractères hexadécimaux, et rien d’autre n’est stocké avec : ni sel, ni facteur de travail.' },
+					{ q: 'Deux utilisateurs choisissent le même mot de passe, stocké comme la ligne 1. Que montre la table ?', options: ['Deux valeurs différentes', 'Deux valeurs qui ne diffèrent que par le sel', 'Une erreur à l’insertion', 'Deux fois la même valeur'], answer: 3, why: 'Sans sel, des mots de passe égaux donnent des hashs égaux, comme les blocs égaux chez Adobe.' },
+					{ q: 'Découpée sur `$`, quelles sont les quatre parties de la ligne 2 ?', options: ['Clé, nonce, sel, hash', 'Algorithme, itérations, sel, hash', 'Id utilisateur, algorithme, sel, hash', 'Algorithme, date, sel, hash'], answer: 1, why: '`encode` écrit `"%s$%d$%s$%s" % (self.algorithm, iterations, salt, hash)`.' },
+					{ q: 'La ligne 3 est un AES-GCM avec la clé dans `settings.py`. Quel type de stockage est-ce ?', options: ['Un hachage à sens unique avec un poivre secret', 'Un hachage salé avec facteur de travail', 'Un chiffrement réversible : la clé rend le mot de passe', 'Un simple encodage, comme base64, sans clé'], answer: 2, why: 'Quiconque a la clé peut l’inverser, et le code de connexion a besoin de cette clé sur les mêmes serveurs.' }
+				]
+			},
+			{
+				title: 'Classe les lignes',
+				questions: [
+					{ q: 'Quelle ligne est la pire ?', options: ['La ligne 2', 'La ligne 3', 'La ligne 1', 'Les trois se valent'], answer: 2, why: 'C’est le MD5 du mot `password` : n’importe quelle table de correspondance publique le retrouve tout de suite.' },
+					{ q: 'Pourquoi la ligne 3 reste-t-elle mauvaise, même avec un nonce neuf ?', options: ['AES-GCM est cassé', 'Quiconque lit `settings.py` déchiffre toutes les lignes', 'Le nonce révèle la longueur du mot de passe', 'GCM donne des blocs égaux pour des mots de passe égaux'], answer: 1, why: 'Même problème qu’Adobe : une seule clé pour tous. Sophos : qui obtient la clé "immediately gets access to all the passwords in the database".' },
+					{ q: 'Que fait la ligne 3 de mieux qu’Adobe ?', options: ['Elle n’a besoin d’aucune clé pour vérifier', 'Elle a un facteur de travail, comme PBKDF2', 'Elle ne se déchiffre pas, même avec la clé', 'Un nonce neuf cache les mots de passe égaux'], answer: 3, why: 'L’ECB avec une seule clé donnait des blocs égaux pour des mots de passe égaux. Un nonce neuf par ligne casse ce motif.' },
+					{ q: 'Pourquoi la ligne 2 est-elle la meilleure ?', options: ['Elle est salée, lente et à sens unique', 'Elle est chiffrée avec une clé plus longue', 'C’est la ligne la plus récente de la table', 'Elle cache le nom de l’algorithme'], answer: 0, why: 'Chaque essai doit viser un seul utilisateur, avec son sel, à 600 000 tours ou plus.' }
+				]
+			},
+			{
+				title: 'Suis la ligne 2 à sa prochaine connexion',
+				questions: [
+					{ q: 'L’utilisateur se connecte avec le bon mot de passe. Que fait `verify` ?', options: ['Il déchiffre la ligne et compare', 'Il compare le texte tapé au texte du hash', 'Il demande à un admin de confirmer', 'Il hache la tentative avec le sel et le compte de la ligne, puis compare'], answer: 3, why: 'Rien n’est déchiffré. `verify` réencode la tentative et la vérifie avec `constant_time_compare`.' },
+					{ q: 'Pourquoi `must_update` renvoie-t-il vrai pour la ligne 2 ?', options: ['600000 diffère du 1 800 000 actuel', 'Le nom de l’algorithme a changé', 'Le hash est en base64', 'La ligne a plus d’un an'], answer: 0, why: '`must_update` est vrai quand le compte stocké diffère de `self.iterations`, ou quand le sel a moins de 128 bits.' },
+					{ q: 'Que contient la ligne après cette connexion ?', options: ['La même valeur, intacte', '`pbkdf2_sha256$600000$<nouveau sel>$<hash>`', '`pbkdf2_sha256$1800000$<nouveau sel>$<hash>`', 'Un hash Argon2 de l’ancien hash'], answer: 2, why: '`check_password` appelle `setter` avec le mot de passe qui vient d’être tapé. La nouvelle valeur porte le compte actuel et un sel neuf.' },
+					{ q: 'Quelqu’un essaie un mauvais mot de passe sur la ligne 2. Que fait `harden_runtime` ?', options: ['Il bloque le compte une heure après l’essai', 'Il fait les itérations manquantes, pour que le temps paraisse actuel', 'Il rehache la ligne à 1 800 000 avec un sel neuf', 'Il journalise l’essai et sort tout de suite pour gagner du temps'], answer: 1, why: 'Le temps de connexion reste proche du facteur de travail actuel : le chronométrage en dit moins à l’attaquant sur les lignes anciennes.' }
+				]
+			},
+			{
+				title: 'Corrige les lignes 1 et 3',
+				questions: [
+					{ q: 'Comment corriges-tu la ligne 3 ?', options: ['En faisant tourner la clé AES et en rechiffrant chaque ligne', 'En la déchiffrant et en la hachant en PBKDF2 ou Argon2, dans une migration', 'En déplaçant la clé de `settings.py` vers une variable d’environnement', 'En ajoutant une colonne de sel à côté de la valeur chiffrée'], answer: 1, why: 'Tu as la clé : tu peux retrouver chaque mot de passe une fois et stocker un hash à sens unique à la place.' },
+					{ q: 'La ligne 1 ne se déchiffre pas. Comment obtient-elle un hash solide avant la connexion de l’utilisateur ?', options: ['En la remplaçant par un mot de passe aléatoire', 'En ajoutant un sel au MD5 et en le restockant', 'En enveloppant le MD5 dans PBKDF2, comme le décrit la doc de Django', 'Rien n’est possible avant la prochaine connexion'], answer: 2, why: 'La doc de Django décrit comment envelopper les anciens hashs MD5 dans PBKDF2, pour les mettre à niveau sans connexion.' },
+					{ q: 'Pourquoi pas un SHA-256 salé à la place ?', options: ['SHA-256 est rapide, donc les essais coûtent peu', 'SHA-256 s’inverse avec le sel', 'Le sel devrait rester secret', 'La sortie de SHA-256 est trop courte'], answer: 0, why: 'L’OWASP : les hashs rapides comme SHA-256 "allow attackers to perform large numbers of guesses quickly".' },
+					{ q: 'Quels sont les minimums de l’OWASP ?', options: ['MD5 avec un sel de 128 bits, ou SHA-1 avec 1 000 tours', 'SHA-256 avec 10 000 tours et un sel de 64 bits', 'AES-GCM avec un nonce neuf et une clé de 256 bits', 'Argon2id avec 19 MiB et 2 itérations, ou PBKDF2-SHA256 à 600 000'], answer: 3, why: 'Ce sont les chiffres de l’OWASP. Les 1 800 000 de Django sont bien au-dessus du minimum PBKDF2.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,28 @@ export default {
 			why: 'Le sel empêche seulement un essai de toucher plusieurs utilisateurs à la fois. L’OWASP : les hashs rapides comme SHA-256 "allow attackers to perform large numbers of guesses quickly". Un facteur de travail fait payer à chaque essai le prix d’une vraie connexion.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Retrouve la ligne 1, vois ce que change un sel, et chronomètre un facteur de travail sur ta machine.',
+		steps: [
+			'Hache le mot `password` en MD5 et compare à la ligne 1 de l’exercice : `python3 -c \'import hashlib; print(hashlib.md5(b"password").hexdigest())\'`.',
+			'Deux utilisateurs, même mot de passe, deux sels : `python3 -c \'import hashlib,os; [print(hashlib.pbkdf2_hmac("sha256", b"password", os.urandom(16), 1000).hex()[:16]) for _ in range(2)]\'`.',
+			'Compte combien d’essais SHA-256 simples un cœur fait par seconde : `python3 -c \'import hashlib,timeit; print(int(100000/timeit.timeit(lambda: hashlib.sha256(b"guess").digest(), number=100000)), "per second")\'`.',
+			'Chronomètre un essai PBKDF2 à 600 000 itérations : `python3 -c \'import hashlib,os,time; t=time.time(); hashlib.pbkdf2_hmac("sha256", b"password", os.urandom(16), 600000); print(round(time.time()-t, 2), "s")\'`. Relance avec `1800000` à la place de `600000`.',
+			'Construis la chaîne que Django stockerait : `python3 -c \'import hashlib,base64,secrets,string; s="".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(22)); h=base64.b64encode(hashlib.pbkdf2_hmac("sha256", b"password", s.encode(), 1800000)).decode(); print("pbkdf2_sha256$1800000$%s$%s" % (s, h))\'`.'
+		],
+		done: [
+			'L’étape 1 affiche `5f4dcc3b5aa765d61d8327deb882cf99`, la valeur exacte de la ligne 1.',
+			'L’étape 2 affiche deux valeurs différentes pour le même mot de passe.',
+			'L’étape 3 affiche des centaines de milliers d’essais par seconde ou plus. L’étape 4 prend une fraction de seconde à 600 000, et nettement plus à 1 800 000.',
+			'L’étape 5 affiche une ligne de la même forme que la ligne 2 : `pbkdf2_sha256$1800000$<sel>$<hash>`.'
+		],
+		solution: [
+			'La ligne 1 est le MD5 de `password` sans sel. Tu l’as retrouvée en un essai, comme une table de correspondance le fait pour tous les mots de passe courants à la fois.',
+			'Le sel rend le hash de chaque utilisateur différent, donc un essai ne teste qu’un utilisateur. Le facteur de travail fait payer à chaque essai le coût d’une vraie connexion : quelques essais par seconde et par cœur, contre le compte SHA-256 de l’étape 3.',
+			'La chaîne stockée porte l’algorithme, le compte et le sel. C’est ainsi que `must_update` repère une ligne à 600000 et la rehache à la prochaine connexion.'
+		]
+	},
 	recall: {
 		q: 'Que stocke Django pour un mot de passe, et que se passe-t-il quand le facteur de travail stocké est dépassé ?',
 		a: '`pbkdf2_sha256$<iterations>$<salt>$<hash>`, avec 1 800 000 itérations au commit épinglé. À la prochaine connexion réussie, `must_update` vaut vrai et le mot de passe est haché à nouveau au nombre actuel.'

@@ -18,6 +18,7 @@
 
 	let steps = $derived(task.steps ?? []);
 	let all = $derived(steps.flatMap((s, j) => s.questions.map((q, i) => ({ step: j, n: i, q, key: `${j}.${i}` }))));
+	let current = $derived(all[at]);
 	let tries = $derived(picked.tries ?? 0);
 	let solved = $derived(tries > 0 && all.every((x) => picked[`c${x.key}`] === x.q.answer));
 	let revealed = $derived(solved || tries >= TRIES);
@@ -54,10 +55,10 @@
 		{#each steps as s, j (j)}
 			{@const marks = all.filter((x) => x.step === j).map(status)}
 			<button
-				class="flex-1 rounded-md border px-2 py-1.5 text-left text-xs transition-colors
-					{j === at ? 'border-brand bg-muted font-semibold' : 'text-muted-foreground hover:bg-muted/60'}"
-				aria-current={j === at ? 'step' : undefined}
-				onclick={() => (at = j)}
+				class="min-w-0 flex-1 rounded-md border px-2 py-1.5 text-left text-xs transition-colors
+					{j === current.step ? 'border-brand bg-muted font-semibold' : 'text-muted-foreground hover:bg-muted/60'}"
+				aria-current={j === current.step ? 'step' : undefined}
+				onclick={() => (at = all.findIndex((x) => x.step === j))}
 			>
 				<span class="block font-mono uppercase">{t().taskStep(j + 1)}</span>
 				<span class="block truncate">{s.title}</span>
@@ -70,9 +71,13 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl font-semibold">{steps[at].title}</h2>
+	<div>
+		<p class="text-muted-foreground font-mono text-xs uppercase">{t().taskQuestion(current.step + 1, current.n + 1)}</p>
+		<h2 class="text-xl font-semibold">{steps[current.step].title}</h2>
+	</div>
 
-	{#each all.filter((x) => x.step === at) as x (x.key)}
+	{#key at}
+		{@const x = current}
 		{@const chosen = picked[`t${x.key}`]}
 		{@const mark = status(x)}
 		{@const locked = revealed || mark === 'right'}
@@ -101,12 +106,12 @@
 				<p class="text-muted-foreground text-sm leading-relaxed">{@html fmt(x.q.why)}</p>
 			{/if}
 		</div>
-	{/each}
+	{/key}
 
 	<div class="flex flex-wrap items-center gap-2">
-		<Button variant="outline" disabled={at === 0} onclick={() => at--}>{t().prevTaskStep}</Button>
-		{#if at < steps.length - 1}
-			<Button variant="outline" onclick={() => at++}>{t().nextTaskStep}</Button>
+		<Button variant="outline" disabled={at === 0} onclick={() => at--}>{t().prevTaskQuestion}</Button>
+		{#if at < all.length - 1}
+			<Button variant="outline" onclick={() => at++}>{t().nextTaskQuestion}</Button>
 		{:else if !revealed}
 			<Button disabled={!ready} onclick={check}>{t().checkAll}</Button>
 			{#if !ready}<span class="text-muted-foreground text-sm">{t().answerAll(all.length)}</span>{/if}
@@ -120,7 +125,7 @@
 				<p>{t().triesLeft(TRIES - tries)}</p>
 				<div class="flex flex-wrap gap-2">
 					{#each wrong as x (x.key)}
-						<Button variant="outline" size="sm" onclick={() => (at = x.step)}>{t().taskQuestion(x.step + 1, x.n + 1)}</Button>
+						<Button variant="outline" size="sm" onclick={() => (at = all.indexOf(x))}>{t().taskQuestion(x.step + 1, x.n + 1)}</Button>
 					{/each}
 				</div>
 			</Alert.Description>

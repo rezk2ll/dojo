@@ -122,6 +122,44 @@ export default {
 			'Line 2: change. A session id in a log works like a password for that session. OWASP says to consider "replacing with a hashed value" when you need to follow one session across events.',
 			'Line 4: change. Keep the failed login, the user and the IP, because repeated failures show credential stuffing. Remove `password=Summer2026!`: OWASP lists authentication passwords among the values to keep out of logs.',
 			'Line 5: remove the `Authorization` value. It is a bearer token, the same mistake as CVE-2019-11250. Line 3 is missing who acted and the result: `actor=alice action=grant_role role=admin target=bob result=success`.'
+		],
+		steps: [
+			{
+				title: 'Ask what each line is for',
+				questions: [
+					{ q: 'Line 1: `login ok user=alice ip=203.0.113.7`. What do you do?', options: ['Keep it', 'Change it: drop the IP', 'Remove it: logins are too frequent', 'Change it: hash the user name'], answer: 0, why: 'A login success with the user and the IP is an event OWASP says to always log.' },
+					{ q: 'What should every security event in the log answer?', options: ['Who, why, how and for how long', 'When, where, who and what', 'Host, port, process and thread', 'Level, logger, thread and message'], answer: 1, why: 'That is the check from the hint: when, where, who and what. A line missing one of them is hard to use after a breach.' },
+					{ q: 'Why keep the failed login on line 4 at all?', options: ['To replay the password later', 'Because the retention period asks for it', 'Repeated failures show credential stuffing', 'Because WARN lines cannot be removed'], answer: 2, why: 'The event is useful. Only the password in it is a problem.' },
+					{ q: 'What can someone who only reads the logs do with line 5 as written?', options: ['Nothing: tokens expire once logged', 'Only see the list of orders', 'Read the app’s source code', 'Replay the bearer token and act as its owner'], answer: 3, why: 'Whoever holds a bearer token is treated as its owner. That is the CVE-2019-11250 scenario: Eve "can masquerade as Alice to the cluster".' }
+				]
+			},
+			{
+				title: 'Find the secrets',
+				questions: [
+					{ q: 'Which value on line 2 is a secret?', options: ['`DEBUG`', '`sid=9f2c4e1a7b3d`', '`session created`', 'The timestamp'], answer: 1, why: 'The session id is what the app checks on every request of that session.' },
+					{ q: 'Why is a session id in a log dangerous?', options: ['It works like a password for that session', 'It makes the line too long to parse', 'It shows the name of the server', 'It breaks the time order of the log'], answer: 0, why: 'Anyone who copies it can use the session it belongs to, with no password.' },
+					{ q: 'Where does `password=Summer2026!` belong, per OWASP?', options: ['With the values to always log', 'With the values to log at DEBUG only', 'With the authentication passwords to keep out of logs', 'With the values to hash and keep'], answer: 2, why: 'OWASP lists authentication passwords among the values that never go in a log, at any level.' },
+					{ q: 'Which past bug is the same mistake as line 5?', options: ['CVE-2021-25741, a kubelet subpath bug', 'CVE-2024-3094, the xz backdoor', 'CVE-2019-5736, the runc breakout', 'CVE-2019-11250, bearer tokens in kube-apiserver logs'], answer: 3, why: 'kube-apiserver at `--v 10` wrote request headers, bearer tokens included, to its system log.' }
+				]
+			},
+			{
+				title: 'Change without losing the event',
+				questions: [
+					{ q: 'You need to follow one session across events. What goes in place of the sid?', options: ['Nothing: drop the session field', 'A hashed value of the sid', 'The sid itself, at DEBUG level only', 'The first four characters of the sid'], answer: 1, why: 'OWASP suggests "replacing with a hashed value": the same session gives the same hash, and the hash does not open the session.' },
+					{ q: 'What does line 4 look like after the change?', options: ['`09:16:03 WARN  login failed user=bob ip=198.51.100.23`', '`09:16:03 WARN  login failed`', '`09:16:03 WARN  login failed password=[REDACTED]`', 'Nothing: the line is removed'], answer: 0, why: 'It keeps when, who and from where, and drops only the password.' },
+					{ q: 'On line 5, what do you remove?', options: ['The whole line', 'The `GET /api/orders` path', 'The `Authorization` value', 'The timestamp'], answer: 2, why: 'The request is worth a line. The bearer token in it is not.' },
+					{ q: 'A teammate wants to turn on verbose logging in production to chase a bug. What does the CVE-2020-8565 advisory say?', options: ['Fine, if the log files are encrypted', 'Fine, for one day at most', 'Fine, on one node only', '"Do not enable verbose logging in production, limit access to logs."'], answer: 3, why: 'At log level 9 or higher, tokens reached the logs. The advisory’s answer is to stay off those levels and to limit who reads the files.' }
+				]
+			},
+			{
+				title: 'Fill in what is missing',
+				questions: [
+					{ q: 'Line 3: `POST /admin/users role=admin target=bob`. What is missing?', options: ['The HTTP version', 'Who acted, and the result', 'The server hostname', 'The request body'], answer: 1, why: 'The line says what happened to whom, but not who did it or whether it worked.' },
+					{ q: 'Which line fills the gap?', options: ['`role=admin target=bob debug=true`', '`user=bob role=admin`', '`actor=alice action=grant_role role=admin target=bob result=success`', '`actor=alice password=... role=admin`'], answer: 2, why: 'It names the actor, the action, the target and the result, and carries no secret.' },
+					{ q: 'Which part of a security event does `result=success` give?', options: ['When it happened', 'Where it came from', 'Who acted', 'The result of the action'], answer: 3, why: 'An audit record says who acted, on what, from where, when, and with what result.' },
+					{ q: 'In the fixed line, who is `target=bob`?', options: ['The user whose role changed', 'The user who acted', 'The admin who approved it', 'The owner of the source IP'], answer: 0, why: '`actor` is who acted, `target` is who it was done to. Keeping both is what lets you answer "who made bob an admin".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,26 @@ export default {
 			why: 'The advisory says: "Do not enable verbose logging in production, limit access to logs." The token only reaches the log at level 9 or higher, and only a reader of the log can replay it. A TLS certificate does not sign bearer tokens, so rotating it leaves them valid.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Write a filter that strips the secrets out of the five log lines from the task, and check that the events are still there.',
+		steps: [
+			'Write the five lines to a file: `mkdir -p ~/log-lab && cd ~/log-lab && printf \'%s\\n\' \'09:14:07 INFO  login ok user=alice ip=203.0.113.7\' \'09:14:07 DEBUG session created sid=9f2c4e1a7b3d\' \'09:15:42 INFO  POST /admin/users role=admin target=bob\' \'09:16:03 WARN  login failed user=bob password=Summer2026! ip=198.51.100.23\' \'09:17:30 INFO  GET /api/orders Authorization="Bearer eyJhbGciOi..."\' > app.log`.',
+			'Search it for secrets: `grep -nE \'password=|Bearer|sid=\' app.log`.',
+			'Filter it: `sed -E -e \'s/ password=[^ ]+//\' -e \'s/Authorization="[^"]*"/Authorization=[REDACTED]/\' -e \'s/sid=[0-9a-f]+/sid=[HASHED]/\' app.log > clean.log`, then `cat clean.log`.',
+			'See what a hashed session id looks like: `printf %s 9f2c4e1a7b3d | shasum -a 256 | cut -c1-12`. Run it twice: the same sid gives the same value.'
+		],
+		done: [
+			'Step 2 lists lines 2, 4 and 5.',
+			'`grep -cE \'password=|Bearer|sid=[0-9a-f]{12}\' clean.log` prints `0`.',
+			'`grep -c \'login failed user=bob ip=198.51.100.23\' clean.log` prints `1`: the failed login, the user and the IP are still there.'
+		],
+		solution: [
+			'A `sed` filter after the fact is a safety net. The real fix is in the code that writes the line: never pass the password, the token or the raw sid to the logger.',
+			'In the app, write the hash of the sid in place of `[HASHED]`, so you can still follow one session across events.',
+			'Line 3 needs a change in the code too: `actor=alice action=grant_role role=admin target=bob result=success`. No filter can add who acted.'
+		]
+	},
 	recall: {
 		q: 'In a Kubernetes audit policy, which level records who read a Secret without storing its value?',
 		a: '`Metadata`: user, timestamp, resource and verb, with no request or response body. The GCE policy uses it for `secrets`, `configmaps`, `serviceaccounts/token` and `tokenreviews`.'

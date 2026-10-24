@@ -118,10 +118,10 @@ export default {
 			{
 				title: 'Make the motd a variable',
 				questions: [
-					{ q: 'Where does `web_motd: "Managed by Ansible"` go?', options: ['`roles/web/vars/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/templates/motd.j2`'], answer: 2, why: '`defaults/` holds the values users are expected to change, at the lowest precedence.' },
+					{ q: 'One server in the `web` group needs a different motd from the rest of the group. Where do you set it?', options: ['In `roles/web/defaults/main.yml`, with an `if`', 'In a second copy of the role', 'In that server\'s `host_vars`', 'In `roles/web/handlers/main.yml`'], answer: 2, why: '`host_vars` set a value for one host and beat the role default. The role itself stays the same for everyone.' },
 					{ q: 'How does the motd task read the variable?', options: ['`content: "{{ web_motd }}"`', '`content: "$web_motd"`', '`content: web_motd`', '`vars: web_motd`'], answer: 0, why: 'Ansible fills in `{{ }}` with the value for each host.' },
 					{ q: 'Why not put `web_motd` in `vars/main.yml`?', options: ['`vars/` only takes numbers', 'Role `vars` win over inventory, so users could not override it easily', 'Ansible does not load `vars/`', '`vars/` is for secrets only'], answer: 1, why: 'You want the opposite: a value that `group_vars` and `host_vars` can beat.' },
-					{ q: 'A project wants another motd. Where does it set it?', options: ['By editing `roles/web/defaults/main.yml`', 'In a `set_fact` task inside the role', 'In `meta/main.yml`', 'In its own `group_vars`'], answer: 3, why: 'Override defaults from the inventory, never by editing the role.' }
+					{ q: 'You run the play once with `-e web_motd="Maintenance tonight"`, and `group_vars` also sets `web_motd`. What do the servers show?', options: ['The `group_vars` value', 'The role default, "Managed by Ansible"', 'An error: the variable is set twice', '"Maintenance tonight": `-e` beats everything'], answer: 3, why: 'Extra vars on the command line always win. That is also why the docs advise you to define each variable in one place.' }
 				]
 			},
 			{
@@ -136,10 +136,10 @@ export default {
 			{
 				title: 'Reload only on change',
 				questions: [
-					{ q: 'Where does the handler go?', options: ['`roles/web/tasks/main.yml`, as the last task', '`roles/web/handlers/main.yml`', '`roles/web/defaults/main.yml`', '`site.yml`, under `post_tasks`'], answer: 1, why: '`handlers/` holds tasks that run only when notified.' },
+					{ q: 'A later task in the same play checks the site and needs nginx already reloaded with the new config. What do you add before it?', options: ['A second `notify: reload nginx`', '`meta: flush_handlers`', '`state: restarted` on the template task', 'Nothing: handlers run right after the task that notifies them'], answer: 1, why: 'Handlers run at the end of the play. `meta: flush_handlers` runs the pending ones at that point.' },
 					{ q: 'What does the `reload nginx` handler do?', options: ['`ansible.builtin.service: name=nginx state=reloaded`', '`ansible.builtin.service: name=nginx state=restarted`', '`ansible.builtin.command: nginx -s stop`', '`ansible.builtin.package: name=nginx state=latest`'], answer: 0, why: 'A reload picks up the new config with no dropped connections.' },
-					{ q: 'You run the role a second time and nothing changed. What happens?', options: ['nginx reloads, as on every run', 'The handler runs but reports `ok`', 'The role is skipped', 'No change, and no reload'], answer: 3, why: 'The template task reports `ok`, so nothing notifies the handler.' },
-					{ q: 'The template and two other tasks all notify `reload nginx`. How many reloads?', options: ['Three, one after each task', 'None, unless you add `meta: flush_handlers`', 'One, after the tasks of the play', 'One per task that reported `ok`'], answer: 2, why: 'A handler runs once, however many tasks notify it.' }
+					{ q: 'Your template has a typo, and `validate: nginx -t -c %s` fails. Does nginx reload?', options: ['Yes, with the broken config', 'Yes, with the old config', 'Only after `meta: flush_handlers`', 'No: the task fails, the old file stays, and nothing reported `changed`'], answer: 3, why: 'The real file is replaced only after the check passes. A failed task does not notify the handler.' },
+					{ q: 'You change only `web_motd` in `group_vars` and run the role again. Does nginx reload?', options: ['Yes, a role reloads nginx on every run', 'Yes, because a variable changed', 'No: only the template task notifies the handler, and the nginx config did not change', 'Only if you also run with `--check`'], answer: 2, why: 'The motd task reports `changed`, but it does not notify `reload nginx`. The template task reports `ok`.' }
 				]
 			}
 		]

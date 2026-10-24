@@ -118,10 +118,10 @@ export default {
 			{
 				title: 'Fais du motd une variable',
 				questions: [
-					{ q: 'Où va `web_motd: "Managed by Ansible"` ?', options: ['`roles/web/vars/main.yml`', '`roles/web/tasks/main.yml`', '`roles/web/defaults/main.yml`', '`roles/web/templates/motd.j2`'], answer: 2, why: '`defaults/` contient les valeurs que les utilisateurs sont censés changer, à la priorité la plus basse.' },
+					{ q: 'Un serveur du groupe `web` a besoin d’un autre motd que le reste du groupe. Où le règles-tu ?', options: ['Dans `roles/web/defaults/main.yml`, avec un `if`', 'Dans une deuxième copie du rôle', 'Dans les `host_vars` de ce serveur', 'Dans `roles/web/handlers/main.yml`'], answer: 2, why: 'Les `host_vars` fixent une valeur pour un seul hôte et l’emportent sur le default du rôle. Le rôle reste le même pour tout le monde.' },
 					{ q: 'Comment la tâche motd lit-elle la variable ?', options: ['`content: "{{ web_motd }}"`', '`content: "$web_motd"`', '`content: web_motd`', '`vars: web_motd`'], answer: 0, why: 'Ansible remplace `{{ }}` par la valeur de chaque hôte.' },
 					{ q: 'Pourquoi ne pas mettre `web_motd` dans `vars/main.yml` ?', options: ['`vars/` n’accepte que des nombres', 'Les `vars` du rôle l’emportent sur l’inventaire, donc les utilisateurs ne pourraient pas l’écraser facilement', 'Ansible ne charge pas `vars/`', '`vars/` est réservé aux secrets'], answer: 1, why: 'Tu veux l’inverse : une valeur que `group_vars` et `host_vars` peuvent écraser.' },
-					{ q: 'Un projet veut un autre motd. Où le règle-t-il ?', options: ['En modifiant `roles/web/defaults/main.yml`', 'Dans une tâche `set_fact` du rôle', 'Dans `meta/main.yml`', 'Dans ses propres `group_vars`'], answer: 3, why: 'Écrase les defaults depuis l’inventaire, jamais en modifiant le rôle.' }
+					{ q: 'Tu lances le play une fois avec `-e web_motd="Maintenance tonight"`, et `group_vars` définit aussi `web_motd`. Qu’affichent les serveurs ?', options: ['La valeur de `group_vars`', 'Le default du rôle, « Managed by Ansible »', 'Une erreur : la variable est définie deux fois', '« Maintenance tonight » : `-e` l’emporte sur tout'], answer: 3, why: 'Les extra vars de la ligne de commande gagnent toujours. C’est aussi pour ça que la doc conseille de définir chaque variable à un seul endroit.' }
 				]
 			},
 			{
@@ -136,10 +136,10 @@ export default {
 			{
 				title: 'Recharge seulement sur changement',
 				questions: [
-					{ q: 'Où va le handler ?', options: ['`roles/web/tasks/main.yml`, en dernière tâche', '`roles/web/handlers/main.yml`', '`roles/web/defaults/main.yml`', '`site.yml`, sous `post_tasks`'], answer: 1, why: '`handlers/` contient les tâches qui ne tournent que si on les notifie.' },
+					{ q: 'Une tâche plus loin dans le même play vérifie le site et a besoin que nginx ait déjà rechargé la nouvelle config. Qu’ajoutes-tu avant elle ?', options: ['Un deuxième `notify: reload nginx`', '`meta: flush_handlers`', '`state: restarted` sur la tâche template', 'Rien : les handlers tournent juste après la tâche qui les notifie'], answer: 1, why: 'Les handlers tournent à la fin du play. `meta: flush_handlers` lance ceux en attente à cet endroit.' },
 					{ q: 'Que fait le handler `reload nginx` ?', options: ['`ansible.builtin.service: name=nginx state=reloaded`', '`ansible.builtin.service: name=nginx state=restarted`', '`ansible.builtin.command: nginx -s stop`', '`ansible.builtin.package: name=nginx state=latest`'], answer: 0, why: 'Un reload prend la nouvelle config sans couper de connexions.' },
-					{ q: 'Tu relances le rôle et rien n’a changé. Que se passe-t-il ?', options: ['nginx recharge, comme à chaque exécution', 'Le handler tourne mais répond `ok`', 'Le rôle est sauté', 'Aucun changement, et aucun reload'], answer: 3, why: 'La tâche template répond `ok`, donc rien ne notifie le handler.' },
-					{ q: 'Le template et deux autres tâches notifient tous `reload nginx`. Combien de reloads ?', options: ['Trois, un après chaque tâche', 'Aucun, sauf si tu ajoutes `meta: flush_handlers`', 'Un, après les tâches du play', 'Un par tâche qui a répondu `ok`'], answer: 2, why: 'Un handler tourne une seule fois, quel que soit le nombre de tâches qui le notifient.' }
+					{ q: 'Ton template a une faute de frappe, et `validate: nginx -t -c %s` échoue. nginx recharge-t-il ?', options: ['Oui, avec la config cassée', 'Oui, avec l’ancienne config', 'Seulement après `meta: flush_handlers`', 'Non : la tâche échoue, l’ancien fichier reste, et rien n’a répondu `changed`'], answer: 3, why: 'Le vrai fichier n’est remplacé qu’une fois la vérification passée. Une tâche en échec ne notifie pas le handler.' },
+					{ q: 'Tu changes seulement `web_motd` dans `group_vars` et tu relances le rôle. nginx recharge-t-il ?', options: ['Oui, un rôle recharge nginx à chaque exécution', 'Oui, parce qu’une variable a changé', 'Non : seule la tâche template notifie le handler, et la config nginx n’a pas changé', 'Seulement si tu lances aussi avec `--check`'], answer: 2, why: 'La tâche motd répond `changed`, mais elle ne notifie pas `reload nginx`. La tâche template répond `ok`.' }
 				]
 			}
 		]

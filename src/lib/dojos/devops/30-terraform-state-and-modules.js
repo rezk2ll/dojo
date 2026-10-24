@@ -130,7 +130,7 @@ module "ec2_instances" {
 				questions: [
 					{ q: 'Your teammate clones the repo, runs `plan`, and Terraform wants to create everything. Why?', options: ['His AWS credentials are wrong', 'His clone has no state file, so to his Terraform nothing exists', 'He forgot to pin the module version', 'Git changed the line endings of `main.tf`'], answer: 1, why: '`terraform.tfstate` stayed on your laptop. Without it, Terraform does not know what it built.' },
 					{ q: 'What does the state record?', options: ['Which real object belongs to which block', 'The history of every `plan`', 'The AWS bill', 'The provider source code'], answer: 0, why: 'State is how Terraform maps blocks to real objects.' },
-					{ q: 'You both run `apply` at the same time with local state. What happens?', options: ['The second run waits for the first', 'AWS rejects the second run', 'Terraform merges the two states', 'Both change the same resources and neither knows about the other'], answer: 3, why: 'No shared state, no lock, so nothing stops two writers.' },
+					{ q: 'Your laptop\'s disk dies, and `terraform.tfstate` was only on it. What is lost?', options: ['The AWS resources, deleted with the state', 'Nothing: AWS keeps a copy of the state', 'Only the provider plugins', 'The record of what Terraform built: the resources stay in AWS, but nothing maps them to your blocks'], answer: 3, why: 'The state is the map from blocks to real objects. Lose it, and Terraform forgets what it built while the objects keep running.' },
 					{ q: 'The state looks wrong. Can you fix it in an editor?', options: ['Yes, it is plain JSON', 'Yes, if you also run `init`', 'Never edit it by hand', 'Only the `resources` part'], answer: 2, why: 'The state is Terraform\'s record. Hand edits break the mapping it relies on.' }
 				]
 			},
@@ -138,7 +138,7 @@ module "ec2_instances" {
 				title: 'Write the backend block',
 				questions: [
 					{ q: 'Where does the backend go?', options: ['In a `provider "aws"` block', 'In a `backend "s3"` block inside the `terraform` block', 'In a `module "state"` block', 'In `.terraform.lock.hcl`'], answer: 1, why: 'The `terraform` block holds settings about Terraform itself, including where the state lives.' },
-					{ q: 'Which setting turns on locking with the S3 backend?', options: ['`encrypt = true`', '`versioning = true`', 'None: S3 state is always locked', '`use_lockfile = true`'], answer: 3, why: 'Locking is opt-in for the S3 backend, and `use_lockfile` defaults to `false`.' },
+					{ q: 'This state holds the network, in production. Which line names the state file inside the bucket?', options: ['`bucket = "prod/network.tfstate"`', '`region = "prod"`', '`encrypt = "prod/network.tfstate"`', '`key = "prod/network.tfstate"`'], answer: 3, why: '`bucket` picks the bucket and `key` the path of the state file in it, so several states can share one bucket.' },
 					{ q: 'Why also set `encrypt = true` and tight access on the bucket?', options: ['The state can hold secrets in plain text', 'It makes `plan` faster', 'It turns on locking', 'AWS requires it for any bucket'], answer: 0, why: 'Database passwords and the like can sit in the state, so the bucket needs encryption and tight access.' },
 					{ q: 'Why turn on versioning on the bucket?', options: ['It locks the state', 'It pins the module versions', 'You can get back an older state after a mistake', 'It shows drift'], answer: 2, why: 'A versioned bucket keeps the earlier copies of the state file.' }
 				]
@@ -155,7 +155,7 @@ module "ec2_instances" {
 			{
 				title: 'Find and fix the drift',
 				questions: [
-					{ q: 'Which command shows the hand-made MySQL rule without touching AWS?', options: ['`terraform plan -refresh-only`', '`terraform apply -auto-approve`', '`terraform init -upgrade`', '`terraform state rm`'], answer: 0, why: 'A refresh-only plan compares the state with real AWS and changes nothing.' },
+					{ q: 'AWS now has a rule on port 3306 that the code and the state do not have. What is this called?', options: ['Drift', 'A state lock', 'A child module', 'A backend migration'], answer: 0, why: 'Someone changed AWS by hand, so AWS no longer matches the state. That gap is drift.' },
 					{ q: 'Do you write the new rule into the code, or keep the code as it is?', options: ['Write it into the code, since it is live now', 'Delete the security group from the code', 'Keep the code: MySQL open to the internet is wrong', 'Leave both as they are'], answer: 2, why: 'Drift leaves you a choice. Here the hand change is the mistake, so the code wins.' },
 					{ q: 'What closes the port again?', options: ['`terraform plan -refresh-only`', 'A normal `terraform plan`, then `terraform apply`', '`terraform force-unlock`', 'A new `terraform init`'], answer: 1, why: 'With the group\'s rules in its Terraform block, a normal plan proposes to bring it back to the code.' },
 					{ q: 'How do you stop the next hand edit?', options: ['Remove everyone\'s AWS access', 'Run `apply` every hour', 'Turn on bucket versioning', 'Changes go through a pull request on the Terraform code, not the console'], answer: 3, why: 'Whoever needed the change gets it reviewed like any other code.' }

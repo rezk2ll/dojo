@@ -130,7 +130,7 @@ roleRef:
 					{ q: 'Which pair lets the shop team deploy in `shop` only?', options: ['A ClusterRoleBinding to `edit`', 'A Role and a RoleBinding in `shop`', 'A ResourceQuota in `shop`', 'A ServiceAccount named `shop`'], answer: 1, why: 'The Role lists the verbs, the RoleBinding names who gets them, inside `shop`.' },
 					{ q: 'Can the RoleBinding point at the built-in `edit` ClusterRole?', options: ['Yes, and it still grants only inside `shop`', 'No: a RoleBinding can only use a Role', 'Yes, and it then grants in every namespace', 'Only for service accounts'], answer: 0, why: 'A RoleBinding grants inside its own namespace, even when it points at a ClusterRole.' },
 					{ q: 'Who should the binding name?', options: ['Each person, one subject per name', 'The `default` service account', 'The cluster admin', 'The shop team\'s group'], answer: 3, why: 'Bind the group, and you manage people outside the cluster, like Unix groups.' },
-					{ q: 'Why does nothing extra need to block them from `blog`?', options: ['The quota in `blog` blocks them', 'RBAC has a default deny rule per namespace', 'RBAC only grants, and nothing grants them rights in `blog`', 'kubectl hides other namespaces'], answer: 2, why: 'With no grant there, they can do nothing in `blog`.' }
+					{ q: 'Later you want the shop binding to point at a custom Role instead of `edit`. How do you do it?', options: ['Edit `roleRef` in place with `kubectl edit`', 'Add a second `roleRef` to the same binding', 'Delete the RoleBinding and create a new one', 'Rename the custom Role to `edit`'], answer: 2, why: '`roleRef` cannot be changed after a binding is created. To point at another role, you replace the binding.' }
 				]
 			},
 			{
@@ -147,8 +147,8 @@ roleRef:
 				questions: [
 					{ q: 'Which object caps the blog team at 2 CPUs?', options: ['A LimitRange', 'A ResourceQuota with `requests.cpu: "2"`', 'A PodDisruptionBudget', 'A Role with `cpu` in its rules'], answer: 1, why: 'A ResourceQuota caps the sum of all pods in the namespace.' },
 					{ q: 'A pod would push the namespace over the quota. What happens?', options: ['It is rejected with `403 Forbidden`', 'It runs, throttled', 'It waits as `Pending`', 'It moves to another namespace'], answer: 0, why: 'The quota is checked when the pod is created, and the API server refuses it.' },
-					{ q: 'A blog pod sets no CPU request. What happens with the quota on?', options: ['It runs with unlimited CPU', 'It counts as zero', 'It is rejected', 'It gets 2 CPUs'], answer: 2, why: 'With a CPU quota on, every pod must set requests or limits so the quota can count it.' },
-					{ q: 'How do you spare the blog team those rejections?', options: ['Remove the quota', 'Give them a ClusterRole', 'Use a PDB', 'Add a LimitRange with default requests, or tell the team'], answer: 3, why: 'A LimitRange fills in defaults for pods that forget.' }
+					{ q: 'Blog runs 4 pods that each request 500m and use about 100m. Can it start a fifth pod that requests 500m?', options: ['Yes: the pods only use 0.4 CPU', 'Yes, once the scheduler finds a node', 'No: the quota sums the requests, and 2 CPUs are already requested', 'Only if the pod sets no limit'], answer: 2, why: 'A ResourceQuota on `requests.cpu` counts what pods request, not what they use. 4 × 500m already reaches the cap of 2.' },
+					{ q: 'The quota also rejects blog pods that set no CPU request. How do you spare the team those rejections?', options: ['Remove the quota', 'Give them a ClusterRole', 'Use a PDB', 'Add a LimitRange with default requests, or tell the team'], answer: 3, why: 'A LimitRange fills in defaults for pods that forget.' }
 				]
 			}
 		]

@@ -101,6 +101,44 @@ class InterestsViewModel @AssistedInject constructor(
 			'La correction : ajoute un use case dans le domaine, par exemple `FollowTopicUseCase`, qui appelle `setTopicIdFollowed`. Le ViewModel appelle le use case.',
 			'Le coût : une classe de plus, qui ne fait guère que transmettre l’appel. L’appli garde le domaine ouvert, donc elle n’a pas besoin de ces classes. Dans les deux cas, note ce choix par écrit.',
 			'Une vérification comme celle-ci, lancée par le build, s’appelle une **fitness function** ; tu la retrouveras plus loin dans le cours.'
+		],
+		steps: [
+			{
+				title: 'Trouve la fuite',
+				questions: [
+					{ q: 'Pourquoi `InterestsViewModel` peut-il importer `UserDataRepository` aujourd’hui ?', options: ['Kotlin autorise n’importe quel import dans la même appli', 'La classe du repository est `internal`', '`core/domain` déclare `api(projects.core.data)`', 'Hilt l’injecte, donc aucun import n’est vérifié'], answer: 2, why: 'Le module feature ne déclare que `core.domain`. Le `api` lui transmet `core.data`.' },
+					{ q: 'Que fait le `api` de Gradle ?', options: ['Il cache la dépendance aux consommateurs', 'Il transmet la dépendance à chaque consommateur', 'Il publie le module en ligne', 'Il transforme le module en serveur d’API'], answer: 1, why: 'Avec `implementation`, la dépendance reste privée au module qui la déclare.' },
+					{ q: 'Quel appel saute le domaine aujourd’hui ?', options: ['`getFollowableTopics(...)` dans `uiState`', 'Le `@Binds` dans `DataModule`', '`OfflineFirstTopicsRepository` qui lit Room', '`userDataRepository.setTopicIdFollowed` dans `followTopic`'], answer: 3, why: 'Les lectures passent par le use case, les écritures vont directement au repository.' },
+					{ q: 'Que veut dire un domaine **fermé** ?', options: ['Chaque appel de l’UI doit passer par lui', 'Personne n’a le droit de modifier son code', 'Il n’a pas d’interfaces', 'Les tests ne le voient pas'], answer: 0, why: 'Une couche ouverte peut être sautée. Une couche fermée, non.' }
+				]
+			},
+			{
+				title: 'Change le build',
+				questions: [
+					{ q: 'Que changes-tu dans `core/domain/build.gradle.kts` ?', options: ['Tu retires `projects.core.data`', '`api(projects.core.data)` devient `implementation(projects.core.data)`', 'Tu ajoutes `api(projects.feature.interests)`', 'Tu marques les interfaces de repository `internal`'], answer: 1, why: 'Le domaine utilise toujours la couche de données, et ne la transmet plus.' },
+					{ q: '`bookmarks`, `settings` et `topic` déclarent eux-mêmes `projects.core.data`. Que fais-tu ?', options: ['Rien : le changement du domaine les couvre', 'Tu passes aussi leurs lignes en `api`', 'Tu retires aussi ces lignes, sinon le domaine reste ouvert pour elles', 'Tu déplaces ces features dans `core/domain`'], answer: 2, why: 'Une dépendance directe n’a pas besoin du `api` pour fuiter. Elle est déjà là.' },
+					{ q: 'Pourquoi mettre la règle dans le build plutôt que dans un wiki d’équipe ?', options: ['Les builds vont plus vite sans `api`', 'Gradle envoie un e-mail à l’équipe à chaque changement', 'Une page de wiki ne peut pas être versionnée', 'Un import interdit ne compile pas, avant même la relecture'], answer: 3, why: 'Changer la règle tient en un diff d’une ligne, visible en relecture.' },
+					{ q: 'Comment s’appelle une vérification comme celle-ci, lancée par le build ?', options: ['Une fitness function', 'Une composition root', 'Une couche ouverte', 'Un use case'], answer: 0, why: 'Tu retrouveras les fitness functions plus loin dans le cours.' }
+				]
+			},
+			{
+				title: 'Regarde ce qui casse',
+				questions: [
+					{ q: 'Qu’est-ce qui casse ?', options: ['La base Room', 'Les bindings du `DataModule`', 'Chaque feature qui importe un repository, à commencer par `InterestsViewModel`', 'La synchro réseau'], answer: 2, why: 'Ces imports n’atteignent plus `core.data`, donc ils ne compilent plus.' },
+					{ q: 'Comment trouves-tu tous les endroits cassés ?', options: ['Un grep sur « Repository » dans le dépôt', 'Le compilateur te les liste tous', 'Tu lances l’appli et tu touches chaque bouton', 'Tu demandes à chaque équipe feature'], answer: 1, why: 'Le build vérifie la règle, donc il signale aussi chaque casse.' },
+					{ q: 'Est-ce que `DataModule` compile encore ?', options: ['Oui : il est dans `core/data`, donc il a le droit de voir les classes `internal`', 'Non : il branche des classes que le domaine ne voit pas', 'Non : Hilt a besoin de `api` pour marcher', 'Seulement si tu le déplaces dans le domaine'], answer: 0, why: 'Le changement ne touche que les modules qui consomment le domaine.' },
+					{ q: 'Quel appel de `InterestsViewModel` respecte déjà un domaine fermé ?', options: ['`userDataRepository.setTopicIdFollowed(...)`', 'Le paramètre de constructeur `UserDataRepository`', 'L’import de `core.data.repository.UserDataRepository`', '`getFollowableTopics(sortBy = TopicSortField.NAME)`'], answer: 3, why: 'Le chemin de lecture passe déjà par un use case du domaine.' }
+				]
+			},
+			{
+				title: 'Répare le bouton « suivre »',
+				questions: [
+					{ q: 'Qu’ajoutes-tu ?', options: ['Un deuxième ViewModel pour le suivi', 'Une copie publique de `OfflineFirstTopicsRepository`', 'Un use case dans le domaine, par exemple `FollowTopicUseCase`, qui appelle `setTopicIdFollowed`', 'Un `@Binds` dans `DataModule` pour le ViewModel'], answer: 2, why: 'L’écriture passe maintenant par le domaine, comme la lecture.' },
+					{ q: 'Qu’appelle alors `followTopic` ?', options: ['Le repository, injecté par Hilt', 'Le nouveau use case', 'Room directement', 'La source de données réseau'], answer: 1, why: 'Le ViewModel ne connaît plus que le domaine.' },
+					{ q: 'Que coûte le domaine fermé ?', options: ['Des lectures plus lentes sur chaque écran', 'La fin du mode hors ligne', 'Une deuxième base de données', 'Une classe de plus, qui ne fait guère que transmettre l’appel'], answer: 3, why: 'L’appli garde le domaine ouvert et laisse les écritures le sauter, donc elle n’a pas besoin de ces classes.' },
+					{ q: 'Fermé ou ouvert, que doit faire l’équipe de ce choix ?', options: ['Le noter par écrit', 'Le garder hors de la doc', 'L’annuler après un sprint', 'Le laisser à chaque équipe feature'], answer: 0, why: 'La prochaine personne qui verra un ViewModel appeler un repository doit pouvoir trouver pourquoi.' }
+				]
+			}
 		]
 	},
 	quiz: [

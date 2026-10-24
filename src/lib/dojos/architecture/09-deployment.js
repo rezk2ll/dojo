@@ -116,6 +116,44 @@ export default {
 			'The single Sidekiq process: posts are still saved, but feeds, emails and deliveries to other servers wait. It also holds the scheduler, so scheduled posts stop.',
 			'The single streaming process: apps stop getting live updates, but posting and reading still work.',
 			'First change: Redis Sentinel (or a managed Redis with failover), because it is cheap and Redis takes everything down. Then a second Sidekiq process **without** the `scheduler` queue, so jobs survive one crash. The `scheduler` queue stays on exactly one process.'
+		],
+		steps: [
+			{
+				title: 'Find the boxes drawn once',
+				questions: [
+					{ q: 'Which part of this setup is not a single point of failure?', options: ['Redis', 'The streaming process', 'The Sidekiq process', 'The two web VMs'], answer: 3, why: 'There are two of them, so one can die and the other keeps serving.' },
+					{ q: 'Why can one web VM die without users noticing?', options: ['Both share one Redis', 'Both are stateless, behind a load balancer that checks `/health`', 'Both run on a bigger machine', 'Both read from a replica'], answer: 1, why: 'Any copy can answer any request, and the health check takes the dead one out.' },
+					{ q: 'Both web VMs use the same Redis. What does the definition of redundancy say?', options: ['Two copies are always enough', 'A shared box does not count', 'The copies must not depend on one shared box that can also die', 'Redis turns web into a singleton'], answer: 2, why: 'Two web copies on one Redis still go down together when Redis dies.' },
+					{ q: 'Which question do you ask of each box drawn once?', options: ['If it dies, does the site go down, do live updates stop, or does background work wait?', 'How much does it cost each month?', 'Which team owns it?', 'How old is its version?'], answer: 0, why: 'The answer tells you who it hurts, and that sets the ranking.' }
+				]
+			},
+			{
+				title: 'Say who each one hurts',
+				questions: [
+					{ q: 'Redis dies. Who is hurt?', options: ['Only apps waiting for live updates', 'Every user: the whole server goes down', 'Only users with scheduled posts', 'Nobody: Sidekiq falls back to PostgreSQL'], answer: 1, why: 'Feeds, job queues and streaming all depend on Redis.' },
+					{ q: 'The one Sidekiq process dies. What happens?', options: ['The whole site goes down', 'New posts are lost', 'Only emails stop', 'Posts are saved, but feeds, emails and deliveries wait, and scheduled posts stop'], answer: 3, why: 'The request only enqueues the jobs. Nothing runs them until a Sidekiq process takes them.' },
+					{ q: 'The one streaming process dies. What happens?', options: ['Apps stop getting live updates, and posting and reading still work', 'Nobody can post', 'Every user is logged out', 'Scheduled posts stop'], answer: 0, why: 'Streaming only pushes updates to open apps. The API is in `web`.' },
+					{ q: 'Why do scheduled posts stop when the one Sidekiq process dies?', options: ['Scheduled posts live in its memory', 'PostgreSQL stops accepting writes', 'It also holds the `scheduler` queue', 'Redis deletes the schedule'], answer: 2, why: 'With the default config, one process listens to all seven queues, `scheduler` included.' }
+				]
+			},
+			{
+				title: 'Rank them',
+				questions: [
+					{ q: 'What goes at the top of the ranking?', options: ['The streaming process', 'Redis and PostgreSQL', 'The Sidekiq process', 'The two web VMs'], answer: 1, why: 'Either one takes the whole server down for every user.' },
+					{ q: 'What goes at the bottom?', options: ['Redis', 'PostgreSQL', 'The Sidekiq process', 'The streaming process'], answer: 3, why: 'Live updates stop, and posting and reading still work.' },
+					{ q: 'Why does Sidekiq rank above streaming?', options: ['Sidekiq uses more memory', 'Streaming runs as three processes here', 'Background work for every user waits, and scheduled posts stop', 'Sidekiq has more threads'], answer: 2, why: 'Feeds, emails and deliveries to other servers all wait on it.' },
+					{ q: 'Why is a dead scheduler easy to miss?', options: ['Nobody gets an error: scheduled posts just stop going out', 'It logs too much to read', 'It restarts on its own', 'It emails the admins'], answer: 0, why: 'The site keeps working, so you must watch for it on purpose.' }
+				]
+			},
+			{
+				title: 'Pick the first change',
+				questions: [
+					{ q: 'What do you change first?', options: ['Redis Sentinel, or a managed Redis with failover', 'A second streaming process', 'A read replica', 'A third web VM'], answer: 0, why: 'The guide recommends Sentinel for failover of the box that takes everything down.' },
+					{ q: 'Why Redis first?', options: ['It is the slowest box', 'Sentinel also removes PostgreSQL as a SPOF', 'The guide forbids a single Redis', 'It is cheap, and Redis takes everything down'], answer: 3, why: 'Biggest harm, small fix. Sentinel does add processes to run.' },
+					{ q: 'Next, you add a second Sidekiq process. Which queue must it not listen to?', options: ['`default`', '`ingress`', '`scheduler`', '`mailers`'], answer: 2, why: 'Jobs then survive one crash, and the `scheduler` queue stays on exactly one process.' },
+					{ q: 'Why not run two copies of the default Sidekiq config?', options: ['Two processes cannot share one Redis', 'The `scheduler` queue should never run in more than one Sidekiq process at a time', 'Sidekiq allows one process per server', 'Two processes would store each scheduled post twice'], answer: 1, why: 'The scheduler is a singleton. You cannot make it redundant by copying it.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -99,6 +99,44 @@ end`,
 			'Systèmes externes : Stripe (paiements), le fournisseur SMTP (e-mails de facture), le fournisseur OIDC (connexion), l’API de taux de change, et Sentry (rapports d’erreurs, en général dessiné plus petit ou omis sur un diagramme orienté métier).',
 			'Pas dessus : PostgreSQL, Redis et le bucket S3. Tu possèdes leurs données, même si un cloud les fait tourner. Ce sont des conteneurs, un niveau plus bas.',
 			'Une bonne question ouverte : est-ce que Stripe **nous** rappelle avec des webhooks ? Dans ce cas, il faut une deuxième flèche, entrante, avec son propre contrat.'
+		],
+		steps: [
+			{
+				title: 'Dessine la boîte et les personnes',
+				questions: [
+					{ q: 'Combien de boîtes l’appli de facturation elle-même reçoit-elle ?', options: ['Une par réglage', 'Une', 'Trois : appli, base, cache', 'Une par serveur sur lequel elle tourne'], answer: 1, why: 'Sur un diagramme de contexte, ton système tient dans une seule boîte.' },
+					{ q: 'Qui sont les personnes autour de la boîte ?', options: ['Les comptables et Stripe', 'Les développeurs et le fournisseur cloud', 'Les comptables et les clients', 'Les clients et le serveur SMTP'], answer: 2, why: 'Les personnes utilisent le système. Stripe et le serveur SMTP sont des systèmes, pas des personnes.' },
+					{ q: 'Quelle flèche va des comptables vers l’appli ?', options: ['Créent les factures', 'Paient les factures', 'Envoient les e-mails', 'Font tourner la base'], answer: 0, why: 'Les comptables créent les factures. Les clients les reçoivent et les paient.' },
+					{ q: 'Quel niveau C4 es-tu en train de dessiner ?', options: ['Conteneurs', 'Composants', 'Code', 'Contexte'], answer: 3, why: 'Le diagramme de contexte est le niveau 1, le plus dézoomé.' }
+				]
+			},
+			{
+				title: 'Range chaque réglage',
+				questions: [
+					{ q: 'Où vont `DATABASE_URL`, `REDIS_URL` et `S3_BUCKET` ?', options: ['Dehors, en boîtes externes, puisqu’un cloud les fait tourner', 'Dans la boîte de l’appli : tu possèdes leurs données', 'Dans une colonne d’infrastructure à part', 'Seul `S3_BUCKET` est dehors'], answer: 1, why: 'Tu possèdes les données, même si un cloud les fait tourner. Ce sont des conteneurs, un niveau plus bas.' },
+					{ q: 'Que met `STRIPE_SECRET_KEY` sur le diagramme ?', options: ['Un conteneur dans la boîte', 'Une personne qui paie', 'Stripe, un système externe pour les paiements', 'Rien : ce n’est qu’une clé'], answer: 2, why: 'Une autre organisation fait tourner Stripe et possède les données derrière.' },
+					{ q: 'Quels réglages désignent des systèmes externes ?', options: ['`DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`', 'Les huit', 'Seulement `STRIPE_SECRET_KEY` et `SMTP_URL`', '`STRIPE_SECRET_KEY`, `SMTP_URL`, `OIDC_ISSUER`, `EXCHANGE_RATES_API_URL`, `SENTRY_DSN`'], answer: 3, why: 'Paiements, e-mails, connexion, taux de change et rapports d’erreurs : quelqu’un d’autre fait tourner tout ça.' },
+					{ q: 'Comment dessines-tu en général Sentry, les rapports d’erreurs ?', options: ['Plus petit, ou omis sur un diagramme orienté métier', 'Comme la plus grosse boîte, car les erreurs comptent le plus', 'Dans la boîte de l’appli, à côté des logs', 'Comme une personne qui lit les erreurs'], answer: 0, why: 'Il est externe, mais il compte plus pour l’équipe que pour le métier.' }
+				]
+			},
+			{
+				title: 'Vérifie les traits',
+				questions: [
+					{ q: 'Quel critère range un réglage dans la boîte ou dehors ?', options: ['Est-ce qu’il coûte de l’argent chaque mois ?', 'Est-ce qu’on possède les données derrière ?', 'Est-ce qu’il est écrit dans notre langage ?', 'Est-ce qu’il tourne dans notre compte cloud ?'], answer: 1, why: 'Le modèle C4 range un bucket cloud parmi les conteneurs : quelqu’un d’autre l’héberge, mais tu possèdes ses données.' },
+					{ q: 'Sur le diagramme de Mastodon, que veut dire une flèche en pointillés ?', options: ['Une connexion lente', 'Un système qu’on possède', 'Un voisin optionnel, activé par un réglage', 'Un lien cassé'], answer: 2, why: 'La connexion externe et la traduction sont des réglages. Un serveur qui n’active aucun des deux a deux boîtes de moins.' },
+					{ q: 'Les flèches vers Stripe et vers le serveur SMTP se ressemblent. Que cache le dessin ?', options: ['Que Stripe est dans un autre pays', 'Rien : une flèche est une flèche', 'Laquelle coûte le plus par mois', 'Que chaque flèche est un contrat à part, et qu’ils diffèrent beaucoup'], answer: 3, why: 'Un diagramme de contexte dessine toutes les flèches avec le même trait, même quand les contrats sont très différents.' },
+					{ q: 'Pourquoi un serveur Mastodon a-t-il des flèches dans les deux sens vers le fédivers ?', options: ['Il livre des posts aux autres serveurs, et ils livrent des posts dans son inbox', 'Toutes les flèches d’un diagramme de contexte vont dans les deux sens', 'Les serveurs du fédivers tournent dans sa boîte', 'Ses modérateurs travaillent sur les autres serveurs'], answer: 0, why: 'Des appels sortent et d’autres entrent. Chaque sens est sa propre flèche.' }
+				]
+			},
+			{
+				title: 'Note la question ouverte',
+				questions: [
+					{ q: 'Quelle question ouverte peut changer le diagramme lui-même ?', options: ['Est-ce que Stripe nous rappelle avec des webhooks ?', 'Quelle version de PostgreSQL fait-on tourner ?', 'Combien de comptables utilisent l’appli ?', 'Quelle police utilisent les factures ?'], answer: 0, why: 'Elle change le diagramme : une flèche entrante a son propre contrat.' },
+					{ q: 'Si Stripe rappelle bien, qu’est-ce qui change sur le diagramme ?', options: ['Stripe passe dans la boîte', 'Rien ne change', 'Une deuxième flèche, entrante, avec son propre contrat', 'Stripe devient une personne'], answer: 2, why: 'Comme la flèche du fédivers vers Mastodon, un rappel est une deuxième flèche.' },
+					{ q: 'Dans Mastodon, quel code reçoit la flèche qui arrive des autres serveurs ?', options: ['`ActivityPub::DeliveryWorker`', 'Le serveur SMTP', 'Redis', '`ActivityPub::InboxesController`, qui répond `202`'], answer: 3, why: 'L’inbox vérifie la signature du serveur appelant et confie le travail à un job en arrière-plan.' },
+					{ q: 'Pourquoi noter une question à laquelle tu n’as pas pu répondre ?', options: ['C4 demande une boîte de questions', 'Dessiner montre ce que tu ignores, et chaque flèche externe est un contrat et une panne possible', 'Pour que le diagramme ait l’air complet', 'Pour que ton manager y réponde'], answer: 1, why: 'La question ouverte est souvent ce que le diagramme trouve de plus utile.' }
+				]
+			}
 		]
 	},
 	quiz: [

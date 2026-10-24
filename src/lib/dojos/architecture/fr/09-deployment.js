@@ -116,6 +116,44 @@ export default {
 			'Le processus Sidekiq unique : les posts sont toujours enregistrés, mais les fils, les e-mails et les livraisons vers les autres serveurs attendent. Il porte aussi le scheduler, donc les posts programmés s’arrêtent.',
 			'Le processus de streaming unique : les applis ne reçoivent plus de mises à jour en direct, mais publier et lire marchent toujours.',
 			'Premier changement : Redis Sentinel (ou un Redis managé avec failover), parce que c’est peu cher et qu’une panne de Redis fait tout tomber. Ensuite un deuxième processus Sidekiq **sans** la file `scheduler`, pour que les jobs survivent à un crash. La file `scheduler` reste sur un seul processus.'
+		],
+		steps: [
+			{
+				title: 'Trouve les boîtes dessinées une fois',
+				questions: [
+					{ q: 'Quelle partie de cette installation n’est pas un point de défaillance unique ?', options: ['Redis', 'Le processus de streaming', 'Le processus Sidekiq', 'Les deux VM web'], answer: 3, why: 'Elles sont deux, donc l’une peut mourir pendant que l’autre continue de servir.' },
+					{ q: 'Pourquoi une VM web peut-elle mourir sans que les utilisateurs le remarquent ?', options: ['Les deux partagent un Redis', 'Les deux sont sans état, derrière un load balancer qui vérifie `/health`', 'Les deux tournent sur une plus grosse machine', 'Les deux lisent sur un réplica'], answer: 1, why: 'N’importe quelle copie répond à n’importe quelle requête, et le health check retire la copie morte.' },
+					{ q: 'Les deux VM web utilisent le même Redis. Que dit la définition de la redondance ?', options: ['Deux copies suffisent toujours', 'Une boîte partagée ne compte pas', 'Les copies ne doivent pas dépendre d’une même boîte partagée qui peut mourir aussi', 'Redis fait de web un singleton'], answer: 2, why: 'Deux copies web sur un seul Redis tombent quand même ensemble quand Redis meurt.' },
+					{ q: 'Quelle question poses-tu pour chaque boîte dessinée une fois ?', options: ['Si elle meurt, est-ce que le site tombe, est-ce que le direct s’arrête, ou est-ce qu’un travail en arrière-plan attend ?', 'Combien coûte-t-elle chaque mois ?', 'Quelle équipe la possède ?', 'De quand date sa version ?'], answer: 0, why: 'La réponse te dit qui elle pénalise, et c’est ça qui fixe le classement.' }
+				]
+			},
+			{
+				title: 'Dis qui chacune pénalise',
+				questions: [
+					{ q: 'Redis meurt. Qui est pénalisé ?', options: ['Seulement les applis qui attendent le direct', 'Tous les utilisateurs : tout le serveur tombe', 'Seulement les utilisateurs avec des posts programmés', 'Personne : Sidekiq bascule sur PostgreSQL'], answer: 1, why: 'Les fils, les files de jobs et le streaming dépendent tous de Redis.' },
+					{ q: 'L’unique processus Sidekiq meurt. Que se passe-t-il ?', options: ['Tout le site tombe', 'Les nouveaux posts sont perdus', 'Seuls les e-mails s’arrêtent', 'Les posts sont enregistrés, mais les fils, les e-mails et les livraisons attendent, et les posts programmés s’arrêtent'], answer: 3, why: 'La requête se contente de mettre les jobs en file. Rien ne les exécute tant qu’un processus Sidekiq ne les prend pas.' },
+					{ q: 'L’unique processus de streaming meurt. Que se passe-t-il ?', options: ['Les applis ne reçoivent plus de mises à jour en direct, et publier et lire marchent toujours', 'Plus personne ne peut publier', 'Tous les utilisateurs sont déconnectés', 'Les posts programmés s’arrêtent'], answer: 0, why: 'Le streaming pousse seulement les mises à jour vers les applis ouvertes. L’API est dans `web`.' },
+					{ q: 'Pourquoi les posts programmés s’arrêtent-ils quand l’unique processus Sidekiq meurt ?', options: ['Les posts programmés vivent dans sa mémoire', 'PostgreSQL n’accepte plus d’écritures', 'Il porte aussi la file `scheduler`', 'Redis efface le planning'], answer: 2, why: 'Avec la config par défaut, un seul processus écoute les sept files, `scheduler` comprise.' }
+				]
+			},
+			{
+				title: 'Classe-les',
+				questions: [
+					{ q: 'Qu’est-ce qui va en haut du classement ?', options: ['Le processus de streaming', 'Redis et PostgreSQL', 'Le processus Sidekiq', 'Les deux VM web'], answer: 1, why: 'Chacun fait tomber tout le serveur pour tous les utilisateurs.' },
+					{ q: 'Qu’est-ce qui va en bas ?', options: ['Redis', 'PostgreSQL', 'Le processus Sidekiq', 'Le processus de streaming'], answer: 3, why: 'Le direct s’arrête, mais publier et lire marchent toujours.' },
+					{ q: 'Pourquoi Sidekiq passe-t-il avant le streaming ?', options: ['Sidekiq utilise plus de mémoire', 'Le streaming tourne ici en trois processus', 'Le travail en arrière-plan de tous les utilisateurs attend, et les posts programmés s’arrêtent', 'Sidekiq a plus de threads'], answer: 2, why: 'Les fils, les e-mails et les livraisons vers les autres serveurs dépendent tous de lui.' },
+					{ q: 'Pourquoi un scheduler mort passe-t-il facilement inaperçu ?', options: ['Personne ne voit d’erreur : les posts programmés ne partent plus, c’est tout', 'Il écrit trop de logs pour qu’on les lise', 'Il redémarre tout seul', 'Il envoie un e-mail aux admins'], answer: 0, why: 'Le site continue de marcher, donc tu dois le surveiller exprès.' }
+				]
+			},
+			{
+				title: 'Choisis le premier changement',
+				questions: [
+					{ q: 'Que changes-tu en premier ?', options: ['Redis Sentinel, ou un Redis managé avec failover', 'Un deuxième processus de streaming', 'Un réplica en lecture', 'Une troisième VM web'], answer: 0, why: 'Le guide recommande Sentinel pour le failover de la boîte qui fait tout tomber.' },
+					{ q: 'Pourquoi Redis d’abord ?', options: ['C’est la boîte la plus lente', 'Sentinel retire aussi PostgreSQL des SPOF', 'Le guide interdit un Redis unique', 'C’est peu cher, et une panne de Redis fait tout tomber'], answer: 3, why: 'Le plus gros dégât, pour une petite correction. Sentinel ajoute quand même des processus à faire tourner.' },
+					{ q: 'Ensuite, tu ajoutes un deuxième processus Sidekiq. Quelle file ne doit-il pas écouter ?', options: ['`default`', '`ingress`', '`scheduler`', '`mailers`'], answer: 2, why: 'Les jobs survivent alors à un crash, et la file `scheduler` reste sur un seul processus.' },
+					{ q: 'Pourquoi ne pas lancer deux copies de la config Sidekiq par défaut ?', options: ['Deux processus ne peuvent pas partager un Redis', 'La file `scheduler` ne doit jamais tourner dans plus d’un processus Sidekiq à la fois', 'Sidekiq n’autorise qu’un processus par serveur', 'Deux processus stockeraient chaque post programmé deux fois'], answer: 1, why: 'Le scheduler est un singleton. Tu ne peux pas le rendre redondant en le copiant.' }
+				]
+			}
 		]
 	},
 	quiz: [

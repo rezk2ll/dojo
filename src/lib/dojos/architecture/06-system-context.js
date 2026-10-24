@@ -99,6 +99,44 @@ end`,
 			'External systems: Stripe (payments), the SMTP provider (invoice emails), the OIDC provider (sign-in), the exchange rates API, and Sentry (error reports, usually drawn smaller or left off a business-level diagram).',
 			'Not on it: PostgreSQL, Redis and the S3 bucket. You own the data in them, even if a cloud runs them. They are containers, one level down.',
 			'A good open question: does Stripe call **us** back with webhooks? Then the diagram needs a second arrow, pointing in, with its own contract.'
+		],
+		steps: [
+			{
+				title: 'Draw the box and the people',
+				questions: [
+					{ q: 'How many boxes does the invoicing app itself get?', options: ['One per setting', 'One', 'Three: app, database, cache', 'One per server it runs on'], answer: 1, why: 'On a context diagram, your system is one single box.' },
+					{ q: 'Who are the people around the box?', options: ['Accountants and Stripe', 'Developers and the cloud provider', 'Accountants and customers', 'Customers and the SMTP server'], answer: 2, why: 'People use the system. Stripe and the SMTP server are systems, not people.' },
+					{ q: 'What arrow goes from the accountants to the app?', options: ['Create invoices', 'Pay invoices', 'Send emails', 'Run the database'], answer: 0, why: 'Accountants create invoices. Customers receive and pay them.' },
+					{ q: 'Which C4 level are you drawing?', options: ['Containers', 'Components', 'Code', 'Context'], answer: 3, why: 'The context diagram is level 1, the most zoomed-out one.' }
+				]
+			},
+			{
+				title: 'Sort each setting',
+				questions: [
+					{ q: 'Where do `DATABASE_URL`, `REDIS_URL` and `S3_BUCKET` go?', options: ['Outside, as external boxes, since a cloud runs them', 'Inside the app box: you own the data in them', 'In a separate infrastructure column', 'Only `S3_BUCKET` is outside'], answer: 1, why: 'You own the data, even if a cloud runs them. They are containers, one level down.' },
+					{ q: 'What does `STRIPE_SECRET_KEY` put on the diagram?', options: ['A container inside the box', 'A person who pays', 'Stripe, an external system for payments', 'Nothing: it is only a key'], answer: 2, why: 'Another organization runs Stripe and owns the data behind it.' },
+					{ q: 'Which settings name external systems?', options: ['`DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`', 'All eight of them', 'Only `STRIPE_SECRET_KEY` and `SMTP_URL`', '`STRIPE_SECRET_KEY`, `SMTP_URL`, `OIDC_ISSUER`, `EXCHANGE_RATES_API_URL`, `SENTRY_DSN`'], answer: 3, why: 'Payments, email, sign-in, exchange rates and error reports are all run by someone else.' },
+					{ q: 'How do you usually draw Sentry, the error reports?', options: ['Smaller, or left off a business-level diagram', 'As the biggest box, since errors matter most', 'Inside the app box, next to the logs', 'As a person who reads errors'], answer: 0, why: 'It is external, but it matters to the team more than to the business.' }
+				]
+			},
+			{
+				title: 'Check the lines',
+				questions: [
+					{ q: 'Which test sorts a setting into the box or out of it?', options: ['Does it cost money each month?', 'Do we own the data behind it?', 'Is it written in our language?', 'Does it run in our cloud account?'], answer: 1, why: 'The C4 model treats a cloud bucket as a container: someone else hosts it, but you own the data in it.' },
+					{ q: 'On Mastodon\'s diagram, what does a dashed arrow mean?', options: ['A slow connection', 'A system we own', 'An optional neighbor, turned on by a setting', 'A broken link'], answer: 2, why: 'External sign-in and translation are settings. A server that sets neither has two fewer boxes.' },
+					{ q: 'The arrows to Stripe and to the SMTP server look the same. What does the drawing hide?', options: ['That Stripe is in another country', 'Nothing: an arrow is an arrow', 'Which one costs more per month', 'That each arrow is its own contract, and they differ a lot'], answer: 3, why: 'A context diagram draws every arrow as the same line, even when the contracts are very different.' },
+					{ q: 'Why does a Mastodon server have arrows both ways to the fediverse?', options: ['It delivers posts to other servers, and they deliver posts to its inbox', 'Every arrow on a context diagram goes both ways', 'The fediverse servers run inside its box', 'Its moderators work on the other servers'], answer: 0, why: 'Calls go out and come in. Each direction is its own arrow.' }
+				]
+			},
+			{
+				title: 'Write the open question',
+				questions: [
+					{ q: 'Which open question could change the diagram itself?', options: ['Does Stripe call us back with webhooks?', 'Which PostgreSQL version do we run?', 'How many accountants use the app?', 'Which font do the invoices use?'], answer: 0, why: 'It changes the diagram: an arrow pointing in has its own contract.' },
+					{ q: 'If Stripe does call back, what changes on the diagram?', options: ['Stripe moves inside the box', 'Nothing changes', 'A second arrow, pointing in, with its own contract', 'Stripe becomes a person'], answer: 2, why: 'Like the fediverse arrow into Mastodon, a callback is a second arrow.' },
+					{ q: 'In Mastodon, what code receives the arrow coming in from other servers?', options: ['`ActivityPub::DeliveryWorker`', 'The SMTP server', 'Redis', '`ActivityPub::InboxesController`, which answers `202`'], answer: 3, why: 'The inbox checks the calling server\'s signature and hands the work to a background job.' },
+					{ q: 'Why write down a question you could not answer?', options: ['C4 asks for a question box', 'Drawing shows what you do not know, and each external arrow is a contract and a possible outage', 'To make the diagram look complete', 'So a manager can answer it'], answer: 1, why: 'The open question is often the most useful thing the diagram finds.' }
+				]
+			}
 		]
 	},
 	quiz: [

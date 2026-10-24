@@ -108,6 +108,44 @@ func calcSwapForBurstablePods(containerMemoryRequest, nodeTotalMemory, totalPods
 			'Sortie capturée pendant cette session sur un portable de 27 GiB : `swapon` affiche `/dev/dm-2 partition 3.8G 2.3G`, la swappiness vaut `60`, et `vmstat` montre `swpd` vers 2 452 988 kB avec `free` vers 3,3 GB et `cache` vers 15 GB.',
 			'Les deux lignes après la première montrent `si` à 4 puis 0, et `so` à 0 et 0. Les 2,3 GB du swap restent sur place et personne ne les relit.',
 			'La machine ne manque pas de mémoire. Le noyau a mis dans le swap des pages que personne n’utilisait et a gardé 15 GB de cache de pages en RAM. Un vrai problème, c’est `si` et `so` à plusieurs milliers sur chaque ligne, avec des processus bloqués sur des défauts majeurs.'
+		],
+		steps: [
+			{
+				title: 'Lis la configuration du swap',
+				questions: [
+					{ q: '`swapon --show` affiche `/dev/dm-2 partition 3.8G 2.3G`. Que dit le 2.3G ?', options: ['Le swap est trop petit de 2,3 GB', 'Le noyau y lit 2,3 GB par seconde', '2,3 GB de pages sont dans le swap en ce moment', 'La machine a 2,3 GB de RAM libre'], answer: 2, why: 'Les colonnes sont nom, type, taille et utilisé. 2,3 GB de la partition de 3,8 GB contiennent des pages aujourd’hui.' },
+					{ q: 'Quelle sorte de page le noyau ne peut-il libérer qu’en l’écrivant dans le swap ?', options: ['Une page propre du cache de pages', 'Une page anonyme : tas, pile, `mmap` anonyme', 'Une page d’un binaire sur disque', 'Une page d’un fichier ouvert en lecture seule'], answer: 1, why: 'Aucun fichier ne garde de copie d’une page anonyme. Le cache de pages se jette et se relit depuis le fichier.' },
+					{ q: 'La swappiness vaut `60`. Que règle cette valeur ?', options: ['Le coût des E/S de swap par rapport à la relecture des pages de fichiers', 'Le pourcentage de RAM qui peut partir dans le swap', 'Les secondes qu’une page attend avant le swap', 'La taille du swap en GB'], answer: 0, why: '`vm.swappiness` va de 0 à 200 et indique à la récupération de mémoire le coût des E/S de swap. 60 est la valeur par défaut.' },
+					{ q: 'À 60, quelles pages la récupération préfère-t-elle prendre d’abord ?', options: ['Des pages anonymes, écrites dans le swap', 'Les pages du processus le plus actif', 'Aucune : elle attend l’OOM killer', 'Du cache de pages, jeté sans E/S'], answer: 3, why: 'À 100, swap et fichiers comptent à égalité. Sous 100, le noyau préfère jeter du cache de pages.' }
+				]
+			},
+			{
+				title: 'Lis les lignes de vmstat',
+				questions: [
+					{ q: 'Quelle ligne de `vmstat 1 3` ignores-tu ?', options: ['La première : c’est une moyenne depuis le démarrage', 'La dernière : elle est tronquée', 'Celle du milieu : elle répète la première', 'Aucune : elles disent toutes la même chose'], answer: 0, why: 'La première ligne fait la moyenne depuis le démarrage. Les suivantes montrent chaque seconde.' },
+					{ q: 'Que montre la colonne `swpd` ?', options: ['Les pages qui entrent depuis le swap chaque seconde', 'Les pages qui sortent vers le swap chaque seconde', 'La quantité stockée dans le swap en ce moment', 'Le nom du périphérique de swap'], answer: 2, why: '`swpd` est la quantité stockée dans le swap. Elle ne dit rien du trafic.' },
+					{ q: 'Que montrent `si` et `so` ?', options: ['Les tailles de la partition et du fichier de swap', 'Ce qui entre depuis le swap et ce qui y sort, chaque seconde', 'Les erreurs d’E/S du swap', 'La part de CPU passée dans le swap'], answer: 1, why: '`si` est l’entrée depuis le swap et `so` la sortie vers le swap, par seconde. Ils montrent le travail, pas le stock.' },
+					{ q: 'Une page du swap est relue. Que voit le processus ?', options: ['Une erreur de segmentation', 'Un SIGKILL du noyau', 'Rien : le swap est aussi rapide que la RAM', 'Un défaut majeur : il attend que la page soit lue sur le disque'], answer: 3, why: 'La page n’est pas en RAM : l’accès provoque un défaut de page et le processus attend. `si` monte et `majflt` le compte.' }
+				]
+			},
+			{
+				title: 'Juge le trafic',
+				questions: [
+					{ q: 'Après la première ligne, `si` vaut 4 puis 0, `so` 0 et 0. Qu’en conclus-tu ?', options: ['Les 2,3 GB restent dans le swap et personne ne les relit', 'La machine s’écroule sous le swap', 'Le périphérique de swap est en panne', 'Le noyau va appeler l’OOM killer'], answer: 0, why: 'Des pages qui dorment dans le swap ne coûtent aucune E/S. Le trafic est presque nul.' },
+					{ q: '`cache` est vers 15 GB. Pourquoi le noyau le garde-t-il alors que 2,3 GB sont dans le swap ?', options: ['Le cache de pages ne se jette jamais', 'Une swappiness à 0 interdit de le jeter', 'Les pages swappées ne servaient pas, les fichiers en cache sont lus', 'Le swap passe toujours avant le cache'], answer: 2, why: 'Le noyau a mis dans le swap des pages que personne n’utilisait et a donné la RAM au cache de pages qui sert les lectures.' },
+					{ q: 'À quoi ressemblerait un vrai manque de mémoire ici ?', options: ['`swpd` au-dessus de 1 GB', '`si` et `so` à plusieurs milliers sur chaque ligne', '`free` sous 4 GB', '`cache` au-dessus de 10 GB'], answer: 1, why: 'La lenteur vient de pages qui entrent et sortent sans arrêt, avec des processus bloqués sur des défauts majeurs.' },
+					{ q: 'Un gros `swpd` avec `si` et `so` à 0, est-ce un problème ?', options: ['Oui : le swap doit rester vide', 'Oui : c’est le signe d’une fuite', 'Seulement si la swappiness dépasse 60', 'Non : ce sont des pages rangées dans le swap'], answer: 3, why: 'Des pages rangées ne coûtent rien tant qu’on ne les relit pas. Seul le trafic fait mal.' }
+				]
+			},
+			{
+				title: 'Donne ton verdict',
+				questions: [
+					{ q: 'Ce portable manque-t-il de mémoire ?', options: ['Oui : le swap est plein à plus de moitié', 'Non : le swap garde des pages inutilisées et bouge à peine', 'Oui : il ne reste que 3,3 GB de RAM libre', 'Impossible à dire sans le log de l’OOM'], answer: 1, why: 'Le trafic est presque nul et le noyau garde 15 GB de cache de pages. La mémoire n’est pas tendue.' },
+					{ q: 'Un collègue veut mettre la swappiness à 0 « pour couper le swap ». Que fait 0 ?', options: ['Il désactive tous les swaps', 'Il swappe chaque page dès son écriture', 'Il ne swappe que sous le high watermark des pages libres et de fichiers', 'Il déplace le swap en RAM'], answer: 2, why: 'À 0, le swap ne démarre que sous le high watermark. Seul `swapoff`, ou l’absence de swap, le coupe.' },
+					{ q: 'Une page écrite une fois au démarrage n’est plus jamais relue. Une fois qu’elle est dans le swap, que devient la RAM qu’elle occupait ?', options: ['Elle revient au cache de pages ou aux autres processus', 'Elle reste réservée à cette page', 'L’OOM killer la récupère', 'Seul un redémarrage la libère'], answer: 0, why: 'Les pages écrites une fois et jamais relues peuvent quitter la RAM. Cette RAM revient au cache de pages ou aux autres processus.' },
+					{ q: 'Quels chiffres mets-tu dans ta réponse ?', options: ['Seulement la taille du swap', 'Seulement la swappiness', 'Seulement la colonne `free`', '`swpd`, plus `si` et `so` après la première ligne'], answer: 3, why: '`swpd` dit combien est rangé, `si` et `so` disent si ça bouge. Ensemble, ils répondent à la question.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ func calcSwapForBurstablePods(containerMemoryRequest, nodeTotalMemory, totalPods
 			why: '`GetContainerSwapBehavior` renvoie `NoSwap` quand la requête mémoire égale la limite. `configureSwap` écrit alors 0 comme `memory.swap.max`, et le noyau ne sort jamais les pages anonymes de ce conteneur vers le swap.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lire le swap comme le chapitre : ce qui est rangé, ce qui bouge, et comment un cgroup le plafonne.',
+		steps: [
+			'Sur une machine Linux, lis la configuration : `swapon --show` et `cat /proc/sys/vm/swappiness`.',
+			'Regarde le trafic pendant cinq secondes : `vmstat 1 5`. Ignore la première ligne et lis `swpd`, `si` et `so`.',
+			'Trouve à qui sont les pages rangées : `for f in /proc/[0-9]*/status; do awk \'/^Name/{n=$2} /^VmSwap/{print $2, n}\' "$f"; done 2>/dev/null | sort -rn | head -5`.',
+			'Lis le plafond de swap d’un conteneur sans swap : `docker run --rm -m 64m --memory-swap 64m alpine cat /sys/fs/cgroup/memory.swap.max`.',
+			'Refais-le avec le défaut de Docker, puis avec plus de place : `docker run --rm -m 64m alpine cat /sys/fs/cgroup/memory.swap.max`, puis la même chose avec `--memory-swap 192m`.'
+		],
+		done: [
+			'Tu sais dire combien est dans le swap et si `si` et `so` bougent après la première ligne.',
+			'La liste `VmSwap` nomme les cinq processus qui ont le plus de kB dans le swap.',
+			'Le premier conteneur affiche `0`, le deuxième `67108864`, le troisième `134217728`.'
+		],
+		solution: [
+			'Un gros `swpd` avec `si` et `so` proches de 0, ce sont des pages rangées dans le swap. Les processus en haut de la liste `VmSwap` ont écrit ces pages une fois et ne les relisent plus.',
+			'Le `--memory-swap` de Docker compte RAM plus swap. 64m et 64m laissent 0 pour le swap, que Docker écrit dans `memory.swap.max`, le même fichier que le kubelet.',
+			'Sans `--memory-swap`, Docker autorise autant de swap que de RAM : 64 MiB, soit 67108864 octets. 192m moins 64m laissent 128 MiB, soit 134217728.'
+		]
+	},
 	recall: {
 		q: 'Quelles pages ont besoin du swap pour être libérées, et quels compteurs de `vmstat` montrent que le swap fait mal ?',
 		a: 'Les pages anonymes : tas, pile, `mmap` anonyme. Le cache de pages se jette sans swap. `si` et `so` qui bougent à chaque ligne font mal ; un gros `swpd` avec `si` et `so` à 0, ce sont des pages rangées dans le swap.'

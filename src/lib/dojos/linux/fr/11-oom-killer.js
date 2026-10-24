@@ -120,6 +120,44 @@ export default {
 			'Le shell occupe 4 748 kB, une part minuscule de 8 millions de pages : son badness vient presque entièrement de l’ajustement, 100 unités. (1000 + 100) × 2 / 3 donne 733.',
 			'sshd est à -1000 : `oom_badness()` renvoie `LONG_MIN` et le fichier affiche 0. Il ne peut pas être choisi. Le shell partirait en premier, et tout processus avec un `oom_score` plus haut partirait avant lui.',
 			'Le 100 du shell vient de systemd : `user@.service` fixe `OOMScoreAdjust=100` pour le gestionnaire utilisateur, et l’issue de l’introduction montre ses services à 200.'
+		],
+		steps: [
+			{
+				title: 'Lis la sortie',
+				questions: [
+					{ q: 'La ligne du shell est `4049997 zsh 100 733`. Que vaut le 100 ?', options: ['Son `oom_score`', 'Son `oom_score_adj`', 'Sa mémoire résidente en MB', 'Sa valeur de nice'], answer: 1, why: 'La boucle affiche PID, nom, `oom_score_adj`, puis `oom_score`. La troisième colonne est l’ajustement.' },
+					{ q: 'La ligne de sshd est `2313 sshd -1000 0`. Que vaut le 0 ?', options: ['Sa mémoire, arrondie vers le bas', 'Son `oom_score_adj` après remise à zéro', 'Son `oom_score` : le badness remis à l’échelle', 'Le nombre de fois où il a été tué'], answer: 2, why: '`oom_score` est le fichier en lecture seule qui affiche le badness remis à l’échelle. 0 veut dire que le processus est exempté.' },
+					{ q: 'Lequel des deux fichiers peux-tu écrire pour changer le classement d’un processus ?', options: ['`oom_score_adj`', '`oom_score`', 'Les deux', 'Aucun : seul le noyau les fixe'], answer: 0, why: '`oom_score` est en lecture seule. `oom_score_adj` est la valeur par processus que tu fixes, de -1000 à 1000.' },
+					{ q: 'Quelles valeurs `oom_score_adj` peut-il prendre ?', options: ['De 0 à 100', 'De -1000 à 1000', 'De -20 à 19', 'De 0 à 1000'], answer: 1, why: 'La valeur va de -1000 à 1000. Chaque unité ajoute un millième de la mémoire autorisée au badness.' }
+				]
+			},
+			{
+				title: 'Calcule le score du shell',
+				questions: [
+					{ q: 'Qu’est-ce que `oom_badness()` additionne pour un processus ?', options: ['Le temps CPU, l’âge et le nombre d’enfants', 'Les pages résidentes et les fichiers ouverts', 'Seulement la valeur de `oom_score_adj`', 'Pages résidentes, dans le swap et de tables de pages, plus la part `oom_score_adj`'], answer: 3, why: 'Le code ne compte que des pages, puis ajoute `oom_score_adj` × `totalpages` / 1000. Le temps CPU et l’âge n’entrent pas en jeu.' },
+					{ q: 'Le shell occupe 4 748 kB sur environ 8 millions de pages. Qu’est-ce qui fait l’essentiel de son badness ?', options: ['Ses pages résidentes', 'Ses tables de pages', 'Les 100 unités d’ajustement', 'Ses pages dans le swap'], answer: 2, why: 'Quelques kilo-octets pèsent très peu face à 8 millions de pages : le badness vient presque entièrement de l’ajustement.' },
+					{ q: 'Pour un OOM de toute la machine, que vaut `totalpages` ?', options: ['La RAM plus le swap', 'La RAM seule', 'La mémoire libre au moment de l’OOM', 'La mémoire du plus gros processus'], answer: 0, why: 'Pour un OOM de toute la machine, `totalpages` vaut RAM plus swap. Pour un cgroup mémoire, c’est la limite du cgroup.' },
+					{ q: 'La formule d’affichage est `(1000 + badness * 1000 / totalpages) * 2 / 3`. Avec un badness d’environ 100 millièmes, que montre le fichier ?', options: ['100', '667', '1100', '733'], answer: 3, why: '(1000 + 100) × 2 / 3 donne 733, la valeur de la sortie.' }
+				]
+			},
+			{
+				title: 'Explique le 0',
+				questions: [
+					{ q: 'Pourquoi sshd affiche-t-il exactement 0 ?', options: ['Il n’utilise presque pas de mémoire', 'Son `oom_score_adj` vaut -1000 : `oom_badness()` renvoie `LONG_MIN`', 'C’est le PID 1', 'Il tourne en root, et les processus root sont ignorés'], answer: 1, why: '-1000 vaut `OOM_SCORE_ADJ_MIN`. `oom_badness()` renvoie `LONG_MIN` pour cette valeur, et `proc_oom_score()` affiche alors 0.' },
+					{ q: 'Combien de mémoire sshd devrait-il occuper pour que le noyau le choisisse ?', options: ['Plus que tous les autres processus', 'Plus de la moitié de la RAM et du swap', 'Aucune : il ne peut jamais être choisi', 'Plus que la limite de son cgroup'], answer: 2, why: '`oom_evaluate_task` ignore toujours un score `LONG_MIN`, quelle que soit la mémoire occupée.' },
+					{ q: 'Quels autres processus `oom_unkillable_task()` sort-il de la course ?', options: ['Le PID 1 et les threads du noyau', 'Tous les processus de root', 'Les processus lancés avant l’OOM', 'Les processus qui ont des sockets réseau ouvertes'], answer: 0, why: 'La ligne 6 de l’exemple renvoie `LONG_MIN` pour le PID 1 et pour les threads du noyau.' },
+					{ q: 'Un processus à -1000 se met à fuir. Que se passe-t-il quand la mémoire manque ?', options: ['Le noyau le tue quand même, en dernier recours', 'Le noyau le met dans le swap et le garde', 'Le noyau remet sa valeur à 0', 'Le noyau tue les autres un par un, puis panique s’il n’en reste aucun'], answer: 3, why: 'Il n’est jamais choisi. Le noyau tue les autres processus, puis panique avec "System is deadlocked on memory" s’il n’en reste aucun.' }
+				]
+			},
+			{
+				title: 'Décide qui part en premier',
+				questions: [
+					{ q: 'Entre ces deux processus, lequel le noyau tuerait-il en premier ?', options: ['sshd, parce que son score est plus bas', 'Aucun : les deux sont protégés', 'Le shell, parce que sshd ne peut jamais être choisi', 'Celui qui a demandé de la mémoire en dernier'], answer: 2, why: 'Le shell a un vrai score de 733. sshd est hors course.' },
+					{ q: 'Le shell est-il la première victime de toute la machine ?', options: ['Pas si un autre processus a un `oom_score` plus haut', 'Oui : les shells partent toujours en premier', 'Oui : 733 est le score le plus haut possible', 'Non : le noyau choisit toujours celui qui a demandé la mémoire'], answer: 0, why: 'Le noyau tue le score le plus haut. Tout processus au-dessus de 733 part avant le shell.' },
+					{ q: 'D’où vient le 100 du shell ?', options: ['De la valeur par défaut du noyau pour tous les processus', 'zsh le fixe au démarrage', 'Le noyau l’augmente quand la RAM baisse', 'De systemd : `user@.service` fixe `OOMScoreAdjust=100`'], answer: 3, why: 'systemd met 100 sur le gestionnaire utilisateur, et l’issue de l’introduction montre ses services à 200.' },
+					{ q: 'Le shell est choisi. Que reçoit-il ?', options: ['SIGTERM, pour sauver son état', 'SIGKILL, qu’il ne peut pas intercepter', 'Un `malloc` en échec qu’il peut gérer', 'D’abord un avertissement dans son terminal'], answer: 1, why: 'Le noyau envoie SIGKILL. Aucun handler ne tourne et aucun buffer n’est vidé.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,28 @@ export default {
 			why: 'Pour un OOM de cgroup mémoire, `out_of_memory()` écrit "Memory cgroup out of memory" et `select_bad_process` ne parcourt que les tâches de ce cgroup. `totalpages` vaut la limite du cgroup : la mémoire libre de l’hôte n’entre pas en jeu.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir `oom_score_adj` déplacer le score, puis voir une limite de cgroup déclencher l’OOM killer dans un conteneur.',
+		steps: [
+			'Lis les valeurs de ton shell : `cat /proc/$$/oom_score_adj /proc/$$/oom_score`.',
+			'Monte l’ajustement dans un shell enfant et relis le score : `sh -c \'echo 500 > /proc/self/oom_score_adj; cat /proc/self/oom_score_adj /proc/self/oom_score\'`.',
+			'Essaie de descendre sous la valeur reçue : `sh -c \'echo -1000 > /proc/self/oom_score_adj\'`.',
+			'Lance un conteneur limité à 64 MB, sans swap en plus, avec un processus qui grossit sans fin : `docker run --name oom-lab -m 64m --memory-swap 64m alpine sh -c \'tail /dev/zero\'`, puis `echo $?`.',
+			'Demande à Docker pourquoi il s’est arrêté : `docker inspect -f \'{{.State.OOMKilled}}\' oom-lab`. Puis fais le ménage avec `docker rm oom-lab`.'
+		],
+		done: [
+			'L’étape 2 affiche 500, puis un score d’environ 1000.',
+			'L’étape 3 échoue avec une erreur d’écriture : sans root, tu peux monter la valeur, pas la descendre sous ton point de départ.',
+			'`echo $?` après le conteneur affiche 137, soit 128 + 9, le numéro de SIGKILL.',
+			'`docker inspect` affiche `true`.'
+		],
+		solution: [
+			'(1000 + 500) × 2 / 3 donne 1000. Les quelques pages du shell comptent à peine : l’ajustement fait tout le score.',
+			'`tail /dev/zero` attend un saut de ligne qui ne vient jamais et garde les octets en mémoire : il grossit jusqu’à la limite.',
+			'Le noyau a comparé le conteneur à sa limite de 64 MB, pas à la RAM de l’hôte. Il n’a noté que les processus de ce cgroup et a envoyé SIGKILL à `tail`.'
+		]
+	},
 	recall: {
 		q: 'Qu’est-ce que `oom_badness()` additionne pour chaque processus, et que fait `oom_score_adj` à -1000 ?',
 		a: 'Les pages résidentes, les pages dans le swap et les pages de tables de pages, plus `oom_score_adj` × `totalpages` / 1000. Le score le plus haut reçoit SIGKILL. À -1000, la fonction renvoie `LONG_MIN` : le processus n’est jamais choisi.'

@@ -134,6 +134,44 @@ export default {
 			'`Shared_Clean` vaut 17692 kB, environ 17 Mio : les bibliothèques et les autres pages partagées propres pèsent peu. Entre les deux workers, l’écart est de 1196664 − 282820 = 913844 kB, environ 892 Mio, dont 912956 kB d’`Anonymous`. Presque tout l’écart est de la mémoire anonyme écrite par l’ancien processus.',
 			'Le redémarrage l’a libérée : ni le noyau ni le cache de pages ne la tenaient. Le processus la tenait, en objets Python vivants ou en blocs libérés gardés dans les arènes de la glibc.',
 			'Liste les mappings par taille : `awk \'/^[0-9a-f]+-[0-9a-f]+ /{n=($6==""?"[anon]":$6)} /^Rss:/{print $2, n}\' /proc/49/smaps | sort -n | tail`. L’auteur du ticket a trouvé 61 mappings anonymes de 1 Mio ou plus, 1039848 kB en tout, contre 76392 kB pour le plus gros `[heap]`.'
+		],
+		steps: [
+			{
+				title: 'Calcule la part',
+				questions: [
+					{ q: 'Quels deux nombres donnent la part anonyme de la mémoire du pid 49 ?', options: ['`Private_Dirty` sur `Shared_Clean`', '`Anonymous` sur `Rss`', '`Rss` sur `Anonymous`', '`Anonymous` sur `Private_Dirty`'], answer: 1, why: '`Rss` est toute la mémoire résidente. `Anonymous` est la part qui n’appartient à aucun fichier.' },
+					{ q: '1178592 / 1196664, ça fait environ combien ?', options: ['98,5 %', '85 %', '50 %', '9,8 %'], answer: 0, why: 'Les deux nombres ne diffèrent que d’environ 18 MB sur 1,2 GB.' },
+					{ q: 'Qu’est-ce qui entre dans `Anonymous` ?', options: ['Les pages des bibliothèques mappées', 'Le cache de pages des fichiers lus par le worker', 'Les objets slab du noyau', 'Le tas, les piles, les `mmap` anonymes, et les copies privées de pages de fichier écrites'], answer: 3, why: '`smaps_account` ajoute une page à `Anonymous` quand elle n’appartient à aucun fichier. Une page de fichier `MAP_PRIVATE` écrite devient une copie anonyme privée.' },
+					{ q: '`Private_Dirty` vaut 1096568 kB. Qu’est-ce que ça ajoute ?', options: ['Ces pages sont partagées avec d’autres workers', 'Ces pages peuvent être jetées à tout moment', 'Ces pages ne sont mappées que par ce processus et ont été écrites', 'Ces pages sont dans le swap'], answer: 2, why: 'Les pages privées sales n’appartiennent qu’à ce processus. Le noyau ne peut pas les jeter, seulement les envoyer dans le swap.' }
+				]
+			},
+			{
+				title: 'Écarte les fichiers',
+				questions: [
+					{ q: 'Où tombent surtout les bibliothèques mappées dans `smaps_rollup` ?', options: ['`Shared_Clean`', '`Private_Dirty`', '`Anonymous`', '`Swap`'], answer: 0, why: 'Les bibliothèques sont des pages de fichier que beaucoup de processus mappent et que personne n’écrit.' },
+					{ q: '`Shared_Clean` vaut 17692 kB. Qu’est-ce que ça te dit ?', options: ['Les bibliothèques tiennent l’essentiel des 1,2 GB', 'Les bibliothèques et pages partagées propres font environ 17 Mio, une petite part', 'Le worker fuit des descripteurs de fichier', 'Le cache de pages est plein'], answer: 1, why: '17 Mio sur 1,2 GB ne peuvent pas expliquer la croissance.' },
+					{ q: 'Quel est l’écart de `Rss` entre le pid 49 et le pid 2179 ?', options: ['Environ 282 Mio', 'Environ 1,2 Gio', 'Environ 17 Mio', 'Environ 892 Mio'], answer: 3, why: '1196664 − 282820 = 913844 kB, environ 892 Mio.' },
+					{ q: 'L’écart d’`Anonymous` est de 912956 kB. Qu’en conclus-tu ?', options: ['L’écart vient surtout des bibliothèques', 'L’écart vient surtout du cache de pages', 'Presque tout l’écart est de la mémoire anonyme écrite par l’ancien processus', 'Les deux relevés ne se comparent pas'], answer: 2, why: 'L’écart anonyme est à moins de 1 MB de l’écart de `Rss`. Les pages de fichier ne jouent presque aucun rôle.' }
+				]
+			},
+			{
+				title: 'Dis qui la tenait',
+				questions: [
+					{ q: 'Le redémarrage a libéré la mémoire. Qu’est-ce que ça écarte ?', options: ['Le noyau ou le cache de pages comme détenteur', 'Une fuite dans le code Python', 'Des arènes glibc qui gardent des blocs libérés', 'Rien : un redémarrage libère aussi la mémoire du noyau'], answer: 0, why: 'Une mémoire qui part avec le processus appartenait au processus, pas au noyau ni au cache de pages.' },
+					{ q: 'Dans le processus, quelles deux choses peuvent tenir les pages anonymes ?', options: ['Des sockets et des pipes ouverts', 'Des objets Python vivants, ou des blocs libérés gardés dans les arènes glibc', 'Les bibliothèques partagées et le cache de pages', 'La pile du thread principal seulement'], answer: 1, why: 'Les deux sont de la mémoire anonyme écrite par le processus. Les chiffres seuls ne les distinguent pas.' },
+					{ q: 'Pourquoi des blocs libérés peuvent-ils garder `Rss` haut ?', options: ['free() envoie les pages dans le swap', 'Le noyau garde les pages libérées jusqu’au redémarrage', 'Python n’appelle jamais free()', 'La glibc ne peut réduire un tas que par le haut'], answer: 3, why: 'mallopt(3) : "the heap can be trimmed only if memory is freed at the top end". Un seul objet vivant près du haut retient les pages en dessous.' },
+					{ q: 'Que fait `max_requests` de gunicorn face à ça ?', options: ['Il plafonne chaque arène à 64 Mio', 'Il trouve le code qui alloue', 'Il redémarre un worker après ce nombre de requêtes', 'Il coupe les arènes de la glibc'], answer: 2, why: 'C’est "a simple method to help limit the damage of memory leaks". Il ne montre pas quel code alloue.' }
+				]
+			},
+			{
+				title: 'Trouve les mappings',
+				questions: [
+					{ q: 'Quel fichier donne le détail par mapping ?', options: ['`/proc/49/smaps_rollup`', '`/proc/49/status`', '`/proc/49/smaps`', '`/proc/49/maps`'], answer: 2, why: '`smaps_rollup` additionne tous les mappings. `smaps` garde un bloc par mapping, avec son propre `Rss:`.' },
+					{ q: 'Dans la commande `awk`, pourquoi tester `$6==""` ?', options: ['Une 6e colonne vide veut dire un mapping anonyme sans nom', 'Pour sauter la ligne `[heap]`', 'Pour sauter les mappings dans le swap', 'Pour ne garder que les bibliothèques partagées'], answer: 0, why: 'Le nom est dans la 6e colonne de la ligne d’en-tête. Les gros blocs `malloc` et les arènes en plus n’ont pas de nom.' },
+					{ q: 'Un `malloc(1 MB)` dans la glibc atterrit où ?', options: ['Dans `[heap]`, agrandi avec `brk`', 'Dans son propre mapping anonyme privé', 'Dans `[stack]`', 'Dans le cache de pages'], answer: 1, why: 'La glibc sert un bloc de 128 kB ou plus avec son propre `mmap`. Il apparaît sans nom.' },
+					{ q: 'L’auteur a trouvé 61 mappings sans nom de 1 Mio ou plus, 1039848 kB en tout, et 76392 kB de `[heap]`. Où est la croissance ?', options: ['Dans l’arène principale `[heap]`', 'Dans les bibliothèques', 'Dans les piles', 'Dans les mappings anonymes sans nom : gros blocs et arènes en plus'], answer: 3, why: 'Les mappings sans nom tiennent environ 1 GB, plus de dix fois le `[heap]`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,26 @@ export default {
 			why: 'Les threads qui se disputent le verrou de l’arène principale reçoivent leurs propres arènes, jusqu’à 8 par CPU en 64 bits. Ces arènes sont des tas `mmap` de 64 Mio au plus, sans nom dans `maps`. Seule l’arène principale agrandit `[heap]`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lancer un processus qui fuit exprès, voir `smaps_rollup` grossir, et trouver le mapping qui tient la mémoire.',
+		steps: [
+			'Sous Linux, lance un processus Python qui garde 1 Mio de plus toutes les 50 ms, jusqu’à 400 Mio, puis attend : `python3 -c "import time; keep = []; [(keep.append(bytearray(1 << 20)), time.sleep(0.05)) for _ in range(400)]; time.sleep(120)" & pid=$!`.',
+			'Lis les totaux trois fois : `for i in 1 2 3; do grep -E \'^(Rss|Anonymous|Private_Dirty|Shared_Clean)\' /proc/$pid/smaps_rollup; echo; sleep 3; done`.',
+			'Liste les mappings par taille résidente : `awk \'/^[0-9a-f]+-[0-9a-f]+ /{n=($6==""?"[anon]":$6)} /^Rss:/{print $2, n}\' /proc/$pid/smaps | sort -n | tail -5`.',
+			'Arrête-le : `kill $pid`.'
+		],
+		done: [
+			'`Rss`, `Anonymous` et `Private_Dirty` grossissent à chaque relevé, et `Shared_Clean` reste à quelques MB.',
+			'`Anonymous` reste à quelques MB de `Rss`.',
+			'La dernière ligne de l’étape 3 est `[anon]`, loin devant `python3` et `libc.so.6`.'
+		],
+		solution: [
+			'Chaque `bytearray(1 << 20)` est un bloc de 1 Mio, au-dessus du seuil de 128 kB de la glibc : il reçoit son propre `mmap` anonyme. Y écrire des zéros fait entrer les pages en RAM.',
+			'Le noyau fusionne les mappings anonymes voisins qui ont les mêmes drapeaux : les blocs de 1 Mio peuvent donc apparaître comme une seule grosse ligne `[anon]` au lieu de centaines.',
+			'C’est la méthode du chapitre : `smaps_rollup` dit que la croissance est de la mémoire anonyme écrite par le processus, et `smaps` dit où elle se trouve. Aucun des deux ne dit quelle ligne de code alloue.'
+		]
+	},
 	recall: {
 		q: 'Quel fichier donne en une lecture les totaux mémoire d’un processus, et quelle ligne montre que la croissance vient de mémoire écrite par le processus lui-même ?',
 		a: '`/proc/<pid>/smaps_rollup`, et sa ligne `Anonymous:`, avec `Private_Dirty:` à côté. Le worker authentik au repos avait 2090156 kB d’`Anonymous` sur 2110844 kB de `Rss`.'

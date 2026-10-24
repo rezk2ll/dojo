@@ -123,6 +123,44 @@ export default {
 			'`-rwsr-xr-x 4755 root root /usr/bin/passwd` : le 4 est set-user-ID, donc `passwd` tourne avec l’UID effectif 0 pour n’importe quel appelant. `-rwxr-sr-x 2755 root crontab /usr/bin/crontab` : le 2 est set-group-ID, donc il tourne avec le groupe effectif `crontab`.',
 			'`drwxrwsr-x 2775 root mail /var/mail` : set-group-ID sur un répertoire, chaque nouvelle boîte aux lettres reçoit donc le groupe `mail`.',
 			'`umask` a affiché `002` : un nouveau fichier reçoit 0666 & ~002 = 0664 (`-rw-rw-r--`), un nouveau répertoire 0775. `find` a listé 11 programmes set-user-ID root, dont `sudo`, `su`, `mount` et `pkexec`.'
+		],
+		steps: [
+			{
+				title: 'Lis la ligne de /tmp',
+				questions: [
+					{ q: '`drwxrwxrwt 1777 root root /tmp`. Quel bit spécial est posé ?', options: ['Set-user-ID', 'Set-group-ID', 'Le sticky bit', 'Aucun : `t` est un type de fichier'], answer: 2, why: 'Le premier chiffre octal vaut 1, affiché `t` à la place de l’exécution des autres : le sticky bit.' },
+					{ q: 'Que permet la partie 777 dans `/tmp` ?', options: ['Y créer des fichiers', 'Y supprimer n’importe quel fichier', 'Y lire tous les fichiers', 'Y lancer chaque fichier en root'], answer: 0, why: 'L’écriture et l’exécution sur un répertoire permettent à tout le monde d’y ajouter des entrées.' },
+					{ q: 'Bob essaie de supprimer un fichier qu’alice a créé dans `/tmp`, en mode 0666. Que se passe-t-il ?', options: ['Ça marche : tout le monde peut écrire dans le fichier', 'Ça marche : tout le monde peut écrire dans `/tmp`', 'Ça ne marche qu’au démarrage', 'Ça échoue : le sticky bit réserve la suppression aux propriétaires'], answer: 3, why: 'Supprimer modifie le répertoire, c’est donc lui qui décide. Seuls le propriétaire du fichier, root ou un processus privilégié peuvent le supprimer.' },
+					{ q: 'Pourquoi le mode du fichier lui-même ne compte-t-il pas pour la suppression ?', options: ['Le noyau vérifie le mode du fichier après la suppression', 'Supprimer retire une entrée de répertoire : c’est le mode du répertoire qui décide', 'Les fichiers de `/tmp` n’ont pas de mode', 'Parce que root possède `/tmp`'], answer: 1, why: 'Un nom vit dans le répertoire parent. Le retirer, c’est écrire dans ce répertoire.' }
+				]
+			},
+			{
+				title: 'Lis les deux programmes',
+				questions: [
+					{ q: '`-rwsr-xr-x 4755 root root /usr/bin/passwd`. Que fait le 4 ?', options: ['Il rend le fichier lisible par root seul', 'Set-user-ID : le processus tourne avec l’UID effectif 0 pour tout appelant', 'Set-group-ID : il tourne avec le groupe root', 'Il marque le fichier sticky en mémoire'], answer: 1, why: 'execve donne l’UID effectif du propriétaire du fichier, ici root. L’UID réel reste celui de l’appelant.' },
+					{ q: 'L’utilisateur 1000 lance `passwd`. Quel est l’UID réel du processus ?', options: ['0', '1000', '4755', 'L’UID du dernier utilisateur qui l’a lancé'], answer: 1, why: 'Seul l’UID effectif change. L’UID réel reste 1000, et le programme sait donc qui l’a appelé.' },
+					{ q: '`-rwxr-sr-x 2755 root crontab /usr/bin/crontab`. Que fait le 2 ?', options: ['Il tourne avec le groupe effectif `crontab`', 'Il tourne avec l’utilisateur effectif `crontab`', 'Seul le groupe peut le lancer', 'Les nouveaux fichiers prennent le groupe `crontab`'], answer: 0, why: 'Le `s` à la place du groupe sur un programme est le set-group-ID : il fixe le GID effectif au groupe du fichier.' },
+					{ q: 'Quand `passwd` garderait-il l’UID effectif 1000 malgré le bit ?', options: ['Quand l’appelant est dans le groupe `root`', 'Quand le umask vaut `022`', 'Quand son système de fichiers est monté `nosuid`, ou que `no_new_privs` est posé', 'Jamais'], answer: 2, why: 'execve(2) ignore le bit set-user-ID sur un montage `nosuid` ou quand le thread a `no_new_privs`.' }
+				]
+			},
+			{
+				title: 'Lis le répertoire et la liste',
+				questions: [
+					{ q: '`drwxrwsr-x 2775 root mail /var/mail`. Que fait le `s` sur un répertoire ?', options: ['Les programmes dedans tournent en `mail`', 'Seul `mail` peut le lister', 'Les nouveaux fichiers y prennent le groupe `mail`', 'Les fichiers dedans ne peuvent pas être supprimés'], answer: 2, why: 'inode(7) : les fichiers créés dans un répertoire set-group-ID "inherit their group ID from the directory".' },
+					{ q: 'Un nouveau sous-répertoire sous `/var/mail` reçoit-il aussi le bit ?', options: ['Oui : les sous-répertoires en héritent', 'Non : seuls les fichiers en héritent', 'Seulement s’il est créé par root', 'Seulement avec un umask `002`'], answer: 0, why: 'Les nouveaux sous-répertoires d’un répertoire set-group-ID reçoivent aussi le bit : la règle descend.' },
+					{ q: '`find /usr/bin -perm -4000` a listé 11 programmes. Qu’ont-ils en commun ?', options: ['Ils sont tous sticky', 'Ils appartiennent tous au groupe `mail`', 'Les utilisateurs ne peuvent pas les lancer', 'Ils tournent tous avec l’UID du propriétaire, ici root, pour tout appelant'], answer: 3, why: '`-perm -4000` trouve les fichiers qui ont le bit set-user-ID. Chacun tourne en root pour tout le monde.' },
+					{ q: 'Pourquoi cette liste compte-t-elle après PwnKit ?', options: ['Chaque programme ralentit le démarrage', 'Un bug dans l’un d’eux est un bug root pour chaque utilisateur local', 'Chacun laisse fuir le umask', 'Ils ignorent `nosuid`'], answer: 1, why: '`pkexec` était dans une telle liste de mai 2009 à janvier 2022. Le correctif a retiré son bit avec `chmod 0755`.' }
+				]
+			},
+			{
+				title: 'Calcule depuis le umask',
+				questions: [
+					{ q: '`umask` affiche `002`. Quel mode `touch` demande-t-il ?', options: ['0777', '0644', '0666', '0002'], answer: 2, why: '`touch` demande 0666 à `open`. Le umask retire ensuite des bits.' },
+					{ q: 'Quel mode le nouveau fichier reçoit-il ?', options: ['0664, `-rw-rw-r--`', '0644, `-rw-r--r--`', '0666, `-rw-rw-rw-`', '0775, `-rwxrwxr-x`'], answer: 0, why: '0666 & ~002 = 0664. Seuls les autres perdent l’écriture.' },
+					{ q: 'Quel mode reçoit un nouveau répertoire ?', options: ['0664', '0755', '0777', '0775'], answer: 3, why: '`mkdir` demande 0777, et 0777 & ~002 = 0775.' },
+					{ q: 'Pourquoi les équipes d’un répertoire setgid partagé choisissent-elles `002` plutôt que `022` ?', options: ['`022` bloque le bit setgid', 'Avec `022`, les nouveaux fichiers sont en `-rw-r--r--` : le groupe ne peut pas écrire', '`002` rend les fichiers exécutables', '`022` cache les fichiers au groupe'], answer: 1, why: 'Le répertoire setgid donne le groupe, mais c’est le umask qui décide si le groupe peut écrire.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,30 @@ export default {
 			why: 'open(2) retire les bits du umask : 0666 & ~027 = 0640. Le groupe perd l’écriture, les autres perdent tout. 0750, c’est ce que donnerait `mkdir`, qui part de 0777.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Voir chaque bit spécial agir, avec deux utilisateurs, dans un conteneur jetable où tu es root.',
+		steps: [
+			'Lance le conteneur. `--tmpfs` ajoute un montage de travail que Docker monte en `nosuid` : `docker run --rm -it --tmpfs /ns:exec debian:bookworm-slim bash`.',
+			'Crée deux utilisateurs et un groupe : `useradd -m alice; useradd -m bob; groupadd team; usermod -aG team alice`.',
+			'Sticky bit : `mkdir /shared && chmod 1777 /shared`, puis `su alice -c \'touch /shared/alice.log && chmod 666 /shared/alice.log\'` et `su bob -c \'rm /shared/alice.log\'`.',
+			'Répertoire set-group-ID : `mkdir /team && chgrp team /team && chmod 2775 /team`, puis `su alice -c \'touch /team/a.txt\'` et `stat -c \'%A %U %G %n\' /team /team/a.txt`.',
+			'umask : `su alice -c \'umask 027; touch /tmp/f; mkdir /tmp/d\'` et `stat -c \'%a %n\' /tmp/f /tmp/d`.',
+			'Set-user-ID : `cp /usr/bin/id /usr/local/bin/myid && chmod 4755 /usr/local/bin/myid` et `su bob -c myid`. Puis le même fichier sur le montage `nosuid` : `cp /usr/bin/id /ns/myid && chmod 4755 /ns/myid` et `su bob -c /ns/myid`. Puis `exit`.'
+		],
+		done: [
+			'L’étape 3 affiche `Operation not permitted` alors que le fichier est en mode 666.',
+			'L’étape 4 montre `/team` en `drwxrwsr-x` et `a.txt` avec le groupe `team`.',
+			'L’étape 5 affiche `640 /tmp/f` et `750 /tmp/d`.',
+			'`su bob -c myid` affiche `euid=0(root)`, et `su bob -c /ns/myid` non.'
+		],
+		solution: [
+			'Le sticky bit de `/shared` ne laisse qu’alice, root ou un processus privilégié retirer `alice.log`. Le mode du fichier n’est pas vérifié.',
+			'`a.txt` a pris le groupe du répertoire. Il est en `-rw-r--r--` parce que le umask par défaut, `022`, a retiré l’écriture du groupe.',
+			'0666 & ~027 = 0640 et 0777 & ~027 = 0750.',
+			'execve a donné à bob l’UID effectif du propriétaire du fichier, root, et a laissé l’UID réel à bob. Sur le montage `nosuid`, execve a ignoré le bit.'
+		]
+	},
 	recall: {
 		q: 'Que veulent dire les chiffres octaux 4, 2 et 1 devant un mode comme `4755`, et lequel le correctif d’urgence de PwnKit a-t-il retiré de `pkexec` ?',
 		a: '4 est set-user-ID, 2 set-group-ID, 1 le sticky bit. `chmod 0755 /usr/bin/pkexec` a retiré le 4 : `pkexec` ne tournait plus en root pour chaque utilisateur.'

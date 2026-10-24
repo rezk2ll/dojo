@@ -123,6 +123,44 @@ next_group:
 			'Sortie relevée sur un portable en ext4 pour ce chapitre : `55646733 -rw-rw-r-- 2 ... 6 copy.txt`, `55646734 lrwxrwxrwx 1 ... 10 link.txt -> report.txt`, `55646733 -rw-rw-r-- 2 ... 6 report.txt`. Deux noms partagent l’inode 55646733 avec 2 liens. Le symlink a son propre inode et une taille de 10, la longueur de `report.txt`.',
 			'Après `rm report.txt`, `copy.txt` n’a plus qu’un lien et `cat copy.txt` affiche `hello`. `cat link.txt` affiche `No such file or directory` : le symlink existe encore, le nom qu’il vise n’existe plus.',
 			'`df -i .` a affiché `62251008` inodes, `18931731` utilisés, `43319277` libres, `31%`. Ce système de fichiers peut encore prendre environ 43 millions de fichiers, répertoires, symlinks ou sockets, quels que soient les octets libres.'
+		],
+		steps: [
+			{
+				title: 'Compte les inodes',
+				questions: [
+					{ q: 'Lesquelles des trois commandes allouent un nouvel inode ?', options: ['Les trois', '`echo` et `ln -s`', 'Seulement `echo`', '`echo` et `ln`'], answer: 1, why: '`echo > report.txt` crée un fichier. `ln -s` crée un symlink, un fichier à part avec son propre inode. `ln` ajoute seulement une entrée de répertoire.' },
+					{ q: 'Quel numéro d’inode `copy.txt` va-t-il afficher ?', options: ['Le même que `report.txt`', 'Le prochain numéro libre', 'Le même que `link.txt`', 'Aucun : un lien physique n’a pas d’inode'], answer: 0, why: 'Un lien physique est une deuxième entrée de répertoire avec le même numéro d’inode que la première.' },
+					{ q: 'Où est stocké le nom `report.txt` ?', options: ['Dans l’inode', 'Dans les blocs de données du fichier', 'Dans le répertoire parent, à côté du numéro d’inode', 'Dans la bitmap des inodes'], answer: 2, why: 'L’inode a un numéro et pas de nom. L’entrée de répertoire relie le nom à ce numéro.' },
+					{ q: 'Après `ln`, lequel des deux noms est l’original ?', options: ['`report.txt`, parce qu’il est venu en premier', '`copy.txt`, parce qu’il est plus récent', 'Celui qui a le moins de liens', 'Aucun : les deux entrées visent le même inode'], answer: 3, why: 'link(2) : "it is impossible to tell which name was the \'original\'."' }
+				]
+			},
+			{
+				title: 'Devine les compteurs',
+				questions: [
+					{ q: 'Quel nombre de liens `ls -li` affiche-t-il pour `report.txt` et `copy.txt` ?', options: ['1 chacun', '2 chacun', '3 chacun', '2 pour `report.txt`, 1 pour `copy.txt`'], answer: 1, why: 'Les deux noms partagent un inode, et `ln` a monté de un le nombre de liens de cet inode.' },
+					{ q: 'Le symlink monte-t-il le nombre de liens de `report.txt` ?', options: ['Oui, de un', 'Oui, de deux', 'Non : il a son propre inode et stocke un chemin', 'Seulement tant qu’il est ouvert'], answer: 2, why: 'Un symlink est un fichier à part. Il contient une chaîne de chemin et ne touche jamais au nombre de liens de sa cible.' },
+					{ q: 'Quelle taille `ls -l` affiche-t-il pour `link.txt` ?', options: ['6, la taille de la cible', '0', '4096, un bloc', '10, la longueur de `report.txt`'], answer: 3, why: 'inode(7) : la taille d’un symlink "is the length of the pathname it contains". `report.txt` fait 10 octets.' },
+					{ q: 'Quelle taille affichent `report.txt` et `copy.txt` ?', options: ['6 chacun : `hello` et un saut de ligne', '12 : 6 pour chaque nom', '6 pour l’un, 0 pour l’autre', '10 chacun'], answer: 0, why: 'C’est le même inode, donc les mêmes 6 octets. Deux noms ne doublent pas les données.' }
+				]
+			},
+			{
+				title: 'Devine le rm',
+				questions: [
+					{ q: 'Après `rm report.txt`, combien de liens `copy.txt` affiche-t-il ?', options: ['0', '2', '1', 'Il a disparu'], answer: 2, why: 'unlink(2) retire un nom et baisse le nombre de liens de un.' },
+					{ q: 'Qu’affiche `cat copy.txt` ?', options: ['`hello`', 'Rien : le fichier est vide', '`No such file or directory`', 'Des octets au hasard venus de blocs libérés'], answer: 0, why: 'L’inode a encore un lien, ses blocs sont donc toujours là.' },
+					{ q: 'Qu’affiche `cat link.txt` ?', options: ['`hello`, en passant par `copy.txt`', 'Une ligne vide', '`Permission denied`', '`No such file or directory`'], answer: 3, why: 'Le symlink existe encore, mais le chemin qu’il contient, `report.txt`, n’existe plus. Il pointe dans le vide.' },
+					{ q: 'Quand l’inode revient-il dans la bitmap ?', options: ['Maintenant : un nom a disparu', 'Quand le nombre de liens atteint 0 et qu’aucun processus n’a le fichier ouvert', 'Au prochain redémarrage', 'Quand `fsck` passe'], answer: 1, why: 'unlink(2) : le fichier n’est supprimé que quand le dernier lien a disparu et qu’aucun processus ne l’a ouvert.' }
+				]
+			},
+			{
+				title: 'Lis df -i',
+				questions: [
+					{ q: '`df -i .` affiche `62251008` inodes, `18931731` utilisés. Combien de fichiers tiennent encore, environ ?', options: ['Environ 18 millions', 'Environ 62 millions', 'Environ 43 millions', 'Ça dépend des octets libres'], answer: 2, why: '62251008 − 18931731 = 43319277 inodes libres, un par nouveau fichier.' },
+					{ q: 'Lequel de ces éléments consomme aussi un de ces inodes ?', options: ['Un nouveau répertoire, symlink ou socket', 'Un nouveau lien physique', 'Écrire plus d’octets dans un fichier existant', 'Lire un fichier'], answer: 0, why: 'Chaque fichier, répertoire, symlink et socket demande un inode. Un lien physique en réutilise un.' },
+					{ q: 'Peux-tu ajouter des inodes plus tard à ce système ext4 ?', options: ['Oui, avec `df -i --grow`', 'Oui, ils suivent les octets libres', 'Seulement en supprimant des répertoires', 'Non : leur nombre est fixé au mkfs'], answer: 3, why: 'mke2fs(8) : "it is not possible to change this ratio on a file system after it is created".' },
+					{ q: 'Tous les inodes sont pris et `df -h` montre 40 % de libre. Qu’affiche `touch new` ?', options: ['Rien : ça passe', '`No space left on device`', '`Too many open files`', '`Read-only file system`'], answer: 1, why: '`__ext4_new_inode` renvoie `-ENOSPC` quand aucun groupe de blocs n’a d’inode libre. Il ne regarde jamais les blocs de données libres.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ next_group:
 			why: 'Une entrée de répertoire contient un numéro d’inode, unique seulement dans un système de fichiers : link(2) échoue donc avec `EXDEV`. Un symlink contient la chaîne `/etc/app/config.yaml`, et le noyau la résout à l’ouverture.'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Épuiser les inodes d’un système de fichiers qui a encore des octets libres, et obtenir `No space left on device`.',
+		steps: [
+			'Lance un conteneur avec un petit `tmpfs` qui a de la place pour 10 MB mais seulement 200 inodes : `docker run --rm -it --tmpfs /small:size=10m,nr_inodes=200 alpine sh`.',
+			'Dedans, va dans ce dossier et lis les deux vues : `cd /small && df -i . && df -h .`.',
+			'Crée des fichiers vides jusqu’au refus : `i=0; while touch f$i 2>/dev/null; do i=$((i+1)); done; echo $i`.',
+			'Relis les deux vues, puis essaie encore un fichier : `df -i . && df -h . && touch extra`.',
+			'Supprime un fichier et réessaie : `rm f1 && touch extra && echo ok`. Puis `exit`.'
+		],
+		done: [
+			'L’étape 3 affiche 199 : le répertoire lui-même a pris le premier inode.',
+			'L’étape 4 montre `Use%` à 100 % dans `df -i` et à 0 % dans `df -h`, puis `touch: extra: No space left on device`.',
+			'L’étape 5 affiche `ok`.'
+		],
+		solution: [
+			'Les fichiers vides ne prennent aucun bloc de données, donc `df -h` ne bouge pas. Chacun prend quand même un inode, et les 200 s’épuisent.',
+			'L’erreur est `ENOSPC`, la même que pour un disque plein. Seul `df -i` distingue les deux cas.',
+			'Supprimer le dernier nom d’un fichier qu’aucun processus n’a ouvert libère son inode : un fichier de plus tient.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi `df -h` peut-il montrer de la place libre alors que la création d’un fichier échoue avec `ENOSPC`, et quelle commande le montre ?',
 		a: 'Chaque fichier, répertoire, symlink et socket demande un inode, et ext4 fixe leur nombre au mkfs, un pour 16384 octets par défaut. `df -i` affiche `IUse%`, qui valait 100 dans le ticket Rancher.'

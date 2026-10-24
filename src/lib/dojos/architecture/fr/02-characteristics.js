@@ -91,6 +91,44 @@ export default {
 			'Vérifie : chacune est-elle liée à un besoin que tu pourrais dire à voix haute, comme « l’agrégation de logs en temps réel » de Kafka ?',
 			'Vérifie : peux-tu nommer une décision que chacune impose ? Une caractéristique qui n’impose aucune décision ne guide pas la conception : retire-la.',
 			'Vérifie : as-tu coupé quelque chose qui faisait mal à couper ? Si les trois étaient faciles, la liste est sans doute trop générique.'
+		],
+		steps: [
+			{
+				title: 'Pars des besoins',
+				questions: [
+					{ q: 'D’où pars-tu pour choisir les trois principales ?', options: ['Du catalogue standard des « -ilités », de haut en bas', 'De ce qui mettrait les utilisateurs ou le business en colère si ça cassait', 'Des technologies que l’équipe connaît déjà', 'De la liste « rapide, sécurisé, scalable, simple, fiable, pas cher »'], answer: 1, why: 'Une caractéristique protège quelque chose qui compte. Pars de ce qui fait mal quand ça casse.' },
+					{ q: 'Qu’a écrit la doc de conception de Kafka avant toute conception ?', options: ['Les classes et leurs méthodes', 'La valeur par défaut de `linger.ms`', 'Trois besoins : haut débit, gros backlogs, livraison à faible latence', 'La quantité de page cache d’un broker'], answer: 2, why: 'La doc part de ce que Kafka doit faire. Les décisions viennent après.' },
+					{ q: 'Une équipe veut « rapide, sécurisé, scalable, simple, fiable, pas cher », tout au maximum. Qu’est-ce qui ne va pas ?', options: ['Ce sont des fonctionnalités, pas des caractéristiques', 'La liste est trop courte pour couvrir le système', 'Elle n’aide pas l’équipe à choisir entre deux conceptions', 'Elle oublie la latence'], answer: 2, why: 'Si tout compte au maximum, rien ne te dit quelle conception choisir.' },
+					{ q: 'Le premier besoin de Kafka parle d’un « haut » débit, sans nombre. Qu’est-ce que ça veut dire pour l’instant ?', options: ['Personne ne peut encore le tester', 'C’est une fonctionnalité, pas une caractéristique', 'Il ne guide pas la conception', 'Il faut le retirer de la liste'], answer: 0, why: '« Haut » et « faible » n’ont pas encore de nombre, donc personne ne peut les vérifier.' }
+				]
+			},
+			{
+				title: 'Vérifie que ce sont des caractéristiques',
+				questions: [
+					{ q: 'Laquelle est une caractéristique, et pas une fonctionnalité ?', options: ['Peut exporter un rapport', 'Peut exporter en CSV et en PDF', 'L’export se termine en moins d’une minute pour un an de données', 'Peut programmer un export chaque lundi'], answer: 2, why: 'Une limite de temps dit comment l’export doit être construit. Les autres disent ce que les utilisateurs peuvent faire.' },
+					{ q: '« Les consumers peuvent revenir en arrière et relire d’anciens messages. » Qu’est-ce que c’est ?', options: ['Une caractéristique : le débit', 'Une fonctionnalité', 'Une caractéristique : la disponibilité', 'Une caractéristique déterminante'], answer: 1, why: 'Ça décrit ce que fait le système, donc c’est une fonctionnalité.' },
+					{ q: 'Qu’est-ce qui sépare une caractéristique d’une fonctionnalité ?', options: ['Une caractéristique coûte moins cher à construire', 'Une fonctionnalité est toujours testée, une caractéristique non', 'Une fonctionnalité vit dans le code, une caractéristique seulement dans la doc', 'Une caractéristique dit comment construire le système, une fonctionnalité ce qu’il fait'], answer: 3, why: 'Les fonctionnalités sont le quoi. Les caractéristiques sont le comment, et elles façonnent la conception.' },
+					{ q: '« Un broker sert les consumers à une vitesse proche de celle du réseau. » Qu’est-ce que c’est ?', options: ['Une caractéristique : ça ne dit rien de ce que fait le système', 'Une fonctionnalité : ça décrit ce que reçoivent les consumers', 'Une fonctionnalité : les utilisateurs voient la vitesse', 'Ni l’un ni l’autre : c’est un détail d’implémentation'], answer: 0, why: 'Ça n’ajoute aucun comportement. Ça décide de la façon de construire le broker.' }
+				]
+			},
+			{
+				title: 'Relie chacune à une décision',
+				questions: [
+					{ q: 'Quelles deux décisions le besoin de débit de Kafka a-t-il imposées ?', options: ['TLS, et un gros cache dans le processus', 'Une semaine de rétention, et `linger.ms`', 'Regrouper en message sets, et le zero-copy du page cache au socket', 'Des index, et du sharding'], answer: 2, why: 'Un seul aller-retour réseau et une seule écriture disque transportent beaucoup de messages, et les octets du fichier vont directement au socket.' },
+					{ q: 'Quelle décision vient du besoin de gros backlogs ?', options: ['Le zero-copy du page cache au socket', 'Un log en ajout seul sur disque, avec des messages gardés environ une semaine', 'Une attente du producer de `linger.ms`', 'TLS entre les brokers'], answer: 1, why: 'Ajouter et lire coûte pareil quelle que soit la quantité stockée, donc Kafka peut garder les messages pendant une durée fixée.' },
+					{ q: 'Quelle décision vient du besoin de faible latence ?', options: ['Le producer attend au plus `linger.ms` avant d’envoyer', 'Le log garde les messages environ une semaine', 'Le broker lit les fichiers dans un buffer de 32 Ko', 'Le broker construit son propre cache'], answer: 0, why: 'La latence plafonne le regroupement : attendre quelques millisecondes, puis envoyer quand même.' },
+					{ q: 'Une de tes caractéristiques n’impose aucune décision. Que fais-tu ?', options: ['Tu la gardes : c’est quand même une qualité voulue', 'Tu la transformes en fonctionnalité', 'Tu la mets en premier des trois', 'Tu la retires : elle ne guide pas la conception'], answer: 3, why: 'Une caractéristique qui n’impose aucune décision ne façonne rien, donc elle n’a pas sa place dans la liste.' }
+				]
+			},
+			{
+				title: 'Coupe à trois',
+				questions: [
+					{ q: 'Pourquoi s’arrêter à trois ?', options: ['Un document de conception doit tenir sur une page', 'Chacune coûte un effort de conception, et elles entrent souvent en conflit', 'Le catalogue standard n’en définit que trois', 'Les managers ne savent pas en suivre plus de trois'], answer: 1, why: 'Tenir une caractéristique coûte de la complexité, et elles se font concurrence.' },
+					{ q: 'Quel exemple de Kafka montre deux caractéristiques en conflit ?', options: ['Regrouper pour le débit grossit le log', 'Le page cache ralentit les redémarrages', 'TLS pour la sécurité désactive le chemin zero-copy construit pour le débit', 'La rétention rend le broker stateless'], answer: 2, why: 'Le broker lit le fichier dans un buffer pour le chiffrer, donc `sendfile` n’est pas utilisé.' },
+					{ q: 'Toutes tes coupes ont été faciles. Qu’est-ce que ça suggère ?', options: ['La liste est sans doute trop générique', 'La liste est finie et correcte', 'Tu devrais en ajouter une quatrième', 'Tu as choisi des fonctionnalités par erreur'], answer: 0, why: 'Un vrai top trois te coûte quelque chose. Si rien n’a fait mal, tu n’as pas choisi.' },
+					{ q: 'Que peux-tu faire une fois les trois écrites ?', options: ['Te passer de doc de conception pour l’instant', 'Ignorer les demandes de fonctionnalités jusqu’à l’an prochain', 'Promettre les six qualités au maximum', 'Refuser du travail : « Ça aide l’une des trois ? Non ? Ça attendra. »'], answer: 3, why: 'Une liste courte te donne une raison de dire non, et un nouveau venu peut relier chaque décision à un besoin.' }
+				]
+			}
 		]
 	},
 	quiz: [

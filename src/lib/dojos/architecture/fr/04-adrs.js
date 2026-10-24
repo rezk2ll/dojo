@@ -96,6 +96,44 @@ such as \`node-fetch\` and others on the Node.js platform.
 			'nous avons choisi le `fetch` natif partout dans Node.js et écarté le maintien de `node-fetch` que demandait ADR013,',
 			'pour obtenir un seul `fetch`, sans paquet supplémentaire à tenir à jour,',
 			'en acceptant que les tests basés sur `msw` 1.x puissent ne plus intercepter le trafic et doivent être réécrits pour `msw` 2.x.'
+		],
+		steps: [
+			{
+				title: 'Pose le contexte',
+				questions: [
+					{ q: '« Dans le contexte de… » nomme quel code ?', options: ['Tous les plugins Backstage, frontend compris', 'Le code Backstage qui tourne dans Node.js et fait des appels HTTP', 'Le dossier des ADR de Backstage', 'La bibliothèque de test `msw`'], answer: 1, why: 'La Décision porte sur le code exécuté dans Node.js, backend et CLI, qui récupère des données en HTTP.' },
+					{ q: '« Face à… » nomme ce qui a changé. Qu’est-ce qui a changé ?', options: ['Une faille de sécurité trouvée dans `axios` et `got`', 'Un vote de l’équipe pour abandonner TypeScript dans les plugins', 'La fin du support de `msw` 1.x dans Backstage', 'Un minimum Node.js 20 avec un `fetch` natif, et des problèmes avec les bibliothèques tierces'], answer: 3, why: 'Le Contexte liste le nouveau minimum Node.js, un `fetch` natif stable, et des problèmes connus avec les anciennes bibliothèques.' },
+					{ q: 'Où trouves-tu dans ADR014 ce qui a changé ?', options: ['Dans la section Contexte', 'Dans la section Décision', 'Dans la section Conséquences', 'Dans la ligne Statut'], answer: 0, why: 'Le Contexte dit ce qui a changé depuis ADR013, sans plaider.' },
+					{ q: 'Pourquoi écrire ADR014 au lieu de modifier ADR013 ?', options: ['ADR013 avait plus de deux ans', 'Seul l’auteur d’origine peut modifier un ADR', 'Les records acceptés ne sont jamais supprimés, seulement marqués remplacés', 'Modifier un ADR change son numéro'], answer: 2, why: 'La règle du projet garde l’historique : un lecteur voit encore la décision de 2021 et ce qui l’a remplacée.' }
+				]
+			},
+			{
+				title: 'Nomme le choix et l’option écartée',
+				questions: [
+					{ q: 'Que mets-tu après « nous avons choisi… » ?', options: ['Le `fetch` natif partout dans Node.js', '`node-fetch` dans chaque paquet backend', '`axios` dans chaque plugin', 'Un wrapper de fetch écrit pour chaque plugin'], answer: 0, why: 'Tout le code qui tourne dans Node.js doit utiliser le `fetch` natif.' },
+					{ q: 'Que mets-tu après « et écarté… » ?', options: ['`axios`, parce qu’il a perdu un benchmark', 'Le maintien de `node-fetch`, que demandait ADR013', 'Le `fetch` natif sur les anciens Node.js', 'La bibliothèque de test `msw`'], answer: 1, why: 'L’ancienne option est celle que recommandait ADR013.' },
+					{ q: 'Quel type TypeScript la Décision demande-t-elle là où un `fetch` peut être injecté ?', options: ['`NodeFetch`', '`RequestInit`', '`typeof fetch`', '`Response`'], answer: 2, why: 'La Décision nomme `typeof fetch` comme type dans le code qui injecte un `fetch` ou y fait référence.' },
+					{ q: 'Un nouveau venu demande « pourquoi pas `axios` ? ». Que lui dit ADR014 ?', options: ['Que `axios` est trop lent', 'Que `axios` casse les tests `msw`', 'Que `axios` ne tourne pas sur Node.js 20', 'Rien : aucun des deux records n’a de section Alternatives envisagées'], answer: 3, why: 'ADR013 cite `axios` et `got` comme paquets à abandonner, mais aucun record ne dit pourquoi ils ont perdu.' }
+				]
+			},
+			{
+				title: 'Nomme le gain',
+				questions: [
+					{ q: 'Que mets-tu après « pour obtenir… » ?', options: ['Des appels HTTP plus rapides dans chaque plugin', 'Un seul `fetch`, sans paquet supplémentaire à tenir à jour', 'Des tests qui n’échouent plus jamais', 'Le support des anciennes versions de Node.js'], answer: 1, why: 'Le `fetch` natif est livré avec Node.js, donc il n’y a plus de paquet tiers à maintenir.' },
+					{ q: 'Lequel est un gain, et pas un coût ?', options: ['Plus de paquet fetch tiers à tenir à jour', 'Certains tests `msw` 1.x doivent être réécrits', 'Le plugin Kubernetes importe toujours `node-fetch`', 'Les plugins n’abandonnent l’ancien paquet que progressivement'], answer: 0, why: 'Les trois autres sont des prix payés pour le changement.' },
+					{ q: 'Abandonner les paquets fetch tiers règle aussi quel problème du Contexte ?', options: ['Le démarrage lent du backend', 'Les plugins écrits en JavaScript simple', 'Les problèmes avec les bibliothèques tierces sur les versions récentes de Node.js', 'Les collisions de numéros entre ADR'], answer: 2, why: 'Le Contexte renvoie vers des problèmes de bibliothèques tierces apparus seulement sur les Node.js récents.' },
+					{ q: 'Où va le gain dans le Y-statement ?', options: ['Après « face à »', 'Après « dans le contexte de »', 'Après « en acceptant »', 'Après « pour obtenir »'], answer: 3, why: 'Le modèle se lit : nous avons choisi… et écarté…, pour obtenir…, en acceptant….' }
+				]
+			},
+			{
+				title: 'Nomme le coût',
+				questions: [
+					{ q: 'Que mets-tu après « en acceptant… » ?', options: ['Que Node.js 20 est maintenant le minimum', 'Qu’ADR013 est supprimé', 'Que les tests basés sur `msw` 1.x puissent ne plus intercepter le trafic et doivent être réécrits pour `msw` 2.x', 'Que tous les plugins doivent changer le même jour'], answer: 2, why: 'Les Conséquences préviennent que `msw` 1.x n’intercepte pas correctement le fetch natif. Le minimum Node.js, c’est du contexte, pas un coût.' },
+					{ q: 'Où ce coût est-il écrit dans ADR014 ?', options: ['Dans le Contexte', 'Dans les Conséquences', 'Dans la Décision', 'Dans le Titre'], answer: 1, why: 'Les Conséquences contiennent le bon et le mauvais qui découlent de la décision.' },
+					{ q: 'Ta phrase n’a rien après « en acceptant ». Que te dit la première loi ?', options: ['Tu n’as pas encore trouvé l’inconvénient', 'La décision ne coûte rien', 'L’ADR est complet', 'Le coût va dans un autre ADR'], answer: 0, why: 'Tout, en architecture, est un compromis. Si tu n’as listé aucun inconvénient, cherche encore.' },
+					{ q: 'Quel coût de l’abandon « progressif » se voit dans le code ?', options: ['Tous les plugins backend ont cassé le jour du merge d’ADR014', 'ADR013 a été supprimé par erreur', 'Le `fetch` natif a échoué sur Node.js 20', 'Le plugin backend Kubernetes importe toujours `node-fetch` presque deux ans après'], answer: 3, why: 'Un record qui demande seulement un abandon progressif laisse l’ancien code en place.' }
+				]
+			}
 		]
 	},
 	quiz: [

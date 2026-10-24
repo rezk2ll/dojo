@@ -96,6 +96,44 @@ such as \`node-fetch\` and others on the Node.js platform.
 			'we decided for the native `fetch` everywhere in Node.js and neglected keeping `node-fetch` as ADR013 asked,',
 			'to achieve one `fetch` with no extra package to keep up to date,',
 			'accepting that tests built on `msw` 1.x may stop catching traffic and need a rewrite for `msw` 2.x.'
+		],
+		steps: [
+			{
+				title: 'Set the context',
+				questions: [
+					{ q: '"In the context of…" names which code?', options: ['Every Backstage plugin, frontend included', 'Backstage code that runs in Node.js and makes HTTP calls', 'The Backstage ADR folder', 'The `msw` test library'], answer: 1, why: 'The Decision is about code executed in Node.js, backend and CLIs, that fetches data over HTTP.' },
+					{ q: '"Facing…" names what changed. What changed?', options: ['A security hole found in `axios` and `got`', 'A team vote that moved plugins away from TypeScript', 'The end of support for `msw` 1.x in Backstage', 'A Node.js 20 minimum with a native `fetch`, and issues with third party libraries'], answer: 3, why: 'The Context lists the new Node.js minimum, a stable native `fetch`, and known issues with the old libraries.' },
+					{ q: 'Where in ADR014 do you find what changed?', options: ['In the Context section', 'In the Decision section', 'In the Consequences section', 'In the Status line'], answer: 0, why: 'The Context says what changed since ADR013, without arguing.' },
+					{ q: 'Why write ADR014 instead of editing ADR013?', options: ['ADR013 was more than two years old', 'Only the original author can edit an ADR', 'Accepted records are never deleted, only marked superseded', 'Editing an ADR changes its number'], answer: 2, why: 'The project rule keeps the history: a reader still sees the 2021 decision and what replaced it.' }
+				]
+			},
+			{
+				title: 'Name the choice and the loser',
+				questions: [
+					{ q: 'What goes after "we decided for…"?', options: ['The native `fetch` everywhere in Node.js', '`node-fetch` in every backend package', '`axios` in every plugin', 'A fetch wrapper written per plugin'], answer: 0, why: 'All code that runs in Node.js should use the native `fetch`.' },
+					{ q: 'What goes after "and neglected…"?', options: ['`axios`, because it lost a benchmark', 'Keeping `node-fetch`, as ADR013 asked', 'The native `fetch` on older Node.js', 'The `msw` test library'], answer: 1, why: 'The old option is the one ADR013 recommended.' },
+					{ q: 'Which TypeScript type does the Decision ask for where a `fetch` can be injected?', options: ['`NodeFetch`', '`RequestInit`', '`typeof fetch`', '`Response`'], answer: 2, why: 'The Decision names `typeof fetch` as the type in code that injects or refers to a `fetch`.' },
+					{ q: 'A newcomer asks "why not `axios`?". What does ADR014 tell them?', options: ['That `axios` is too slow', 'That `axios` breaks `msw` tests', 'That `axios` does not run on Node.js 20', 'Nothing: neither record has an Alternatives considered section'], answer: 3, why: 'ADR013 names `axios` and `got` as packages to move away from, but no record says why they lost.' }
+				]
+			},
+			{
+				title: 'Name the gain',
+				questions: [
+					{ q: 'What goes after "to achieve…"?', options: ['Faster HTTP calls in every plugin', 'One `fetch`, with no extra package to keep up to date', 'Tests that never fail again', 'Support for older Node.js versions'], answer: 1, why: 'The native `fetch` ships with Node.js, so there is no third party package to maintain.' },
+					{ q: 'Which of these is a gain, not a cost?', options: ['No third party fetch package to keep up to date', 'Some `msw` 1.x tests need a rewrite', 'The Kubernetes plugin still imports `node-fetch`', 'Plugins move away only gradually'], answer: 0, why: 'The other three are prices paid for the switch.' },
+					{ q: 'Dropping third party fetch packages also gets rid of which problem from the Context?', options: ['Slow startup of the backend', 'Plugins written in plain JavaScript', 'Issues with third party libraries on newer Node.js versions', 'Number collisions between ADRs'], answer: 2, why: 'The Context links issues with third party libraries that only appeared on newer Node.js.' },
+					{ q: 'Where does the gain go in the Y-statement?', options: ['After "facing"', 'After "in the context of"', 'After "accepting"', 'After "to achieve"'], answer: 3, why: 'The template reads: we decided for… and neglected…, to achieve…, accepting….' }
+				]
+			},
+			{
+				title: 'Name the cost',
+				questions: [
+					{ q: 'What goes after "accepting…"?', options: ['That Node.js 20 is now the minimum', 'That ADR013 gets deleted', 'That tests built on `msw` 1.x may stop catching traffic and need a rewrite for `msw` 2.x', 'That every plugin must switch on the same day'], answer: 2, why: 'The Consequences warn that `msw` 1.x does not intercept native fetch properly. The Node.js minimum is context, not cost.' },
+					{ q: 'Where in ADR014 is that cost written?', options: ['In the Context', 'In the Consequences', 'In the Decision', 'In the Title'], answer: 1, why: 'Consequences hold the good and the bad that follow from the decision.' },
+					{ q: 'Your sentence has nothing after "accepting". What does the first law tell you?', options: ['You have not found the downside yet', 'The decision costs nothing', 'The ADR is complete', 'The cost belongs in another ADR'], answer: 0, why: 'Everything in architecture is a trade-off. If you listed no downside, look again.' },
+					{ q: 'Which cost of "move away gradually" shows up in the code?', options: ['Every backend plugin broke the day ADR014 merged', 'ADR013 was deleted by mistake', 'The native `fetch` failed on Node.js 20', 'The Kubernetes backend plugin still imports `node-fetch` nearly two years later'], answer: 3, why: 'A record that only asks for a gradual move leaves old code in place.' }
+				]
+			}
 		]
 	},
 	quiz: [

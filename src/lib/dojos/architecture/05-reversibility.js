@@ -84,6 +84,44 @@ export default {
 			'(b) One-way: deleted invoices do not come back. A middle option: soft-delete first, purge for real after a delay, so a wrong date in the job is caught before the data is gone.',
 			'(c) Close to one-way: customer code you cannot see depends on the old name. The middle option: send both fields for a while, announce the old one is going away, remove it later.',
 			'(d) Two-way for new PDFs: you can change the font back any time. Invoices already sent keep the font they were made with, and nobody needs them changed.'
+		],
+		steps: [
+			{
+				title: 'Ask the door question',
+				questions: [
+					{ q: 'Which question tells a one-way door from a two-way door?', options: ['How long will it take to build?', 'Does the decision touch the database?', 'If we change our mind in a month, who else has to change, and what data stays behind?', 'Who on the team proposed it?'], answer: 2, why: 'A door is one-way when undoing it needs other people to change, or leaves data you cannot take back.' },
+					{ q: 'How do you decide a two-way door?', options: ['Slowly, with an ADR', 'Fast, then move on', 'Only after a team vote', 'Never: you leave it open'], answer: 1, why: 'Bezos: you can reopen the door and go back through. Spending a week on it wastes the week.' },
+					{ q: 'How do you decide a one-way door?', options: ['Fast, because it is rare', 'Always behind a feature flag', 'Whoever is free picks it', 'Slowly, and you write an ADR'], answer: 3, why: 'You cannot get back to where you were, so you spend design time here.' },
+					{ q: 'Which of these is a one-way door by nature?', options: ['Deleted data', 'A config flag', 'A state column', 'A library behind an interface'], answer: 0, why: 'Deleted data does not come back. The other three are cheap to undo.' }
+				]
+			},
+			{
+				title: 'Classify each decision',
+				questions: [
+					{ q: '(a) A feature flag shows the new dashboard to some customers.', options: ['One-way: customers have seen it', 'Two-way, if the new dashboard writes nothing the old one cannot read', 'One-way: a flag can never be removed', 'Two-way in every case'], answer: 1, why: 'Turning the flag off undoes the rollout, as long as it leaves no new data behind.' },
+					{ q: '(b) A nightly job hard-deletes invoices older than 10 years.', options: ['Two-way: you can stop the job', 'Two-way: backups exist', 'One-way: deleted invoices do not come back', 'Close to one-way, like a rename'], answer: 2, why: 'Stopping the job saves the next invoices, not the ones already deleted.' },
+					{ q: '(c) Rename a field in the webhook payload customers receive.', options: ['Two-way: rename it back', 'Two-way: it is only a field name', 'One-way only if customers complain', 'Close to one-way: customer code you cannot see depends on the old name'], answer: 3, why: 'Undoing it means every customer who already changed their code has to change it again.' },
+					{ q: '(d) Change the font of invoice PDFs.', options: ['Two-way for new PDFs', 'One-way: sent invoices keep the old font', 'One-way: customers keep PDF files', 'Close to one-way, like the webhook'], answer: 0, why: 'You can change the font back any time. Nobody else has to change anything.' }
+				]
+			},
+			{
+				title: 'Say what makes it so',
+				questions: [
+					{ q: '(a) When does the flag stop being a two-way door?', options: ['When more than half the customers see it', 'When the flag has been on for a month', 'When the new dashboard stores data the old one cannot read', 'When the new dashboard is slower'], answer: 2, why: 'Turning the flag off then leaves that data behind.' },
+					{ q: '(c) The rename is one line of code. Why is it hard to undo?', options: ['Customer code depends on the old name, and you cannot see that code', 'Webhook payloads cannot be renamed', 'The payload is cached for 10 years', 'JSON field names are fixed by the standard'], answer: 0, why: 'A field name in a public contract looks like a detail until someone else depends on it.' },
+					{ q: '(d) Invoices already sent keep the old font. Does that make (d) one-way?', options: ['Yes: you can no longer change them', 'Yes: a PDF is permanent', 'Only if a customer complains', 'No: nobody needs them changed'], answer: 3, why: 'What stays behind is harmless, so the door still swings both ways.' },
+					{ q: 'A Discourse site turns `can_permanently_delete` on for a month, then off again. What did turning it off undo?', options: ['The posts it destroyed, not the setting', 'The setting, not the posts it destroyed', 'Both the setting and the posts', 'Neither the setting nor the posts'], answer: 1, why: 'The flag is reversible, what it did is not. Watch what a flag leaves behind.' }
+				]
+			},
+			{
+				title: 'Add a middle option',
+				questions: [
+					{ q: '(b) Which middle option makes the purge safer?', options: ['Run the job weekly instead of nightly', 'Delete invoices older than 20 years instead', 'Soft-delete first, then purge for real after a delay', 'Ask an admin to click delete each night'], answer: 2, why: 'Like Discourse, put an undoable step in front of the one-way door.' },
+					{ q: 'What does the delay before the real purge catch?', options: ['A wrong date in the job, before the data is gone', 'Slow queries on the invoice table', 'Duplicate invoices', 'Customers who closed their account'], answer: 0, why: 'A mistake at the soft-delete step can still be recovered.' },
+					{ q: '(c) Which middle option fits the rename?', options: ['Rename now, and fix customer bugs as they come', 'Send both fields for a while, announce the old one is going, remove it later', 'Never rename a field once it ships', 'Rename it and email customers the same day'], answer: 1, why: 'Customers move at their own pace, and the old name goes only after they had time.' },
+					{ q: 'What does each middle state cost, as in Discourse?', options: ['Nothing: a soft delete is free', 'A second database to run', 'Slower PDF generation', 'Code to own: soft-deleted rows hidden from every query, a job to clean up'], answer: 3, why: 'Every middle state is code to own, and soft-deleted rows still take space.' }
+				]
+			}
 		]
 	},
 	quiz: [

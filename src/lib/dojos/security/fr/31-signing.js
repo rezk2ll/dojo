@@ -125,6 +125,44 @@ export default {
 			'Imagine un attaquant qui obtient le droit de pousser sur `ghcr.io/acme/api`. Il crée une organisation GitHub `acme-tools` et signe son image depuis un workflow de cette organisation. L’émetteur est bien celui de GitHub, donc ce contrôle passe aussi.',
 			'N’importe quel workflow de n’importe quel dépôt `acme` passe aussi, par exemple un workflow de tests dans un autre dépôt qui ne construit jamais de release.',
 			'Corrigé : `--certificate-identity-regexp \'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\'`. `^` et `$` ancrent le SAN entier, et les points échappés ne correspondent qu’à des points.'
+		],
+		steps: [
+			{
+				title: 'Lis ce que la commande vérifie',
+				questions: [
+					{ q: 'Quelles deux parties du certificat ce `cosign verify` compare-t-il à ce que tu attends ?', options: ['Le sujet (SAN) et l’émetteur OIDC', 'Le tag de l’image et le nom de la registry', 'Le fichier de clé privée et son mot de passe', 'L’index Rekor et l’heure du build'], answer: 0, why: 'Cette paire, c’est l’identité du signataire. L’aide des flags dit qu’un flag d’identité et un flag d’émetteur « must be set for keyless flows ».' },
+					{ q: 'À quoi ressemble le SAN d’un certificat émis pour un workflow GitHub Actions ?', options: ['L’email de la personne qui a poussé le tag', '`https://github.com/OWNER/REPO/.github/workflows/FILE@REF`', 'Le SHA-256 de l’image signée', 'Le nom de l’organisation GitHub, rien de plus'], answer: 1, why: 'Fulcio remplit le SAN avec l’URL du workflow : le dépôt, le fichier du workflow et la ref.' },
+					{ q: 'Que prouve `--certificate-oidc-issuer https://token.actions.githubusercontent.com` à lui seul ?', options: ['Que l’image vient de `acme/api`', 'Qu’un workflow GitHub Actions, n’importe lequel, a obtenu le certificat', 'Que le workflow de release a tourné sur un tag', 'Que personne n’a modifié l’image après le build'], answer: 1, why: 'Tous les workflows de GitHub reçoivent leur token de cet émetteur, y compris celui d’un attaquant. Le sujet doit faire le reste.' },
+					{ q: 'Quand `CheckCertificatePolicy` renvoie-t-il « vérifié » ?', options: ['Quand le sujet correspond, quel que soit l’émetteur', 'Quand l’émetteur correspond, quel que soit le sujet', 'Quand le sujet et l’émetteur correspondent tous les deux', 'Quand le certificat est encore dans ses 10 minutes'], answer: 2, why: 'La ligne 522 ne renvoie `nil` que si `subjectMatches && issuerMatches`.' }
+				]
+			},
+			{
+				title: 'Teste le motif',
+				questions: [
+					{ q: 'Comment `MatchString` en Go traite-t-il le motif `github.com/acme` ?', options: ['Il doit être égal au SAN entier', 'Il doit correspondre au début du SAN', 'Il valide si le SAN contient une correspondance n’importe où', 'Il ne regarde que la partie hôte de l’URL'], answer: 2, why: 'La doc Go : « MatchString reports whether the string s contains any match ». Rien n’attache le motif au début ou à la fin.' },
+					{ q: '`https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main` passe-t-il le motif ?', options: ['Oui : le SAN contient `github.com/acme`', 'Non : l’organisation est `acme-tools`, pas `acme`', 'Non : la ref est une branche, pas un tag', 'Seulement si son émetteur est différent'], answer: 0, why: '`github.com/acme` est le début de `github.com/acme-tools`, et une correspondance n’importe où suffit.' },
+					{ q: 'Que reconnaît le `.` non échappé de `github.com` ?', options: ['Seulement un point', 'N’importe quel caractère', 'Rien, les points sont ignorés', 'Un point ou plus'], answer: 1, why: 'Dans une regexp, un point nu reconnaît n’importe quel caractère. Le motif corrigé échappe chacun en `\\.` pour ne reconnaître que des points.' },
+					{ q: 'Un workflow de tests dans un autre dépôt `acme` signe une image. Passe-t-il ?', options: ['Non : seuls les workflows de release peuvent signer', 'Non : le contrôle de l’émetteur l’arrête', 'Oui : son SAN contient aussi `github.com/acme`', 'Oui, mais seulement s’il tourne sur un tag'], answer: 2, why: 'N’importe quel workflow de n’importe quel dépôt `acme` a un SAN qui contient le motif, même s’il ne construit jamais de release.' }
+				]
+			},
+			{
+				title: 'Imagine l’attaque',
+				questions: [
+					{ q: 'Dans le scénario du chapitre, de quoi l’attaquant a-t-il besoin d’abord ?', options: ['Du droit de pousser sur `ghcr.io/acme/api`', 'De la clé privée utilisée par cosign à la release', 'Du droit d’écrire dans le journal Rekor', 'De droits d’admin sur Fulcio'], answer: 0, why: 'Il doit mettre son image là où tu la tires. Il n’y a pas de clé de release à voler : elle a été jetée après une signature.' },
+					{ q: 'Comment obtient-il ensuite une signature qui passe ton contrôle ?', options: ['Il copie l’ancienne signature sur la nouvelle image', 'Il crée une organisation `acme-tools` et signe depuis un workflow de celle-ci', 'Il demande à Fulcio un certificat qui nomme `acme/api`', 'Il supprime l’entrée Rekor de la vraie release'], answer: 1, why: 'Fulcio signe pour l’identité que le token prouve. `acme-tools` est une vraie identité, et elle contient ton motif.' },
+					{ q: 'Pourquoi copier la vraie signature sur la nouvelle image échouerait-il ?', options: ['Rekor n’accepte qu’une signature par tag', 'La registry bloque les signatures copiées', 'La signature couvre l’ancien digest, et la nouvelle image en a un nouveau', 'cosign ne fait confiance qu’aux signatures de moins de 10 minutes'], answer: 2, why: 'cosign vérifie la signature contre le digest de l’image. Une image remplacée a un nouveau digest, donc l’ancienne signature ne correspond plus.' },
+					{ q: 'Pourquoi le contrôle de l’émetteur ne sert-il à rien contre `acme-tools` ?', options: ['cosign ignore l’émetteur quand une regexp est donnée', 'Le flag d’émetteur ne vérifie que le domaine de l’email', 'Chaque organisation GitHub a sa propre URL d’émetteur', 'Son workflow obtient son certificat par le même émetteur GitHub'], answer: 3, why: 'L’émetteur est le vrai émetteur GitHub pour tous les workflows. Seul le sujet distingue `acme/api` de `acme-tools`.' }
+				]
+			},
+			{
+				title: 'Écris la correction',
+				questions: [
+					{ q: 'Quelle valeur de `--certificate-identity-regexp` bouche le trou ?', options: ['`\'github\\.com/acme/api\'`', '`\'^https://github.com/acme\'`', '`\'release\\.yml@refs/tags/v[0-9.]+$\'`', '`\'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\'`'], answer: 3, why: 'Il est ancré aux deux bouts, échappe chaque point, et nomme le seul dépôt, le seul workflow et le seul type de ref qui construisent les releases.' },
+					{ q: 'Que font `^` et `$` dans le motif corrigé ?', options: ['Ils échappent les points', 'Ils attachent le motif au SAN entier', 'Ils rendent la correspondance insensible à la casse', 'Ils acceptent n’importe quel nom de tag'], answer: 1, why: 'Avec les deux ancres, le SAN doit correspondre de son premier caractère au dernier, donc aucune chaîne plus longue ne passe autour.' },
+					{ q: 'Pourquoi terminer le motif par `@refs/tags/v[0-9.]+` ?', options: ['cosign rejette les SAN sans version', 'GitHub signe les tags mais pas les branches', 'L’image est construite sur les tags, donc un build de branche ne doit pas passer', 'La regexp s’exécute plus vite'], answer: 2, why: 'Le workflow de release tourne sur les tags. Le même fichier lancé sur une branche n’est pas une release et doit échouer.' },
+					{ q: 'Après la correction, `https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main` passe-t-il encore ?', options: ['Non : il ne commence pas par `https://github.com/acme/api/`', 'Oui : il contient toujours `github.com/acme`', 'Oui : son émetteur est l’émetteur GitHub', 'Non, mais d’autres organisations avec `acme` dans le nom passent'], answer: 0, why: 'Le motif ancré fixe le dépôt juste après `https://github.com/`, donc `acme-tools` échoue au premier caractère qui diffère.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,30 @@ export default {
 			why: 'cosign génère la paire de clés en local, Fulcio lie la clé publique à l’identité pour 10 minutes, et la clé privée part à la poubelle après une signature. Pour signer à ta place, un attaquant a besoin d’un token OIDC pour ton identité.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Signer une image dans une registry locale avec cosign, voir la vérification échouer quand l’image est remplacée, et voir un motif d’identité non ancré laisser entrer le mauvais signataire.',
+		steps: [
+			'Crée un dossier de travail et lance une registry locale : `mkdir -p ~/sign-lab && cd ~/sign-lab && docker run -d --name sign-lab-reg -p 5055:5000 registry:2`.',
+			'Lance cosign depuis son image, avec ton propre utilisateur pour qu’il puisse écrire ici : `cosign() { docker run --rm --network host -u "$(id -u)" -v "$PWD":/w -w /w -e COSIGN_PASSWORD= ghcr.io/sigstore/cosign/cosign:v2.4.1 "$@"; }`, puis `cosign generate-key-pair`. Le lab utilise une paire de clés, car la signature keyless demande une vraie connexion OIDC.',
+			'Construis et pousse une image, puis garde son digest : `printf "FROM busybox:1.37\\nRUN echo v1 > /version\\n" | docker build -t localhost:5055/demo:v1 - && docker push localhost:5055/demo:v1`, puis `D=$(docker inspect --format "{{index .RepoDigests 0}}" localhost:5055/demo:v1)`.',
+			'Signe le digest et vérifie-le, sans le journal public puisque le lab reste en local : `cosign sign --key cosign.key --tlog-upload=false -y "$D"`, puis `cosign verify --key cosign.pub --insecure-ignore-tlog "$D"`.',
+			'Joue l’attaquant : reconstruis avec `echo evil` au lieu de `echo v1`, pousse sur le même tag `localhost:5055/demo:v1`, et lance `cosign verify --key cosign.pub --insecure-ignore-tlog localhost:5055/demo:v1`.',
+			'Teste le motif d’identité : `printf "%s\\n" https://github.com/acme/api/.github/workflows/release.yml@refs/tags/v1.2.0 https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main > sans.txt`, puis compare `grep -E \'github.com/acme\' sans.txt` et `grep -E \'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\' sans.txt`.',
+			'Nettoie : `docker stop sign-lab-reg && docker rm sign-lab-reg`.'
+		],
+		done: [
+			'`cosign verify` sur `"$D"` sort avec le code 0 et affiche « The signatures were verified against the specified public key ».',
+			'Après le remplacement, `cosign verify` sur le tag échoue avec `Error: no signatures found`.',
+			'Le premier `grep -E` affiche les deux SAN. Le motif ancré n’affiche que le SAN de release de `acme/api`.'
+		],
+		solution: [
+			'cosign range la signature à côté du digest qu’elle couvre. L’image remplacée a un nouveau digest, donc aucune signature ne pointe vers elle.',
+			'C’est pour ça qu’un script de déploiement vérifie par digest (`@sha256:...`) : ce que tu as vérifié est ce que tu lances.',
+			'`grep -E` utilise les regexps POSIX, pas celles de Go, mais pour ces deux motifs le comportement est le même : une correspondance n’importe où suffit tant que tu n’ancres pas.',
+			'En dehors du lab, garde le journal de transparence : retire `--tlog-upload=false` et `--insecure-ignore-tlog`.'
+		]
+	},
 	recall: {
 		q: 'Quels deux flags faut-il donner à `cosign verify` pour une signature keyless, et quelles valeurs Kubernetes donne-t-il pour ses images de release ?',
 		a: '`--certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com` et `--certificate-oidc-issuer https://accounts.google.com`.'

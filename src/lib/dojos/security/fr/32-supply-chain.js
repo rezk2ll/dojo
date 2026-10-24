@@ -104,6 +104,44 @@ if(NOT SANDBOX_FOUND AND ENABLE_SANDBOX MATCHES "^ON$|^landlock$")
 			'B : rejeté. La spec : « Verification tools SHOULD reject unrecognized fields in `externalParameters` ». Un flag de compilation passé ainsi peut changer le binaire sans aucun changement dans git.',
 			'C : rejeté. Sans provenance d’un builder de confiance, le paquet est au mieux au niveau Build L0. Les tarballs xz 5.6.0 et 5.6.1 ont suivi ce chemin : construits et signés sur la machine du mainteneur.',
 			'D : accepté. Tu sais alors que le paquet vient du dépôt officiel, par le workflow officiel. Tu ne sais pas si le code de ce dépôt est honnête.'
+		],
+		steps: [
+			{
+				title: 'Sache ce que tu compares',
+				questions: [
+					{ q: 'Que te dit une provenance sur un paquet ?', options: ['Comment il a été construit : plateforme, dépôt et commit source, paramètres', 'Qui a relu chaque commit avant le build', 'Toutes ses dépendances, avec leurs versions', 'Les CVE connues du paquet'], answer: 0, why: 'La provenance est un enregistrement signé de la construction d’un artefact. Les relectures, les listes de dépendances et les CVE relèvent d’autres outils.' },
+					{ q: 'Les quatre uploads ont une signature valide. Pourquoi ça ne suffit pas pour les accepter ?', options: ['Les signatures expirent après une release', 'Une signature montre qui a signé, pas comment ni à partir de quoi le paquet a été construit', 'Seuls les builders Build L3 font des signatures valides', 'Les distributions ne vérifient que les versions majeures'], answer: 1, why: 'Les tarballs xz 5.6.0 avaient eux aussi une signature valide. La personne qui a posé la backdoor est celle qui les a signés.' },
+					{ q: 'Tu attends un builder au niveau Build L3. Qu’ajoute L3 par rapport à L2 ?', options: ['Deux mainteneurs relisent chaque commit', 'Deux builders produisent les mêmes octets', 'Les exécutions sont isolées et les secrets de signature cachés aux étapes de build', 'Un SBOM est publié à côté du paquet'], answer: 2, why: 'La spec demande à la plateforme L3 d’empêcher les exécutions de s’influencer et de tenir le secret qui signe la provenance hors de portée des étapes de build.' },
+					{ q: 'Quels sont les `externalParameters` attendus pour `my-package` ?', options: ['N’importe lesquels, tant que le builder est le bon', '`{ "workflow": "release.yml" }`, plus des entrées en option', '`{ "ref": "refs/heads/main" }`', '`{ "workflow": "release.yml", "ref": "refs/tags/v*" }`'], answer: 3, why: 'Tes attentes nomment le workflow et le motif de tag, rien d’autre. Tout le reste est un champ que tu ne reconnais pas.' }
+				]
+			},
+			{
+				title: 'Vérifie d’où vient chacun',
+				questions: [
+					{ q: 'A indique la source `github.com/evilfork/my-package`. Que fais-tu ?', options: ['J’accepte : le builder et la signature sont bons', 'Je rejette : la source ne correspond pas, c’est un build depuis un fork non officiel', 'J’accepte si le fork contient les mêmes commits', 'Je rejette seulement si le fork est privé'], answer: 1, why: 'SLSA appelle ça « Build from unofficial fork of code ». L’emplacement de la source ne correspond pas à ton attente, donc le vérificateur rejette.' },
+					{ q: 'C n’a aucune provenance et a été envoyé depuis le portable d’un mainteneur. À quel niveau Build est-il, au mieux ?', options: ['L0', 'L1', 'L2', 'L3'], answer: 0, why: 'Sans provenance d’un builder de confiance, il n’y a aucune garantie sur le build. L0 est l’échelon du bas.' },
+					{ q: 'Quelle partie de l’histoire xz a suivi le même chemin que C ?', options: ['Les deux fichiers de test binaires dans git', 'Les archives « source code » de GitHub', 'Les tarballs 5.6.0 et 5.6.1, construits et signés sur la machine du mainteneur', 'Le commit qui a retiré le point de Landlock'], answer: 2, why: 'Lasse Collin a écrit que ces tarballs « were created and signed by Jia Tan ». Les archives GitHub, construites depuis git, n’avaient pas la ligne de déclenchement.' },
+					{ q: 'Pourquoi exiger une provenance Build L2 aurait-il attrapé la ligne de `build-to-host.m4` ?', options: ['Un builder hébergé construit depuis le dépôt, et cette ligne n’était dans aucun commit', 'L2 analyse les tarballs à la recherche de code caché', 'L2 demande la signature de deux mainteneurs', 'L2 refuse les fichiers m4 dans une release'], answer: 0, why: 'Au niveau L2, la plateforme hébergée fait le checkout du dépôt et signe elle-même la provenance. Un fichier qu’aucun commit ne contient ne peut pas avoir de provenance correspondante.' }
+				]
+			},
+			{
+				title: 'Vérifie les paramètres',
+				questions: [
+					{ q: 'B est conforme, avec en plus `inputs: { "CFLAGS": "-DBACKDOOR" }`. Que dit la spec d’un tel champ ?', options: ['Les vérificateurs MAY l’ignorer', 'Les vérificateurs SHOULD rejeter les champs inconnus de `externalParameters`', 'Les vérificateurs MUST le journaliser, puis accepter', 'Il n’est permis qu’au niveau Build L3'], answer: 1, why: 'La page de vérification SLSA le dit mot pour mot. Un paramètre inconnu est une raison de rejeter, pas de laisser passer.' },
+					{ q: 'Pourquoi un flag de compilation en trop est-il dangereux ?', options: ['Il ralentit le build', 'Il casse la signature', 'Il peut changer le binaire sans aucun changement dans git', 'Il ne marche que sur x86-64'], answer: 2, why: 'Le code du dépôt reste propre, et le flag seul change ce qui est compilé.' },
+					{ q: 'La source et le builder de B correspondent. Est-ce que B est sûr pour autant ?', options: ['Oui : la source et le builder sont ce qui compte', 'Oui, si le flag figure dans le README', 'Non : B n’a pas de signature valide', 'Non : les paramètres décident aussi de ce qui est construit'], answer: 3, why: 'Le builder, la source et les paramètres décident tous du résultat. Un seul champ faux suffit pour rejeter.' },
+					{ q: 'Après A, B et C, combien d’uploads as-tu acceptés ?', options: ['Aucun', 'Seulement B', 'B et C', 'Seulement A'], answer: 0, why: 'A échoue sur la source, B sur les paramètres, C sur l’absence de provenance.' }
+				]
+			},
+			{
+				title: 'Décide et dis ce que ça prouve',
+				questions: [
+					{ q: 'D correspond pour le builder, la source et les paramètres. Que fais-tu ?', options: ['Je rejette : rien ne prouve que le code est honnête', 'Je l’accepte', 'J’accepte seulement après un build reproductible', 'Je demande d’abord un SBOM'], answer: 1, why: 'D remplit toutes les attentes que tu as fixées. Tout rejeter, même ce qui passe, rendrait le contrôle inutile.' },
+					{ q: 'Que t’apprend le fait d’accepter D ?', options: ['Le code du dépôt est honnête', 'Aucune dépendance n’a de CVE connue', 'Il vient du dépôt officiel, par le workflow officiel', 'Deux mainteneurs ont relu chaque commit'], answer: 2, why: 'La provenance dit comment et d’où le paquet a été construit. Elle ne dit rien de l’intention du code.' },
+					{ q: 'La provenance aurait-elle arrêté les fichiers de test xz et le point de Landlock ?', options: ['Non : ils sont passés par le vrai dépôt, donc leur provenance est correcte', 'Oui : ce sont des fichiers binaires', 'Oui : Build L3 les aurait cachés', 'Non : la provenance ne couvre que les builds Debian'], answer: 0, why: 'La page des menaces SLSA dit qu’un producteur malveillant « cannot be directly mitigated through SLSA controls ».' },
+					{ q: 'Ta CI range une provenance à côté de chaque paquet, et aucune étape ne la lit jamais. Qu’est-ce que ça arrête ?', options: ['Les forks, puisque la source est enregistrée', 'Les builds sur portable, puisqu’ils n’ont pas de provenance', 'Les paramètres en trop, puisqu’ils sont journalisés', 'Rien : une provenance que personne ne vérifie n’arrête rien'], answer: 3, why: 'Le consommateur doit comparer la provenance à ses attentes. Sans ce contrôle, A, B et C passent.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,26 @@ if(NOT SANDBOX_FOUND AND ENABLE_SANDBOX MATCHES "^ON$|^landlock$")
 			why: 'La spec exige que la plateforme Build L3 puisse « prevent runs from influencing one another » et tienne le secret de signature de la provenance loin des étapes de build écrites par l’utilisateur. La revue à deux, le build reproductible et le SBOM ne font pas partie des exigences de Build L3.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Construire une release à la main avec un fichier qu’aucun commit ne contient, la signer, et voir la signature passer alors qu’une comparaison avec git l’attrape.',
+		steps: [
+			'Crée un petit projet avec un commit : `mkdir -p ~/slsa-lab && cd ~/slsa-lab && git init -q proj && cd proj && printf "int main(void){return 0;}\\n" > main.c && git add main.c && git -c user.name=me -c user.email=me@example.com commit -qm v1`.',
+			'Fabrique l’archive directement depuis git : `git archive --format=tar.gz --prefix=proj/ -o ../from-git.tar.gz HEAD`.',
+			'Joue le mainteneur qui construit sur son portable, avec un fichier en plus : `mkdir -p ../laptop/proj/m4 && cp main.c ../laptop/proj/ && echo "# extra line, in no commit" > ../laptop/proj/m4/build-to-host.m4 && tar -czf ../release.tar.gz -C ../laptop proj`.',
+			'Signe la release du portable avec ta propre clé, puis vérifie-la : `cd .. && openssl genpkey -algorithm ed25519 -out key.pem && openssl pkey -in key.pem -pubout -out pub.pem && openssl pkeyutl -sign -inkey key.pem -rawin -in release.tar.gz -out release.sig`, puis `openssl pkeyutl -verify -pubin -inkey pub.pem -rawin -in release.tar.gz -sigfile release.sig`. Sur macOS, il faut OpenSSL 3, pas le LibreSSL livré avec le système.',
+			'Compare les deux archives : `mkdir a b && tar -xzf from-git.tar.gz -C a && tar -xzf release.tar.gz -C b && diff -r a/proj b/proj`.'
+		],
+		done: [
+			'`openssl pkeyutl -verify` affiche `Signature Verified Successfully` pour `release.tar.gz`.',
+			'`diff -r a/proj b/proj` affiche `Only in b/proj: m4`.'
+		],
+		solution: [
+			'La signature est valide, car le signataire est celui qui a ajouté le fichier. C’est la situation de xz 5.6.0 en miniature.',
+			'L’archive construite depuis git n’a pas de dossier `m4`. Un builder hébergé qui fait le checkout du dépôt et signe la provenance produirait cette archive, jamais celle du portable.',
+			'Côté consommateur, exige une provenance qui nomme ton builder et ton dépôt source. Une release construite ailleurs échoue, peu importe qui l’a signée.'
+		]
+	},
 	recall: {
 		q: 'Dans xz 5.6.0 et 5.6.1, quelle partie de la porte dérobée n’existait que dans les tarballs de release, et qui les a signés ?',
 		a: 'La ligne déclencheur de `m4/build-to-host.m4`, absente de git. Les tarballs ont été créés et signés par le co-mainteneur Jia Tan (CVE-2024-3094).'

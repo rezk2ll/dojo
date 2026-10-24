@@ -122,6 +122,44 @@ export default {
 			'Session B : `UPDATE docs SET body = \'draft B\', lock_version = 1 WHERE id = 1 AND lock_version = 0;` répond `UPDATE 0`. Rien n’a changé : la ligne dit 1, pas 0.',
 			'B ne doit pas relancer la même instruction à l’aveugle. Il relit la ligne (maintenant « draft A », version 1), fusionne ou demande à l’utilisateur, et envoie un nouvel UPDATE avec `WHERE lock_version = 1`.',
 			'Si les deux sessions tournent dans des transactions ouvertes et que l’UPDATE de B démarre avant le commit de A, B attend sur le verrou de ligne de A. Quand A valide, PostgreSQL revérifie la clause WHERE de B sur la nouvelle version de la ligne, trouve la version 1, et répond quand même `UPDATE 0`.'
+		],
+		steps: [
+			{
+				title: 'Prépare et lis',
+				questions: [
+					{ q: 'Les deux sessions lancent `SELECT body, lock_version FROM docs WHERE id = 1` sur la ligne neuve. Que garde chacune ?', options: ['Un verrou de ligne sur l’id 1 jusqu’à l’enregistrement', '`lock_version = 0`, la version qu’elle a vue', '`lock_version = 1`, la version suivante', 'Rien : la version reste dans la base'], answer: 1, why: 'Chaque écrivain garde la version qu’il a lue. Cette valeur va dans la clause WHERE de son enregistrement.' },
+					{ q: 'Lire la ligne 1 prend-il un verrou ici ?', options: ['Oui, un verrou de ligne jusqu’à l’enregistrement', 'Oui, mais seulement contre les autres écrivains', 'Non : le verrouillage optimiste ne prend aucun verrou', 'Seulement si la session tourne en Serializable'], answer: 2, why: 'Les deux sessions lisent librement. La vérification a lieu plus tard, dans l’UPDATE.' },
+					{ q: 'Pourquoi `lock_version` est-elle déclarée `not null default 0` ?', options: ['La vérification compare à une vraie valeur, donc elle ne doit jamais être NULL', 'PostgreSQL a besoin d’un défaut pour indexer la colonne', 'Un défaut rend la colonne plus rapide à mettre à jour qu’un simple int', 'Sans ça, la clé primaire sur `id` ne serait pas unique'], answer: 0, why: 'Le WHERE compare la version lue avec la ligne. Rails refuse même d’enregistrer quand la colonne de verrouillage vaut nil.' },
+					{ q: 'Dans une appli web, où vit la version pendant que l’utilisateur édite le formulaire ?', options: ['Dans un verrou de ligne tenu par la requête', 'Dans la session de base de la première requête', 'Dans un cache côté serveur, par utilisateur', 'Dans un champ caché du formulaire'], answer: 3, why: 'Le commentaire du module Rails recommande un champ caché `lock_version`. Sans lui, l’enregistrement recharge la ligne et la vérification passe toujours.' }
+				]
+			},
+			{
+				title: 'Écris l’enregistrement de A',
+				questions: [
+					{ q: 'Quel UPDATE la session A envoie-t-elle ?', options: ['`UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1;`', '`UPDATE docs SET body = \'draft A\' WHERE id = 1 AND lock_version = 0;`', '`UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`', '`UPDATE docs SET body = \'draft A\', lock_version = 0 WHERE id = 1 AND lock_version = 1;`'], answer: 2, why: 'Le WHERE porte la version lue par A, et le SET l’augmente de un. Sans cet incrément, l’enregistrement de B correspondrait encore.' },
+					{ q: 'Que répond psql à A ?', options: ['`UPDATE 1`', '`UPDATE 0`', '`ERROR: could not serialize access`', '`UPDATE 1`, puis une attente sur B'], answer: 0, why: 'La ligne dit encore 0, donc le WHERE correspond et une ligne change.' },
+					{ q: 'Pourquoi mettre la vérification de version dans l’UPDATE plutôt que dans un SELECT juste avant ?', options: ['Un SELECT ne peut pas lire la colonne `lock_version`', 'Une seule instruction vérifie et écrit de façon atomique, sans trou pour un autre écrivain', 'PostgreSQL interdit un SELECT et un UPDATE dans la même session', 'Le SELECT prendrait un verrou qui bloque la session B'], answer: 1, why: 'C’est le compare-and-set. Un SELECT séparé laisse un trou entre la vérification et l’écriture.' },
+					{ q: 'Quelle version porte la ligne 1 après l’enregistrement de A ?', options: ['0', '2', 'Toujours 0 jusqu’à l’enregistrement de B', '1'], answer: 3, why: 'Le SET de A l’a passée à 1. Chaque mise à jour réussie ajoute un.' }
+				]
+			},
+			{
+				title: 'Écris l’enregistrement de B',
+				questions: [
+					{ q: 'Quelle version B met-il dans sa clause WHERE ?', options: ['`lock_version = 0`, celle qu’il a lue', '`lock_version = 1`, l’actuelle', 'Aucune : B filtre seulement sur `id`', '`lock_version = 2`, la suivante'], answer: 0, why: 'B enregistre avec ce qu’il a vu. Il ne sait pas que A a enregistré avant, et la vérification est le moyen de le découvrir.' },
+					{ q: 'B envoie `UPDATE docs SET body = \'draft B\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`. Qu’est-ce qui revient ?', options: ['`UPDATE 1`, qui écrase draft A', '`UPDATE 0`', 'Une erreur de clé dupliquée sur `lock_version`', 'Une erreur de deadlock'], answer: 1, why: 'La ligne dit maintenant 1, pas 0, donc le WHERE ne trouve rien.' },
+					{ q: 'Que contient la ligne 1 après l’UPDATE de B ?', options: ['« draft B », version 1', '« draft B », version 2', '« draft A », version 1', '« empty », version 0'], answer: 2, why: 'Zéro ligne a changé. La correction de A est toujours là.' },
+					{ q: 'Dans Rails, qu’est-ce qui transforme le résultat de B en erreur ?', options: ['PostgreSQL lève une erreur sur l’UPDATE', 'Rails relit la ligne et compare les textes', 'Un trigger sur `docs` rejette l’écriture', 'Rails voit un nombre de lignes modifiées différent de 1 et lève `StaleObjectError`'], answer: 3, why: 'La base renvoie seulement un compte. Rails fait confiance à ce compte et lève une erreur quand il ne vaut pas 1.' }
+				]
+			},
+			{
+				title: 'Décide de la suite pour B',
+				questions: [
+					{ q: 'Que doit faire B après `UPDATE 0` ?', options: ['Renvoyer le même UPDATE jusqu’à ce qu’il passe', 'Retirer la version du WHERE et enregistrer', 'Prendre `SELECT ... FOR UPDATE` et le garder pendant l’édition', 'Relire la ligne, fusionner ou demander à l’utilisateur, puis enregistrer avec `WHERE lock_version = 1`'], answer: 3, why: 'La nouvelle lecture donne à B la version actuelle et le texte de A. Le prochain enregistrement est vérifié contre la version 1.' },
+					{ q: 'B renvoie son premier UPDATE tel quel. Que se passe-t-il ?', options: ['`UPDATE 0` encore, puisque la ligne dit toujours 1', '`UPDATE 1`, puisque A a validé entre-temps', 'Il attend que A lâche son verrou', 'PostgreSQL fusionne les deux brouillons'], answer: 0, why: 'L’instruction demande toujours la version 0. Elle ne correspondra plus jamais.' },
+					{ q: 'Maintenant les deux sessions tournent dans des transactions ouvertes, et l’UPDATE de B démarre avant le commit de A. Que voit B d’abord ?', options: ['`UPDATE 0` tout de suite', '`UPDATE 1`, puisque A n’a pas validé', 'B attend sur le verrou de ligne de A', 'Une erreur de sérialisation'], answer: 2, why: 'Un second UPDATE sur une ligne en cours de modification attend que la première transaction finisse.' },
+					{ q: 'A valide. Qu’obtient l’UPDATE de B qui attendait ?', options: ['`UPDATE 1`, parce qu’il a démarré en premier', '`UPDATE 0`, parce que PostgreSQL revérifie le WHERE sur la nouvelle version de la ligne', 'Une erreur de deadlock', '`UPDATE 1`, et l’écriture de A est annulée'], answer: 1, why: 'En Read Committed, PostgreSQL réévalue la clause WHERE sur la ligne mise à jour. La version 1 ne correspond plus à 0.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,30 @@ export default {
 			why: 'Sur une ligne chaude, presque chaque écrivain trouve une version plus récente, obtient zéro ligne et réessaie. Un `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` atomique n’a besoin d’aucune version.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir une vérification de version transformer une mise à jour perdue en `UPDATE 0`, dans deux vraies sessions `psql`.',
+		steps: [
+			'Lance PostgreSQL dans Docker : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`.',
+			'Ouvre deux terminaux, A et B. Dans chacun, lance `docker exec -it dojo-pg psql -U postgres`.',
+			'Dans A : `CREATE TABLE docs (id int PRIMARY KEY, body text, lock_version int NOT NULL DEFAULT 0);` puis `INSERT INTO docs (id, body) VALUES (1, \'empty\');`',
+			'Dans les deux : `SELECT body, lock_version FROM docs WHERE id = 1;` et note la version.',
+			'Dans A : `UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`. Puis dans B, la même instruction avec `\'draft B\'`.',
+			'Dans B, relis la ligne, puis enregistre avec la version que tu viens de lire : `UPDATE docs SET body = \'draft B\', lock_version = 2 WHERE id = 1 AND lock_version = 1;`',
+			'Maintenant la course dans des transactions. Dans A : `BEGIN;` puis `UPDATE docs SET body = \'tx A\', lock_version = 3 WHERE id = 1 AND lock_version = 2;` sans valider. Dans B : le même UPDATE avec `\'tx B\'`. Puis `COMMIT;` dans A.'
+		],
+		done: [
+			'À l’étape 5, A affiche `UPDATE 1` et B affiche `UPDATE 0`.',
+			'Après l’étape 6, `SELECT body, lock_version FROM docs;` montre `draft B` et `2`.',
+			'À l’étape 7, B reste bloqué jusqu’au commit de A, puis affiche `UPDATE 0`. La ligne contient `tx A` en version 3.'
+		],
+		solution: [
+			'Le premier UPDATE de B ne trouve rien : la ligne dit 1 et le WHERE demande 0. Ce zéro est le compte que Rails lit avant de lever `StaleObjectError`.',
+			'L’enregistrement qui marche relit d’abord la ligne, donc son WHERE porte la version actuelle. Dans une appli, c’est là que tu fusionnes ou demandes à l’utilisateur.',
+			'À l’étape 7, B attend sur le verrou de ligne de A. Quand A valide, PostgreSQL revérifie le WHERE de B sur la nouvelle version de la ligne, trouve 3, et ne met rien à jour.',
+			'Nettoie avec `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Rails envoie `UPDATE ... WHERE id = 1 AND lock_version = 3` et la base répond 0 ligne. Que s’est-il passé, et que doit faire l’appli ?',
 		a: 'Un autre écrivain a enregistré avant et a fait passer la ligne au-delà de la version 3. Rails lève `StaleObjectError`, et l’appli recharge la ligne, puis réessaie, fusionne, ou montre à l’utilisateur ce qui a changé.'

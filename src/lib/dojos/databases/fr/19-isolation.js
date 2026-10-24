@@ -123,6 +123,44 @@ export default {
 			'Serializable : chacune a lu les lignes que l’autre a écrites. Aucun ordre sériel ne donne « zéro admin », donc l’une des deux échoue avec 40001. À la relance, elle compte 1 et refuse.',
 			'Boucle de relance : `for attempt in 1..5: BEGIN ISOLATION LEVEL SERIALIZABLE; run the whole function; COMMIT; return`. Sur SQLSTATE 40001 (et 40P01) : ROLLBACK, attends éventuellement un peu, recommence. Après la dernière tentative, lève l’erreur.',
 			'Sans Serializable, verrouille ce que la règle lit : `SELECT ... FROM users WHERE admin FOR UPDATE` fait attendre le deuxième admin jusqu’à ce que le premier ait fini (jour 20).'
+		],
+		steps: [
+			{
+				title: 'Lance-le en Read Committed',
+				questions: [
+					{ q: 'Ana et Ben lancent chacun `SELECT count(*) FROM users WHERE admin`. Qu’obtient chacun ?', options: ['1, puisque l’autre est déjà parti', '2', '0', 'Une erreur, puisque l’autre lit aussi'], answer: 1, why: 'Aucun des deux n’a encore modifié quoi que ce soit, donc les deux voient deux admins.' },
+					{ q: 'Les deux UPDATE sont-ils en conflit sur une ligne ?', options: ['Oui, les deux modifient la table `users`', 'Oui, les deux changent la colonne `admin`', 'Seulement s’ils tournent dans la même milliseconde', 'Non, chacun modifie une ligne différente'], answer: 3, why: 'Ana modifie la ligne d’Ana, Ben celle de Ben. Aucune ligne n’est écrite deux fois.' },
+					{ q: 'Quel est le résultat ?', options: ['Les deux committent, et la boutique n’a plus aucun admin', 'Ben attend Ana, puis refuse', 'L’une échoue avec 40001', 'Les deux échouent et sont annulées'], answer: 0, why: 'Pas de conflit de ligne, pas de contrôle de sérialisation : les deux commits passent et la règle est cassée.' },
+					{ q: 'Pourquoi Read Committed laisse-t-il passer ?', options: ['Il ne prend aucun snapshot', 'Il verrouille la table pendant le comptage', 'Il ne lève jamais d’erreur de sérialisation, et ici aucune ligne n’est partagée', 'Il ne vérifie les règles que la nuit'], answer: 2, why: 'Read Committed prend un nouveau snapshot par instruction et ne lève pas de 40001. Rien n’empêche deux écritures sur des lignes différentes.' }
+				]
+			},
+			{
+				title: 'Lance-le en Repeatable Read',
+				questions: [
+					{ q: 'En Repeatable Read, que montre le snapshot de chaque transaction ?', options: ['2 admins', '1 admin', '0 admin', 'Ça dépend de qui committe en premier'], answer: 0, why: 'Chaque snapshot est pris à la première instruction, avant les deux updates.' },
+					{ q: 'Repeatable Read lève-t-il 40001 ici ?', options: ['Oui, le deuxième comptage voit un changement', 'Oui, dès que les deux committent', 'Non : il n’échoue que sur une ligne modifiée par d’autres depuis son début, et chaque ligne n’est modifiée qu’une fois', 'Non, Repeatable Read ne lève jamais 40001'], answer: 2, why: 'Une transaction Repeatable Read « cannot modify or lock rows changed by other transactions ». Ici, personne ne touche la ligne de l’autre.' },
+					{ q: 'Quel est le résultat ?', options: ['L’une échoue avec 40001', 'Les deux committent, zéro admin', 'Ben attend, puis voit 1 admin', 'Les deux sont annulées'], answer: 1, why: 'Les deux écritures touchent des lignes différentes, donc les deux committent, comme en Read Committed.' },
+					{ q: 'Comment s’appelle cette anomalie ?', options: ['Mise à jour perdue', 'Deadlock', 'Lecture sale', 'Write skew'], answer: 3, why: 'Deux transactions lisent les mêmes lignes, vérifient une règle, et chacune écrit une ligne différente. Ensemble, elles cassent la règle.' }
+				]
+			},
+			{
+				title: 'Lance-le en Serializable',
+				questions: [
+					{ q: 'Qu’ajoute Serializable par rapport à Repeatable Read ?', options: ['Il verrouille chaque ligne lue jusqu’au commit', 'Il suit ce que chaque transaction a lu', 'Il exécute une transaction à la fois', 'Il prend un nouveau snapshot par instruction'], answer: 1, why: 'Il note les dépendances lecture/écriture et fait échouer une transaction quand aucun ordre sériel ne colle aux commits.' },
+					{ q: 'Quel est le résultat ?', options: ['L’une des deux échoue avec 40001', 'Les deux committent, zéro admin', 'Les deux s’attendent pour toujours', 'Les deux échouent avec 40001'], answer: 0, why: 'Chacune a lu les lignes que l’autre a écrites. Aucun ordre où elles tournent l’une après l’autre ne donne zéro admin, donc l’une échoue.' },
+					{ q: 'Ce suivi fait-il attendre Ana ou Ben ?', options: ['Oui, Ben attend à son SELECT', 'Oui, les deux attendent au COMMIT', 'Seulement si la table est grosse', 'Non, il n’ajoute aucun blocage par rapport à Repeatable Read'], answer: 3, why: 'La doc : il « does not introduce any blocking beyond that present in repeatable read ».' },
+					{ q: 'La transaction en échec est relancée. Que se passe-t-il ?', options: ['Elle échoue encore avec 40001', 'Elle retire le rôle quand même', 'Elle compte 1 admin et refuse', 'Elle attend que l’autre soit annulée'], answer: 2, why: 'Le nouveau snapshot contient déjà l’autre commit, donc le compte vaut 1 et la règle tient.' }
+				]
+			},
+			{
+				title: 'Esquisse la boucle de relance',
+				questions: [
+					{ q: 'Sur 40001, que relances-tu ?', options: ['Seulement l’UPDATE qui a échoué', 'Seulement le COMMIT', 'Toute la transaction depuis `BEGIN`, lectures comprises', 'Rien : PostgreSQL la relance pour toi'], answer: 2, why: 'La doc : « retry the whole transaction from the beginning ». La deuxième fois, elle décide sur des données fraîches.' },
+					{ q: 'Quels codes SQLSTATE la boucle relance-t-elle ?', options: ['40001, et aussi 40P01 pour les deadlocks', 'Seulement 23505, violation d’unicité', 'Toutes les erreurs', 'Seulement 40P01'], answer: 0, why: '40001 toujours. La doc ajoute : « It may also be advisable to retry deadlock failures. »' },
+					{ q: 'Que se passe-t-il après l’échec de la dernière tentative ?', options: ['La boucle tourne pour toujours', 'Tu lèves l’erreur', 'Tu committes ce que tu as', 'Tu passes en Read Committed pour un dernier essai'], answer: 1, why: 'Synapse s’arrête après 5 tentatives et lève l’erreur. L’appelant apprend que la transaction n’a pas eu lieu.' },
+					{ q: 'Sans Serializable, comment la règle peut-elle tenir quand même ?', options: ['Compter deux fois avant l’update', 'Passer en Repeatable Read et relancer sur 40001', 'Ajouter un CHECK sur la colonne `admin`', '`SELECT ... FROM users WHERE admin FOR UPDATE`, pour que le deuxième admin attende'], answer: 3, why: 'Verrouiller les lignes que la règle lit fait attendre le deuxième admin jusqu’à ce que le premier ait fini (jour 20).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ export default {
 			why: 'C’est un write skew. Il n’y a de conflit sur aucune ligne, donc Repeatable Read laisse les deux committer. Serializable suit les dépendances lecture/écriture et en fait échouer une. Les verrous explicites marchent aussi, mais ce n’est pas le seul moyen.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Vendre deux fois un seul article en Read Committed, prendre un 40001 en Repeatable Read, puis corriger avec un seul UPDATE.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` dans deux terminaux, A et B : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres` dans chacun. Dans les deux, lance `\\set VERBOSITY verbose` pour voir les codes d’erreur.',
+			'Dans A : `CREATE TABLE items (id int primary key, stock int not null); INSERT INTO items VALUES (1, 1);`',
+			'Read Committed, lire puis écrire : dans A, lance `BEGIN; SELECT stock FROM items WHERE id = 1;`, puis la même chose dans B. Dans A : `UPDATE items SET stock = 0 WHERE id = 1; COMMIT;`. Dans B : `UPDATE items SET stock = 0 WHERE id = 1; COMMIT;`',
+			'Remets le stock avec `UPDATE items SET stock = 1;` et refais l’étape 3 avec `BEGIN ISOLATION LEVEL REPEATABLE READ;` dans les deux terminaux. Quand B échoue, lance `ROLLBACK;` dans B, puis toute la transaction de nouveau depuis `BEGIN ISOLATION LEVEL REPEATABLE READ;`.',
+			'Remets le stock encore. En Read Committed, dans A lance `BEGIN; UPDATE items SET stock = stock - 1 WHERE id = 1 AND stock > 0;` puis la même chose dans B (il attend). Lance `COMMIT;` dans A, puis `COMMIT;` dans B. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'À l’étape 3, les deux terminaux affichent `COMMIT` : deux achats ont vendu l’unique article.',
+			'À l’étape 4, l’UPDATE de B échoue avec `ERROR:  40001: could not serialize access due to concurrent update`, et sa relance lit `stock` 0.',
+			'À l’étape 5, A affiche `UPDATE 1`, et B, une fois A committé, affiche `UPDATE 0`.'
+		],
+		solution: [
+			'Read Committed : l’UPDATE de B attend A, puis écrit sa propre valeur par-dessus. La valeur venait d’une lecture périmée dans l’appli, donc une vente est perdue et aucune erreur n’est journalisée.',
+			'Repeatable Read : B ne peut pas modifier une ligne changée par d’autres depuis son début, donc il échoue, et la relance part d’un snapshot qui contient le commit de A.',
+			'`stock = stock - 1 WHERE stock > 0` revérifie la ligne après l’attente, donc le deuxième achat ne trouve aucune ligne. L’appli lit `UPDATE 0` et refuse la vente.'
+		]
+	},
 	recall: {
 		q: 'Deux admins retirent leur propre rôle d’admin en même temps, et la boutique finit sans aucun admin. Quel niveau d’isolation l’empêche, et que doit faire ton code ensuite ?',
 		a: 'Serializable. Il fait échouer l’une des deux transactions avec le SQLSTATE 40001, et ton code annule puis relance toute la transaction, qui compte alors 1 admin et refuse.'

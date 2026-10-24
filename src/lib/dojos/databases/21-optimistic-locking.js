@@ -122,6 +122,44 @@ export default {
 			'Session B: `UPDATE docs SET body = \'draft B\', lock_version = 1 WHERE id = 1 AND lock_version = 0;` reports `UPDATE 0`. Nothing changed: the row says 1, not 0.',
 			'B must not retry the same statement blindly. It reads the row again (now "draft A", version 1), merges or asks the user, and sends a new UPDATE with `WHERE lock_version = 1`.',
 			'If both sessions run inside open transactions and B\'s UPDATE starts before A commits, B waits on A\'s row lock. When A commits, PostgreSQL re-checks B\'s WHERE clause on the new row version, finds version 1, and still reports `UPDATE 0`.'
+		],
+		steps: [
+			{
+				title: 'Set up and read',
+				questions: [
+					{ q: 'Both sessions run `SELECT body, lock_version FROM docs WHERE id = 1` on the fresh row. What does each one keep?', options: ['A row lock on id 1 until it saves', '`lock_version = 0`, the version it saw', '`lock_version = 1`, the next version', 'Nothing: the version stays in the database'], answer: 1, why: 'Each writer keeps the version it read. That value goes into the WHERE clause of its save.' },
+					{ q: 'Does reading row 1 take a lock here?', options: ['Yes, a row lock until the session saves', 'Yes, but only against other writers', 'No: optimistic locking takes no lock at all', 'Only when the session runs under Serializable'], answer: 2, why: 'Both sessions read freely. The check happens later, inside the UPDATE.' },
+					{ q: 'Why is `lock_version` declared `not null default 0`?', options: ['The check compares against a real value, so it must never be NULL', 'PostgreSQL needs a default to build an index on the column', 'A default makes the column faster to update than a plain int', 'Without it the primary key on `id` would not be unique'], answer: 0, why: 'The WHERE compares the version you read with the row. Rails even refuses to save when the locking column is nil.' },
+					{ q: 'In a web app, where does the version live while the user edits the form?', options: ['In a row lock held by the request', 'In the database session of the first request', 'In a server-side cache keyed by user', 'In a hidden field of the form'], answer: 3, why: 'The Rails module comment recommends a hidden `lock_version` field. Without it, the save reloads the row and the check always passes.' }
+				]
+			},
+			{
+				title: 'Write A\'s save',
+				questions: [
+					{ q: 'Which UPDATE does session A send?', options: ['`UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1;`', '`UPDATE docs SET body = \'draft A\' WHERE id = 1 AND lock_version = 0;`', '`UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`', '`UPDATE docs SET body = \'draft A\', lock_version = 0 WHERE id = 1 AND lock_version = 1;`'], answer: 2, why: 'The WHERE carries the version A read, and the SET moves it one up. Without the bump, B\'s save would still match.' },
+					{ q: 'What does psql report for A?', options: ['`UPDATE 1`', '`UPDATE 0`', '`ERROR: could not serialize access`', '`UPDATE 1`, then a wait for B'], answer: 0, why: 'The row still says 0, so the WHERE matches and one row changes.' },
+					{ q: 'Why put the version check in the UPDATE instead of a SELECT just before it?', options: ['A SELECT cannot read the `lock_version` column', 'One statement checks and writes atomically, with no gap for another writer', 'PostgreSQL forbids a SELECT and an UPDATE in the same session', 'The SELECT would take a lock that blocks session B'], answer: 1, why: 'That is compare-and-set. A separate SELECT leaves a gap between the check and the write.' },
+					{ q: 'What version does row 1 hold after A\'s save?', options: ['0', '2', 'Still 0 until B saves', '1'], answer: 3, why: 'A\'s SET moved it to 1. Every successful update adds one.' }
+				]
+			},
+			{
+				title: 'Write B\'s save',
+				questions: [
+					{ q: 'Which version does B put in its WHERE clause?', options: ['`lock_version = 0`, the one it read', '`lock_version = 1`, the current one', 'None: B only filters on `id`', '`lock_version = 2`, the next one'], answer: 0, why: 'B saves with what it saw. It does not know A saved first, and the check is how it finds out.' },
+					{ q: 'B sends `UPDATE docs SET body = \'draft B\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`. What comes back?', options: ['`UPDATE 1`, overwriting draft A', '`UPDATE 0`', 'A duplicate key error on `lock_version`', 'A deadlock error'], answer: 1, why: 'The row now says 1, not 0, so the WHERE matches nothing.' },
+					{ q: 'What does row 1 hold after B\'s UPDATE?', options: ['"draft B", version 1', '"draft B", version 2', '"draft A", version 1', '"empty", version 0'], answer: 2, why: 'Zero rows changed. A\'s fix is still there.' },
+					{ q: 'In Rails, what turns B\'s result into an error?', options: ['PostgreSQL raises an error on the UPDATE', 'Rails reads the row again and compares the bodies', 'A trigger on `docs` rejects the write', 'Rails sees an affected row count other than 1 and raises `StaleObjectError`'], answer: 3, why: 'The database only reports a count. Rails trusts that count and raises when it is not 1.' }
+				]
+			},
+			{
+				title: 'Decide what B does next',
+				questions: [
+					{ q: 'What should B do after `UPDATE 0`?', options: ['Send the same UPDATE again until it works', 'Drop the version from the WHERE and save', 'Take `SELECT ... FOR UPDATE` and keep it while the user edits', 'Read the row again, merge or ask the user, then save with `WHERE lock_version = 1`'], answer: 3, why: 'The new read gives B the current version and A\'s text. The next save is checked against version 1.' },
+					{ q: 'B resends its first UPDATE unchanged. What happens?', options: ['`UPDATE 0` again, since the row still says 1', '`UPDATE 1`, since A has committed by now', 'It waits until A releases its lock', 'PostgreSQL merges the two drafts'], answer: 0, why: 'The statement still asks for version 0. It will never match again.' },
+					{ q: 'Now both sessions run in open transactions, and B\'s UPDATE starts before A commits. What does B see first?', options: ['`UPDATE 0` at once', '`UPDATE 1`, since A has not committed', 'B waits on A\'s row lock', 'A serialization error'], answer: 2, why: 'A second UPDATE on a row being changed waits for the first transaction to finish.' },
+					{ q: 'A commits. What does B\'s waiting UPDATE get?', options: ['`UPDATE 1`, because it started first', '`UPDATE 0`, because PostgreSQL re-checks the WHERE on the new row version', 'A deadlock error', '`UPDATE 1`, and A\'s write is rolled back'], answer: 1, why: 'In Read Committed, PostgreSQL re-evaluates the WHERE clause on the updated row. Version 1 no longer matches 0.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,30 @@ export default {
 			why: 'On a hot row nearly every writer finds a newer version, gets zero rows, and retries. An atomic `UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0` needs no version at all.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a version check turn a lost update into `UPDATE 0`, in two real `psql` sessions.',
+		steps: [
+			'Start PostgreSQL in Docker: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`.',
+			'Open two terminals, A and B. In each one, run `docker exec -it dojo-pg psql -U postgres`.',
+			'In A: `CREATE TABLE docs (id int PRIMARY KEY, body text, lock_version int NOT NULL DEFAULT 0);` then `INSERT INTO docs (id, body) VALUES (1, \'empty\');`',
+			'In both: `SELECT body, lock_version FROM docs WHERE id = 1;` and note the version.',
+			'In A: `UPDATE docs SET body = \'draft A\', lock_version = 1 WHERE id = 1 AND lock_version = 0;`. Then in B, the same statement with `\'draft B\'`.',
+			'In B, read the row again, then save with the version you just read: `UPDATE docs SET body = \'draft B\', lock_version = 2 WHERE id = 1 AND lock_version = 1;`',
+			'Now the race inside transactions. In A: `BEGIN;` then `UPDATE docs SET body = \'tx A\', lock_version = 3 WHERE id = 1 AND lock_version = 2;` and do not commit. In B: the same UPDATE with `\'tx B\'`. Then `COMMIT;` in A.'
+		],
+		done: [
+			'In step 5, A prints `UPDATE 1` and B prints `UPDATE 0`.',
+			'After step 6, `SELECT body, lock_version FROM docs;` shows `draft B` and `2`.',
+			'In step 7, B hangs until A commits, then prints `UPDATE 0`. The row holds `tx A` at version 3.'
+		],
+		solution: [
+			'B\'s first UPDATE matches nothing: the row says 1 and the WHERE asks for 0. That zero is the count Rails reads before it raises `StaleObjectError`.',
+			'The save that works reads the row first, so its WHERE carries the current version. In an app, that is where you merge or ask the user.',
+			'In step 7, B waits on A\'s row lock. When A commits, PostgreSQL re-checks B\'s WHERE on the new row version, finds 3, and updates nothing.',
+			'Clean up with `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Rails sends `UPDATE ... WHERE id = 1 AND lock_version = 3` and the database reports 0 rows. What happened, and what must the app do?',
 		a: 'Another writer saved first and moved the row past version 3. Rails raises `StaleObjectError`, and the app reloads the row, then retries, merges, or shows the user what changed.'

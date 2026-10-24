@@ -123,6 +123,44 @@ export default {
 			'Serializable: each read the rows the other wrote. No serial order gives "zero admins", so one of the two fails with 40001. On retry, it counts 1 and refuses.',
 			'Retry loop: `for attempt in 1..5: BEGIN ISOLATION LEVEL SERIALIZABLE; run the whole function; COMMIT; return`. On SQLSTATE 40001 (and 40P01): ROLLBACK, maybe wait a little, loop. After the last attempt, raise.',
 			'Without Serializable, lock what the rule reads: `SELECT ... FROM users WHERE admin FOR UPDATE` makes the second admin wait for the first (day 20).'
+		],
+		steps: [
+			{
+				title: 'Run it under Read Committed',
+				questions: [
+					{ q: 'Ana and Ben each run `SELECT count(*) FROM users WHERE admin`. What does each get?', options: ['1, since the other has already left', '2', '0', 'An error, since the other is reading too'], answer: 1, why: 'Neither has updated yet, so both see two admins.' },
+					{ q: 'Do the two UPDATEs conflict on a row?', options: ['Yes, both update the `users` table', 'Yes, both change the `admin` column', 'Only if they run in the same millisecond', 'No, each updates a different row'], answer: 3, why: 'Ana updates Ana\'s row, Ben updates Ben\'s row. No row is written twice.' },
+					{ q: 'What is the result?', options: ['Both commit, and the shop has zero admins', 'Ben waits for Ana, then refuses', 'One fails with 40001', 'Both fail and roll back'], answer: 0, why: 'No row conflict, no serialization check: both commits succeed and the rule is broken.' },
+					{ q: 'Why does Read Committed let it through?', options: ['It takes no snapshot at all', 'It locks the table during the count', 'It never raises serialization errors, and here no row is shared', 'It only checks rules at night'], answer: 2, why: 'Read Committed takes a new snapshot per statement and does not raise 40001. Nothing stops two writes to different rows.' }
+				]
+			},
+			{
+				title: 'Run it under Repeatable Read',
+				questions: [
+					{ q: 'Under Repeatable Read, what does each transaction\'s snapshot show?', options: ['2 admins', '1 admin', '0 admins', 'It depends on who commits first'], answer: 0, why: 'Each snapshot is taken at the first statement, before either update.' },
+					{ q: 'Does Repeatable Read raise 40001 here?', options: ['Yes, the second count sees a change', 'Yes, as soon as both commit', 'No: it fails only on a row changed by others since it began, and each row is changed once', 'No, Repeatable Read never raises 40001'], answer: 2, why: 'A Repeatable Read transaction "cannot modify or lock rows changed by other transactions". Here nobody touches the other\'s row.' },
+					{ q: 'What is the result?', options: ['One fails with 40001', 'Both commit, zero admins', 'Ben waits, then sees 1 admin', 'Both roll back'], answer: 1, why: 'The two writes touch different rows, so both commit, as under Read Committed.' },
+					{ q: 'What is this anomaly called?', options: ['Lost update', 'Deadlock', 'Dirty read', 'Write skew'], answer: 3, why: 'Two transactions read the same rows, check a rule, and each writes a different row. Together they break the rule.' }
+				]
+			},
+			{
+				title: 'Run it under Serializable',
+				questions: [
+					{ q: 'What does Serializable do on top of Repeatable Read?', options: ['It locks every row it reads until commit', 'It tracks what each transaction read', 'It runs one transaction at a time', 'It takes a new snapshot per statement'], answer: 1, why: 'It notes read/write dependencies and fails a transaction when no serial order fits the commits.' },
+					{ q: 'What is the result?', options: ['One of the two fails with 40001', 'Both commit, zero admins', 'Both wait for each other forever', 'Both fail with 40001'], answer: 0, why: 'Each read the rows the other wrote. No order run one at a time gives zero admins, so one fails.' },
+					{ q: 'Does that tracking make Ana or Ben wait?', options: ['Yes, Ben waits at his SELECT', 'Yes, both wait at COMMIT', 'Only if the table is large', 'No, it adds no blocking beyond Repeatable Read'], answer: 3, why: 'The docs: it "does not introduce any blocking beyond that present in repeatable read".' },
+					{ q: 'The failed transaction is retried. What happens?', options: ['It fails again with 40001', 'It removes the role anyway', 'It counts 1 admin and refuses', 'It waits for the other to roll back'], answer: 2, why: 'The new snapshot already holds the other commit, so the count is 1 and the rule holds.' }
+				]
+			},
+			{
+				title: 'Sketch the retry loop',
+				questions: [
+					{ q: 'On 40001, what do you run again?', options: ['Only the UPDATE that failed', 'Only the COMMIT', 'The whole transaction from `BEGIN`, reads included', 'Nothing: PostgreSQL retries it for you'], answer: 2, why: 'The docs: "retry the whole transaction from the beginning". The second time, it decides on fresh data.' },
+					{ q: 'Which SQLSTATE codes does the loop retry?', options: ['40001, and also 40P01 for deadlocks', 'Only 23505, unique violation', 'Every error', 'Only 40P01'], answer: 0, why: '40001 always. The docs add: "It may also be advisable to retry deadlock failures."' },
+					{ q: 'What happens after the last attempt fails?', options: ['The loop runs forever', 'Raise the error', 'Commit what you have', 'Switch to Read Committed and try once more'], answer: 1, why: 'Synapse stops after 5 attempts and raises. The caller learns the transaction did not happen.' },
+					{ q: 'Without Serializable, how can the rule still hold?', options: ['Count twice before updating', 'Use Repeatable Read and retry on 40001', 'Add a CHECK on the `admin` column', '`SELECT ... FROM users WHERE admin FOR UPDATE`, so the second admin waits'], answer: 3, why: 'Locking the rows the rule reads makes the second admin wait until the first has finished (day 20).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ export default {
 			why: 'This is write skew. There is no conflict on any single row, so Repeatable Read lets both commit. Serializable tracks read/write dependencies and fails one of them. Explicit locks also work, but they are not the only way.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Sell one item twice under Read Committed, get a 40001 under Repeatable Read, then fix it with one UPDATE.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql` in two terminals, A and B: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres` in each. In both, run `\\set VERBOSITY verbose` to see error codes.',
+			'In A: `CREATE TABLE items (id int primary key, stock int not null); INSERT INTO items VALUES (1, 1);`',
+			'Read Committed, read then write: in A run `BEGIN; SELECT stock FROM items WHERE id = 1;`, then the same in B. In A: `UPDATE items SET stock = 0 WHERE id = 1; COMMIT;`. In B: `UPDATE items SET stock = 0 WHERE id = 1; COMMIT;`',
+			'Reset with `UPDATE items SET stock = 1;` and repeat step 3 with `BEGIN ISOLATION LEVEL REPEATABLE READ;` in both terminals. When B fails, run `ROLLBACK;` in B, then the whole transaction again from `BEGIN ISOLATION LEVEL REPEATABLE READ;`.',
+			'Reset again. Under Read Committed, in A run `BEGIN; UPDATE items SET stock = stock - 1 WHERE id = 1 AND stock > 0;` then the same in B (it waits). Run `COMMIT;` in A, then `COMMIT;` in B. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'In step 3, both terminals print `COMMIT`: two checkouts sold the one item.',
+			'In step 4, B\'s UPDATE fails with `ERROR:  40001: could not serialize access due to concurrent update`, and its retry reads `stock` 0.',
+			'In step 5, A prints `UPDATE 1`, and B, once A commits, prints `UPDATE 0`.'
+		],
+		solution: [
+			'Read Committed: B\'s UPDATE waits for A, then writes its own value on top. The value came from a stale read in the app, so one sale is lost and no error is logged.',
+			'Repeatable Read: B cannot modify a row changed by others after it began, so it fails, and the retry starts from a snapshot that holds A\'s commit.',
+			'`stock = stock - 1 WHERE stock > 0` rechecks the row after the wait, so the second checkout matches no row. The app reads `UPDATE 0` and refuses the sale.'
+		]
+	},
 	recall: {
 		q: 'Two admins remove their own admin role at the same time, and the shop ends with zero admins. Which isolation level stops it, and what must your code do then?',
 		a: 'Serializable. It fails one of the two transactions with SQLSTATE 40001, and your code rolls back and retries the whole transaction, which then counts 1 admin and refuses.'

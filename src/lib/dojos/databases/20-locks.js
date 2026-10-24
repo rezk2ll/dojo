@@ -126,6 +126,44 @@ DeadLockCheck(PGPROC *proc)
 			'Fix: lock the two rows in a fixed order, for example the lower account number first, whatever the direction: `UPDATE accounts ... WHERE acctnum = 11111;` then `... WHERE acctnum = 22222;`. Now the second transfer waits at the first row instead of grabbing the other one.',
 			'Fail fast: `SET lock_timeout = \'2s\';` in the transaction. A statement that waits longer than 2 seconds for any lock is aborted, which is better than a request hanging. Use `SELECT ... FOR UPDATE NOWAIT` to fail at once instead.',
 			'To see who blocks whom while it hangs: `SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`'
+		],
+		steps: [
+			{
+				title: 'Take the first locks',
+				questions: [
+					{ q: 'Session 1 runs `BEGIN;` and updates account 11111. What does it hold now?', options: ['Nothing until it commits', 'A row lock on 11111, until its transaction ends', 'A lock on the whole `accounts` table', 'A lock that ends with the statement'], answer: 1, why: 'Every UPDATE takes a row lock on each row it touches, held until the transaction ends.' },
+					{ q: 'Session 2 runs `BEGIN;` and updates 22222. What happens?', options: ['It succeeds at once: no one holds that row', 'It waits for session 1 to commit', 'It fails with `deadlock detected`', 'It waits one `deadlock_timeout`, then succeeds'], answer: 0, why: 'Each transaction holds a different row. There is no conflict yet.' },
+					{ q: 'Session 2 now updates 11111. What happens?', options: ['It succeeds, since it already holds a row lock', 'It fails at once with an error', 'It overwrites session 1\'s change', 'It blocks, waiting for session 1 to finish'], answer: 3, why: 'That row is locked by session 1, so session 2 waits for it to commit or roll back.' },
+					{ q: 'While session 2 waits, a third session runs `SELECT * FROM accounts WHERE acctnum = 11111`. What does it get?', options: ['It waits behind session 2', 'It fails with a lock timeout', 'The old balance, at once', 'Session 1\'s new balance'], answer: 2, why: 'Row locks block only writers and lockers. A plain read gets the version its snapshot allows.' }
+				]
+			},
+			{
+				title: 'Close the cycle',
+				questions: [
+					{ q: 'Session 1 now updates 22222. What happens first?', options: ['It succeeds, since session 2 is waiting', 'Session 2\'s update completes', 'It blocks too: each session waits for the other', 'PostgreSQL aborts both sessions'], answer: 2, why: 'Session 1 waits for 2, and 2 waits for 1: a cycle in the waits-for graph.' },
+					{ q: 'How long until PostgreSQL acts?', options: ['About one second, the default `deadlock_timeout`', 'Forever, since `lock_timeout` is 0', 'Until one of the clients disconnects', 'At the next checkpoint'], answer: 0, why: 'A waiter checks for a cycle only after sleeping `deadlock_timeout`, one second by default.' },
+					{ q: 'What does the failing session print?', options: ['`ERROR: canceling statement due to lock timeout`', '`ERROR: deadlock detected`, with "Process N waits for ShareLock on transaction M; blocked by process P." lines', '`ERROR: could not serialize access due to concurrent update`', '`WARNING: lock wait too long`'], answer: 1, why: '`DeadLockReport` writes one line per process in the cycle. The error code is `40P01`.' },
+					{ q: 'What happens to the other session?', options: ['It is aborted too', 'It keeps waiting until you press Enter', 'It has to run its UPDATE again', 'Its UPDATE completes'], answer: 3, why: 'Cancelling one lock request is enough to break the cycle. The other gets the lock and goes on.' }
+				]
+			},
+			{
+				title: 'Recover and fix the order',
+				questions: [
+					{ q: 'What does the failed session do next?', options: ['`ROLLBACK`, then run the whole transfer again', '`COMMIT`, since its first update worked', 'Run only the failed UPDATE again', 'Nothing: PostgreSQL retries it'], answer: 0, why: 'Its transaction is aborted. Roll it back and retry from the start.' },
+					{ q: 'Can you know in advance which session will fail?', options: ['Yes: the one that started its transaction last is always aborted', 'Yes: the one holding fewer locks is always the one to fail', 'No: the docs say it is difficult to predict and should not be relied upon', 'Yes, always session 1'], answer: 2, why: 'So the code must be ready to retry either transaction.' },
+					{ q: 'How do you rewrite the transfer so it never deadlocks?', options: ['Raise `deadlock_timeout` to 10 seconds', 'Lock the two rows in one fixed order, for example the lower account number first', 'Read both rows with a plain SELECT before updating', 'Run each UPDATE in its own transaction'], answer: 1, why: 'The docs call a consistent lock order "the best defense against deadlocks".' },
+					{ q: 'With the fixed order, what does the second transfer do?', options: ['It takes the other row first, then waits for 11111', 'It fails at once with `could not obtain lock on row`', 'It still deadlocks, only after one second', 'It waits at the first row until the first transfer ends'], answer: 3, why: 'Both start with 11111, so the second one waits there and never holds a row the first one needs.' }
+				]
+			},
+			{
+				title: 'Fail fast instead of waiting',
+				questions: [
+					{ q: 'Which setting makes a stuck lock wait fail after 2 seconds?', options: ['`SET deadlock_timeout = \'2s\';`', '`SET statement_timeout = 0;`', '`SET lock_timeout = \'2s\';`', '`SET idle_in_transaction_session_timeout = \'2s\';`'], answer: 2, why: '`lock_timeout` aborts a statement that waits longer than that for any lock.' },
+					{ q: 'What is `lock_timeout` by default?', options: ['0, which means off: a wait can last forever', '1 second, like `deadlock_timeout`', '30 seconds', '5 minutes'], answer: 0, why: 'Off by default, so one stuck transaction can pile up a queue of requests behind it.' },
+					{ q: 'How do you fail at once if the row is locked?', options: ['`SELECT ... FOR SHARE`', '`SET lock_timeout = 0;`', '`SET deadlock_timeout = 0;`', '`SELECT ... FOR UPDATE NOWAIT`'], answer: 3, why: '`NOWAIT` raises an error instead of waiting for the lock. A `lock_timeout` of 0 turns the limit off.' },
+					{ q: 'While a session hangs, how do you see who blocks it?', options: ['`SELECT * FROM pg_stat_user_tables;`', '`SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`', '`EXPLAIN ANALYZE` on the hanging UPDATE', '`SHOW deadlock_timeout;`'], answer: 1, why: '`pg_blocking_pids` returns the processes that hold the lock each waiter wants.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,27 @@ DeadLockCheck(PGPROC *proc)
 			why: 'A deadlock needs a cycle, and a cycle needs two transactions taking locks in opposite orders. With one global order, the second transaction waits at the first lock and no cycle can form.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Cause a real deadlock, watch who blocks whom, then make the transfer deadlock-free and make waits fail fast.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql` in three terminals: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres` in each. In terminal 1: `CREATE TABLE accounts (acctnum int primary key, balance numeric not null); INSERT INTO accounts VALUES (11111, 1000), (22222, 1000);`',
+			'Opposite orders: in 1, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 11111;`. In 2, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 22222; UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 11111;` (it hangs). In 3: `SELECT pid, pg_blocking_pids(pid), query FROM pg_stat_activity WHERE wait_event_type = \'Lock\';`',
+			'Close the cycle: in 1, `UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;`. Wait about a second and read both terminals. Then run `ROLLBACK;` in both.',
+			'Same order: in 1, `BEGIN; UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 11111;`. In 2, `BEGIN; UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 11111;` (it waits). In 1, `UPDATE accounts SET balance = balance + 100.00 WHERE acctnum = 22222; COMMIT;`. In 2, `UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222; COMMIT;`',
+			'Fail fast: in 1, `BEGIN; SELECT * FROM accounts WHERE acctnum = 11111 FOR UPDATE;`. In 2, `BEGIN; SET lock_timeout = \'2s\'; UPDATE accounts SET balance = 0 WHERE acctnum = 11111;` then `ROLLBACK; SELECT * FROM accounts WHERE acctnum = 11111 FOR UPDATE NOWAIT;`. Run `ROLLBACK;` in 1, then `docker stop pg-lab`.'
+		],
+		done: [
+			'In step 2, terminal 3 shows the waiting `UPDATE ... 11111` with the pid of terminal 1 in `pg_blocking_pids`.',
+			'In step 3, one terminal prints `ERROR:  deadlock detected` with two "Process ... waits for ShareLock on transaction ...; blocked by process ..." lines, and the other one\'s UPDATE completes.',
+			'In step 4, both terminals print `COMMIT` and no error. In step 5, the UPDATE fails with `canceling statement due to lock timeout` after about 2 seconds, and `NOWAIT` fails at once with `could not obtain lock on row in relation "accounts"`.'
+		],
+		solution: [
+			'Opposite orders make each transaction hold one row and want the other: a cycle that only an abort can break, after `deadlock_timeout`.',
+			'With one fixed order (lower account number first), the second transfer waits at the first row and cannot hold a row the first one needs.',
+			'`lock_timeout` bounds every lock wait, and `NOWAIT` skips the wait. Either way the app gets an error it can retry instead of a hanging request.'
+		]
+	},
 	recall: {
 		q: 'A transfer from A to B and one from B to A sometimes fail with `deadlock detected`. Why, and what change stops it?',
 		a: 'Each transfer locks one account row and waits for the row the other holds. Lock the two rows in one fixed order, for example the lower account number first, so the second transfer waits at the first row.'

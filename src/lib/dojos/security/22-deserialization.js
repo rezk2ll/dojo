@@ -106,6 +106,44 @@ UnsafeConstructor.add_multi_constructor(
 			'Line 2 is unsafe. The browser stores the cookie, so the user can replace it with any bytes, and `pickle.loads` imports whatever globals those bytes name. Store JSON instead: `prefs = json.loads(request.cookies["prefs"])`.',
 			'If the cookie must not be edited at all, sign it. The pickle docs suggest "signing data with hmac" and checking the signature before loading.',
 			'Line 3 can stay. Users cannot write `/etc/app/settings.yml`, and `safe_load` would refuse a `!!python/` tag in it anyway.'
+		],
+		steps: [
+			{
+				title: 'Ask who writes the bytes',
+				questions: [
+					{ q: 'Line 1 reads `request.data`. Who controls those bytes?', options: ['Only the app’s own code', 'Any client that sends `POST /jobs`', 'Only an admin with shell access', 'The YAML library, which fills it in'], answer: 1, why: 'The request body comes straight from whoever sends the request.' },
+					{ q: 'Line 2 reads the `prefs` cookie. Who controls it?', options: ['The server, since it set the cookie', 'Nobody: base64 makes it read only', 'The user, since the browser stores it', 'Only Flask’s session layer'], answer: 2, why: 'The browser stores the cookie, so the user can replace it with any bytes.' },
+					{ q: 'Line 3 reads `/etc/app/settings.yml`. Who can write it?', options: ['Not the app’s users', 'Any client, through `POST /jobs`', 'Anyone who sets the `prefs` cookie', 'Anyone who can read the app’s logs'], answer: 0, why: 'It is a file on the server, read at startup. Users have no way to write it.' },
+					{ q: 'Which lines take data a user controls?', options: ['Only line 1', 'Lines 1 and 3', 'All three', 'Lines 1 and 2'], answer: 3, why: 'The request body and the cookie both come from the client. The settings file does not.' }
+				]
+			},
+			{
+				title: 'Check the YAML loader',
+				questions: [
+					{ q: 'What is `yaml.Loader` in line 1?', options: ['The old name for `UnsafeLoader`', 'An alias for `SafeLoader`', 'The new name for `FullLoader`', 'A loader that only reads strings'], answer: 0, why: '`yaml.Loader` uses the same constructor as `UnsafeLoader`, which knows the `!!python/object/apply:` tag.' },
+					{ q: 'A client sends `!!python/object/apply:os.system ["echo hi"]`. What does line 1 do?', options: ['Returns the string `"echo hi"`', 'Calls `os.system("echo hi")`', 'Raises `ConstructorError`', 'Raises `TypeError` for a missing `Loader`'], answer: 1, why: 'The tag names a function, and the unsafe constructor imports the module and calls it.' },
+					{ q: 'Which line of `UnsafeConstructor` makes that call possible?', options: ['The `add_multi_constructor` for `python/object/apply:`', 'The `import yaml` line at the top of the file', 'The 12 standard tags of `SafeConstructor`', 'The `construct_undefined` catch-all for other tags'], answer: 0, why: 'Only `UnsafeConstructor` registers the four tags that build arbitrary objects, `python/object/apply:` among them.' },
+					{ q: 'Would `Loader=yaml.FullLoader` make line 1 safe?', options: ['Yes: it was built as the safe default', 'Yes: it refuses every tag', 'No: it had two code execution CVEs in 2020', 'No: it only reads JSON'], answer: 2, why: 'CVE-2020-1747 and CVE-2020-14343 both abused the `python/object/new` constructor that `FullLoader` still accepted.' }
+				]
+			},
+			{
+				title: 'Check the cookie',
+				questions: [
+					{ q: 'What can `pickle.loads` do with a cookie the user wrote?', options: ['Only build a dict of plain values', 'Import and call any global the bytes name', 'Nothing, base64 is checked first', 'Only read the fields Flask set'], answer: 1, why: 'Loading a pickle can import and call any function named in the data.' },
+					{ q: 'Does pickle have a safe mode like `safe_load`?', options: ['Yes: `pickle.safe_loads`', 'Yes: protocol 0', 'Yes: any pickle under 4096 bytes', 'No'], answer: 3, why: 'The Python docs: "Never unpickle data that could have come from an untrusted source".' },
+					{ q: 'Does base64 stop the user from editing the cookie?', options: ['Yes, it encrypts the data', 'Yes, if you encode twice', 'No: it is an encoding with no key', 'Only on HTTPS'], answer: 2, why: 'Anyone can decode base64, change the bytes, and encode them again.' },
+					{ q: 'Does a `try` around `pickle.loads` help?', options: ['No: the code has already run inside `loads`', 'Yes: the error is caught and logged', 'Yes: `except` undoes what the call did', 'Only for cookies under 4096 bytes'], answer: 0, why: 'The call to `os.system` happens inside `pickle.loads`. There is nothing left to catch in time.' }
+				]
+			},
+			{
+				title: 'Replace each line',
+				questions: [
+					{ q: 'What replaces line 1?', options: ['`yaml.load(request.data)`', '`yaml.load(request.data, Loader=yaml.FullLoader)`', '`yaml.unsafe_load(request.data)`', '`yaml.safe_load(request.data)`'], answer: 3, why: '`safe_load` raises `ConstructorError` on any tag outside its 12 standard ones.' },
+					{ q: 'What replaces line 2?', options: ['`pickle.loads` with a smaller size limit', 'JSON in the cookie, read with `json.loads`', 'The same pickle, base64 encoded twice', '`yaml.load` on the cookie'], answer: 1, why: 'The Python docs: untrusted JSON "does not in itself create an arbitrary code execution vulnerability."' },
+					{ q: 'The cookie must also not be edited at all. What do you add?', options: ['An `hmac` signature checked before loading', 'A longer and more random cookie name', 'The `HttpOnly` flag on the cookie alone', 'A second pickle that holds a checksum'], answer: 0, why: 'The pickle docs suggest "signing data with hmac" and checking the signature before loading.' },
+					{ q: 'What do you do with line 3?', options: ['Switch it to `yaml.Loader` for full YAML support', 'Replace it with `pickle.load` on a binary file', 'Keep it: the file is trusted and `safe_load` is safe', 'Delete it: config files are never safe'], answer: 2, why: 'The input is trusted and the loader is already the safe one.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -143,6 +181,28 @@ UnsafeConstructor.add_multi_constructor(
 			why: 'The code runs inside `pickle.loads` while it loads, so a `try` block catches nothing in time, and a short pickle can still name `os.system`. Base64 is an encoding with no key. The docs say JSON "does not in itself create an arbitrary code execution vulnerability."'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a YAML tag and a pickle run a command on your laptop, then see `safe_load` and JSON refuse them.',
+		steps: [
+			'Set up: `mkdir -p ~/deser-lab && cd ~/deser-lab && python3 -m venv .venv && .venv/bin/pip install pyyaml`.',
+			'Write a hostile job: `printf \'%s\\n\' \'!!python/object/apply:os.system ["echo pwned > proof.txt"]\' > job.yml`.',
+			'Load it with the full loader: `.venv/bin/python -c \'import yaml; yaml.load(open("job.yml"), Loader=yaml.Loader)\'`, then `cat proof.txt` and `rm proof.txt`.',
+			'Load it safely: `.venv/bin/python -c \'import yaml; yaml.safe_load(open("job.yml"))\'`, then try `yaml.load(open("job.yml"))` with no `Loader`.',
+			'Build a hostile cookie: `python3 -c \'import os, pickle, base64; P = type("P", (), {"__reduce__": lambda s: (os.system, ("echo pickled > proof.txt",))}); print(base64.b64encode(pickle.dumps(P())).decode())\' > cookie.txt`, then load it with `python3 -c \'import pickle, base64; pickle.loads(base64.b64decode(open("cookie.txt").read()))\'`.'
+		],
+		done: [
+			'After step 3, `cat proof.txt` prints `pwned`.',
+			'`safe_load` stops with `could not determine a constructor for the tag` and `proof.txt` is not created.',
+			'The bare `yaml.load` raises `TypeError` about the missing `Loader` (PyYAML 6.0 or later).',
+			'After step 5, `cat proof.txt` prints `pickled`.'
+		],
+		solution: [
+			'The YAML tag names `os.system`, and `yaml.Loader` imports and calls it. `safe_load` has no constructor for the tag and raises before importing anything.',
+			'The pickle’s `__reduce__` tells `pickle.loads` to call `os.system`. No pickle option prevents it.',
+			'The fix for the cookie: `python3 -c \'import json; print(json.loads("{\\"theme\\": \\"dark\\"}"))\'` returns a plain dict. JSON can only hold plain values.'
+		]
+	},
 	recall: {
 		q: 'Which PyYAML call do you use on YAML from a user, and since which version does `yaml.load` refuse to run without a `Loader`?',
 		a: '`yaml.safe_load(data)`, which uses `SafeLoader` and refuses any tag outside its 12 standard ones. Since PyYAML 6.0 (13 October 2021), `yaml.load(data)` with no `Loader` raises `TypeError`.'

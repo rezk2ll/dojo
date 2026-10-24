@@ -138,6 +138,44 @@ func isJPEG(r io.Reader) bool {
 			'`f.filename` vient aussi du client. La RFC 7578 : "do not use the file name blindly" et "do not use directory path information that may be present" (ne pas utiliser le nom tel quel, ni les dossiers qu’il contient). `../../app.py` sort du dossier (jour 21), et `me.html` garde son extension.',
 			'`static/avatars` est dans le dossier statique de Flask, servi sous `/static/`. Werkzeug choisit le type de la réponse d’après l’extension, avec `mimetypes.guess_type` : `/static/avatars/me.html` part en `text/html` et son script tourne sur ton domaine (jour 18). Sans `MAX_CONTENT_LENGTH`, la doc de Flask dit qu’il "will happily accept file uploads with an unlimited amount of memory" (accepte des envois sans limite de mémoire).',
 			'Réécriture : `app.config["MAX_CONTENT_LENGTH"] = 2 * 1000 * 1000`. Ouvre avec `img = Image.open(f.stream, formats=["PNG", "JPEG"])`, qui lève `UnidentifiedImageError` pour tout autre format. Enregistre `img.convert("RGB")` en JPEG dans `/var/lib/shop/avatars/<uuid4>.jpg`, et sers-le avec `send_from_directory` depuis une vue.'
+		],
+		steps: [
+			{
+				title: 'Vérifie le test de type',
+				questions: [
+					{ q: 'D’où vient `f.mimetype` ?', options: ['Des premiers octets du fichier', 'De l’en-tête `Content-Type` de la partie, écrit par le client', 'De Pillow, qui ouvre le fichier', 'De l’extension de `f.filename`'], answer: 1, why: '`FileStorage.mimetype`, dans Werkzeug, est l’en-tête `Content-Type` de la partie, en minuscules. Il ne lit jamais les octets.' },
+					{ q: 'Un script envoie `me.html` avec `Content-Type: image/png`. Que fait le test ?', options: ['Il le refuse avec un 400', 'Il le renomme en `me.png`', 'Il le laisse passer', 'Il le convertit en PNG'], answer: 2, why: 'Le test ne compare que l’en-tête écrit par le client. N’importe quels octets peuvent porter n’importe quel en-tête.' },
+					{ q: 'Comment l’OWASP qualifie-t-elle le `Content-Type` d’un envoi ?', options: ['"trivial to spoof"', '"safe once lowercased"', '"set by the browser only"', '"checked by the web server"'], answer: 0, why: 'Le client l’écrit, il dit donc seulement ce que le client affirme.' },
+					{ q: 'Dans la CVE de GitLab, que vérifiait-on avant de lancer ExifTool ?', options: ['Les octets, avec `http.DetectContentType`', 'L’en-tête `Content-Type`', 'Rien du tout', 'Seulement le nom, contre `.jpg`, `.jpeg` ou `.tiff`'], answer: 3, why: 'Avant le correctif, `IsExifFile` ne testait que le nom. ExifTool choisissait ensuite son lecteur d’après les octets.' }
+				]
+			},
+			{
+				title: 'Vérifie le nom',
+				questions: [
+					{ q: 'Qui écrit `f.filename` ?', options: ['Flask, d’après l’URL', 'Le client', 'Le système d’exploitation', 'Werkzeug, après nettoyage'], answer: 1, why: 'Le `filename` d’une partie multipart vient du client, comme le type.' },
+					{ q: 'Que fait `f.filename = "../../app.py"` à `f.save(...)` ?', options: ['Il sort de `static/avatars` et écrase un fichier', 'Werkzeug retire les `..`', 'Il lève une erreur', 'Il enregistre `app.py` dans `static/avatars`'], answer: 0, why: '`os.path.join` colle le nom au dossier, et les `..` en sortent (jour 21).' },
+					{ q: 'Que dit la RFC 7578 du nom de fichier ?', options: ['Toujours le garder, pour l’utilisateur', 'L’encoder en base64', 'Lui faire confiance en HTTPS', '"do not use the file name blindly"'], answer: 3, why: 'Elle dit aussi "do not use directory path information that may be present".' },
+					{ q: 'Pourquoi garder l’extension `.html` pose-t-il problème ici ?', options: ['Le fichier devient plus gros', 'Pillow ne sait pas l’ouvrir', 'Le serveur choisit le type de la réponse d’après l’extension', 'Les navigateurs refusent de le télécharger'], answer: 2, why: 'Werkzeug utilise `mimetypes.guess_type`, donc `me.html` part en `text/html`.' }
+				]
+			},
+			{
+				title: 'Vérifie où il atterrit',
+				questions: [
+					{ q: 'Quel est le souci avec `static/avatars` ?', options: ['Il est dans le dossier statique de Flask, servi tel quel sous `/static/`', 'Flask ne peut pas y écrire', 'Il est trop lent pour des images', 'Aucun, c’est l’endroit habituel'], answer: 0, why: 'Un fichier dans la racine web est servi sous une URL, avec un type choisi d’après son nom.' },
+					{ q: 'Que se passe-t-il quand quelqu’un ouvre `/static/avatars/me.html` ?', options: ['Le navigateur le télécharge', 'Son script tourne sur ton domaine', 'Flask renvoie 403', 'Il s’affiche en texte brut'], answer: 1, why: 'Il part en `text/html`, et le navigateur l’exécute comme une page de ton site (jour 18).' },
+					{ q: 'L’appli n’a pas de `MAX_CONTENT_LENGTH`. Qu’est-ce que ça permet ?', options: ['Rien : Flask plafonne les envois à 2 Mo', 'Seulement des fichiers de moins de 512 Ko', 'Des envois de n’importe quelle taille', 'Un seul envoi à la fois'], answer: 2, why: 'La doc de Flask : il "will happily accept file uploads with an unlimited amount of memory".' },
+					{ q: 'Quel est le quatrième problème, à côté du type, du nom et du dossier ?', options: ['Le handler utilise `request.files`', 'Le handler ne renvoie pas de JSON', 'Le formulaire n’a pas de jeton CSRF', 'Aucune limite sur la taille du corps'], answer: 3, why: 'Les quatre valeurs auxquelles le handler se fie sont le type, le nom, le dossier et la taille.' }
+				]
+			},
+			{
+				title: 'Réécris-le',
+				questions: [
+					{ q: 'Comment vérifies-tu le format ?', options: ['Comparer `f.mimetype` à une liste d’autorisation', 'Vérifier que le nom finit par `.png`', '`Image.open(f.stream, formats=["PNG", "JPEG"])`', 'Lire seulement le premier octet'], answer: 2, why: 'Pillow lit les octets et lève `UnidentifiedImageError` pour tout autre format.' },
+					{ q: 'Qu’écris-tu sur le disque ?', options: ['`img.convert("RGB")` enregistré en nouveau JPEG', 'Les octets d’origine, tels quels', 'Les octets avec un suffixe `.jpg`', 'Une copie en base64 de l’envoi'], answer: 0, why: 'Réencoder écrit un fichier dans un format que tu as choisi, sans les métadonnées d’origine.' },
+					{ q: 'Où, et sous quel nom ?', options: ['`static/avatars/<secure_filename>`', '`/var/lib/shop/avatars/<uuid4>.jpg`', '`static/avatars/<uuid4>.jpg`', '`/tmp/<nom d’origine>`'], answer: 1, why: 'Un nom aléatoire hors de la racine web : l’utilisateur ne choisit jamais l’extension ni l’URL.' },
+					{ q: 'Comment le sers-tu ?', options: ['Depuis une vue avec `send_from_directory`', 'Sous `/static/` comme le CSS', 'En redirigeant vers le chemin du fichier', 'En passant d’abord par ExifTool'], answer: 0, why: 'La vue décide quoi envoyer, depuis un dossier que le serveur web ne sert pas tout seul.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -175,6 +213,29 @@ func isJPEG(r io.Reader) bool {
 			why: 'Le serveur choisit `text/html` d’après l’extension `.html` : il faut donc retirer l’extension et l’URL des mains de l’utilisateur. `secure_filename("me.html")` garde `me.html`, le test du `Content-Type` croit le client, et `nosniff` empêche de deviner alors que le serveur annonce déjà `text/html`.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Envoyer un fichier HTML comme avatar à une appli Flask locale, le voir revenir comme une page, puis réécrire le handler pour que ce soit impossible.',
+		steps: [
+			'Prépare : `mkdir -p ~/upload-lab/static/avatars && cd ~/upload-lab && python3 -m venv .venv && .venv/bin/pip install flask pillow`.',
+			'Enregistre le handler du chapitre : `printf \'%s\\n\' \'import os\' \'from flask import Flask, request, abort\' \'app = Flask(__name__)\' \'@app.post("/avatar")\' \'def avatar():\' \'    f = request.files["avatar"]\' \'    if f.mimetype not in ("image/png", "image/jpeg"): abort(400)\' \'    f.save(os.path.join("static/avatars", f.filename))\' \'    return "saved\\n"\' > app.py`.',
+			'Dans un second terminal : `cd ~/upload-lab && .venv/bin/flask --app app run --port 5050`.',
+			'Attaque-le : `echo \'<script>alert(document.domain)</script>\' > me.html`, puis `curl -F \'avatar=@me.html;type=image/png\' localhost:5050/avatar` et `curl -sI localhost:5050/static/avatars/me.html`. Puis `curl -F \'avatar=@me.html;type=image/png;filename=../../evil.py\' localhost:5050/avatar` et `ls`.',
+			'Arrête le serveur. Écris `safe.py` d’après la réécriture du chapitre : un `MAX_CONTENT_LENGTH` de 2 Mo, `Image.open(..., formats=["PNG", "JPEG"])`, un JPEG réencodé sous un nom `uuid4` dans `store/`, et une vue qui le sert. Lance-le sur le port 5051.',
+			'Teste-le : fabrique une vraie image avec `.venv/bin/python -c \'from PIL import Image; Image.new("RGB", (8, 8), "red").save("cat.png")\'`, envoie `cat.png` et `me.html`, et envoie 3 Mo avec `head -c 3000000 /dev/zero > big.bin && curl -s -o /dev/null -w \'%{http_code}\\n\' -F \'avatar=@big.bin;type=image/png\' localhost:5051/avatar`.'
+		],
+		done: [
+			'Contre `app.py`, `curl -sI localhost:5050/static/avatars/me.html` affiche `Content-Type: text/html; charset=utf-8`, et `ls` montre `evil.py` à côté d’`app.py`.',
+			'Contre `safe.py`, `me.html` reçoit un 400 et `big.bin` un 413.',
+			'`cat.png` renvoie un nom comme `5f71d16b-....jpg`, et `curl -sI localhost:5051/avatars/<ce nom>` affiche `Content-Type: image/jpeg`.'
+		],
+		solution: [
+			'`import os, uuid` et `from flask import Flask, request, abort, send_from_directory` et `from PIL import Image, UnidentifiedImageError`.',
+			'`STORE = os.path.abspath("store")`, `os.makedirs(STORE, exist_ok=True)`, `app = Flask(__name__)`, `app.config["MAX_CONTENT_LENGTH"] = 2 * 1000 * 1000`.',
+			'Dans `@app.post("/avatar")` : `try: img = Image.open(request.files["avatar"].stream, formats=["PNG", "JPEG"])`, `except UnidentifiedImageError: abort(400)`, puis `name = f"{uuid.uuid4()}.jpg"`, `img.convert("RGB").save(os.path.join(STORE, name), "JPEG")`, `return name + "\\n"`.',
+			'`@app.get("/avatars/<name>")` renvoie `send_from_directory(STORE, name)`, qui refuse les noms qui sortent de `STORE`.'
+		]
+	},
 	recall: {
 		q: 'Dans le correctif de GitLab pour CVE-2021-22205, que vérifie Workhorse avant de lancer ExifTool sur un envoi `.jpg` ?',
 		a: 'Les octets : `isJPEG` passe les 512 premiers octets à `http.DetectContentType` et ne lance ExifTool que si la réponse est `image/jpeg`. Corrigé dans 13.8.8, 13.9.6 et 13.10.3.'

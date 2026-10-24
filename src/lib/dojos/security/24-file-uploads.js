@@ -138,6 +138,44 @@ func isJPEG(r io.Reader) bool {
 			'`f.filename` comes from the client too. RFC 7578: "do not use the file name blindly" and "do not use directory path information that may be present". `../../app.py` climbs out of the folder (day 21), and `me.html` keeps its extension.',
 			'`static/avatars` is inside Flask’s static folder, served at `/static/`. Werkzeug picks the response type from the extension with `mimetypes.guess_type`, so `/static/avatars/me.html` goes out as `text/html` and its script runs on your domain (day 18). With no `MAX_CONTENT_LENGTH`, the Flask docs say it "will happily accept file uploads with an unlimited amount of memory".',
 			'Rewrite: set `app.config["MAX_CONTENT_LENGTH"] = 2 * 1000 * 1000`. Open with `img = Image.open(f.stream, formats=["PNG", "JPEG"])`, which raises `UnidentifiedImageError` for any other format. Save `img.convert("RGB")` as JPEG to `/var/lib/shop/avatars/<uuid4>.jpg`, and serve it with `send_from_directory` from a view.'
+		],
+		steps: [
+			{
+				title: 'Check the type test',
+				questions: [
+					{ q: 'Where does `f.mimetype` come from?', options: ['The first bytes of the file', 'The `Content-Type` header of the part, which the client writes', 'Pillow, which opens the file', 'The extension of `f.filename`'], answer: 1, why: 'Werkzeug’s `FileStorage.mimetype` is the part’s `Content-Type` header, lowercased. It never reads the bytes.' },
+					{ q: 'A script sends `me.html` with `Content-Type: image/png`. What does the check do?', options: ['Rejects it with 400', 'Renames it to `me.png`', 'Lets it through', 'Converts it to PNG'], answer: 2, why: 'The check only compares the header the client wrote. Any bytes can carry any header.' },
+					{ q: 'What does OWASP call the `Content-Type` of an upload?', options: ['"trivial to spoof"', '"safe once lowercased"', '"set by the browser only"', '"checked by the web server"'], answer: 0, why: 'The client writes it, so it only tells you what the client claimed.' },
+					{ q: 'In GitLab’s CVE, what was checked before ExifTool ran?', options: ['The bytes, with `http.DetectContentType`', 'The `Content-Type` header', 'Nothing at all', 'Only the name, against `.jpg`, `.jpeg` or `.tiff`'], answer: 3, why: 'Before the fix, `IsExifFile` matched only the name. ExifTool then chose its reader from the bytes.' }
+				]
+			},
+			{
+				title: 'Check the name',
+				questions: [
+					{ q: 'Who writes `f.filename`?', options: ['Flask, from the URL', 'The client', 'The operating system', 'Werkzeug, after cleaning it'], answer: 1, why: 'The `filename` of a multipart part comes from the client, like the type.' },
+					{ q: 'What does `f.filename = "../../app.py"` do to `f.save(...)`?', options: ['It climbs out of `static/avatars` and overwrites a file', 'Werkzeug strips the `..`', 'It raises an error', 'It saves `app.py` inside `static/avatars`'], answer: 0, why: '`os.path.join` glues the name to the folder, and the `..` climb out of it (day 21).' },
+					{ q: 'What does RFC 7578 say about the file name?', options: ['Always keep it, for the user', 'Encode it in base64', 'Trust it on HTTPS', '"do not use the file name blindly"'], answer: 3, why: 'It also says "do not use directory path information that may be present".' },
+					{ q: 'Why is a kept `.html` extension a problem here?', options: ['It makes the file larger', 'Pillow cannot open it', 'The server picks the response type from the extension', 'Browsers refuse to download it'], answer: 2, why: 'Werkzeug uses `mimetypes.guess_type`, so `me.html` goes out as `text/html`.' }
+				]
+			},
+			{
+				title: 'Check where it lands',
+				questions: [
+					{ q: 'What is wrong with `static/avatars`?', options: ['It is inside Flask’s static folder, served as is at `/static/`', 'Flask cannot write there', 'It is too slow for images', 'Nothing, it is the usual place'], answer: 0, why: 'A file in the web root is served under a URL, with a type picked from its name.' },
+					{ q: 'What happens when someone opens `/static/avatars/me.html`?', options: ['The browser downloads it', 'Its script runs on your domain', 'Flask returns 403', 'It shows as plain text'], answer: 1, why: 'It goes out as `text/html`, so the browser runs it as a page of your site (day 18).' },
+					{ q: 'The app has no `MAX_CONTENT_LENGTH`. What does that allow?', options: ['Nothing: Flask caps uploads at 2 MB', 'Only files under 512 KB', 'Uploads of any size', 'Only one upload at a time'], answer: 2, why: 'The Flask docs: it "will happily accept file uploads with an unlimited amount of memory".' },
+					{ q: 'Which is the fourth problem, next to type, name and folder?', options: ['The handler uses `request.files`', 'The handler returns no JSON', 'The form has no CSRF token', 'No limit on the body size'], answer: 3, why: 'The four values the handler trusts are the type, the name, the folder and the size.' }
+				]
+			},
+			{
+				title: 'Rewrite it',
+				questions: [
+					{ q: 'How do you check the format?', options: ['Compare `f.mimetype` to an allow-list', 'Check that the name ends in `.png`', '`Image.open(f.stream, formats=["PNG", "JPEG"])`', 'Read the first byte only'], answer: 2, why: 'Pillow reads the bytes and raises `UnidentifiedImageError` for any other format.' },
+					{ q: 'What do you write to disk?', options: ['`img.convert("RGB")` saved as a new JPEG', 'The original bytes, unchanged', 'The bytes plus a `.jpg` suffix', 'A base64 copy of the upload'], answer: 0, why: 'Re-encoding writes a file in a format you chose, without the original metadata.' },
+					{ q: 'Where, and under which name?', options: ['`static/avatars/<secure_filename>`', '`/var/lib/shop/avatars/<uuid4>.jpg`', '`static/avatars/<uuid4>.jpg`', '`/tmp/<original name>`'], answer: 1, why: 'A random name outside the web root means the user never picks the extension or the URL.' },
+					{ q: 'How do you serve it?', options: ['From a view with `send_from_directory`', 'Under `/static/` like the CSS', 'By redirecting to the file path', 'Through ExifTool first'], answer: 0, why: 'The view decides what to send, from a folder the web server does not serve on its own.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -175,6 +213,29 @@ func isJPEG(r io.Reader) bool {
 			why: 'The server picks `text/html` from the `.html` extension, so the fix must take the extension and the URL away from the user. `secure_filename("me.html")` keeps `me.html`, the `Content-Type` check trusts the client, and `nosniff` stops guessing but the server already says `text/html`.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Upload an HTML file as an avatar to a local Flask app, watch it come back as a page, then rewrite the handler so it cannot.',
+		steps: [
+			'Set up: `mkdir -p ~/upload-lab/static/avatars && cd ~/upload-lab && python3 -m venv .venv && .venv/bin/pip install flask pillow`.',
+			'Save the chapter’s handler: `printf \'%s\\n\' \'import os\' \'from flask import Flask, request, abort\' \'app = Flask(__name__)\' \'@app.post("/avatar")\' \'def avatar():\' \'    f = request.files["avatar"]\' \'    if f.mimetype not in ("image/png", "image/jpeg"): abort(400)\' \'    f.save(os.path.join("static/avatars", f.filename))\' \'    return "saved\\n"\' > app.py`.',
+			'In a second terminal: `cd ~/upload-lab && .venv/bin/flask --app app run --port 5050`.',
+			'Attack it: `echo \'<script>alert(document.domain)</script>\' > me.html`, then `curl -F \'avatar=@me.html;type=image/png\' localhost:5050/avatar` and `curl -sI localhost:5050/static/avatars/me.html`. Then `curl -F \'avatar=@me.html;type=image/png;filename=../../evil.py\' localhost:5050/avatar` and `ls`.',
+			'Stop the server. Write `safe.py` from the chapter’s rewrite: a 2 MB `MAX_CONTENT_LENGTH`, `Image.open(..., formats=["PNG", "JPEG"])`, a re-encoded JPEG under a `uuid4` name in `store/`, and a view that serves it. Run it on port 5051.',
+			'Test it: make a real image with `.venv/bin/python -c \'from PIL import Image; Image.new("RGB", (8, 8), "red").save("cat.png")\'`, upload `cat.png` and `me.html`, and send 3 MB with `head -c 3000000 /dev/zero > big.bin && curl -s -o /dev/null -w \'%{http_code}\\n\' -F \'avatar=@big.bin;type=image/png\' localhost:5051/avatar`.'
+		],
+		done: [
+			'Against `app.py`, `curl -sI localhost:5050/static/avatars/me.html` shows `Content-Type: text/html; charset=utf-8`, and `ls` shows `evil.py` next to `app.py`.',
+			'Against `safe.py`, `me.html` gets a 400 and `big.bin` gets a 413.',
+			'`cat.png` returns a name like `5f71d16b-....jpg`, and `curl -sI localhost:5051/avatars/<that name>` shows `Content-Type: image/jpeg`.'
+		],
+		solution: [
+			'`import os, uuid` and `from flask import Flask, request, abort, send_from_directory` and `from PIL import Image, UnidentifiedImageError`.',
+			'`STORE = os.path.abspath("store")`, `os.makedirs(STORE, exist_ok=True)`, `app = Flask(__name__)`, `app.config["MAX_CONTENT_LENGTH"] = 2 * 1000 * 1000`.',
+			'In `@app.post("/avatar")`: `try: img = Image.open(request.files["avatar"].stream, formats=["PNG", "JPEG"])`, `except UnidentifiedImageError: abort(400)`, then `name = f"{uuid.uuid4()}.jpg"`, `img.convert("RGB").save(os.path.join(STORE, name), "JPEG")`, `return name + "\\n"`.',
+			'`@app.get("/avatars/<name>")` returns `send_from_directory(STORE, name)`, which refuses names that leave `STORE`.'
+		]
+	},
 	recall: {
 		q: 'In GitLab’s fix for CVE-2021-22205, what does Workhorse check before it runs ExifTool on a `.jpg` upload?',
 		a: 'The bytes: `isJPEG` passes the first 512 bytes to `http.DetectContentType` and runs ExifTool only if the answer is `image/jpeg`. Fixed in 13.8.8, 13.9.6 and 13.10.3.'

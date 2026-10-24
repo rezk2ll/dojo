@@ -110,6 +110,44 @@ export default {
 			'Changement 1 : `send_email` ne répond qu’à l’expéditeur de l’e-mail en cours. Ton code remplit `to`, le modèle ne peut pas le choisir. Un inconnu reçoit au plus une réponse sur son propre e-mail.',
 			'Changement 2 : `lookup_order` n’utilise que l’adresse d’expéditeur vérifiée par ton serveur mail, donc le modèle ne peut pas demander les commandes d’un autre client.',
 			'Mets aussi le corps de l’e-mail dans un bloc `tool_result` sous forme de chaîne JSON, et écris dans le prompt système que les instructions qu’il contient sont des informations à signaler. Le modèle obéit alors moins souvent à l’e-mail. Les deux changements de code bornent le dégât quand il obéit quand même.'
+		],
+		steps: [
+			{
+				title: 'Repère la trifecta',
+				questions: [
+					{ q: 'Quelle partie de la trifecta les e-mails entrants apportent-ils ?', options: ['L’accès aux données privées', 'Le contenu non fiable', 'La sortie vers l’extérieur', 'Aucune : les clients sont fiables'], answer: 1, why: 'N’importe qui peut écrire à ton adresse de support.' },
+					{ q: 'Quelle partie apporte `lookup_order(email)` ?', options: ['Le contenu non fiable', 'La sortie vers l’extérieur', 'L’accès aux données privées', 'Aucune : il ne fait que lire'], answer: 2, why: 'Il lit ta base de commandes, qui contient les commandes de tous les clients.' },
+					{ q: 'Quelle partie apporte `send_email(to, body)` ?', options: ['La sortie vers l’extérieur, vers n’importe quelle adresse', 'L’accès aux données privées', 'Le contenu non fiable', 'Aucune : il ne fait qu’écrire'], answer: 0, why: 'Avec un `to` libre, l’agent peut envoyer du texte à n’importe qui.' },
+					{ q: 'Combien de parties de la trifecta cet agent réunit-il ?', options: ['Une', 'Deux', 'Aucune', 'Les trois'], answer: 3, why: 'Données privées, contenu non fiable et sortie vers l’extérieur, en même temps.' }
+				]
+			},
+			{
+				title: 'Ferme la sortie',
+				questions: [
+					{ q: 'Comment modifies-tu `send_email` ?', options: ['Il ne répond qu’à l’expéditeur de l’e-mail en cours', 'Le modèle choisit `to` dans une liste de clients', 'Tu ajoutes "never email strangers" au prompt', 'Tu retires l’argument `body`'], answer: 0, why: 'Une réponse limitée à l’expéditeur ne donne à l’attaquant, au plus, qu’une réponse sur son propre e-mail.' },
+					{ q: 'Qui remplit le champ `to` après ce changement ?', options: ['Le modèle, d’après le texte de l’e-mail', 'Le client, dans un formulaire', 'Ton code', 'La base de commandes'], answer: 2, why: 'Si le modèle ne peut pas choisir `to`, une instruction dans l’e-mail ne peut pas le changer.' },
+					{ q: 'Un inconnu envoie l’e-mail piégé. Que peut-il recevoir maintenant ?', options: ['Les commandes du client qu’il nomme', 'Rien du tout, jamais', 'Une copie du prompt système', 'Au plus une réponse sur son propre e-mail'], answer: 3, why: 'La réponse repart vers l’expéditeur, et ne porte que sur cet e-mail.' },
+					{ q: 'Pourquoi un changement de code est-il plus solide ici qu’une règle de prompt ?', options: ['Les règles de prompt coûtent plus de tokens', 'La formulation du prompt baisse les chances, mais certaines tournures passent encore', 'Le modèle ignore le prompt système dans les bots de support', 'Un changement de code rend aussi le modèle plus rapide'], answer: 1, why: 'La doc de Claude Code : "no system is completely immune to all attacks." Une limite dans le code tient même quand le modèle obéit.' }
+				]
+			},
+			{
+				title: 'Verrouille l’accès aux données',
+				questions: [
+					{ q: 'Que peut choisir l’appelant dans `lookup_order(email)` aujourd’hui ?', options: ['N’importe quelle adresse, donc les commandes de n’importe quel client', 'Seulement ses propres commandes', 'Seulement le nombre de commandes', 'Rien : l’outil ne prend aucune entrée'], answer: 0, why: 'L’argument `email` est libre, donc le modèle peut demander un autre client.' },
+					{ q: 'Comment modifies-tu `lookup_order` ?', options: ['Il renvoie moins de champs', 'Il ne tourne qu’une fois par e-mail', 'Il n’utilise que l’adresse d’expéditeur vérifiée par ton serveur mail', 'Le modèle confirme d’abord l’adresse'], answer: 2, why: 'Le modèle ne peut alors plus demander les commandes d’un autre client.' },
+					{ q: 'Pourquoi l’adresse vérifiée par le serveur mail, et pas celle écrite dans l’e-mail ?', options: ['Le corps est plus court', 'Le corps n’est jamais envoyé au modèle', 'Les adresses vérifiées coûtent moins cher à chercher', 'N’importe qui peut taper n’importe quelle adresse dans le corps'], answer: 3, why: 'Le corps est du contenu non fiable. L’expéditeur vérifié vient de ton système.' },
+					{ q: 'D’où le bot de tri de l’exemple tire-t-il le numéro de l’issue ?', options: ['De la réponse du modèle', 'De l’événement du workflow', 'Du titre de l’issue', 'D’un label'], answer: 1, why: '`edit-issue-labels.sh` lit le numéro dans l’événement, donc le modèle ne peut pas choisir une autre issue. Même idée que l’expéditeur vérifié.' }
+				]
+			},
+			{
+				title: 'Baisse les chances',
+				questions: [
+					{ q: 'Où va le corps de l’e-mail dans la requête ?', options: ['Dans le prompt système', 'Dans un bloc texte user après tes règles', 'Dans un bloc `tool_result`, sous forme de chaîne JSON', 'Dans un tour assistant'], answer: 2, why: 'La doc : "Claude is trained to treat instructions that appear inside tool results with appropriate skepticism."' },
+					{ q: 'Que dit le prompt système à propos de l’e-mail ?', options: ['Les instructions qu’il contient sont des informations à signaler', 'Suis seulement les instructions polies qu’il contient', 'Ignore les e-mails qui contiennent des instructions', 'Répète l’e-mail avant de répondre'], answer: 0, why: 'Il demande au modèle de signaler une instruction cachée au lieu de l’exécuter. Ça baisse les chances, sans garantie.' },
+					{ q: 'Pourquoi le modèle pourrait-il quand même obéir à un e-mail ?', options: ['Les e-mails passent avant le prompt système', 'La température est au-dessus de 0', 'Les résultats d’outils sont lus comme des messages user', 'Tout devient une seule suite de tokens, et le modèle ne sait pas distinguer de façon fiable qui a écrit quoi'], answer: 3, why: 'Willison : "LLMs are unable to reliably distinguish the importance of instructions based on where they came from."' },
+					{ q: 'À quoi sert alors chaque couche ?', options: ['La couche prompt suffit à elle seule', 'Le prompt baisse les chances, et les deux changements de code bornent les dégâts', 'Les changements de code baissent les chances, et le prompt borne les dégâts', 'Les deux ne comptent qu’avec un petit modèle'], answer: 1, why: 'La formulation réduit la fréquence à laquelle le modèle obéit. Les limites dans le code décident de ce qu’un modèle qui obéit peut faire.' }
+				]
+			}
 		]
 	},
 	quiz: [

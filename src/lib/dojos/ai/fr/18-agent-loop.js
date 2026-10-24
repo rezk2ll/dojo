@@ -130,6 +130,44 @@ export default {
 			'C’est la règle du motif en alternance qui se déclenche. Elle prend les 6 dernières actions et les 6 dernières observations et vérifie que chacune égale celle placée deux rangs plus tôt : A, B, A, B, A, B. C’est le cas ici, donc l’exécution s’arrête en `STUCK`.',
 			'Pour arrêter plus tôt : donne à l’exécution un `max_budget_per_run` et un `max_iteration_per_run` plus bas, par exemple 30 pour corriger un seul test.',
 			'Fais aussi renvoyer plus de détails à `run_tests`. S’il renvoie l’assertion et le diff, le modèle reçoit une information nouvelle après chaque édition et répète moins souvent la même.'
+		],
+		steps: [
+			{
+				title: 'Lis les six appels',
+				questions: [
+					{ q: 'Combien d’actions différentes y a-t-il dans les six appels ?', options: ['Une seule, répétée six fois', 'Deux, qui alternent', 'Trois', 'Six, toutes différentes'], answer: 1, why: '`run_tests()` et le même `edit(...)` alternent trois fois.' },
+					{ q: 'Un des appels renvoie-t-il une erreur d’outil ?', options: ['Oui : "FAILED test_parse_date" est une erreur d’outil', 'Oui : `edit` renvoie une erreur', 'Non : "FAILED test_parse_date" est une observation normale', 'Seulement le dernier appel'], answer: 2, why: 'L’outil de test a bien tourné. Sa sortie contient juste un message d’échec.' },
+					{ q: 'Deux actions consécutives sont-elles parfois identiques ?', options: ['Non, elles alternent toujours', 'Oui, les deux dernières', 'Oui, les deux premières', 'Oui, chaque paire'], answer: 0, why: 'Chaque `run_tests` est suivi d’un `edit`, et chaque `edit` d’un `run_tests`.' },
+					{ q: 'Quel motif forment les six actions ?', options: ['A, A, A, B, B, B', 'A, B, B, A, A, B', 'A, A, B, B, A, A', 'A, B, A, B, A, B'], answer: 3, why: 'Test, édition, test, édition, test, édition.' }
+				]
+			},
+			{
+				title: 'Écarte les règles voisines',
+				questions: [
+					{ q: 'La règle des 3 appels identiques en échec se déclenche-t-elle ?', options: ['Oui : le test a échoué trois fois', 'Non : elle ne compte que les erreurs d’outil', 'Oui, mais seulement à la troisième édition', 'Non : son seuil est de 10'], answer: 1, why: '`run_tests` renvoie une observation normale, donc il n’y a pas de série d’erreurs d’outil à compter.' },
+					{ q: 'La règle des 4 paires action et observation identiques d’affilée se déclenche-t-elle ?', options: ['Oui : il y a six appels', 'Oui : la réflexion est identique', 'Seulement si le budget est réglé', 'Non : les actions alternent'], answer: 3, why: 'Deux actions consécutives ne sont jamais identiques, donc il n’y a pas de série de 4.' },
+					{ q: 'OpenHands envoie-t-il alors son rappel "same arguments ... same error" ?', options: ['Non : ce rappel suit une série d’appels en échec', 'Oui, après le troisième test', 'Oui, après chaque édition', 'Oui, avant le premier appel'], answer: 0, why: 'Ce rappel vient de la règle action et erreur, qui ne se déclenche pas ici.' },
+					{ q: 'Pourquoi est-ce important que le texte de l’édition et la réflexion soient identiques à chaque fois ?', options: ['Les appels coûtent moins cher', 'L’API peut mettre la réponse en cache', 'Le détecteur compare l’action, le nom de l’outil et la réflexion : un caractère changé n’est plus une répétition', 'Ça ne compte pas pour le détecteur'], answer: 2, why: 'La détection de répétitions exactes rate une boucle qui varie, même d’un caractère.' }
+				]
+			},
+			{
+				title: 'Nomme la règle qui se déclenche',
+				questions: [
+					{ q: 'Quelle règle d’OpenHands se déclenche ?', options: ['La règle action et erreur', 'La règle des actions identiques', 'La règle du motif en alternance', '`MaxIterationsReached`'], answer: 2, why: 'C’est la règle faite pour les boucles A, B, A, B.' },
+					{ q: 'Quelle part de l’historique cette règle regarde-t-elle ?', options: ['Les 6 dernières actions et les 6 dernières observations', 'Les 4 dernières actions seulement', 'Toute l’exécution', 'Les 3 derniers messages de l’agent'], answer: 0, why: 'Son seuil par défaut est 6, pour les actions comme pour les observations.' },
+					{ q: 'Que vérifie-t-elle ?', options: ['Que les six actions sont identiques', 'Que le budget est épuisé', 'Que le modèle a appelé `FinishTool`', 'Que chaque élément égale celui placé deux rangs plus tôt'], answer: 3, why: 'A, B, A, B, A, B : chaque élément correspond à celui deux pas en arrière.' },
+					{ q: 'Quel statut prend l’exécution ?', options: ['`FINISHED`', '`STUCK`', '`PAUSED`', '`ERROR` avec `MaxBudgetReached`'], answer: 1, why: 'Le détecteur de blocage met `STUCK`, et la boucle s’arrête avant le prochain appel au modèle.' }
+				]
+			},
+			{
+				title: 'Arrête plus tôt',
+				questions: [
+					{ q: 'Quelle est la valeur par défaut de `max_iteration_per_run` dans OpenHands ?', options: ['30', '500', '6', 'Aucune : il n’y a pas de plafond'], answer: 1, why: 'Elle vaut 500, et 500 pas d’un agent bloqué font 500 appels au modèle, chacun renvoyant l’historique.' },
+					{ q: 'Quel `max_iteration_per_run` convient mieux que la valeur par défaut pour corriger un seul test ?', options: ['5 000', '500, la valeur par défaut', 'Autour de 30', 'Aucun, pour le laisser finir'], answer: 2, why: 'Un plafond plus bas arrête une exécution bloquée bien avant 500 pas.' },
+					{ q: 'Quel réglage plafonne l’exécution en dollars ?', options: ['`max_budget_per_run`, désactivé par défaut', '`max_tokens`', '`max_iterations` dans le SDK', '`threshold`'], answer: 0, why: 'L’atteindre met `ERROR` avec `MaxBudgetReached`, quoi que décide le modèle.' },
+					{ q: 'Comment rendre moins probable que le modèle répète la même édition ?', options: ['Monter la température', 'Masquer la sortie des tests', 'Retirer l’outil `edit`', 'Faire renvoyer à `run_tests` l’assertion et le diff'], answer: 3, why: 'Une information nouvelle après chaque édition donne au modèle une raison de changer son prochain pas.' }
+				]
+			}
 		]
 	},
 	quiz: [

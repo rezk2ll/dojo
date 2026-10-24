@@ -120,6 +120,44 @@ export default {
 			'Le contexte à placer devant, écrit par le modèle à partir du manuel entier : "This chunk is from the Model X200 router manual, section on the DNS cache timeout setting." Il nomme le produit et le réglage dont parle le morceau.',
 			'BM25 trouve "E-4012", parce qu’il compare des chaînes exactes ; une recherche par embeddings risque de ne trouver que des morceaux sur les erreurs en général. Lance les deux et réunis les résultats par fusion des rangs.',
 			'Envoie les morceaux retrouvés en blocs `search_result` avec l’URL du manuel comme `source`, pour que la réponse cite une page que l’utilisateur peut ouvrir.'
+		],
+		steps: [
+			{
+				title: 'Vérifie qu’il faut du RAG',
+				questions: [
+					{ q: 'Sous quelle taille l’article d’Anthropic conseille-t-il de mettre toute la base dans le prompt ?', options: ['20 000 tokens', '1 million de tokens', '200 000 tokens, environ 500 pages', '3 millions de tokens'], answer: 2, why: 'En dessous, tu te passes de RAG et tu utilises le cache de prompt pour réduire le coût.' },
+					{ q: 'Tes manuels font 3 millions de tokens. Qu’en déduis-tu ?', options: ['Il faut du RAG', 'Tout mettre dans le prompt avec le cache', 'Fine-tuner un modèle dessus', 'Envoyer un manuel par requête'], answer: 0, why: '3 millions de tokens, c’est bien au-dessus du seuil de 200 000 tokens.' },
+					{ q: 'Quelle est la première étape au-dessus de ce seuil ?', options: ['Écrire un résumé par manuel', 'Découper les documents en morceaux', 'Augmenter `max_tokens`', 'Écarter les vieux manuels'], answer: 1, why: 'Les morceaux sont ce que tu indexes et retrouves.' },
+					{ q: 'Quelle taille fait un morceau, en général ?', options: ['Un manuel entier', 'Exactement 20 tokens', 'Une page de 2 000 mots', 'Pas plus de quelques centaines de tokens'], answer: 3, why: 'Un morceau est un bout de document, indexé et retrouvé à part.' }
+				]
+			},
+			{
+				title: 'Écris le contexte',
+				questions: [
+					{ q: 'Qu’est-ce que "Restart the device after changing this value." ne dit pas ?', options: ['Le produit et le réglage dont il parle', 'Le verbe', 'Seulement le code d’erreur', 'Rien : il est complet'], answer: 0, why: 'Comme le morceau sur ACME, il ne nomme jamais ce que l’utilisateur cherche.' },
+					{ q: 'Quel contexte places-tu devant ?', options: ['"Restart the device."', '"This chunk is important."', '"This chunk is from the Model X200 router manual, section on the DNS cache timeout setting."', '"Answer only with the succinct context and nothing else."'], answer: 2, why: 'Il nomme le produit et le réglage dont parle le morceau.' },
+					{ q: 'Que lit le modèle pour écrire ce contexte ?', options: ['Seulement le morceau', 'La question de l’utilisateur', 'Les 20 morceaux retrouvés', 'Le manuel entier'], answer: 3, why: 'Le modèle a besoin du document entier pour dire de quel produit et de quel réglage parle un morceau.' },
+					{ q: 'Où va le contexte ?', options: ['Seulement dans l’index BM25', 'Devant le morceau, pour les embeddings comme pour l’index BM25', 'Dans le prompt système au moment de la requête', 'Après le morceau, dans la réponse'], answer: 1, why: 'Le contexte vient d’abord, puis le morceau d’origine, et c’est ce texte combiné qui est indexé.' }
+				]
+			},
+			{
+				title: 'Trouve "E-4012"',
+				questions: [
+					{ q: 'Quelle partie de la recherche trouve "E-4012" ?', options: ['La recherche par embeddings', 'BM25', 'Le reranker seul', 'Le modèle qui écrit la réponse'], answer: 1, why: 'BM25 compare des chaînes exactes, comme un code d’erreur.' },
+					{ q: 'Que peut renvoyer la recherche par embeddings pour "X200 error E-4012" ?', options: ['Des morceaux sur les erreurs en général', 'Rien du tout', 'Seulement le bon morceau', 'Des morceaux des documents ACME'], answer: 0, why: 'Les embeddings captent le sens et peuvent rater un identifiant exact.' },
+					{ q: 'Que fais-tu des deux recherches ?', options: ['Tu ne gardes que BM25', 'Tu ne gardes que les embeddings', 'Tu lances les embeddings seulement si BM25 ne trouve rien', 'Tu lances les deux et réunis les listes par fusion des rangs'], answer: 3, why: 'Chaque recherche trouve ce que l’autre rate.' },
+					{ q: 'Dans les tests d’Anthropic, qu’est-ce qui venait après la fusion ?', options: ['Un second passage BM25', 'Un résumé de chaque morceau', 'Un reranker qui notait les 150 premiers morceaux et en gardait 20', 'Un plus gros modèle d’embeddings'], answer: 2, why: 'Avec le reranker en plus, les morceaux ratés sont tombés à 1,9 %.' }
+				]
+			},
+			{
+				title: 'Envoie les morceaux avec leurs sources',
+				questions: [
+					{ q: 'Dans quel type de bloc envoies-tu les morceaux ?', options: ['`document`', '`tool_use`', '`thinking`', '`search_result`'], answer: 3, why: 'Avec les citations activées, chaque affirmation renvoie alors au morceau dont elle vient.' },
+					{ q: 'Que mets-tu dans `source` ?', options: ['Le numéro du morceau', 'L’URL du manuel', 'Le code d’erreur', 'Le nom du modèle'], answer: 1, why: 'La réponse cite alors une page que l’utilisateur peut ouvrir.' },
+					{ q: 'Que contient une citation dans la réponse ?', options: ['Le `source` et le `title` que tu as envoyés, et le `cited_text`', 'Un score de confiance par phrase', 'Seulement un numéro de morceau', 'Un lien que l’API trouve dans le morceau'], answer: 0, why: 'Une citation `search_result_location` reprend `source` et `title` et ajoute `cited_text`.' },
+					{ q: 'Pourquoi ne pas envoyer 100 morceaux par prudence ?', options: ['L’API limite une requête à 20 blocs', 'Les citations cessent de marcher après 20', '"More information can be distracting for models"', 'BM25 ne classe que 20 morceaux'], answer: 2, why: 'L’article prévient qu’envoyer plus de morceaux ne règle rien.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -130,6 +130,44 @@ async with stdio_server() as (read_stream, write_stream):
 			'Joindre un ticket, c’est une ressource avec une URI comme `tickets://PROJ-123`. L’hôte décide de l’inclure, et le client envoie `resources/read` avec cette URI.',
 			'Le modèle de sprint est un prompt, que l’utilisateur choisit. Le client le liste avec `prompts/list` et le récupère avec `prompts/get`, avec des arguments comme le numéro du sprint.',
 			'Le serveur doit déclarer les capacités `tools`, `resources` et `prompts` pour que le client sache à quelles requêtes il répond.'
+		],
+		steps: [
+			{
+				title: 'Demande qui décide',
+				questions: [
+					{ q: 'Qui décide quand chercher des tickets ?', options: ['L’utilisateur, à chaque fois', 'L’application hôte', 'Le modèle', 'Le serveur MCP'], answer: 2, why: 'L’exercice dit que le modèle cherche des tickets de lui-même.' },
+					{ q: 'Qui décide de mettre un ticket joint dans le contexte ?', options: ['L’application hôte', 'Le modèle', 'Le serveur MCP', 'Personne : il est toujours inclus'], answer: 0, why: 'La spec dit des ressources qu’elles sont "application-driven" : l’hôte décide ce qui va dans le contexte.' },
+					{ q: 'Qui choisit le modèle de prompt « résume ce sprint » ?', options: ['Le modèle d’IA', 'L’application hôte', 'Le serveur MCP', 'L’utilisateur, depuis une commande slash'], answer: 3, why: 'La spec dit des prompts qu’ils sont "user-controlled", par exemple affichés en commandes slash.' },
+					{ q: 'Comment la spec qualifie-t-elle les outils ?', options: ['"user-controlled"', '"model-controlled"', '"application-driven"', '"server-driven"'], answer: 1, why: 'C’est le modèle qui décide quand appeler un outil.' }
+				]
+			},
+			{
+				title: 'Associe la recherche',
+				questions: [
+					{ q: 'Quelle primitive correspond à « le modèle cherche des tickets de lui-même » ?', options: ['Un outil', 'Une ressource', 'Un prompt', 'Un transport'], answer: 0, why: 'Le modèle décide quand l’appeler : c’est donc un outil.' },
+					{ q: 'Quelle requête le client envoie-t-il pour lancer la recherche ?', options: ['`resources/read`', '`prompts/get`', '`tools/list`', '`tools/call`'], answer: 3, why: '`tools/call` porte le nom de l’outil et ses arguments.' },
+					{ q: 'Que porte cette requête ?', options: ['Une URI comme `tickets://PROJ-123`', '`name: "search_tickets"` et la recherche dans `arguments`', 'Seulement le numéro du sprint', 'La liste complète des outils'], answer: 1, why: 'Le serveur repère l’outil par `name` et lit la recherche dans `arguments`.' },
+					{ q: 'Comment le client apprend-il que `search_tickets` existe ?', options: ['Par `prompts/list`', 'Par le README du serveur', 'Par `tools/list`', 'Par l’entraînement du modèle'], answer: 2, why: 'Le client découvre les outils à l’exécution avec `tools/list`, chacun avec un `name`, une `description` et un `inputSchema`.' }
+				]
+			},
+			{
+				title: 'Associe le ticket joint',
+				questions: [
+					{ q: 'Quelle primitive correspond à « joindre un ticket comme contexte grâce à son ID » ?', options: ['Un outil', 'Un prompt', 'Un transport', 'Une ressource'], answer: 3, why: 'Une ressource est une donnée identifiée par une URI, que l’hôte met dans le contexte.' },
+					{ q: 'Comment le ticket est-il identifié ?', options: ['Par une URI comme `tickets://PROJ-123`', 'Par un nom d’outil', 'Par une commande slash', 'Par un numéro de ligne sur stdout'], answer: 0, why: 'Une ressource est une donnée identifiée par une URI.' },
+					{ q: 'Quelle requête le client envoie-t-il pour lui ?', options: ['`tools/call`', '`resources/read`, avec cette URI', '`prompts/get`', '`tools/list`'], answer: 1, why: 'Le client lit la ressource grâce à son URI.' },
+					{ q: 'Pourquoi n’est-ce pas un outil ?', options: ['Les outils ne peuvent pas renvoyer de texte', 'Les outils exigent Streamable HTTP', 'C’est l’hôte qui décide de l’inclure, pas le modèle', 'Les ressources coûtent moins cher à appeler'], answer: 2, why: 'Un outil est "model-controlled". Ici, le choix revient à l’application.' }
+				]
+			},
+			{
+				title: 'Associe le modèle et déclare',
+				questions: [
+					{ q: 'Quelle primitive correspond au modèle « résume ce sprint » ?', options: ['Un outil', 'Une ressource', 'Un prompt', 'Un modèle de ressource'], answer: 2, why: 'Un prompt est un modèle "user-controlled", affiché par exemple en commande slash.' },
+					{ q: 'Comment le client trouve-t-il les modèles disponibles ?', options: ['Avec `prompts/list`', 'Avec `tools/list`', 'Avec `resources/read`', 'Avec la seule poignée de main `initialize`'], answer: 0, why: '`prompts/list` renvoie les prompts que le serveur propose.' },
+					{ q: 'Comment le client récupère-t-il le modèle de sprint ?', options: ['`tools/call` avec le numéro du sprint', '`resources/read` avec une URI de sprint', '`prompts/list` avec un filtre', '`prompts/get`, avec des arguments comme le numéro du sprint'], answer: 3, why: '`prompts/get` renvoie le modèle, rempli avec les arguments que tu passes.' },
+					{ q: 'Que doit déclarer le serveur pour que le client sache à quelles requêtes il répond ?', options: ['Seulement `tools`', 'Les capacités `tools`, `resources` et `prompts`', 'Un `readOnlyHint` sur chaque outil', 'Rien : le client essaie chaque requête'], answer: 1, why: 'Chaque primitive que le serveur offre demande sa capacité déclarée.' }
+				]
+			}
 		]
 	},
 	quiz: [

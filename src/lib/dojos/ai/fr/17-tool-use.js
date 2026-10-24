@@ -131,6 +131,44 @@ export default {
 			'Message 2 : `{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_A", "content": "ConnectionError: weather service returned HTTP 500", "is_error": true}, {"type": "tool_result", "tool_use_id": "toolu_B", "content": "42"}]}`.',
 			'Les deux résultats vont dans un seul message user, sans bloc texte avant eux ; un texte placé avant un `tool_result` fait échouer la requête avec une erreur 400.',
 			'Le modèle dit alors à l’utilisateur que la météo est indisponible et donne 42 pour la somme. Un message d’erreur qui dit quoi essayer ensuite, comme "Retry after 60 seconds.", donne au modèle une action possible.'
+		],
+		steps: [
+			{
+				title: 'Lis la réponse',
+				questions: [
+					{ q: 'Que t’indique `stop_reason: "tool_use"` ?', options: ['Le modèle a fini sa réponse', 'Le modèle attend des résultats d’outils de ton code', 'Anthropic a déjà lancé les outils', 'La réponse a été coupée par `max_tokens`'], answer: 1, why: '`tool_use` veut dire qu’il attend des résultats d’outils. `end_turn` voudrait dire qu’il a fini.' },
+					{ q: 'Combien d’outils ton code doit-il lancer ?', options: ['Un : seul le premier `tool_use` compte', 'Trois : un par bloc de contenu', 'Deux : `toolu_A` et `toolu_B`', 'Aucun : le bloc texte répond déjà'], answer: 2, why: 'Le bloc texte n’est pas un appel. Les deux blocs `tool_use`, si.' },
+					{ q: 'Où `get_weather` tourne-t-il vraiment ?', options: ['Dans ton processus, avec tes identifiants', 'Sur les serveurs d’Anthropic', 'Dans le modèle', 'Dans le navigateur de l’utilisateur'], answer: 0, why: 'Pour un outil client, le modèle n’écrit qu’une demande. C’est ton code qui appelle la fonction.' },
+					{ q: 'Que renvoie `calculate_sum` pour `{"a": 15, "b": 27}` ?', options: ['`1527`', '`"15 + 27"`', 'Une erreur, comme l’appel météo', '`42`'], answer: 3, why: '15 plus 27 font 42. Seul le service météo a échoué.' }
+				]
+			},
+			{
+				title: 'Ajoute la réponse de l’assistant',
+				questions: [
+					{ q: 'Quel est le rôle du premier message que tu ajoutes ?', options: ['`user`', '`assistant`', '`system`', '`tool`'], answer: 1, why: 'C’est la réponse du modèle lui-même, elle repart donc en message `assistant`.' },
+					{ q: 'Que contient-il ?', options: ['Les trois blocs de la réponse, sans changement', 'Seulement les deux blocs `tool_use`', 'Seulement le bloc texte', 'Un résumé de la réponse'], answer: 0, why: 'Tu ajoutes la réponse de l’assistant telle qu’elle est arrivée.' },
+					{ q: 'Peux-tu retirer le bloc texte pour économiser des tokens ?', options: ['Oui : les blocs texte sont ignorés', 'Oui, si tu gardes les `id`', 'Seulement sur Opus 5.5', 'Non : le message assistant repart sans changement'], answer: 3, why: 'Les résultats répondent à cette réponse précise, donc tu la gardes telle quelle.' },
+					{ q: 'Où va le message assistant dans `messages` ?', options: ['Après les résultats d’outils', 'Dans une requête à part', 'Juste avant le message user qui porte les résultats', 'Au début de l’historique'], answer: 2, why: 'Les résultats viennent juste après le tour assistant auquel ils répondent.' }
+				]
+			},
+			{
+				title: 'Écris les deux résultats',
+				questions: [
+					{ q: 'Quel champ relie un résultat à son appel ?', options: ['`tool_use_id`', '`name`', '`id`', '`stop_reason`'], answer: 0, why: 'Chaque `tool_use_id` correspond à l’`id` d’un bloc `tool_use`.' },
+					{ q: 'Quel est le `content` du résultat pour `toolu_A` ?', options: ['Une chaîne vide', '`"42"`', 'Rien : tu sautes les appels échoués', 'Le texte de l’erreur, par exemple "ConnectionError: weather service returned HTTP 500"'], answer: 3, why: 'Le modèle doit voir ce qui a échoué pour le dire à l’utilisateur.' },
+					{ q: 'Quel champ signale que l’appel météo a échoué ?', options: ['`stop_reason: "error"`', '`is_error: true`', '`status: 500`', '`type: "tool_error"`'], answer: 1, why: 'Un `tool_result` prend `is_error: true` quand l’outil a échoué.' },
+					{ q: 'Quel texte d’erreur aide le plus le modèle ?', options: ['"Error"', 'Une chaîne vide', 'Un texte qui dit quoi essayer ensuite, comme "Retry after 60 seconds."', 'Toute la stack trace de ton serveur'], answer: 2, why: 'Une erreur qui propose une suite donne au modèle une action possible.' }
+				]
+			},
+			{
+				title: 'Emballe et envoie',
+				questions: [
+					{ q: 'Combien de messages user portent les deux résultats ?', options: ['Deux, un par résultat', 'Un seul, avec les deux blocs `tool_result`', 'Aucun : les résultats vont dans le message assistant', 'Trois, un par bloc de la réponse'], answer: 1, why: 'Tous les résultats d’une réponse vont ensemble dans un seul message user. Des messages séparés rendent les appels parallèles plus rares.' },
+					{ q: 'Tu ajoutes un bloc texte "Voici les résultats :" avant les blocs `tool_result`. Que se passe-t-il ?', options: ['Le modèle le lit comme un indice', 'L’API retire le texte', 'Le modèle ne répond qu’au texte', 'La requête échoue avec une erreur 400'], answer: 3, why: 'Les blocs `tool_result` doivent venir en premier dans le message user.' },
+					{ q: 'Lequel des deux résultats porte `is_error: true` ?', options: ['Seulement celui de `toolu_A`', 'Les deux, puisqu’un appel a échoué', 'Seulement celui de `toolu_B`', 'Aucun : un HTTP 500 est un résultat normal'], answer: 0, why: 'Seul l’appel météo a échoué. La somme est un résultat normal, `"42"`.' },
+					{ q: 'Quel résultat le modèle peut-il donner tout de suite à l’utilisateur ?', options: ['La météo à Paris', 'Aucun : un appel a échoué', 'La somme, 42', 'Les deux'], answer: 2, why: 'La somme a réussi. Pour la météo, la doc dit que le modèle "will retry 2-3 times with corrections before apologizing to the user".' }
+				]
+			}
 		]
 	},
 	quiz: [

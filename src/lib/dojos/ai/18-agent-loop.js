@@ -130,6 +130,44 @@ export default {
 			'The alternating pattern rule is the one that fires. It takes the last 6 actions and 6 observations and checks that each one equals the one two places earlier: A, B, A, B, A, B. That holds here, so the run stops as `STUCK`.',
 			'To stop sooner: give the run a `max_budget_per_run` and a lower `max_iteration_per_run`, such as 30 for a single test fix.',
 			'Also make `run_tests` return more detail. If it returns the assertion and the diff, the model has new information after each edit and is less likely to repeat the same one.'
+		],
+		steps: [
+			{
+				title: 'Read the six calls',
+				questions: [
+					{ q: 'How many different actions appear in the six calls?', options: ['One, repeated six times', 'Two, taking turns', 'Three', 'Six, all different'], answer: 1, why: '`run_tests()` and the same `edit(...)` alternate three times.' },
+					{ q: 'Does any call return a tool error?', options: ['Yes: "FAILED test_parse_date" is a tool error', 'Yes: `edit` returns an error', 'No: "FAILED test_parse_date" is a normal observation', 'Only the last call'], answer: 2, why: 'The test tool ran fine. Its output just contains a failure message.' },
+					{ q: 'Are two consecutive actions ever the same?', options: ['No, they always alternate', 'Yes, the last two', 'Yes, the first two', 'Yes, every pair'], answer: 0, why: 'Each `run_tests` is followed by an `edit`, and each `edit` by a `run_tests`.' },
+					{ q: 'Which pattern do the six actions form?', options: ['A, A, A, B, B, B', 'A, B, B, A, A, B', 'A, A, B, B, A, A', 'A, B, A, B, A, B'], answer: 3, why: 'Test, edit, test, edit, test, edit.' }
+				]
+			},
+			{
+				title: 'Rule out the near misses',
+				questions: [
+					{ q: 'Does the rule for 3 identical failing calls fire?', options: ['Yes: the test failed three times', 'No: it counts only tool errors', 'Yes, but only on the third edit', 'No: its threshold is 10'], answer: 1, why: '`run_tests` returns a normal observation, so there is no tool error streak to count.' },
+					{ q: 'Does the rule for 4 identical action and observation pairs in a row fire?', options: ['Yes: there are six calls', 'Yes: the thought is identical', 'Only if the budget is set', 'No: the actions alternate'], answer: 3, why: 'No two consecutive actions are the same, so there is no run of 4.' },
+					{ q: 'So does OpenHands send its "same arguments ... same error" nudge?', options: ['No: that nudge follows a streak of failing calls', 'Yes, after the third test run', 'Yes, after every edit', 'Yes, before the first call'], answer: 0, why: 'The nudge comes from the action and error rule, which does not fire here.' },
+					{ q: 'Why does it matter that the edit text and the thought are identical each time?', options: ['It makes the calls cheaper', 'It lets the API cache the reply', 'The detector compares the action, tool name and thought, so a changed character is not a repeat', 'It does not matter to the detector'], answer: 2, why: 'Exact repeat detection misses a loop that varies, even by one character.' }
+				]
+			},
+			{
+				title: 'Name the rule that fires',
+				questions: [
+					{ q: 'Which OpenHands rule fires?', options: ['The action and error rule', 'The identical action rule', 'The alternating pattern rule', '`MaxIterationsReached`'], answer: 2, why: 'It is the rule built for A, B, A, B loops.' },
+					{ q: 'How much history does that rule look at?', options: ['The last 6 actions and 6 observations', 'The last 4 actions only', 'The whole run', 'The last 3 agent messages'], answer: 0, why: 'Its default threshold is 6, for both actions and observations.' },
+					{ q: 'What does it check?', options: ['That all six actions are the same', 'That the budget is spent', 'That the model called `FinishTool`', 'That each one equals the one two places earlier'], answer: 3, why: 'A, B, A, B, A, B: each item matches the one two steps back.' },
+					{ q: 'What status does the run get?', options: ['`FINISHED`', '`STUCK`', '`PAUSED`', '`ERROR` with `MaxBudgetReached`'], answer: 1, why: 'The stuck detector sets `STUCK`, and the loop breaks before the next model call.' }
+				]
+			},
+			{
+				title: 'Stop it sooner',
+				questions: [
+					{ q: 'What is the default `max_iteration_per_run` in OpenHands?', options: ['30', '500', '6', 'None: there is no cap'], answer: 1, why: 'It is 500 by default, and 500 steps of a stuck agent are 500 model calls, each resending the history.' },
+					{ q: 'Which `max_iteration_per_run` fits a single test fix better than the default?', options: ['5,000', '500, the default', 'Something like 30', 'No cap, to let it finish'], answer: 2, why: 'A lower cap ends a stuck run long before 500 steps.' },
+					{ q: 'Which setting caps the run in dollars?', options: ['`max_budget_per_run`, off by default', '`max_tokens`', '`max_iterations` in the SDK', '`threshold`'], answer: 0, why: 'Hitting it sets `ERROR` with `MaxBudgetReached`, whatever the model decides.' },
+					{ q: 'How do you make the model less likely to repeat the same edit?', options: ['Raise the temperature', 'Hide the test output', 'Remove the `edit` tool', 'Make `run_tests` return the assertion and the diff'], answer: 3, why: 'New information after each edit gives the model a reason to change its next step.' }
+				]
+			}
 		]
 	},
 	quiz: [

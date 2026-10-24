@@ -108,6 +108,44 @@ export default {
 			'5 gives (2 << 5) − 1 = 63, and 63 × 0.2 s = 12.6 s.',
 			'These are lower bounds. The real RTO starts from the measured round trip, at least 200 ms, so on a slow path each retry waits longer. The docs: "TCP will effectively time out at the first RTO which exceeds the hypothetical timeout."',
 			'To limit only the API client sockets, set `TCP_USER_TIMEOUT` on them, for example 30000 ms, and leave `tcp_retries2` at 15 for the rest of the host.'
+		],
+		steps: [
+			{
+				title: 'Pick the formula',
+				questions: [
+					{ q: 'With a base RTO of 200 ms and a cap of 120 s, how many doublings fit below the cap?', options: ['9', '15', '600', '10'], answer: 0, why: '120 s / 200 ms = 600, and `ilog2(600)` is 9: after 9 doublings the next one would pass the cap.' },
+					{ q: '`boundary` is 8. Which branch of `tcp_model_timeout` runs?', options: ['The second: the doublings plus time at the cap', 'The first: `((2 << boundary) - 1) * rto_base`', 'Neither: 8 is below the minimum', 'Both, added together'], answer: 1, why: '8 is not above 9, so the RTO never reaches the cap and only the doubling part counts.' },
+					{ q: 'What does `boundary` stand for in this task?', options: ['The base RTO in milliseconds', 'The cap in seconds', 'The `tcp_retries2` value', 'The number of lost segments'], answer: 2, why: 'For an established connection, the kernel passes the retry count from `tcp_retries2` as the boundary.' },
+					{ q: 'Which branch does the default of 15 use?', options: ['The first branch', 'The second branch, because 15 is above 9', 'No branch: 15 is the cap', 'The branch for `SYN` retries'], answer: 1, why: 'Past 9, the RTO stays at 120 s, so the formula adds (15 − 9) × 120 s to the 204.6 s of doubling.' }
+				]
+			},
+			{
+				title: 'Compute it for 8',
+				questions: [
+					{ q: 'What is (2 << 8) − 1?', options: ['255', '511', '256', '1023'], answer: 1, why: '`2 << 8` shifts 2 left by 8 bits: 512. Minus 1 gives 511.' },
+					{ q: 'And 511 × 0.2 s?', options: ['102.2 s', '51.1 s', '204.6 s', '924.6 s'], answer: 0, why: '511 × 0.2 = 102.2. The connection gives up after at least 102.2 s.' },
+					{ q: 'Does 8 meet the RFC 1122 advice?', options: ['No: RFC 1122 asks for 15 minutes', 'No: it asks for at least 200 seconds', 'RFC 1122 says nothing about this timeout', 'Yes: the docs say at least 100 seconds means a value of at least 8'], answer: 3, why: 'The ip-sysctl docs: "RFC 1122 recommends at least 100 seconds for the timeout, which corresponds to a value of at least 8."' },
+					{ q: 'How does that compare with the default of 15?', options: ['The same, because the cap is 120 s', 'Longer, because fewer retries wait more each', 'About 102 s instead of 924.6 s', 'About 15 s instead of 924.6 s'], answer: 2, why: 'With 15 the model adds six retries at the 120 s cap. With 8 the RTO never gets there.' }
+				]
+			},
+			{
+				title: 'Compute it for 5',
+				questions: [
+					{ q: 'What is (2 << 5) − 1?', options: ['31', '64', '63', '32'], answer: 2, why: '`2 << 5` is 64, and 64 − 1 = 63.' },
+					{ q: 'And 63 × 0.2 s?', options: ['6.3 s', '12.6 s', '31.5 s', '1.26 s'], answer: 1, why: '63 × 0.2 = 12.6 s.' },
+					{ q: 'Why are 102.2 s and 12.6 s only lower bounds?', options: ['The real RTO starts from the measured round trip, which is at least 200 ms', 'The kernel adds a random delay to each retry', 'Each retry also waits for a keepalive probe', 'The cap gets lower on slow paths'], answer: 0, why: 'The model assumes every RTO starts at 200 ms. On a slow path each retry waits longer.' },
+					{ q: 'When does the connection really time out?', options: ['At exactly 12.6 s', 'After 5 retries, however long they took', 'When the application calls `close()`', 'At the first RTO that ends past the modelled time'], answer: 3, why: 'The docs: "TCP will effectively time out at the first RTO which exceeds the hypothetical timeout."' }
+				]
+			},
+			{
+				title: 'Limit only the API sockets',
+				questions: [
+					{ q: 'Which connections does `tcp_retries2 = 8` change?', options: ['Every connection on the host', 'Only the API client sockets', 'Only connections to port 443', 'Only the `SYN` retries'], answer: 0, why: 'A sysctl sets the limit for the whole host, not for one program.' },
+					{ q: 'Which socket option sets the limit for one socket?', options: ['`SO_KEEPALIVE`', '`TCP_USER_TIMEOUT`', '`tcp_syn_retries`', '`SO_REUSEADDR`'], answer: 1, why: '`TCP_USER_TIMEOUT` is the longest time sent data may stay unacknowledged before the kernel closes that connection with `ETIMEDOUT`.' },
+					{ q: 'In which unit do you give `TCP_USER_TIMEOUT`?', options: ['Seconds', 'Retries', 'Milliseconds', 'RTOs'], answer: 2, why: 'It is in milliseconds, so 30 seconds is `30000`.' },
+					{ q: 'An API connection sits idle, and the peer dies. Does either limit end it?', options: ['Yes, both fire once the limit passes', 'Yes, but only `tcp_retries2`', 'Yes, after `tcp_rto_max_ms`', 'No: with nothing in flight, no retransmission timer runs'], answer: 3, why: 'The kernel learns of the failure only when one side sends something. An idle socket to a dead peer stays in `ESTAB`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,28 @@ export default {
 			why: 'Each expiry runs `icsk_rto << 1`, capped at 120 s: 0.6, 1.2, 2.4 then 4.8 s. A new RTT sample would bring the RTO back down, but no ACK arrives while the timer keeps firing.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Cut a live connection, watch the kernel double its retransmissions, and compare `tcp_retries2 = 5` with `TCP_USER_TIMEOUT`.',
+		steps: [
+			'Start a web server on its own network: `docker network create rtxlab && docker run -d --name web --network rtxlab nginx:1.27-alpine`.',
+			'Open a client whose network namespace has `tcp_retries2 = 5`: `docker run --rm -it --network rtxlab --cap-add NET_ADMIN --sysctl net.ipv4.tcp_retries2=5 nicolaka/netshoot:v0.13`.',
+			'Inside it, print the client\'s outgoing packets in the background: `tcpdump -l -n -i eth0 "tcp dst port 80" &`.',
+			'Connect, then drop every packet from the server and send one line: `time python3 -c \'import os, socket; s = socket.create_connection(("web", 80)); os.system("iptables -A INPUT -p tcp --sport 80 -j DROP"); s.send(b"GET / HTTP/1.1\\r\\n"); s.recv(1)\'`.',
+			'Remove the rule with `iptables -D INPUT -p tcp --sport 80 -j DROP`, then run the same command with `s.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 3000); ` inserted right after the `create_connection(...)` statement.',
+			'Type `exit`, then clean up: `docker rm -f web && docker network rm rtxlab`.'
+		],
+		done: [
+			'tcpdump shows the same 16 bytes, `Flags [P.]`, sent again and again, with gaps that double from about 0.2 s up to about 3.3 s.',
+			'The first run ends with `TimeoutError: [Errno 110]` after about 13 seconds.',
+			'The run with `TCP_USER_TIMEOUT` ends with the same error after about 3 seconds.'
+		],
+		solution: [
+			'Between two containers the round trip is far below 200 ms, so the RTO starts at the 200 ms floor and doubles at each timeout.',
+			'The model for 5 gives 12.6 s. The socket fails at the first RTO that ends past that point, so a little later than 12.6 s.',
+			'`TCP_USER_TIMEOUT` shortens the timer to the time left, so that socket fails near 3 s while the namespace keeps `tcp_retries2 = 5` for every other connection.'
+		]
+	},
 	recall: {
 		q: 'What does Linux do to the RTO each time the retransmission timer fires, and how long does a connection with unacknowledged data last against a dead peer with `tcp_retries2 = 15`?',
 		a: 'It doubles the RTO, up to a 120 s cap. With 15 retries the modelled timeout is 924.6 s, and Cloudflare saw `ETIMEDOUT` at 15:39.'

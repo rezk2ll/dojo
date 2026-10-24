@@ -126,6 +126,44 @@ export default {
 			'`0001` : matériel de type 1, Ethernet. `0800` : protocole IPv4. `06` et `04` : une MAC fait 6 octets, une adresse IPv4 en fait 4. `0001` : opcode 1, une requête. Une réponse porte `0002`.',
 			'MAC de l’émetteur `c2:01:a7:66:6b:1b`, IP de l’émetteur `0a4d 001e` = 10.77.0.30. MAC cible à zéro, car C ne la connaît pas. IP cible `0a4d 000a` = 10.77.0.10.',
 			'14 + 28 = 42 octets : le `length 42` que tcpdump affiche pour chaque trame ARP de ce réseau.'
+		],
+		steps: [
+			{
+				title: 'Lis l’en-tête Ethernet',
+				questions: [
+					{ q: 'La MAC de destination vaut `ffff ffff ffff`. Qu’est-ce que ça veut dire ?', options: ['Broadcast : chaque machine du lien reçoit la trame', 'La cible est inconnue et sera remplie plus tard', 'La trame part vers la passerelle par défaut', 'La capture a perdu ces octets'], answer: 0, why: '`ff:ff:ff:ff:ff:ff` est l’adresse de broadcast. C ne sait pas à qui appartient l’IP, donc il demande à tout le monde.' },
+					{ q: 'Quelle MAC est la source ?', options: ['`ff:ff:ff:ff:ff:ff`', '`c2:01:a7:66:6b:1b`, la MAC de C', '`08:06:00:01:08:00`', 'La MAC de 10.77.0.10'], answer: 1, why: 'La MAC source suit la destination : les six octets `c201 a766 6b1b`, l’interface de C.' },
+					{ q: 'Le type vaut `0806`. Qu’est-ce qui suit ?', options: ['Un paquet IPv4', 'Une trame de 2054 octets', 'Un message ARP', 'Un segment TCP'], answer: 2, why: '`0x0806` est le type d’ARP. IPv4 serait `0x0800`.' },
+					{ q: 'Où commencent les 28 octets d’ARP ?', options: ['Au premier `ffff`', 'À `0800` sur la deuxième ligne', 'Au premier `0a4d`', 'Au `0001` juste après `0806`'], answer: 3, why: 'L’en-tête Ethernet finit par le type sur 2 octets, donc ARP commence à l’octet 14.' }
+				]
+			},
+			{
+				title: 'Décode les champs fixes',
+				questions: [
+					{ q: 'Le premier champ ARP vaut `0001`. Qu’est-ce que c’est ?', options: ['Le type de matériel 1, Ethernet', 'L’opcode 1, une requête', 'Le protocole IPv4', 'La version 1 d’ARP'], answer: 0, why: 'La RFC 826 commence par le type de matériel, et 1 veut dire Ethernet. L’opcode vient plus loin et vaut aussi `0001`.' },
+					{ q: 'Vient ensuite `0800`. Que dit ce champ ?', options: ['Le type Ethernet, répété', 'L’adresse cherchée est une adresse IPv4', '2048 octets d’ARP suivent', 'La réponse doit aller au port 2048'], answer: 1, why: 'Le type de protocole reprend la valeur du type Ethernet d’IPv4 : C cherche à résoudre une adresse IPv4.' },
+					{ q: 'Puis `06` et `04`. Que sont-ils ?', options: ['6 adresses suivent, dont 4 en IPv4', 'La version 6.4 d’ARP', 'Une MAC fait 6 octets et une adresse IPv4 en fait 4', 'Six essais, à quatre secondes d’écart'], answer: 2, why: 'Ce sont les longueurs des adresses matérielle et protocole, pour que le destinataire sache où finit chaque adresse.' },
+					{ q: 'L’opcode vaut `0001`. Quel genre de message est-ce ?', options: ['Une réponse', 'Une annonce gratuite', 'Le premier renvoi d’une requête', 'Une requête'], answer: 3, why: 'L’opcode 1 est une requête et 2 une réponse.' }
+				]
+			},
+			{
+				title: 'Décode les quatre adresses',
+				questions: [
+					{ q: 'Quelle est la MAC de l’émetteur ?', options: ['`c2:01:a7:66:6b:1b`', '`ff:ff:ff:ff:ff:ff`', '`00:00:00:00:00:00`', '`0a:4d:00:1e:00:00`'], answer: 0, why: 'Elle répète la source Ethernet : C met sa propre MAC dans la requête.' },
+					{ q: 'L’IP de l’émetteur vaut `0a4d 001e`. Quelle adresse est-ce ?', options: ['10.77.0.10', '10.77.0.30', '10.77.0.1', '10.77.1.30'], answer: 1, why: '`0a` vaut 10, `4d` vaut 77, `00` vaut 0 et `1e` vaut 30 : l’adresse de C.' },
+					{ q: 'Pourquoi la MAC cible est-elle à zéro ?', options: ['Les zéros sont une autre façon d’écrire broadcast', 'La machine cible est éteinte', 'La capture a coupé ces octets', 'C ne la connaît pas encore : c’est ce qu’il demande'], answer: 3, why: 'La requête porte l’IP cherchée et laisse la MAC vide. La réponse la remplit.' },
+					{ q: 'L’IP cible vaut `0a4d 000a`. Quelle adresse est-ce ?', options: ['10.77.0.30', '10.77.0.0', '10.77.0.10', '10.77.0.255'], answer: 2, why: '`0a` vaut 10 dans le dernier octet : C cherche 10.77.0.10.' }
+				]
+			},
+			{
+				title: 'Vérifie la taille et la réponse',
+				questions: [
+					{ q: 'Combien mesure la trame entière ?', options: ['28 octets, tout en ARP', '64 octets, avec du remplissage', '42 octets : 14 d’Ethernet et 28 d’ARP', '48 octets : 20 d’IP et 28 d’ARP'], answer: 2, why: 'ARP vient juste après Ethernet, sans en-tête IP. tcpdump affiche `length 42`.' },
+					{ q: 'Qui répond à cette requête, et vers quelle MAC ?', options: ['A, uniquement vers la MAC de C', 'A, vers l’adresse de broadcast', 'Toutes les machines du réseau', 'La passerelle, à la place de A'], answer: 0, why: 'A voit sa propre adresse dans le champ cible et répond à la MAC de l’émetteur de la requête.' },
+					{ q: 'Quel opcode porte la réponse ?', options: ['`0001`', '`0002`', '`0806`', '`0800`'], answer: 1, why: 'Une réponse a l’opcode 2.' },
+					{ q: 'B a aussi 10.77.0.10 et sa réponse arrive en premier. Que garde C ?', options: ['La MAC de A, car A avait l’adresse avant', 'Les deux MAC, en alternant', 'Rien : l’entrée passe à `FAILED`', 'La MAC de B, donc ses trames pour 10.77.0.10 vont à B'], answer: 3, why: 'Linux garde la première réponse, et une seconde dans le délai de `LOCKTIME` ne peut pas l’écraser. ARP n’a aucun champ qui prouve à qui appartient l’IP.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,30 @@ export default {
 			why: '`arp_process` n’active `override` qu’une fois `LOCKTIME` (1 seconde par défaut) écoulé depuis la dernière mise à jour. Le commentaire dit : "If several different ARP replies follows back-to-back, use the FIRST one."'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Capturer un vrai échange ARP, le décoder à la main, puis créer une adresse en double et voir qui gagne.',
+		steps: [
+			'Crée un réseau et trois conteneurs qui ont le droit de changer leurs adresses : `docker network create --subnet 10.77.0.0/24 arplab`, puis `for n in a b c; do docker run -d --name arp-$n --network arplab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sleep infinity; done`.',
+			'Vérifie les adresses avec `for n in a b c; do docker exec arp-$n ip -br addr show eth0; done`. La suite suppose que A a reçu 10.77.0.2 et C 10.77.0.4 ; prends les tiennes si elles diffèrent.',
+			'Depuis C, vide la table des voisins, capture l’ARP entre C et A, et ping A : `docker exec arp-c sh -c "ip neigh flush all; tcpdump -i eth0 -n -e -XX -c 2 arp host 10.77.0.2 and arp host 10.77.0.4 & sleep 1; ping -c1 10.77.0.2 >/dev/null; wait; ip neigh"`.',
+			'Décode à la main les 28 octets d’ARP de la requête, comme dans l’exercice, puis la réponse de la même façon.',
+			'Donne à B la même adresse que A, et redemande : `docker exec arp-b ip addr add 10.77.0.2/24 dev eth0`, puis `docker exec arp-c sh -c "ip neigh flush all; timeout 3 tcpdump -i eth0 -n arp host 10.77.0.2 and arp host 10.77.0.4 & sleep 1; ping -c1 -W1 10.77.0.2 >/dev/null; wait; ip neigh"`.',
+			'Lance le test de conflit de l’accroche : `docker exec arp-c arping -D -c 2 -I eth0 10.77.0.2; echo $?`. Puis nettoie : `docker rm -f arp-a arp-b arp-c && docker network rm arplab`.'
+		],
+		done: [
+			'La requête fait 42 octets, porte l’opcode `0001` et une MAC cible à zéro. La réponse porte l’opcode `0002`.',
+			'Après l’étape 5, tcpdump affiche une ligne `who-has` et deux lignes `is-at` avec deux MAC différentes.',
+			'`ip neigh` sur C garde la MAC de la première ligne `is-at`.',
+			'`arping -D` sort avec le code `1`.'
+		],
+		solution: [
+			'Requête : `0001 0800 0604 0001`, puis la MAC de C et `0a4d 0004` (10.77.0.4), six octets à zéro, puis `0a4d 0002` (10.77.0.2).',
+			'Réponse : la même structure avec l’opcode `0002`, la MAC et l’IP de A comme émetteur, et la MAC et l’IP de C comme cible. Elle part vers la MAC de C, pas vers l’adresse de broadcast.',
+			'Avec deux propriétaires, les deux noyaux répondent, et C garde la première réponse, car une seconde dans le délai de `LOCKTIME` ne peut pas l’écraser. Le conteneur qui répond en premier peut changer d’un essai à l’autre.',
+			'`arping -D` envoie sa sonde depuis 0.0.0.0 et sort avec 1 parce qu’une machine a répondu : l’adresse est déjà prise.'
+		]
+	},
 	recall: {
 		q: 'Comment une machine trouve-t-elle la MAC de 10.77.0.10 sur son propre réseau, et où garde-t-elle la réponse ?',
 		a: 'Elle envoie une requête ARP en broadcast à `ff:ff:ff:ff:ff:ff`, le propriétaire répond avec sa MAC, et le noyau la range dans la table des voisins affichée par `ip neigh`, d’abord en `REACHABLE`, puis en `STALE`.'

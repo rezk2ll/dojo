@@ -133,6 +133,44 @@ failure:
 			'2 and 3: the server did not reply. The SYN left, and the retries show the same sequence number because they are copies of one SYN. Check a firewall that drops port 81, a security group, or whether the host is down.',
 			'`curl --connect-timeout 3 http://10.78.0.10:81/` gave up after 3002 ms with `curl: (28) Connection timed out after 3002 milliseconds`, instead of 135 seconds.',
 			'The kernel limit is `net.ipv4.tcp_syn_retries`. The kernel reads it per network namespace (`net->ipv4.sysctl_tcp_syn_retries`), so lowering it changes every connection in that namespace. A timeout on the one call changes only that call.'
+		],
+		steps: [
+			{
+				title: 'Read output 1',
+				questions: [
+					{ q: '`Connection refused`: what came back to the client?', options: ['An RST from the server machine', 'Nothing at all', 'A SYN-ACK that the client rejected', 'An error from a router on the way'], answer: 0, why: 'A refusal is a packet. In SYN-SENT, an incoming RST makes the kernel fail `connect()` with `ECONNREFUSED`.' },
+					{ q: 'So did the server machine reply?', options: ['No: refused means the host is down', 'Yes: the machine is up and reachable', 'No: only a firewall answered', 'You cannot tell from this line'], answer: 1, why: 'Something at that address sent the RST, so the machine is up and the path to it works.' },
+					{ q: 'Why did it send an RST?', options: ['A firewall drops port 82', 'The server is overloaded', 'No program listens on port 82', 'The client sent a wrong sequence number'], answer: 2, why: 'A host answers a SYN with an RST when no socket listens on that port. A dropping firewall would send nothing.' },
+					{ q: 'What do you check next?', options: ['The firewall rules for port 82', 'The route from the client to the server', 'Whether the server is powered on', 'The service, with `ss -tlnp` on the server'], answer: 3, why: 'The machine answers, so look at the program: is it running, and on which port and address does it listen?' }
+				]
+			},
+			{
+				title: 'Read outputs 2 and 3',
+				questions: [
+					{ q: '`ss -tan` shows `SYN-SENT` for several seconds. What does that mean?', options: ['The SYN left and no SYN-ACK came back', 'The handshake ended and the client waits for data', 'The server closed the connection', 'The client has not sent anything yet'], answer: 0, why: 'SYN-SENT is the state between sending the SYN and getting the SYN-ACK. It stays there until a SYN-ACK, an RST or the final timeout.' },
+					{ q: 'tcpdump shows seven SYNs from port 53158 with the same `seq`. What are they?', options: ['Seven separate attempts made by curl', 'Copies of one SYN: the first one and 6 retries', 'Seven connections from seven ports', 'The server sending the SYN back'], answer: 1, why: 'A retry is the same SYN sent again, so the source port and the sequence number do not change.' },
+					{ q: 'Did the server machine reply in cases 2 and 3?', options: ['Yes, with an RST each time', 'Yes, but its SYN-ACK came too late', 'No: nothing came back', 'Yes, with a SYN-ACK that the client ignored'], answer: 2, why: 'Any reply would end SYN-SENT: a SYN-ACK opens the connection and an RST refuses it.' },
+					{ q: 'What do you check next?', options: ['Whether a program listens on port 81', 'The DNS name of the server', 'The client\'s TIME_WAIT sockets', 'A firewall that drops port 81, a security group, or whether the host is down'], answer: 3, why: 'Something swallowed the SYN without a word. In this chapter it was a DROP rule on the server.' }
+				]
+			},
+			{
+				title: 'Cap the wait',
+				questions: [
+					{ q: 'With no option, how long did curl wait on port 81 in this chapter\'s run?', options: ['3 seconds', '15 minutes', 'Until you press Ctrl-C', 'About 135 seconds'], answer: 3, why: 'The kernel sent 1 SYN and 6 retries, then failed with `ETIMEDOUT` after 135262 ms.' },
+					{ q: 'Which `curl` option gives up on the connection after 3 seconds?', options: ['`--retry 3`', '`--connect-timeout 3`', '`--keepalive-time 3`', '`--limit-rate 3`'], answer: 1, why: '`--connect-timeout` bounds the time curl waits for the connection to open.' },
+					{ q: 'What does curl print when that limit hits?', options: ['`curl: (28) Connection timed out after 3002 milliseconds`', '`Connection refused`', '`Network unreachable`', '`Could not resolve host`'], answer: 0, why: 'In this session it gave up after 3002 ms with error 28, instead of 135 seconds.' },
+					{ q: 'Why did the kernel send the SYN 6 more times on its own?', options: ['curl asked for 6 retries', 'The firewall allowed 6 tries', '`net.ipv4.tcp_syn_retries` defaults to 6', '`tcp_retries2` is set to 6'], answer: 2, why: '`tcp_syn_retries` is the number of times an unanswered SYN is sent again. `tcp_retries2` is for data on an open connection.' }
+				]
+			},
+			{
+				title: 'Choose where to set the limit',
+				questions: [
+					{ q: 'Where does the kernel read `tcp_syn_retries`?', options: ['Per network namespace', 'Per process', 'Per socket', 'Per destination address'], answer: 0, why: 'The code reads `net->ipv4.sysctl_tcp_syn_retries`, one value per network namespace.' },
+					{ q: 'If you lower it, what changes?', options: ['Only the curl call', 'Every connection in that namespace', 'Only connections to port 81', 'Only connections that already failed'], answer: 1, why: 'One value covers every connection in the namespace, including the ones that need a patient connect.' },
+					{ q: 'Why prefer `--connect-timeout` on the one call?', options: ['It makes the SYN reach the server', 'It removes the firewall rule', 'It changes only that one call', 'It works only as root'], answer: 2, why: 'A timeout on the call sets the limit where it is needed and leaves the rest of the host alone.' },
+					{ q: 'A DROP rule on the server blocks port 81. What makes the call work?', options: ['Lower `tcp_syn_retries` to 1', 'Start a second program on port 81', 'Retry curl in a loop', 'Allow port 81 in that rule or security group'], answer: 3, why: 'The timeout only makes the failure fast. The SYN reaches the service only once the rule lets it through.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,30 @@ failure:
 			why: '`tcp_v4_connect` sets SYN-SENT before the first SYN leaves, and the state stays there until a SYN-ACK, an RST or the final timeout. The retries resend the same SYN.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Produce the three cases of the task on your laptop: an open port, a closed port and a dropped port.',
+		steps: [
+			'Create a network and a server that answers on port 80, has nothing on 82 and drops port 81: `docker network create tcplab && docker run -d --name srv --network tcplab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sh -c "iptables -A INPUT -p tcp --dport 81 -j DROP && python3 -m http.server 80"`.',
+			'Open a client shell on the same network: `docker run --rm -it --network tcplab nicolaka/netshoot:v0.13`.',
+			'Inside it, try the open port and the closed one: `curl -s -o /dev/null -w "%{http_code}\\n" http://srv/`, then `curl -sv http://srv:82/ 2>&1 | grep -i refused`.',
+			'Watch the dropped port: `timeout 5 tcpdump -l -i eth0 -n "tcp port 81" & sleep 1; curl -s --connect-timeout 3 http://srv:81/; echo "curl exit $?"`. Wait until tcpdump stops.',
+			'Look at the socket while it waits: `curl -s --connect-timeout 3 http://srv:81/ & sleep 1; ss -tan | grep :81`.',
+			'Type `exit`. On your laptop, check what listens on the server with `docker exec srv ss -tlnp`, then clean up: `docker rm -f srv && docker network rm tcplab`.'
+		],
+		done: [
+			'Port 80 prints `200`.',
+			'Port 82 prints `connect to ... port 82 ... failed: Connection refused` at once.',
+			'tcpdump shows three `Flags [S]` lines to port 81 with the same `seq`, about 1 s apart, and curl exits with `28`.',
+			'`ss -tan` shows the socket to port 81 in `SYN-SENT`.',
+			'`ss -tlnp` on the server lists `python3` on port 80 and nothing on 81 or 82.'
+		],
+		solution: [
+			'Port 82: the server kernel answers the SYN with an RST, because no socket listens there. The machine is up.',
+			'Port 81: the DROP rule discards each SYN and nothing comes back. The kernel sends the same SYN again after about 1 and 2 seconds, and `--connect-timeout 3` stops curl long before the 6 default retries run out.',
+			'Exit code 28 is curl\'s timeout error, the same `(28)` as in the task. The other line in `ss -tlnp`, on 127.0.0.11, is Docker\'s own DNS server.'
+		]
+	},
 	recall: {
 		q: 'What does the client receive when a port is closed, and what when a firewall drops the SYN?',
 		a: 'A closed port sends back an RST, so `connect()` fails at once with `Connection refused`. A dropped SYN gets no reply: the client resends it 6 times and fails with a timeout, after 135 seconds in this run.'

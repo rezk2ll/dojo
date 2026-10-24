@@ -108,6 +108,44 @@ export default {
 			'Pour 5 : (2 << 5) − 1 = 63, et 63 × 0,2 s = 12,6 s.',
 			'Ce sont des bornes basses. Le vrai RTO part de l’aller-retour mesuré, au moins 200 ms, donc sur un chemin lent chaque essai attend plus. La doc : "TCP will effectively time out at the first RTO which exceeds the hypothetical timeout."',
 			'Pour ne limiter que les sockets clients de l’API, règle `TCP_USER_TIMEOUT` sur eux, par exemple 30000 ms, et laisse `tcp_retries2` à 15 pour le reste de l’hôte.'
+		],
+		steps: [
+			{
+				title: 'Choisis la formule',
+				questions: [
+					{ q: 'Avec un RTO de base de 200 ms et un plafond de 120 s, combien de doublements tiennent sous le plafond ?', options: ['9', '15', '600', '10'], answer: 0, why: '120 s / 200 ms = 600, et `ilog2(600)` vaut 9 : après 9 doublements, le suivant dépasserait le plafond.' },
+					{ q: '`boundary` vaut 8. Quelle branche de `tcp_model_timeout` s’exécute ?', options: ['La seconde : les doublements plus le temps au plafond', 'La première : `((2 << boundary) - 1) * rto_base`', 'Aucune : 8 est sous le minimum', 'Les deux, additionnées'], answer: 1, why: '8 ne dépasse pas 9, donc le RTO n’atteint jamais le plafond et seule la partie qui double compte.' },
+					{ q: 'Que représente `boundary` dans cet exercice ?', options: ['Le RTO de base en millisecondes', 'Le plafond en secondes', 'La valeur de `tcp_retries2`', 'Le nombre de segments perdus'], answer: 2, why: 'Pour une connexion établie, le noyau passe le nombre d’essais de `tcp_retries2` comme boundary.' },
+					{ q: 'Quelle branche utilise la valeur par défaut, 15 ?', options: ['La première branche', 'La seconde, car 15 dépasse 9', 'Aucune : 15 est le plafond', 'La branche des essais de `SYN`'], answer: 1, why: 'Au-delà de 9, le RTO reste à 120 s, donc la formule ajoute (15 − 9) × 120 s aux 204,6 s de doublement.' }
+				]
+			},
+			{
+				title: 'Calcule pour 8',
+				questions: [
+					{ q: 'Que vaut (2 << 8) − 1 ?', options: ['255', '511', '256', '1023'], answer: 1, why: '`2 << 8` décale 2 de 8 bits vers la gauche : 512. Moins 1 donne 511.' },
+					{ q: 'Et 511 × 0,2 s ?', options: ['102,2 s', '51,1 s', '204,6 s', '924,6 s'], answer: 0, why: '511 × 0,2 = 102,2. La connexion abandonne au bout d’au moins 102,2 s.' },
+					{ q: '8 respecte-t-il le conseil de la RFC 1122 ?', options: ['Non : la RFC 1122 demande 15 minutes', 'Non : elle demande au moins 200 secondes', 'La RFC 1122 ne dit rien de ce délai', 'Oui : la doc dit qu’au moins 100 secondes correspond à une valeur d’au moins 8'], answer: 3, why: 'La doc ip-sysctl : "RFC 1122 recommends at least 100 seconds for the timeout, which corresponds to a value of at least 8."' },
+					{ q: 'Comment ça se compare à la valeur par défaut, 15 ?', options: ['Pareil, car le plafond est à 120 s', 'Plus long, car moins d’essais attendent chacun plus', 'Environ 102 s au lieu de 924,6 s', 'Environ 15 s au lieu de 924,6 s'], answer: 2, why: 'Avec 15, le modèle ajoute six essais au plafond de 120 s. Avec 8, le RTO n’y arrive jamais.' }
+				]
+			},
+			{
+				title: 'Calcule pour 5',
+				questions: [
+					{ q: 'Que vaut (2 << 5) − 1 ?', options: ['31', '64', '63', '32'], answer: 2, why: '`2 << 5` vaut 64, et 64 − 1 = 63.' },
+					{ q: 'Et 63 × 0,2 s ?', options: ['6,3 s', '12,6 s', '31,5 s', '1,26 s'], answer: 1, why: '63 × 0,2 = 12,6 s.' },
+					{ q: 'Pourquoi 102,2 s et 12,6 s ne sont-ils que des bornes basses ?', options: ['Le vrai RTO part de l’aller-retour mesuré, qui fait au moins 200 ms', 'Le noyau ajoute un délai aléatoire à chaque essai', 'Chaque essai attend aussi une sonde keepalive', 'Le plafond baisse sur les chemins lents'], answer: 0, why: 'Le modèle suppose que chaque RTO part de 200 ms. Sur un chemin lent, chaque essai attend plus.' },
+					{ q: 'Quand la connexion expire-t-elle vraiment ?', options: ['À 12,6 s pile', 'Après 5 essais, quelle que soit leur durée', 'Quand l’application appelle `close()`', 'Au premier RTO qui finit après le délai modélisé'], answer: 3, why: 'La doc : "TCP will effectively time out at the first RTO which exceeds the hypothetical timeout."' }
+				]
+			},
+			{
+				title: 'Ne limite que les sockets de l’API',
+				questions: [
+					{ q: 'Quelles connexions `tcp_retries2 = 8` change-t-il ?', options: ['Toutes les connexions de l’hôte', 'Seulement les sockets clients de l’API', 'Seulement les connexions vers le port 443', 'Seulement les essais de `SYN`'], answer: 0, why: 'Un sysctl fixe la limite pour tout l’hôte, pas pour un programme.' },
+					{ q: 'Quelle option de socket fixe la limite pour un seul socket ?', options: ['`SO_KEEPALIVE`', '`TCP_USER_TIMEOUT`', '`tcp_syn_retries`', '`SO_REUSEADDR`'], answer: 1, why: '`TCP_USER_TIMEOUT` est la durée maximale pendant laquelle des données envoyées restent sans ACK avant que le noyau ferme cette connexion avec `ETIMEDOUT`.' },
+					{ q: 'Dans quelle unité donnes-tu `TCP_USER_TIMEOUT` ?', options: ['En secondes', 'En nombre d’essais', 'En millisecondes', 'En RTO'], answer: 2, why: 'Elle est en millisecondes, donc 30 secondes s’écrivent `30000`.' },
+					{ q: 'Une connexion d’API est inactive et le pair meurt. L’une des deux limites y met-elle fin ?', options: ['Oui, les deux se déclenchent une fois la limite passée', 'Oui, mais seulement `tcp_retries2`', 'Oui, après `tcp_rto_max_ms`', 'Non : sans rien en vol, aucun timer de retransmission ne tourne'], answer: 3, why: 'Le noyau ne découvre la panne que quand un des côtés envoie quelque chose. Un socket inactif vers un pair mort reste en `ESTAB`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,28 @@ export default {
 			why: 'Chaque expiration exécute `icsk_rto << 1`, plafonné à 120 s : 0,6, 1,2, 2,4 puis 4,8 s. Une nouvelle mesure de RTT ferait redescendre le RTO, mais aucun ACK n’arrive tant que le timer expire.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Couper une connexion vivante, voir le noyau doubler ses retransmissions, et comparer `tcp_retries2 = 5` avec `TCP_USER_TIMEOUT`.',
+		steps: [
+			'Lance un serveur web sur son propre réseau : `docker network create rtxlab && docker run -d --name web --network rtxlab nginx:1.27-alpine`.',
+			'Ouvre un client dont l’espace de noms réseau a `tcp_retries2 = 5` : `docker run --rm -it --network rtxlab --cap-add NET_ADMIN --sysctl net.ipv4.tcp_retries2=5 nicolaka/netshoot:v0.13`.',
+			'Dedans, affiche en arrière-plan les paquets sortants du client : `tcpdump -l -n -i eth0 "tcp dst port 80" &`.',
+			'Connecte-toi, puis jette tous les paquets du serveur et envoie une ligne : `time python3 -c \'import os, socket; s = socket.create_connection(("web", 80)); os.system("iptables -A INPUT -p tcp --sport 80 -j DROP"); s.send(b"GET / HTTP/1.1\\r\\n"); s.recv(1)\'`.',
+			'Retire la règle avec `iptables -D INPUT -p tcp --sport 80 -j DROP`, puis relance la même commande en insérant `s.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 3000); ` juste après l’instruction `create_connection(...)`.',
+			'Tape `exit`, puis nettoie : `docker rm -f web && docker network rm rtxlab`.'
+		],
+		done: [
+			'tcpdump montre les mêmes 16 octets, `Flags [P.]`, renvoyés encore et encore, avec des écarts qui doublent d’environ 0,2 s jusqu’à environ 3,3 s.',
+			'Le premier essai finit par `TimeoutError: [Errno 110]` au bout d’environ 13 secondes.',
+			'L’essai avec `TCP_USER_TIMEOUT` finit par la même erreur au bout d’environ 3 secondes.'
+		],
+		solution: [
+			'Entre deux conteneurs, l’aller-retour est bien sous 200 ms, donc le RTO part du plancher de 200 ms et double à chaque expiration.',
+			'Le modèle pour 5 donne 12,6 s. Le socket échoue au premier RTO qui finit après ce point, donc un peu après 12,6 s.',
+			'`TCP_USER_TIMEOUT` raccourcit le timer au temps restant, donc ce socket échoue vers 3 s, alors que l’espace de noms garde `tcp_retries2 = 5` pour toutes les autres connexions.'
+		]
+	},
 	recall: {
 		q: 'Que fait Linux au RTO à chaque expiration du timer de retransmission, et combien de temps tient une connexion avec des données non acquittées face à un pair mort, avec `tcp_retries2 = 15` ?',
 		a: 'Il double le RTO, jusqu’à un plafond de 120 s. Avec 15 essais, le délai modélisé est de 924,6 s, et Cloudflare a vu `ETIMEDOUT` à 15:39.'

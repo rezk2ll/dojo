@@ -122,6 +122,44 @@ export default {
 			'Fix 1: reuse connections. A Redis client with a connection pool sends many commands on each socket, so the job needs a few ports instead of one per command.',
 			'Fix 2, if the code cannot change soon: widen the range, for example `1024 65535`, which gives 64,512 ports, about 1,075 per second. The range must start at or above `ip_unprivileged_port_start` (1024), and `ip_local_reserved_ports` must list any server ports inside it.',
 			'`tcp_tw_reuse = 1` also works, but only if Redis sends TCP timestamps, and it changes every outgoing connection of the host.'
+		],
+		steps: [
+			{
+				title: 'Read the symptoms',
+				questions: [
+					{ q: 'Which error is `Cannot assign requested address`?', options: ['`EADDRNOTAVAIL`: no free source port for this destination', '`ECONNREFUSED`: Redis sent an RST', '`ETIMEDOUT`: Redis did not answer', '`ENETUNREACH`: no route to Redis'], answer: 0, why: 'When the port search finds no free 4-tuple, `connect()` returns `EADDRNOTAVAIL`.' },
+					{ q: '`ss -s` shows `timewait 28190`. What does that tell you?', options: ['Redis has 28,190 clients', 'Almost every port of the 28,232 in the range is held in TIME_WAIT', 'The job leaks connections it never closes', 'The kernel closes sockets too slowly'], answer: 1, why: '28,190 is close to the whole range. Those sockets are closed, but each keeps its 4-tuple for 60 s.' },
+					{ q: 'Which side holds those TIME_WAIT sockets?', options: ['Redis, because it is the server', 'Both sides, 60 seconds each', 'The job, because it closes each connection first', 'Neither: TIME_WAIT is only on loopback'], answer: 2, why: 'TIME_WAIT belongs to the side that closes actively. The job closes after each command.' },
+					{ q: 'Is Redis down?', options: ['Yes: the error means it refused the job', 'Yes: TIME_WAIT means Redis stopped answering', 'You cannot tell anything about Redis', 'Not from this error: the job\'s own kernel fails `connect()` before a SYN leaves'], answer: 3, why: 'The kernel picks the source port before it sends the SYN. With no port left, nothing reaches Redis.' }
+				]
+			},
+			{
+				title: 'Compute the limit',
+				questions: [
+					{ q: 'How many ports are in `32768 60999`?', options: ['28,232', '28,231', '32,768', '60,999'], answer: 0, why: '60999 − 32768 + 1 = 28,232. Both ends of the range count.' },
+					{ q: 'How long does Linux keep a socket in TIME_WAIT?', options: ['2 minutes, one MSL', '4 minutes, 2 × MSL', '60 seconds', '1 second'], answer: 2, why: 'RFC 9293 asks for 2 × MSL, but Linux uses a fixed 60 s, `TCP_TIMEWAIT_LEN`.' },
+					{ q: 'What rate of new connections to `10.0.0.12:6379` can the job sustain?', options: ['About 28,232 per second', 'About 470 per second', 'About 235 per second', 'About 1,075 per second'], answer: 1, why: '28,232 ports / 60 s ≈ 470. Past that, the job runs out of ports.' },
+					{ q: 'Does the same limit stop a connection to a second Redis at `10.0.0.13:6379`?', options: ['Yes: every port is taken', 'Only if `tcp_tw_reuse` is 0', 'Yes, until `tcp_tw_reuse_delay` passes', 'No: another destination IP gives new 4-tuples'], answer: 3, why: 'A port is in TIME_WAIT only toward the destination it talked to. The destination IP is part of the 4-tuple.' }
+				]
+			},
+			{
+				title: 'Fix it in the code',
+				questions: [
+					{ q: 'Which fix removes the cause?', options: ['Reuse connections with a connection pool', 'Open more connections in parallel', 'Retry each failed command', 'Close each connection faster'], answer: 0, why: 'The job uses one port per command. A pool sends many commands on each socket.' },
+					{ q: 'Why does a pool help so much?', options: ['Pooled connections skip TIME_WAIT', 'Many commands share one socket, so the job needs only a few ports', 'A pool talks to Redis over loopback', 'Redis closes pooled connections first'], answer: 1, why: 'A keep-alive connection uses one 4-tuple for thousands of requests.' },
+					{ q: 'With a pool, which sockets still go to TIME_WAIT?', options: ['None, ever', 'One per command, as before', 'Only the connections the pool finally closes', 'Only the first connection'], answer: 2, why: 'TIME_WAIT follows each close. A pool closes rarely.' },
+					{ q: 'The job passed a load test against `127.0.0.1`. Why did that test miss the problem?', options: ['Loopback has its own 65,535 ports', 'Loopback connections never enter TIME_WAIT', 'Test machines have a wider port range', 'The default `tcp_tw_reuse = 2` reuses loopback 4-tuples after 1 second'], answer: 3, why: 'In `tcp_twsk_unique`, a value of 2 allows reuse only when an address is loopback.' }
+				]
+			},
+			{
+				title: 'Fix it on the host',
+				questions: [
+					{ q: 'You widen the range to `1024 65535`. How many ports is that?', options: ['64,512', '65,535', '64,511', '32,768'], answer: 0, why: '65535 − 1024 + 1 = 64,512.' },
+					{ q: 'What rate does that allow to one destination?', options: ['About 470 per second', 'About 1,075 per second', 'About 2,150 per second', 'About 64,512 per second'], answer: 1, why: '64,512 / 60 s ≈ 1,075. More room, but the same limit comes back if traffic grows.' },
+					{ q: 'What must you check before you widen it?', options: ['That Redis restarts after the change', 'That TIME_WAIT lasts at most 1 second', 'That the range starts at or above `ip_unprivileged_port_start`, and `ip_local_reserved_ports` lists server ports inside it', 'That `tcp_tw_reuse` is set to 0'], answer: 2, why: 'Otherwise the kernel could hand a port that a local server needs to an outgoing connection.' },
+					{ q: 'What is the catch with `tcp_tw_reuse = 1`?', options: ['It turns off TIME_WAIT on the Redis side', 'It needs a reboot', 'It works only for loopback traffic', 'It needs TCP timestamps from Redis, and it changes every outgoing connection of the host'], answer: 3, why: '`tcp_twsk_unique` reuses a 4-tuple only if the peer sent a timestamp, and the sysctl applies to the whole host. Loopback only is the default, 2.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,31 @@ export default {
 			why: 'In `tcp_twsk_unique`, a value of 2 drops to 0 when neither address is loopback. On loopback, a 4-tuple in TIME_WAIT is reused after 1 second, so the test never runs out of ports.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run out of source ports on purpose, see TIME_WAIT hold them for 60 s, and see why a loopback test hides it.',
+		steps: [
+			'Start a web server on its own network: `docker network create twlab && docker run -d --name web --network twlab nginx:1.27-alpine`.',
+			'Open a client limited to the 100 source ports 40100 to 40199: `docker run --rm -it --network twlab --sysctl net.ipv4.ip_local_port_range="40100 40199" nicolaka/netshoot:v0.13`.',
+			'Inside it, open and close one connection per request until one fails: `for i in $(seq 1 150); do sleep 0.02; curl -s -o /dev/null http://web/ || { echo "request $i failed"; break; }; done`.',
+			'Look at the cause: `curl -sv -o /dev/null http://web/ 2>&1 | grep -i avail`, then `ss -tan state time-wait | tail -n +2 | wc -l` and `ss -tno state time-wait | head -3`.',
+			'Run the same loop against loopback, with a server that keeps the connection open like nginx: `python3 -m http.server --protocol HTTP/1.1 80 >/dev/null 2>&1 &`, then `sleep 3; for i in $(seq 1 150); do sleep 0.02; curl -s -o /dev/null http://127.0.0.1/ || { echo "loopback request $i failed"; break; }; done; echo loopback done`.',
+			'Wait 65 seconds, then try `web` again: `curl -s -o /dev/null -w "%{http_code}\\n" http://web/`. Type `exit`, then clean up: `docker rm -f web && docker network rm twlab`.'
+		],
+		done: [
+			'The first loop stops at about request 100.',
+			'`curl -v` prints `Immediate connect fail ... Address not available`.',
+			'`ss` counts about 99 sockets in TIME-WAIT toward port 80, each with `timer:(timewait,...)`.',
+			'The loopback loop prints `loopback done` with no failure.',
+			'After 65 s, the request to `web` prints `200`.'
+		],
+		solution: [
+			'100 ports held 60 s each allow about 100 new connections per minute to `web:80`. With the default 28,232 ports, the same math gives about 470 per second.',
+			'curl closes first, so the client holds the TIME_WAIT sockets. The error is `EADDRNOTAVAIL`: Alpine\'s C library prints it as `Address not available`, glibc as `Cannot assign requested address`.',
+			'Loopback passes because the default `tcp_tw_reuse = 2` reuses a loopback 4-tuple after 1 second. The `sleep 0.02` spreads 100 requests over more than that second, so the oldest ports are free again when the range runs out. That is how a test against `127.0.0.1` hides the limit.',
+				'`--protocol HTTP/1.1` matters: Python\'s default HTTP/1.0 server closes first, so the TIME_WAIT sockets would sit on the server side and the client ports would never run out at all.'
+		]
+	},
 	recall: {
 		q: 'How many ephemeral ports does Linux have by default, how long does a closed connection hold one in TIME_WAIT, and what rate of new connections to one destination does that allow?',
 		a: '28,232 ports (32768 to 60999), held 60 s by the side that closed first. The client can open about 470 new connections per second to one destination IP and port.'

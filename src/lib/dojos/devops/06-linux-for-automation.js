@@ -100,6 +100,44 @@ WantedBy=multi-user.target`,
 			'Put in it: `[Service]`, `Restart=on-failure`, `RestartSec=5s`. The Caddy docs also add `RestartPreventExitStatus=1`, so exit code 1 does not trigger a restart.',
 			'The packaged unit stays untouched, so a package upgrade does not erase your change.',
 			'Why it died: `systemctl status caddy` shows the last exit status and the last log lines. `journalctl -u caddy -b` shows every log line of this boot.'
+		],
+		steps: [
+			{
+				title: 'Read why it stayed down',
+				questions: [
+					{ q: 'The Caddy unit has no `Restart=` line. What does systemd do when Caddy crashes?', options: ['Restarts it after 5 seconds', 'Leaves it stopped', 'Restarts it 5 times, then gives up', 'Reboots the machine'], answer: 1, why: '`Restart=` defaults to `no`, so a crashed service stays down until someone starts it.' },
+					{ q: 'How does systemd know Caddy failed?', options: ['From the exit code of the process', 'From a PID file', 'From a cron job', 'From the size of the journal'], answer: 0, why: 'systemd starts the process, keeps track of it and reads its exit code when it ends.' },
+					{ q: 'Which `Restart=` value restarts only when the service fails?', options: ['`always`', '`no`', '`on-failure`', '`notify`'], answer: 2, why: '`on-failure` restarts after a failure. `always` would also restart after a clean exit.' },
+					{ q: 'Why not edit the packaged `caddy.service` directly?', options: ['systemd ignores edits to unit files', 'Unit files are read-only on every system', 'Caddy checks a checksum of its unit', 'A package upgrade can erase your change'], answer: 3, why: 'The package owns that file. Your change belongs in a separate file layered on top.' }
+				]
+			},
+			{
+				title: 'Add a drop-in',
+				questions: [
+					{ q: 'Which command opens a drop-in for Caddy?', options: ['`sudo vim /usr/lib/systemd/system/caddy.service`', '`sudo systemctl edit caddy`', '`sudo systemctl reload caddy`', '`journalctl -u caddy -e`'], answer: 1, why: '`systemctl edit` opens a drop-in file (`override.conf` by default) and reloads the config when you save.' },
+					{ q: 'Which section header goes in the drop-in?', options: ['`[Unit]`', '`[Install]`', '`[Restart]`', '`[Service]`'], answer: 3, why: '`Restart=` and `RestartSec=` are service settings, so they sit under `[Service]`.' },
+					{ q: 'Which two lines make Caddy restart after 5 seconds?', options: ['`Restart=on-failure` and `RestartSec=5s`', '`Type=notify` and `TimeoutStopSec=5s`', '`Restart=always` and `TimeoutStopSec=5s`', '`ExecReload=` and `RestartSec=5s`'], answer: 0, why: '`Restart=on-failure` turns restarts on, and `RestartSec=5s` sets the wait.' },
+					{ q: 'Do you need to run `systemctl daemon-reload` after `systemctl edit`?', options: ['Yes, always', 'Only if you also reboot', 'No, systemd reloads the config by itself when you save', 'No, because drop-ins are read at boot only'], answer: 2, why: '`systemctl edit` reloads the unit configuration itself once you save the file.' }
+				]
+			},
+			{
+				title: 'Choose which exits restart',
+				questions: [
+					{ q: 'What extra line do the Caddy docs add to the restart override?', options: ['`Restart=always`', '`RestartPreventExitStatus=1`', '`StandardError=null`', '`User=root`'], answer: 1, why: 'The Caddy docs add `RestartPreventExitStatus=1`, so exit code 1 does not trigger a restart.' },
+					{ q: 'In general, what does exit code 0 mean?', options: ['Success', 'Failure', 'Command not found', 'Killed by a signal'], answer: 0, why: '0 means success. Anything from 1 to 255 means failure, and the program picks the number.' },
+					{ q: 'A process killed by signal 15 (SIGTERM) shows which status in bash?', options: ['15', '127', '0', '143'], answer: 3, why: 'Bash reports death by signal N as 128 + N, so 128 + 15 = 143.' },
+					{ q: 'A script asks `systemctl is-active caddy`. How does it read the answer?', options: ['From the text it prints only', 'From the journal', 'From the exit code: 0 if active, non-zero otherwise', 'From a file in `/run`'], answer: 2, why: 'Tools talk to scripts through exit codes, and `is-active` returns 0 only when the unit is active.' }
+				]
+			},
+			{
+				title: 'Find out why it died',
+				questions: [
+					{ q: 'Which command shows the last exit status and the last log lines?', options: ['`systemctl status caddy`', '`systemctl cat caddy`', '`systemctl is-enabled caddy`', '`caddy version`'], answer: 0, why: '`systemctl status` shows the state, the last exit status and the most recent journal lines.' },
+					{ q: 'Which command shows every Caddy log line since this boot?', options: ['`cat /var/log/caddy.log`', '`journalctl -u caddy -f`', '`journalctl -b`', '`journalctl -u caddy -b`'], answer: 3, why: '`-u caddy` filters by unit and `-b` limits it to this boot.' },
+					{ q: 'Where does a service\'s stderr go by default?', options: ['To `/dev/null`', 'To a file next to the binary', 'Where stdout goes: the journal', 'To the console of the machine'], answer: 2, why: 'By default stdout goes to the journal, and stderr goes where stdout goes.' },
+					{ q: 'Caddy starts with `--environ`. What should you watch for in those logs?', options: ['Nothing, it only prints the version', 'Any secret in the environment ends up in the journal', 'It hides stderr', 'It turns off the journal'], answer: 1, why: '`--environ` prints the whole environment at startup, and that output lands in the journal.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -132,6 +170,30 @@ WantedBy=multi-user.target`,
 			why: '`Restart=` defaults to `no`: the service is not restarted. You opt in with `on-failure` or `always`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Read exit codes and streams the way a pipeline does, then watch systemd restart a crashing service, without root.',
+		steps: [
+			'Read exit codes in bash: `ls /nope; echo $?`, then `nosuchcmd; echo $?`, then `sh -c \'kill -TERM $$\'; echo $?`.',
+			'Split the streams: `mkdir -p ~/streams-lab && cd ~/streams-lab && ls /nope /tmp > out.txt 2> err.txt; echo $?`, then `cat out.txt` and `cat err.txt`. Try the order trap: `ls /nope 2>&1 > out2.txt`.',
+			'See a tool exit 0 on what you call a failure: `python3 -m http.server 8000 >/dev/null 2>&1 &`, then `curl -s -o /dev/null localhost:8000/missing; echo $?` and `curl -s --fail -o /dev/null localhost:8000/missing; echo $?`. Stop the server with `kill %1`.',
+			'Linux with systemd only: start a service that crashes, with the default `Restart=no`: `systemd-run --user --unit=crashy sh -c \'echo started; echo boom >&2; exit 3\'`. Then `systemctl --user is-active crashy; echo $?` and `systemctl --user reset-failed crashy`.',
+			'Same service with a restart policy: `systemd-run --user --unit=crashy -p Restart=on-failure -p RestartSec=5s sh -c \'echo started; echo boom >&2; sleep 2; exit 3\'`. Wait 15 seconds, then run `systemctl --user show crashy -p NRestarts` and `journalctl --user -u crashy --no-pager | tail`.',
+			'Clean up: `systemctl --user stop crashy`. If `systemctl --user status crashy` still lists it as failed, run `systemctl --user reset-failed crashy`.'
+		],
+		done: [
+			'Step 1 prints a non-zero code for `ls`, `127` for the missing command and `143` for the signal.',
+			'`err.txt` holds the `/nope` error and `out.txt` the listing of `/tmp`. With `2>&1 > out2.txt` the error still shows in the terminal.',
+			'Plain `curl` prints `0` on the 404, and `curl --fail` prints `22`.',
+			'Without a restart policy, `systemctl --user is-active crashy` prints `failed`. With `Restart=on-failure`, `NRestarts` is above 0 and the journal shows `started`, `boom` and `Scheduled restart job`.'
+		],
+		solution: [
+			'`ls` exits 2 on GNU and 1 on macOS: the program chooses the number. Bash itself returns 127 for "not found" and 128 + 15 = 143 for SIGTERM.',
+			'Redirections apply left to right, so write `> out.txt 2>&1` to send both streams to the file.',
+			'`boom` went to stderr and still reached the journal, because stderr goes where stdout goes.',
+			'On a real server the same two settings go in a drop-in: `sudo systemctl edit caddy`, then `[Service]`, `Restart=on-failure`, `RestartSec=5s`.'
+		]
+	},
 	recall: {
 		q: 'Which three things does a pipeline read to decide whether a command worked, and which exit code means success?',
 		a: 'The exit code, stdout and stderr. Exit code 0 means success, and 1 to 255 means failure.'

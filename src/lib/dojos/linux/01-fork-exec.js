@@ -115,6 +115,44 @@ export default {
 			'`4040496 execve("/usr/bin/ls", ["ls", "/nonexistent-dir"], ...) = 0` is the child loading `ls`. The PID did not change between the fork and the exec.',
 			'`4040496 exit_group(2)`: `ls` fails on the missing directory with status 2. The parent\'s `wait4(-1, ...)` resumes with `WEXITSTATUS(s) == 2` and returns 4040496, then `SIGCHLD` arrives.',
 			'`echo done` produces no `clone` line: `echo` is a builtin, so bash runs it in PID 4040495 itself. With only `ls` in the `-c` string, bash would exec it without forking.'
+		],
+		steps: [
+			{
+				title: 'Read the trace',
+				questions: [
+					{ q: 'What does `-f` add to the `strace` command?', options: ['It shows only failed calls', 'It follows child processes, so their calls show up too', 'It prints the full path of each file', 'It forces the trace to start before bash loads'], answer: 1, why: 'Without `-f`, strace traces only the first process. The fork and the `ls` happen in a child, so you need it to see them.' },
+					{ q: 'Once the child exists, lines carry a tag such as `[pid 4040496]`. What is that number?', options: ['The line number of the command inside the `-c` string', 'The exit status of the call', 'The PID of the process that made the call', 'The time the call took'], answer: 2, why: 'With `-f`, strace tags each line with the PID that made the call, so you can tell parent and child apart.' },
+					{ q: 'The first line, `execve("/usr/bin/bash", ...)`, comes from PID 4040495. What is that process?', options: ['The shell that will run the `-c` string', 'The `ls` process', 'The `strace` process itself', 'A zombie left by an earlier command'], answer: 0, why: 'strace starts bash with `execve()`. Every line with that PID is the shell.' },
+					{ q: 'Why does `-e trace=` list only `clone,execve,wait4,exit_group`?', options: ['strace refuses to trace other calls without root privileges', 'Bash makes no other system calls', 'Those are the only calls that change the PID', 'They cover a process\'s life: fork, exec, wait, exit'], answer: 3, why: 'The filter hides the noise (`read`, `mmap`, ...) and keeps the calls that create, load, end and reap a process.' }
+				]
+			},
+			{
+				title: 'Find the fork',
+				questions: [
+					{ q: 'Bash calls `fork()`, but the trace has no `fork` line. Which line is the fork?', options: ['The second `execve` line, the one that loads `ls`', 'The `clone(...) = 4040496` line', 'The `wait4` line, where the shell blocks', 'The `exit_group` line at the end of the trace'], answer: 1, why: 'Since glibc 2.3.3, the `fork()` wrapper calls `clone` with flags that give the same effect.' },
+					{ q: 'The `clone` line ends with `= 4040496`. What does that number mean?', options: ['The new child\'s PID, returned to the parent', 'The PID of the parent, so the child can find it', 'The number of memory pages copied to the child', 'The exit status the child will return later'], answer: 0, why: '`fork()` returns the child\'s PID in the parent. The child sees 0.' },
+					{ q: 'Which PID made the `clone` call?', options: ['4040496, the child', 'The kernel, PID 0', '4040495, the shell', 'PID 1, init'], answer: 2, why: 'The shell copies itself. Only the parent makes the call, and both processes return from it.' },
+					{ q: 'Right after the fork, what is the child running?', options: ['`ls`, already loaded', 'Nothing until the kernel picks a program', 'A fresh empty process', 'A copy of bash, at the same point as the parent'], answer: 3, why: '`fork()` copies the caller. The child runs bash code until it calls `execve()`.' }
+				]
+			},
+			{
+				title: 'Follow the child',
+				questions: [
+					{ q: 'Which PID runs `ls`?', options: ['4040495', '4040496', 'A third PID made by `execve`', 'It depends on the scheduler'], answer: 1, why: 'The line `4040496 execve("/usr/bin/ls", ...) = 0` shows the child loading `ls`.' },
+					{ q: 'Does the PID change between the `clone` and the `execve` of `ls`?', options: ['Yes, `execve` always gives the program a new PID', 'Yes, but only for programs that live in `/usr/bin`', 'No: the program changes inside the same process', 'No, because strace hides the new PID'], answer: 2, why: 'execve(2): "there is no new process". The program changes, the PID stays.' },
+					{ q: '`echo done` produces no `clone` line. Why?', options: ['`echo` is a builtin: bash runs it itself', 'strace stops printing calls after the first error', '`echo` reuses the child process that ran `ls`', 'The `;` makes both commands share one fork'], answer: 0, why: 'Builtins run inside the shell, with no fork. That is also why `cd` must be a builtin.' },
+					{ q: 'With only `ls /nonexistent-dir` in the `-c` string, what changes?', options: ['Bash forks twice, once for each part of the string', 'Bash refuses to run a `-c` string with one command', 'The trace shows two `clone` lines', 'Bash execs `ls` itself, with no `clone`'], answer: 3, why: 'For the last command of a `-c` string, bash skips the fork and execs directly, as ash does with `EV_EXIT`.' }
+				]
+			},
+			{
+				title: 'Read the status',
+				questions: [
+					{ q: 'The child ends with `exit_group(2)`. Where does 2 come from?', options: ['`ls` fails on the missing directory', 'The child is the second process', 'Bash adds 1 to every error', 'strace counts two syscalls'], answer: 0, why: '`ls` exits with status 2 when it cannot access a path you gave it.' },
+					{ q: 'Which call lets the shell read that status?', options: ['`execve`, which hands back the status of the old program', '`clone`', '`wait4(-1, ...)` resuming with `WEXITSTATUS(s) == 2`', '`exit_group` in PID 4040495'], answer: 2, why: 'The parent blocks in `wait4()` until the child ends, then reads its status and frees the zombie.' },
+					{ q: 'Between the child\'s exit and the parent\'s `wait4` return, what is the child?', options: ['Gone without a trace', 'A zombie, kept until the parent reads its status', 'An orphan, adopted by PID 1 until someone reaps it', 'Still running `ls`'], answer: 1, why: 'The kernel keeps a small record until the parent reads the status. Reading it removes the zombie.' },
+					{ q: 'What does bash do with the status it read?', options: ['Prints it to stderr', 'Sends it back to `ls`', 'Ignores it unless `set -e` is on', 'Stores it in `$?`'], answer: 3, why: 'The status from `wait4()` becomes `$?` for the next command.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -152,6 +190,29 @@ export default {
 			why: 'execve(2): "there is no new process". The program is replaced inside the same process, so the PID stays 812. Caught signals are reset to the default action, and file descriptors stay open unless marked close-on-exec. On success the call does not return.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See a script lose its `cd` and `export` in a child process, then watch the fork and the exec with strace.',
+		steps: [
+			'Make a scratch folder: `mkdir -p ~/fork-lab && cd ~/fork-lab`.',
+			'Write the script: `printf \'#!/bin/bash\\ncd /tmp\\nexport DB_URL=postgres://db/app\\necho "in script: $PWD $DB_URL pid=$$ ppid=$PPID"\\n\' > setenv.sh && chmod +x setenv.sh`.',
+			'Print your shell\'s PID with `echo $$`, then run `./setenv.sh`, `pwd` and `echo "[$DB_URL]"`.',
+			'Now run it in the shell itself: `. ./setenv.sh`, then `pwd` and `echo "[$DB_URL]"` again. Run `cd ~/fork-lab` to come back.',
+			'On Linux, trace it: `strace -f -e trace=clone,execve,wait4,exit_group bash -c \'ls /nonexistent-dir; echo done\'`. Then run the same with only `ls /nonexistent-dir` in the string.'
+		],
+		done: [
+			'`./setenv.sh` prints a `ppid` equal to your `echo $$`, and `pwd` afterwards still shows `~/fork-lab`.',
+			'After `. ./setenv.sh`, the script prints your shell\'s own PID and `echo "[$DB_URL]"` prints `[postgres://db/app]`.',
+			'The first trace has one `clone` line, an `execve("/usr/bin/ls", ...)` in the child PID, `exit_group(2)` and a `wait4` that resumes with `WEXITSTATUS(s) == 2`.',
+			'The trace with only `ls` has no `clone` line.'
+		],
+		solution: [
+			'`./setenv.sh` runs in a child made by `fork()` and loaded by `execve()`. Its `cd` and `export` change that child only, and are gone when it exits.',
+			'`.` runs the lines in the shell itself, so `$$` is your shell\'s PID and the changes stay.',
+			'In the trace, `clone(...) = <pid>` is the fork. The same `<pid>` then calls `execve` on `ls`: the program changes, the PID does not. `echo done` is a builtin and forks nothing.',
+			'With `ls` as the last command of the `-c` string, bash execs it in its own process, so no `clone` appears. On macOS there is no strace: the first four steps still work.'
+		]
+	},
 	recall: {
 		q: 'When bash runs `ls`, which two system calls start it, and what does the first one return in each process?',
 		a: '`fork()` copies the shell and returns 0 in the child and the child\'s PID in the parent. The child then calls `execve("/usr/bin/ls", ...)`, which keeps the PID and does not return on success. The parent waits with `wait4()`.'

@@ -136,6 +136,44 @@ export default {
 			'SIGTERM is not caught, so its disposition is `SIG_DFL`. PID 1 of the namespace is `SIGNAL_UNKILLABLE`, and the kernel drops the SIGTERM. `docker stop` waits 10 seconds and sends SIGKILL.',
 			'With `--init`, PID 1 is `docker-init`, which is tini. It collects SIGTERM with `sigtimedwait()` and forwards it to python, which is no longer PID 1, so the default action ends it at once.',
 			'The container then exits with code 143, 128 plus 15, the value tini computes in `reap_zombies()`.'
+		],
+		steps: [
+			{
+				title: 'Decode the mask',
+				questions: [
+					{ q: '`SigCgt: 0000000000000002`. Which bit is set?', options: ['Bit 2', 'Bit 0', 'Bit 1', 'Bit 15'], answer: 2, why: '0x2 is 2 to the power 1, so only bit 1 is set.' },
+					{ q: 'Bit 1 stands for which signal?', options: ['Signal 2, SIGINT', 'Signal 1, SIGHUP', 'Signal 15, SIGTERM', 'Signal 9, SIGKILL'], answer: 0, why: 'Bit n-1 is signal n, so bit 1 is signal 2: SIGINT.' },
+					{ q: 'Why does a plain `python3` catch that signal?', options: ['To flush its buffers before a `docker stop`', 'To raise `KeyboardInterrupt`', 'Because PID 1 must catch it', 'To forward it to its children'], answer: 1, why: 'Python catches SIGINT to raise `KeyboardInterrupt`, and catches nothing else by default.' },
+					{ q: 'Is SIGTERM in the mask?', options: ['Yes, every process catches it', 'Yes, it is bit 1', 'Only when the container runs as root', 'No, bit 14 is not set'], answer: 3, why: 'SIGTERM is 15, so it would be bit 14, 0x4000. That bit is 0.' }
+				]
+			},
+			{
+				title: 'Check what PID 1 does with SIGTERM',
+				questions: [
+					{ q: 'SIGTERM is not caught. What is its disposition?', options: ['`SIG_DFL`, the default action', '`SIG_IGN`, set by Docker', 'Blocked until the program reads stdin', 'Caught by the kernel for the program'], answer: 0, why: 'No handler and no ignore means the default disposition, `SIG_DFL`.' },
+					{ q: 'What flag does the kernel set on PID 1 of a new PID namespace?', options: ['`SIGCHLD`', '`SIG_IGN`', '`SIGNAL_UNKILLABLE`', '`WNOHANG`'], answer: 2, why: '`kernel/fork.c` sets `SIGNAL_UNKILLABLE` when the new process is the namespace\'s child reaper.' },
+					{ q: 'A SIGTERM with `SIG_DFL` reaches an `SIGNAL_UNKILLABLE` PID 1. What happens?', options: ['It terminates the process', 'It waits in a queue until a handler appears', 'It is turned into SIGKILL', 'The kernel drops it before it is queued'], answer: 3, why: '`sig_task_ignored()` returns true in that case, so the signal is thrown away.' },
+					{ q: 'Does running `kill -TERM 1` as root inside the container change that?', options: ['Yes, root can send any signal to any process', 'No, the rule applies even to privileged processes', 'Yes, if it is sent through `docker exec` from the host', 'Only when SELinux is off'], answer: 1, why: 'pid_namespaces(7) says the rule "applies even to privileged processes".' }
+				]
+			},
+			{
+				title: 'Predict docker stop',
+				questions: [
+					{ q: '`docker stop` sends SIGTERM to PID 1. What does python do?', options: ['Nothing: the signal never reaches it', 'Raises `KeyboardInterrupt` and exits cleanly', 'Exits with 143', 'Forwards it to its children'], answer: 0, why: 'The kernel drops it, so python never sees it and keeps running.' },
+					{ q: 'How long does `docker stop` take?', options: ['Under a second', 'Until python finishes the work it was doing', 'About 10 seconds, the default grace period', 'Forever, until you press Ctrl-C in the terminal'], answer: 2, why: 'Docker waits its 10 seconds for an exit that never comes.' },
+					{ q: 'What ends python at second 10?', options: ['A second SIGTERM', 'SIGKILL from the host, which is forced through', 'SIGINT, since python catches that one and exits', 'The kernel\'s OOM killer'], answer: 1, why: 'SIGKILL from an ancestor namespace is "forcibly delivered", even to init.' },
+					{ q: 'What happens to the other processes in the container when PID 1 dies?', options: ['They are re-parented to the host\'s PID 1', 'They keep running until `docker rm`', 'They get SIGHUP', 'The kernel kills them all with SIGKILL'], answer: 3, why: 'pid_namespaces(7): when init terminates, the kernel kills every process in the namespace with SIGKILL.' }
+				]
+			},
+			{
+				title: 'Add --init',
+				questions: [
+					{ q: 'With `docker run --init`, which process is PID 1?', options: ['python3', '`docker-init`, which is tini', 'The host\'s systemd', 'A shell that Docker starts to run your command'], answer: 1, why: '`--init` starts tini as PID 1, and tini runs your program as its child.' },
+					{ q: 'How does SIGTERM get past the drop rule to tini?', options: ['tini installs a SIGTERM handler', 'Docker sends it as SIGKILL, which no PID 1 can drop', 'tini blocks it and waits with `sigtimedwait()`', 'tini runs as root on the host'], answer: 2, why: '`sig_ignored()` never drops a blocked signal, so it reaches tini, which waits for it with `sigtimedwait()`.' },
+					{ q: 'tini forwards SIGTERM to python. Why does python now stop at once?', options: ['Python is not PID 1 now, so the default applies', 'tini sends SIGKILL instead', 'Python now catches SIGTERM', 'Docker shortens the grace period when `--init` is set'], answer: 0, why: 'Only a namespace\'s init gets the drop rule. As a child, python takes the default action: terminate.' },
+					{ q: 'What exit code does the container report?', options: ['137', '0', '15', '143'], answer: 3, why: 'tini exits with 128 plus the signal number: 128 + 15 = 143.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,28 @@ export default {
 			why: 'A zombie has already exited, so a signal does nothing to it. wait(2): it stays "as long as a zombie is not removed from the system via a wait". Only its parent, here PID 1, can do that wait, and tini calls `waitpid(-1, ..., WNOHANG)` in a loop.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a container\'s PID 1 drop SIGTERM, then fix it with `--init`.',
+		steps: [
+			'Start Python as PID 1: `docker run -d --name pid1-lab python:3.12-alpine python3 -c \'import time; time.sleep(600)\'`.',
+			'Read its name and mask: `docker exec pid1-lab grep -E "Name|SigCgt" /proc/1/status`.',
+			'Stop it and time it: `time docker stop pid1-lab`, then `docker inspect -f \'{{.State.ExitCode}}\' pid1-lab`.',
+			'Remove it and start it again with tini: `docker rm pid1-lab && docker run -d --init --name pid1-lab python:3.12-alpine python3 -c \'import time; time.sleep(600)\'`. Check who is PID 1 with `docker exec pid1-lab ps -o pid,comm`.',
+			'Stop and inspect again: `time docker stop pid1-lab`, `docker inspect -f \'{{.State.ExitCode}}\' pid1-lab`, then clean up with `docker rm pid1-lab`.'
+		],
+		done: [
+			'The first container shows `Name: python3` and `SigCgt: 0000000000000002`.',
+			'The first `docker stop` takes about 10 seconds and the exit code is 137.',
+			'With `--init`, PID 1 is `docker-init` and python has another PID.',
+			'The second `docker stop` returns in about a second and the exit code is 143.'
+		],
+		solution: [
+			'Python catches only SIGINT (bit 1). SIGTERM keeps `SIG_DFL`, and the kernel drops it for an `SIGNAL_UNKILLABLE` PID 1. Docker sends SIGKILL at second 10: 128 + 9 = 137.',
+			'With `--init`, tini is PID 1. It collects SIGTERM with `sigtimedwait()` and forwards it to python, which is a normal child now and terminates. tini exits with 128 + 15 = 143.',
+			'Without `--init`, the other fix is a SIGTERM handler in the program: a caught signal is not dropped, even at PID 1.'
+		]
+	},
 	recall: {
 		q: 'Why does a container\'s PID 1 ignore SIGTERM when it has no handler, and how does tini get the signal through?',
 		a: 'The kernel marks a namespace\'s init `SIGNAL_UNKILLABLE` and drops signals whose disposition is `SIG_DFL`. tini blocks the signals, collects them with `sigtimedwait()` and forwards them with `kill()` to your program, which is not PID 1 and gets the default action.'

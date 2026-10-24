@@ -133,6 +133,44 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			'`docker stop` envoie SIGTERM, donc le handler du programme tourne. Si ce handler fait sortir le programme en moins de 10 secondes, Docker n’envoie jamais SIGKILL.',
 			'Si le handler se contente d’écrire un log et de rendre la main, le programme continue. Docker envoie SIGKILL à la seconde 10, et le handler n’y peut rien.',
 			'Pour comparer, capturé pendant cette session : `sleep 300` sans handler, après `kill -TERM`, sort avec le code 143. Une boucle bash avec `trap ... TERM` continue après `kill -TERM` et sort avec 137 après `kill -KILL`.'
+		],
+		steps: [
+			{
+				title: 'Décode le masque',
+				questions: [
+					{ q: 'Que liste la ligne `SigCgt` de `/proc/<pid>/status` ?', options: ['Les signaux que le processus a envoyés', 'Les signaux que le processus ignore', 'Les signaux en file, qui attendent d’être remis', 'Les signaux qu’il intercepte avec un handler'], answer: 3, why: '`SigCgt` est le masque des signaux interceptés : un bit par signal qui a un handler.' },
+					{ q: '`0x4000` est quelle puissance de 2 ?', options: ['2 puissance 14', '2 puissance 15', '2 puissance 12', '2 puissance 4'], answer: 0, why: '0x4000 vaut 16384, soit 2 puissance 14. Un seul bit est à 1.' },
+					{ q: 'Seul le bit 14 est à 1. Si le bit n-1 représente le signal n, quel est le numéro du signal ?', options: ['14', '15', '13', '16'], answer: 1, why: 'Le bit 14 est n-1 avec n = 15. On compte à partir du bit 0 pour le signal 1.' },
+					{ q: '`sleep 60` affiche `SigCgt: 0000000000000000`. Qu’est-ce que ça t’apprend ?', options: ['`sleep` bloque tous les signaux jusqu’à son réveil', '`sleep` ne peut pas recevoir de signaux', '`sleep` n’a aucun handler : les défauts s’appliquent', 'Le noyau cache le masque des programmes courts'], answer: 2, why: 'Que des zéros, c’est aucun handler. SIGTERM applique alors son action par défaut : terminer.' }
+				]
+			},
+			{
+				title: 'Nomme le signal',
+				questions: [
+					{ q: 'Quel signal porte le numéro 15 ?', options: ['SIGKILL', 'SIGINT', 'SIGQUIT', 'SIGTERM'], answer: 3, why: 'signal(7) : SIGTERM vaut 15. SIGKILL vaut 9 sur x86.' },
+					{ q: 'Quelle ligne Python donnerait exactement ce masque ?', options: ['`signal.signal(signal.SIGTERM, handler)`', '`signal.signal(signal.SIGKILL, handler)`', '`os.kill(os.getpid(), 15)`', '`signal.pause()`'], answer: 0, why: 'Enregistrer un handler pour SIGTERM met le bit 14 à 1. Le chapitre a capturé exactement `0000000000004000` dans ce cas.' },
+					{ q: 'Pourrais-tu ajouter un bit pour SIGKILL dans ce masque ?', options: ['Oui, avec `sigaction()` quand le processus tourne en root', 'Non : SIGKILL ne peut être ni intercepté, ni bloqué, ni ignoré', 'Oui, mais seulement dans un conteneur', 'Seulement si SIGTERM est intercepté avant'], answer: 1, why: 'sigaction(2) accepte « any valid signal except SIGKILL and SIGSTOP ».' },
+					{ q: 'Que ne te dit pas le masque sur le handler de SIGTERM ?', options: ['Qu’un handler existe', 'Pour quel signal il est', 'Si le handler fait sortir le programme', 'Que l’action par défaut est remplacée'], answer: 2, why: 'Le bit dit seulement qu’un handler est enregistré. Ce qu’il fait, sortir ou juste écrire un log, se lit dans le code.' }
+				]
+			},
+			{
+				title: 'Suis le docker stop',
+				questions: [
+					{ q: 'Qu’envoie d’abord `docker stop` quand l’image ne fixe aucun `STOPSIGNAL` ?', options: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP'], answer: 0, why: 'Docker envoie le `StopSignal` de l’image, ou SIGTERM s’il n’y en a pas.' },
+					{ q: 'Le handler nettoie et sort en moins de 10 secondes. Que se passe-t-il ensuite ?', options: ['Docker envoie quand même SIGKILL à la seconde 10', 'Docker redémarre le conteneur', 'Le noyau relance le handler une deuxième fois', 'Docker n’envoie jamais SIGKILL'], answer: 3, why: 'SIGKILL n’arrive que si le processus tourne encore à la fin du délai de grâce.' },
+					{ q: 'Le handler se contente d’écrire un log et rend la main. Que se passe-t-il ?', options: ['Le programme sort de lui-même une fois le handler revenu', 'Il continue jusqu’au SIGKILL de la seconde 10', 'Docker attend le programme indéfiniment', 'Le noyau transforme tout de suite SIGTERM en SIGKILL'], answer: 1, why: 'Après le retour d’un handler, le programme reprend. Docker envoie SIGKILL quand les 10 secondes sont écoulées.' },
+					{ q: 'Comment laisser plus de 10 secondes au programme ?', options: ['Intercepter SIGKILL dans le handler', 'Fixer `STOPSIGNAL SIGINT`', 'Passer `--stop-timeout` ou `docker stop -t`', 'Relancer le conteneur avec `--rm`'], answer: 2, why: 'Le délai de grâce vaut 10 secondes par défaut, et ces deux options le changent.' }
+				]
+			},
+			{
+				title: 'Vérifie les codes de sortie',
+				questions: [
+					{ q: '`sleep 300` sans handler reçoit `kill -TERM`. Quel code le shell voit-il ?', options: ['143', '137', '15', '0'], answer: 0, why: 'Capturé dans le chapitre : 143, soit 128 + 15 pour SIGTERM.' },
+					{ q: 'Une boucle bash avec `trap ... TERM` reçoit `kill -TERM`. Que se passe-t-il ?', options: ['Elle sort avec 143', 'Elle sort avec 0', 'Elle sort avec 137', 'Elle continue de tourner'], answer: 3, why: 'Le trap est un handler : l’action par défaut ne s’applique plus.' },
+					{ q: 'Cette boucle reçoit ensuite `kill -KILL`. Quel code ?', options: ['143', '137', '9', '1'], answer: 1, why: 'SIGKILL la termine quoi que dise le trap, et le code vaut 137, soit 128 + 9.' },
+					{ q: 'Après un arrêt qui a pris 10 secondes, le processus principal a fini avec le code 137. Qu’est-ce que ça indique ?', options: ['Le handler est sorti en erreur', 'Le healthcheck a échoué', 'SIGKILL l’a terminé après le délai de grâce', 'SIGTERM a été remis deux fois'], answer: 2, why: '137 veut dire SIGKILL, et 10 secondes est le délai de grâce par défaut.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -170,6 +208,29 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			why: 'SIGTERM, c’est le Smart Shutdown : le handler lève `pending_pm_shutdown_request`, et le serveur attend la fin de chaque session. Annuler les transactions correspond au Fast Shutdown (SIGINT). Sortir sans l’arrêt normal correspond à l’Immediate Shutdown (SIGQUIT).'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Lire le masque des signaux interceptés d’un processus, puis voir SIGTERM géré et SIGKILL non.',
+		steps: [
+			'Crée un dossier de travail : `mkdir -p ~/signal-lab && cd ~/signal-lab`.',
+			'Écris un programme qui intercepte SIGTERM sans sortir : `printf \'import signal, time\\nsignal.signal(signal.SIGTERM, lambda s, f: print("got SIGTERM, ignoring", flush=True))\\nwhile True: time.sleep(1)\\n\' > app.py`.',
+			'Lance-le en arrière-plan et lis son masque (Linux) : `python3 app.py & p=$!; sleep 1; grep SigCgt /proc/$p/status`.',
+			'Envoie SIGTERM, vérifie qu’il tourne encore, puis envoie SIGKILL : `kill -TERM $p; sleep 1; kill -0 $p && echo still running; kill -KILL $p; wait $p; echo status=$?`.',
+			'Compare avec un programme sans handler : `sleep 300 & s=$!; grep SigCgt /proc/$s/status; kill -TERM $s; wait $s; echo status=$?`.'
+		],
+		done: [
+			'Le masque de `app.py` a le bit 14 à 1 : il finit par `4000`, ou par `4002` quand Python intercepte aussi SIGINT pour Ctrl-C.',
+			'Après `kill -TERM`, le programme affiche `got SIGTERM, ignoring` et `still running` apparaît.',
+			'Après `kill -KILL`, `status=137` apparaît.',
+			'`sleep 300` montre un masque tout à zéro et finit avec `status=143`.'
+		],
+		solution: [
+			'0x4000 est le bit 14, le signal 15, SIGTERM. Le bit 1 (0x2) est le signal 2, SIGINT.',
+			'Le handler remplace l’action par défaut : SIGTERM n’affiche qu’une ligne. C’est ce qui fait attendre `docker stop` ses 10 secondes complètes.',
+			'SIGKILL ne peut pas être intercepté, le noyau termine donc le processus : 128 + 9 = 137. Sans handler, SIGTERM termine `sleep` : 128 + 15 = 143.',
+			'Sous macOS il n’y a pas de `/proc` : saute les `grep SigCgt`, les étapes `kill` marchent pareil.'
+		]
+	},
 	recall: {
 		q: 'Qu’envoie `docker stop` au processus principal, et quand arrive le deuxième signal ?',
 		a: 'Le `StopSignal` de l’image, SIGTERM par défaut, puis SIGKILL si le processus tourne encore après 10 secondes. SIGKILL ne peut pas être intercepté : aucun code de nettoyage ne tourne.'

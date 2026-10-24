@@ -100,6 +100,44 @@ export default {
 			'Make `currencyservice` own the arithmetic, since it already converts amounts. Dynamic coupling: one more network call per price, and one more service that must be up.',
 			'Not an option: a third copy. Then three files must change for each money rule.',
 			'The architect\'s question: does money arithmetic change for the same reason as currency conversion? If yes, the second option puts it where it belongs.'
+		],
+		steps: [
+			{
+				title: 'Find the copies',
+				questions: [
+					{ q: 'Where does the money arithmetic live today?', options: ['Only in `currencyservice`', 'In `src/checkoutservice/money` and `src/frontend/money`', 'In `protos/demo.proto`', 'In `cartservice`, next to the cart'], answer: 1, why: 'The package is copied into two services. That is where the diagram shows the rule being broken.' },
+					{ q: 'How do the two `money.go` files differ?', options: ['In their rounding rules', 'One is Go, the other Node.js', 'Only in their import path', 'One has tests, the other has none'], answer: 2, why: 'They are the same code twice. Nothing in the layout keeps them that way.' },
+					{ q: 'The rounding rule changes. What must happen with the code as it is?', options: ['It must change twice, once per copy', 'The compiler updates both copies', '`protoc` regenerates both copies', 'Only checkout needs the change'], answer: 0, why: 'Two copies of one rule means two edits, and two chances to make them differ.' },
+					{ q: 'Which rule of thumb does the copy break?', options: ['Every service must use one language', 'Each service makes at most six calls', 'Every contract lives in a `.proto` file', 'Code that changes for the same reason goes in one module'], answer: 3, why: 'Money arithmetic changes for one reason but lives in two modules.' }
+				]
+			},
+			{
+				title: 'Try a shared library',
+				questions: [
+					{ q: 'First way: a shared Go module for `money`, imported by both. Which coupling does it add?', options: ['Dynamic coupling, at run time', 'Static coupling, visible in the build', 'No coupling at all', 'Coupling through a shared database'], answer: 1, why: 'An import is static coupling. It shows in the code and the build.' },
+					{ q: 'What does the shared module gain?', options: ['No service needs a new release', 'Each service may keep its own rounding', 'The compiler checks every use', 'Checkout stops calling the payment service'], answer: 2, why: 'Both services build against one module, so a wrong call fails the build.' },
+					{ q: 'What does it cost?', options: ['Both services must upgrade to get a fix', 'One more network call per price', 'One more service that must be up', 'A third copy of the code'], answer: 0, why: 'One source, but each importer picks up the fix only when it moves to the new version.' },
+					{ q: 'How do you find this kind of coupling?', options: ['Only from traces at run time', 'A compiler or a grep finds it', 'Only from the deployment config', 'You cannot see it at all'], answer: 1, why: 'Static coupling lives in imports and shared libraries, so tools can see it.' }
+				]
+			},
+			{
+				title: 'Try a service',
+				questions: [
+					{ q: 'Second way: one service owns the arithmetic. Which one fits best?', options: ['`emailservice`', '`cartservice`', '`currencyservice`, since it already converts amounts', '`shippingservice`'], answer: 2, why: 'It already works on amounts, so the arithmetic sits next to a related job.' },
+					{ q: 'Which coupling does that add?', options: ['Static coupling through imports', 'None, since no code is imported', 'A shared Go module dependency', 'Dynamic coupling, a gRPC call at run time'], answer: 3, why: 'No import links the two sides. The call happens at run time, so grep cannot see it.' },
+					{ q: 'What does it cost?', options: ['Both services must upgrade to get a fix', 'One more network call per price, and one more service that must be up', 'The compiler stops checking the build', 'The `.proto` file goes away'], answer: 1, why: 'Dynamic coupling trades build checks for run time ones: the service must answer each time.' },
+					{ q: 'Where would the new call\'s contract live?', options: ['In `protos/demo.proto`, like every other call', 'In the `money` package', 'In an environment variable', 'In the frontend templates'], answer: 0, why: 'Every service builds on the same `demo.proto`. A new call is a new entry there.' }
+				]
+			},
+			{
+				title: 'Decide',
+				questions: [
+					{ q: 'Someone suggests a third copy of `money`. Why say no?', options: ['It adds a network call per price', 'It breaks the proto field numbers', 'Then three files must change for each money rule', 'Go modules cannot be copied'], answer: 2, why: 'A copy makes the problem worse: one more place for the rule to drift.' },
+					{ q: 'Which question picks between the two ways?', options: ['Does money arithmetic change for the same reason as currency conversion?', 'Which way needs fewer lines of code?', 'Which language runs faster?', 'Which team owns the frontend?'], answer: 0, why: 'Code that changes for the same reason belongs in one module.' },
+					{ q: 'If the answer is yes, which way fits?', options: ['The shared Go module', 'Moving it into `currencyservice`', 'Keeping both copies', 'A third copy in checkout'], answer: 1, why: 'Then the arithmetic belongs with conversion, and the second option puts it there.' },
+					{ q: 'You move it into `currencyservice`, and that service goes down. What happens to an order?', options: ['It goes through, and checkout logs a warning', 'Checkout falls back to its local copy', 'The frontend rounds the amount itself', 'It fails, as a currency failure already does today'], answer: 3, why: 'Checkout returns an error when the currency call fails. Currency was already a required dependency.' }
+				]
+			}
 		]
 	},
 	quiz: [

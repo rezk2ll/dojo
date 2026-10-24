@@ -100,6 +100,44 @@ export default {
 			'Confier les calculs à `currencyservice`, puisqu’il convertit déjà les montants. Couplage dynamique : un appel réseau de plus par prix, et un service de plus qui doit être disponible.',
 			'Pas une option : une troisième copie. Il faudrait alors modifier trois fichiers pour chaque règle monétaire.',
 			'La question de l’architecte : les calculs monétaires changent-ils pour la même raison que la conversion de devises ? Si oui, la deuxième option les met là où ils ont leur place.'
+		],
+		steps: [
+			{
+				title: 'Trouve les copies',
+				questions: [
+					{ q: 'Où vivent les calculs monétaires aujourd’hui ?', options: ['Seulement dans `currencyservice`', 'Dans `src/checkoutservice/money` et `src/frontend/money`', 'Dans `protos/demo.proto`', 'Dans `cartservice`, à côté du panier'], answer: 1, why: 'Le package est copié dans deux services. C’est là que le diagramme montre la règle enfreinte.' },
+					{ q: 'En quoi les deux fichiers `money.go` diffèrent-ils ?', options: ['Par leurs règles d’arrondi', 'L’un est en Go, l’autre en Node.js', 'Seulement par leur chemin d’import', 'L’un a des tests, l’autre non'], answer: 2, why: 'C’est le même code en double. Rien dans l’organisation ne les oblige à le rester.' },
+					{ q: 'La règle d’arrondi change. Que faut-il faire avec le code tel qu’il est ?', options: ['Le changer deux fois, une par copie', 'Le compilateur met à jour les deux copies', '`protoc` régénère les deux copies', 'Seul le checkout a besoin du changement'], answer: 0, why: 'Deux copies d’une même règle, c’est deux modifications, et deux occasions de les faire diverger.' },
+					{ q: 'Quelle règle empirique la copie enfreint-elle ?', options: ['Chaque service doit utiliser un seul langage', 'Chaque service fait au plus six appels', 'Chaque contrat vit dans un fichier `.proto`', 'Le code qui change pour la même raison va dans un seul module'], answer: 3, why: 'Les calculs monétaires changent pour une seule raison mais vivent dans deux modules.' }
+				]
+			},
+			{
+				title: 'Essaie une bibliothèque partagée',
+				questions: [
+					{ q: 'Première façon : un module Go partagé pour `money`, importé par les deux. Quel couplage ajoute-t-il ?', options: ['Un couplage dynamique, à l’exécution', 'Un couplage statique, visible dans le build', 'Aucun couplage', 'Un couplage par une base de données partagée'], answer: 1, why: 'Un import, c’est du couplage statique. Il se voit dans le code et dans le build.' },
+					{ q: 'Qu’apporte le module partagé ?', options: ['Aucun service n’a besoin d’une nouvelle livraison', 'Chaque service peut garder son propre arrondi', 'Le compilateur vérifie chaque usage', 'Le checkout arrête d’appeler le service de paiement'], answer: 2, why: 'Les deux services se construisent sur un seul module, donc un mauvais appel fait échouer le build.' },
+					{ q: 'Qu’est-ce que ça coûte ?', options: ['Les deux services doivent monter de version pour avoir une correction', 'Un appel réseau de plus par prix', 'Un service de plus qui doit être disponible', 'Une troisième copie du code'], answer: 0, why: 'Une seule source, mais chaque importateur n’a la correction que quand il passe à la nouvelle version.' },
+					{ q: 'Comment trouves-tu ce genre de couplage ?', options: ['Seulement avec des traces à l’exécution', 'Un compilateur ou un grep le trouve', 'Seulement dans la config de déploiement', 'Tu ne peux pas le voir du tout'], answer: 1, why: 'Le couplage statique vit dans les imports et les bibliothèques partagées, donc les outils le voient.' }
+				]
+			},
+			{
+				title: 'Essaie un service',
+				questions: [
+					{ q: 'Deuxième façon : un service possède les calculs. Lequel convient le mieux ?', options: ['`emailservice`', '`cartservice`', '`currencyservice`, puisqu’il convertit déjà les montants', '`shippingservice`'], answer: 2, why: 'Il travaille déjà sur les montants, donc les calculs se retrouvent à côté d’un travail proche.' },
+					{ q: 'Quel couplage ça ajoute ?', options: ['Un couplage statique par les imports', 'Aucun, puisqu’aucun code n’est importé', 'Une dépendance à un module Go partagé', 'Un couplage dynamique, un appel gRPC à l’exécution'], answer: 3, why: 'Aucun import ne relie les deux côtés. L’appel se fait à l’exécution, donc grep ne le voit pas.' },
+					{ q: 'Qu’est-ce que ça coûte ?', options: ['Les deux services doivent monter de version pour avoir une correction', 'Un appel réseau de plus par prix, et un service de plus qui doit être disponible', 'Le compilateur arrête de vérifier le build', 'Le fichier `.proto` disparaît'], answer: 1, why: 'Le couplage dynamique échange les vérifications du build contre celles de l’exécution : le service doit répondre à chaque fois.' },
+					{ q: 'Où vivrait le contrat du nouvel appel ?', options: ['Dans `protos/demo.proto`, comme tous les autres appels', 'Dans le package `money`', 'Dans une variable d’environnement', 'Dans les templates du frontend'], answer: 0, why: 'Chaque service se construit sur le même `demo.proto`. Un nouvel appel, c’est une nouvelle entrée dedans.' }
+				]
+			},
+			{
+				title: 'Décide',
+				questions: [
+					{ q: 'Quelqu’un propose une troisième copie de `money`. Pourquoi dire non ?', options: ['Elle ajoute un appel réseau par prix', 'Elle casse les numéros de champ du proto', 'Il faudrait alors modifier trois fichiers pour chaque règle monétaire', 'Les modules Go ne peuvent pas être copiés'], answer: 2, why: 'Une copie aggrave le problème : un endroit de plus où la règle peut diverger.' },
+					{ q: 'Quelle question départage les deux façons ?', options: ['Les calculs monétaires changent-ils pour la même raison que la conversion de devises ?', 'Quelle façon demande le moins de lignes de code ?', 'Quel langage est le plus rapide ?', 'Quelle équipe possède le frontend ?'], answer: 0, why: 'Le code qui change pour la même raison va dans un seul module.' },
+					{ q: 'Si la réponse est oui, quelle façon convient ?', options: ['Le module Go partagé', 'Les déplacer dans `currencyservice`', 'Garder les deux copies', 'Une troisième copie dans le checkout'], answer: 1, why: 'Les calculs ont alors leur place avec la conversion, et la deuxième option les y met.' },
+					{ q: 'Tu les déplaces dans `currencyservice`, et ce service tombe. Que devient une commande ?', options: ['Elle passe, et le checkout logge un avertissement', 'Le checkout se rabat sur sa copie locale', 'Le frontend arrondit le montant lui-même', 'Elle échoue, comme le fait déjà une panne des devises aujourd’hui'], answer: 3, why: 'Le checkout renvoie une erreur quand l’appel aux devises échoue. Les devises étaient déjà une dépendance obligatoire.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -92,6 +92,44 @@ export default {
 			'Jobs: one transcode job per resolution (fan-out), so a failed 4K job does not redo the 480p one.',
 			'The result reaches the user by another path: the video page polls the status, or a notification says "your video is ready".',
 			'Failures: retry with a limit, then keep the job in a dead set **and** set the video to `failed`, so the user sees it. The worst outcome is a dropped job and a row stuck at `processing` forever.'
+		],
+		steps: [
+			{
+				title: 'Keep what the user can fix',
+				questions: [
+					{ q: 'Which check stays inside the upload request?', options: ['Transcoding to 480p', 'The file type and size', 'Transcoding to 4K', 'Sending the "ready" notification'], answer: 1, why: 'The user can fix a wrong file right now, so that error belongs in the response.' },
+					{ q: 'Why does the quota check stay synchronous?', options: ['It is the slowest step', 'Workers cannot read quotas', 'Jobs are not allowed to fail', 'The user can act on it now, so the error must come back in the response'], answer: 3, why: 'Ask what the caller must know before you answer. A full quota is one of those things.' },
+					{ q: 'What must exist before you can say "accepted"?', options: ['The 4K file', 'All four resolutions', 'The stored original and a video row with status `processing`', 'A notification sent to the user'], answer: 2, why: 'Once the original is stored and the row saved, the upload is safe even if every worker is down.' },
+					{ q: 'What does the request answer?', options: ['**202 Accepted** with the video id', '200 OK with the four video URLs', '500 when a worker is down', 'Nothing until transcoding ends'], answer: 0, why: '202 says the work is accepted but not done. The id lets the user find the result later.' }
+				]
+			},
+			{
+				title: 'Move the slow work',
+				questions: [
+					{ q: 'How many transcode jobs do you queue per video?', options: ['One job for all four resolutions', 'One per resolution, four in total', 'One per viewer of the video', 'None: transcode in the request'], answer: 1, why: 'That is a fan-out, like Mastodon\'s one delivery job per inbox.' },
+					{ q: 'Why one job per resolution?', options: ['Because Redis cannot hold big jobs', 'So the resolutions finish in order', 'So a failed 4K job does not redo the 480p one', 'Because each job needs its own server'], answer: 2, why: 'Sidekiq retries a failed job as a whole. Small jobs retry only what failed.' },
+					{ q: 'What does Mastodon put in the jobs it queues after a post?', options: ['The whole post and its media', 'The list of followers', 'The response sent to the author', 'Only the post id'], answer: 3, why: '`perform_async(@status.id)`: the job looks up the rest when it runs.' },
+					{ q: 'Every worker is down when the user uploads. Is the upload lost?', options: ['Yes, the jobs fail at once', 'No, the original and the row are saved before the answer', 'Yes, unless the browser retries', 'No, because the browser keeps a copy'], answer: 1, why: 'The jobs wait in the queue. The saved original is what makes "accepted" true.' }
+				]
+			},
+			{
+				title: 'Tell the user',
+				questions: [
+					{ q: 'Why can the transcode result not come back in the upload response?', options: ['The response is sent before the work runs', 'HTTP cannot carry video', 'Workers have no network access', 'The status must stay secret'], answer: 0, why: 'A job runs after the answer, so its result has to reach the user by another path.' },
+					{ q: 'How does the user learn the video is ready?', options: ['The upload request stays open until it ends', 'The user uploads it again to check', 'The video page polls the status, or a notification says it is ready', 'The user reads the queue in Redis'], answer: 2, why: 'The video row holds the status. The page can read it, or a notification can push it.' },
+					{ q: 'What does the video page show while the jobs run?', options: ['`failed`', '`processing`', 'An empty player', 'A 404 page'], answer: 1, why: 'The request saved the row with status `processing`. The jobs change it when they finish.' },
+					{ q: 'Mastodon tells no one when a delivery is dropped. Why is that not enough here?', options: ['Videos are larger than posts', 'Sidekiq forbids it for video jobs', 'Polling only works with a dead set', 'The user waits for a result, and a silent drop leaves them waiting forever'], answer: 3, why: 'For one post to one server, Mastodon accepts the loss. Here the user\'s own video is the result.' }
+				]
+			},
+			{
+				title: 'Land the failures',
+				questions: [
+					{ q: 'A transcode job fails. What happens first?', options: ['It retries forever', 'It retries, with a limit', 'It is dropped at once', 'The upload request fails'], answer: 1, why: 'A retry gets past a short-lived error. A limit stops a broken job from looping.' },
+					{ q: 'After the last retry, where does the job go?', options: ['Into a dead set, and the video is set to `failed`', 'Dropped, with `dead: false`', 'Back to the start of the queue', 'Only into the request log'], answer: 0, why: 'The dead set keeps it for a person, and `failed` lets the user see it.' },
+					{ q: 'In Sidekiq, what does `dead: false` do?', options: ['Sends the job to the dead set', 'Retries the job forever', 'Discards the job after its last retry', 'Deletes the saved record'], answer: 2, why: 'In `job_retry.rb`, `dead == false` means discarded: the job never reaches the dead set.' },
+					{ q: 'What is the worst outcome?', options: ['A 4K job that retries twice', 'A user who sees `failed`', 'A 202 answer to the upload', 'A dropped job and a row stuck at `processing` forever'], answer: 3, why: 'No one knows the work stopped, and the user waits for nothing.' }
+				]
+			}
 		]
 	},
 	quiz: [

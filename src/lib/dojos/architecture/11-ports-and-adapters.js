@@ -97,6 +97,44 @@ export default {
 			'Not changed: `Blob`, your models with `has_one_attached`, and `MirrorService`. They only know `Service`.',
 			'Implement the whole port, beyond `upload` and `download`: `url_for_direct_upload`, `compose`, `delete_prefixed`, and the `private_url` and `public_url` that `url` calls, all raise `NotImplementedError` by default.',
 			'Worth doing: include `SharedServiceTests` in the adapter\'s test, and run it against a real Acme bucket in CI. Then a mirror from the old store to Acme copies each new upload to both stores during the move.'
+		],
+		steps: [
+			{
+				title: 'Read the diagram',
+				questions: [
+					{ q: 'Which class is the port that Acme must implement?', options: ['`ActiveStorage::Blob`', '`ActiveStorage::Service`', '`Configurator`', '`S3Service`'], answer: 1, why: '`Service` is the abstract class the core calls. Every adapter is a subclass of it.' },
+					{ q: 'Acme has its own API, not S3 compatible. Can you reuse `S3Service`?', options: ['Yes, point it at the Acme endpoint', 'Yes, if you wrap it in `MirrorService`', 'No, Acme needs its own adapter, a subclass of `Service`', 'No, you must first teach `Blob` about Acme'], answer: 2, why: 'An adapter implements the port for one technology. A new API means a new adapter.' },
+					{ q: 'Who picks which adapter the core gets?', options: ['`Blob`, at upload time', 'Each model with `has_one_attached`', '`MirrorService`, from its list of mirrors', 'The wiring: the environment, `storage.yml`, then the `Configurator`'], answer: 3, why: 'The environment names a service, `storage.yml` maps it to an adapter, and the `Configurator` builds it. No other code picks the service.' },
+					{ q: 'What does `Blob` call when it saves a file?', options: ['`service.upload key, io`', 'The S3 SDK, directly', '`DiskService#upload`, then the cloud', '`Configurator#build`'], answer: 0, why: 'The core calls only the port. `upload_without_unfurling` is that one line.' }
+				]
+			},
+			{
+				title: 'Write the adapter',
+				questions: [
+					{ q: 'Where does the new class go, so that `resolve` finds it?', options: ['In `app/models`, next to `Blob`', 'In `active_storage/service/acme_service.rb`, on the load path', 'Inside `storage.yml`, as Ruby code', 'In `configurator.rb`, as a new branch'], answer: 1, why: '`resolve` requires `active_storage/service/acme_service` when it is asked for `Acme`.' },
+					{ q: '`storage.yml` says `service: Acme`. Which class does `resolve` look for?', options: ['`Acme`', '`AcmeAdapter`', '`AcmeService`', '`ActiveStorage::Acme`'], answer: 2, why: 'It camelizes the name and adds `Service`, then looks it up under `ActiveStorage::Service`.' },
+					{ q: 'You implement only `upload` and `download`. What does a call to `compose` do?', options: ['It falls back to the disk adapter', 'It raises `NotImplementedError`, the default in `Service`', 'It does nothing and returns', 'It is handled by `MirrorService`'], answer: 1, why: 'The port\'s methods mostly `raise NotImplementedError`. Each adapter must fill them in.' },
+					{ q: 'Which methods also belong to the port?', options: ['`url_for_direct_upload`, `compose`, `delete_prefixed`, `private_url` and `public_url`', 'None: only `upload`, `download` and `delete`', '`has_one_attached` and `mirror_later`', '`build` and `resolve`'], answer: 0, why: 'They all raise `NotImplementedError` by default, and `url` calls `private_url` or `public_url`.' }
+				]
+			},
+			{
+				title: 'Wire it',
+				questions: [
+					{ q: 'What do you add to `storage.yml`?', options: ['A `require` line for the Acme SDK', 'A list of models that should use Acme', 'A new `Blob` subclass for Acme', 'An `acme:` entry with `service: Acme`'], answer: 3, why: '`storage.yml` maps each name to an adapter. That entry is the only new line there.' },
+					{ q: 'How does production start using Acme?', options: ['Set `config.active_storage.service = :acme` in production', 'Add `if Rails.env.production?` in each model', 'Rename `S3Service` to `AcmeService`', 'Delete the `local:` entry from `storage.yml`'], answer: 0, why: 'The environment file names the service. To switch, you change that choice.' },
+					{ q: 'After the switch, why do your tests still run on disk?', options: ['Because Acme has no test mode', 'Because `Blob` detects CI and picks the disk', 'Because `test.rb` still says `:test`, which maps to `Disk`', 'Because the AWS SDK is not loaded in tests'], answer: 2, why: 'Each environment picks its own service. Only production changed.' },
+					{ q: 'An app never uses S3. Does it load the AWS SDK?', options: ['Yes, the Active Storage gemspec depends on it', 'Yes, the `Configurator` loads every adapter at boot', 'No, only `s3_service.rb` requires it, and only when asked for', 'No, but only because Acme replaces it'], answer: 2, why: '`resolve` loads an adapter file only when a service names it, and the gemspec does not depend on the AWS SDK.' }
+				]
+			},
+			{
+				title: 'Name what stays',
+				questions: [
+					{ q: 'Which code do you expect **not** to change?', options: ['`storage.yml`', '`Blob` and your models with `has_one_attached`', 'The production environment file', 'The adapter\'s test file'], answer: 1, why: 'They only know `Service`. The new backend lives behind the port.' },
+					{ q: 'Does `MirrorService` need changes to copy uploads to Acme?', options: ['Yes, it must learn the Acme API', 'Yes, you need a new `AcmeMirrorService`', 'No, because mirrors only work with S3', 'No, it wraps any `Service`, and adapters never hear about it'], answer: 3, why: 'A decorator works with any adapters. A mirror from the old store to Acme copies each new upload during the move.' },
+					{ q: 'How do you check that `AcmeService` keeps the port\'s contract?', options: ['Include `SharedServiceTests` and run it against a real Acme bucket in CI', 'Run the disk tests, since they use the same port', 'Read the Acme API docs carefully', 'Deploy and watch for errors in production'], answer: 0, why: 'One shared test suite checks every adapter against the same port. It needs the real backend to mean anything.' },
+					{ q: 'Without credentials, the Acme test skips, like the S3 one. CI is green on disk. What does it tell you about Acme?', options: ['That Acme works, since the port is shared', 'Nothing: the shared tests never ran against Acme', 'That Acme passed the mirror tests', 'That Acme has no `NotImplementedError` left'], answer: 1, why: 'The shared tests run only where the backend exists. A green disk run says nothing about another store.' }
+				]
+			}
 		]
 	},
 	quiz: [

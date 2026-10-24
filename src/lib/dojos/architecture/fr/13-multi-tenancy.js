@@ -94,6 +94,44 @@ export default {
 			'Leurs propres **workers** : rien dans le code multisite que tu as lu ne donne à un site ses propres files. La file vient du job ou de l’appelant, pas du site. Pour avoir leurs propres workers, il leur faut une installation séparée.',
 			'Un **déploiement dédié** : leur propre appli, PostgreSQL, Redis et Sidekiq. Coût : une stack complète de plus à mettre à jour et à surveiller, pour un seul client.',
 			'Le réflexe d’architecte : avant de choisir, demande-leur ce qu’ils craignent. Les bases séparées empêchent déjà un autre tenant de lire leurs données. Pour qu’un autre tenant ne puisse pas **les ralentir**, il faut du calcul séparé.'
+		],
+		steps: [
+			{
+				title: 'Vois ce qui est partagé',
+				questions: [
+					{ q: 'Comment Discourse trouve-t-il le site d’une requête ?', options: ['Avec une colonne `tenant_id`', 'Avec le nom d’hôte de la requête', 'Avec un cookie de connexion', 'Avec le nom de la file Sidekiq'], answer: 1, why: 'Le middleware cherche l’hôte dans `config/multisite.yml`. Un hôte inconnu reçoit un 404.' },
+					{ q: 'Qu’est-ce que chaque site a déjà pour lui seul ?', options: ['Son propre serveur Redis', 'Ses propres workers Sidekiq', 'Sa propre base PostgreSQL', 'Ses propres processus d’appli'], answer: 2, why: 'Chaque entrée de `multisite.yml` nomme sa propre `database`. Le reste est partagé.' },
+					{ q: 'Que partagent tous les sites aujourd’hui ?', options: ['Un seul jeu de tables avec une colonne tenant', 'Rien d’autre que le code', 'Seulement le serveur de base de données', 'Les processus, un serveur Redis et les files Sidekiq'], answer: 3, why: 'Les clés Redis sont préfixées par site et les jobs portent `current_site_id`, mais les serveurs et les files sont les mêmes.' },
+					{ q: 'Où se place le multisite sur le spectre ?', options: ['À gauche : tout partagé, une seule base', 'Au milieu : processus partagés, une base par site', 'À droite : un déploiement par tenant', 'Hors du spectre : il ne partage rien'], answer: 1, why: 'Des données à part, du calcul partagé. C’est le milieu du diagramme.' }
+				]
+			},
+			{
+				title: 'Sépare le serveur de base',
+				questions: [
+					{ q: 'Un site peut-il avoir son propre serveur de base de données ?', options: ['Oui, chaque entrée de `multisite.yml` est une config de base et peut nommer son propre `host`', 'Non, tous les sites doivent partager un seul serveur de base', 'Seulement avec une installation séparée', 'Seulement en forkant `rails_multisite`'], answer: 0, why: 'Une entrée a `adapter` et `database` comme toute config de base, donc un `host` y a sa place aussi.' },
+					{ q: 'Qu’est-ce que ça coûte ?', options: ['Une stack complète par client', 'Un filtre tenant sur chaque requête SQL', 'Un serveur de plus à faire tourner, alors que Redis et Sidekiq restent partagés', 'Quitter le multisite pour de bon'], answer: 2, why: 'Ça ne déplace que les données. Les processus, Redis et les workers restent partagés.' },
+					{ q: 'Avec leur propre serveur de base, une rafale de jobs d’un autre site peut-elle encore les ralentir ?', options: ['Non, leurs données sont sur un autre serveur', 'Oui, les files Sidekiq sont toujours partagées', 'Non, le middleware bloque les autres sites', 'Seulement quand Redis est en panne'], answer: 1, why: 'La rafale d’un site attend dans les mêmes files que les jobs de tous les autres sites.' },
+					{ q: 'Quel risque était déjà écarté avant ce changement ?', options: ['Une rafale de jobs dans les files partagées', 'La charge sur les processus partagés', 'La mémoire utilisée sur le Redis partagé', 'Un autre tenant qui lit leurs données'], answer: 3, why: 'Les bases séparées empêchent déjà une requête SQL d’atteindre les lignes d’un autre site.' }
+				]
+			},
+			{
+				title: 'Sépare le calcul',
+				questions: [
+					{ q: 'Le multisite peut-il donner à un site ses propres files Sidekiq ?', options: ['Oui, en réglant une file par site dans `multisite.yml`', 'Oui, `Jobs.enqueue` choisit la file d’après le site', 'Non, la file vient du job ou de l’appelant, jamais du site', 'Non, Sidekiq n’accepte qu’une seule file'], answer: 2, why: '`Jobs.enqueue` prend la file dans `opts[:queue]` ou dans la classe du job. Le site n’y joue aucun rôle.' },
+					{ q: 'Alors comment ont-ils des workers que personne d’autre n’utilise ?', options: ['En passant `all_sites: true` sur leurs jobs', 'Une installation séparée', 'En appelant `without_namespace`', 'En ajoutant une clé `queue` à leur entrée de `multisite.yml`'], answer: 1, why: 'Rien dans le code multisite que tu as lu ne sépare les workers par site. Une installation séparée, si.' },
+					{ q: 'Que leur apporte un déploiement dédié ?', options: ['Leur propre appli, PostgreSQL, Redis et Sidekiq', 'Seulement leur propre base', 'Seulement leurs propres clés Redis', 'Une plus grosse part des workers partagés'], answer: 0, why: 'C’est le bout droit du spectre : rien de partagé à part le code.' },
+					{ q: 'Que coûte un déploiement dédié ?', options: ['Des fuites de données par Redis', 'Des jobs qui tournent sur tous les sites', 'Un 404 pour leur nom d’hôte', 'Une stack complète de plus à mettre à jour et à surveiller, pour un seul client'], answer: 3, why: 'L’isolation la plus forte veut dire un déploiement de plus à faire tourner et à mettre à jour.' }
+				]
+			},
+			{
+				title: 'Demande ce qu’ils craignent',
+				questions: [
+					{ q: 'Avant d’en choisir une, que leur demandes-tu ?', options: ['Quel cloud ils préfèrent', 'Ce qu’ils craignent : qu’on lise leurs données, ou qu’on les ralentisse', 'Combien d’admins ils ont', 'S’ils utilisent déjà Redis'], answer: 1, why: 'Les deux craintes demandent des réponses différentes, et l’une est déjà traitée.' },
+					{ q: 'Ils craignent qu’un autre tenant lise leurs données. Que réponds-tu ?', options: ['Les bases séparées l’empêchent déjà', 'Il leur faut un déploiement dédié', 'Il leur faut leur propre serveur Redis', 'Il leur faut leurs propres workers'], answer: 0, why: 'Les données d’un autre site sont dans une autre base. Un bug de requête ne peut pas franchir cette limite.' },
+					{ q: 'Ils craignent qu’un autre tenant les ralentisse. Que réponds-tu ?', options: ['Leur propre base suffit', 'Préfixe leurs clés Redis', 'Il leur faut du calcul séparé, donc leur propre installation', 'Renvoie un 404 à tous les autres hôtes'], answer: 2, why: 'Un voisin bruyant vient du calcul partagé. Seuls des workers et des processus séparés le font disparaître.' },
+					{ q: 'Pourquoi ne pas donner un déploiement dédié à chaque client ?', options: ['Ça fait fuiter des données par des tables partagées', 'Ça demande une colonne `tenant_id` sur chaque table', 'Sidekiq ne peut pas tourner par client', 'Chacun est une stack complète à faire tourner, alors que le calcul partagé rend un forum calme presque gratuit'], answer: 3, why: 'Plus d’isolation coûte plus cher à faire tourner. Le multisite permet à une seule installation d’héberger beaucoup de petits sites.' }
+				]
+			}
 		]
 	},
 	quiz: [

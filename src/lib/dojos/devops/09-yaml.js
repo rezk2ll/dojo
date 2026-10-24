@@ -116,6 +116,44 @@ x-airflow-common:
 			'`mode: 0755` is octal 493 in YAML 1.1, but the plain number 755 in YAML 1.2. Quote it, `"0755"`, and let the tool convert it.',
 			'`debug: off` is parsed as `false` in YAML 1.1. Write `false` if you mean a boolean, `\'off\'` if you mean the word.',
 			'`>` folds the three lines into one line with spaces. Use `|` so each command stays on its own line.'
+		],
+		steps: [
+			{
+				title: 'Read each value as the parser does',
+				questions: [
+					{ q: 'A YAML 1.1 parser reads `country: NO`. What does the program get?', options: ['The string `NO`', '`false`', '`null`', 'An error'], answer: 1, why: 'YAML 1.1 booleans include `yes`, `no`, `on` and `off`, in several cases.' },
+					{ q: 'What does `version: 1.10` become?', options: ['The string `1.10`', 'The number 110', 'The number 1.1', 'A date'], answer: 2, why: 'It looks like a number, so it is parsed as a float, and the trailing zero is lost. This happens in YAML 1.2 too.' },
+					{ q: 'What does `ssh_port: 22:22` become in YAML 1.1?', options: ['The base 60 number 1342', 'The string `22:22`', 'A list of two ports', 'The number 2222'], answer: 0, why: 'YAML 1.1 reads numbers separated by colons as base 60: 22 × 60 + 22 = 1342.' },
+					{ q: 'What does `debug: off` become in YAML 1.1?', options: ['The string `off`', '`null`', '0', '`false`'], answer: 3, why: '`off` is one of the YAML 1.1 boolean words.' }
+				]
+			},
+			{
+				title: 'Spot the version trap',
+				questions: [
+					{ q: '`mode: 0755` in YAML 1.1 is what?', options: ['The string `0755`', 'Octal, so 493', 'The decimal 755', 'An error'], answer: 1, why: 'A leading zero means octal in YAML 1.1, and octal 755 is 493.' },
+					{ q: 'And `mode: 0755` in YAML 1.2?', options: ['Octal 493', 'The string `0755`', 'The plain number 755', '`false`'], answer: 2, why: 'YAML 1.2 dropped that octal rule, so the same text gives a different number.' },
+					{ q: 'Given that difference, how do you write the mode?', options: ['Quote it, `"0755"`, and let the tool convert it', 'Write `493`', 'Write `755` and hope', 'Leave it unquoted'], answer: 0, why: 'A quoted value is the same string under every parser, so the tool decides how to read it.' },
+					{ q: 'Which YAML version does PyYAML follow?', options: ['1.2', '1.0', 'It picks per file', '1.1'], answer: 3, why: 'PyYAML is a YAML 1.1 parser, and many tools still use 1.1 rules.' }
+				]
+			},
+			{
+				title: 'Fix the scalars',
+				questions: [
+					{ q: 'How do you keep `NO` as the country code?', options: ['`country: no`', '`country: \'NO\'`', '`country: !NO`', '`country: N O`'], answer: 1, why: 'A quoted scalar is always a string.' },
+					{ q: 'How do you keep the version as written?', options: ['`version: 1.1`', '`version: 1.10.0`', '`version: "1.10"`', '`version: 01.10`'], answer: 2, why: 'Quotes stop the number guess, so the program receives the string `1.10`.' },
+					{ q: 'Which fix fits `ssh_port: 22:22`?', options: ['`"22:22"`', '`22-22`', '`[22, 22]`', '`2222`'], answer: 0, why: 'The Compose docs say to always write `HOST:CONTAINER` as a quoted string.' },
+					{ q: 'You meant `debug` as a boolean. What do you write so every parser, 1.1 or 1.2, reads one?', options: ['`debug: \'off\'`', '`debug: no`', '`debug: 0`', '`debug: false`'], answer: 3, why: '`false` is a boolean in YAML 1.1 and 1.2. Quote `\'off\'` only if you mean the word.' }
+				]
+			},
+			{
+				title: 'Fix the script block',
+				questions: [
+					{ q: 'What does `>` do to three commands on three lines?', options: ['Keeps each on its own line', 'Folds them into one line with spaces', 'Drops all but the first', 'Turns them into a list'], answer: 1, why: '`>` is the folded style: line breaks become spaces.' },
+					{ q: 'What happens when the shell runs that folded line?', options: ['The three commands run one after another', 'Nothing, it is a comment', 'They run together as one command with extra arguments', 'The shell runs them in parallel'], answer: 2, why: '`echo one echo two` is a single `echo` with four arguments.' },
+					{ q: 'Which indicator keeps every line break?', options: ['`|`', '`>`', '`>-`', '`&`'], answer: 0, why: '`|` is the literal style: every line stays a line.' },
+					{ q: 'What does `|-` change compared with `|`?', options: ['It folds the lines', 'It quotes the text', 'It removes indentation', 'It drops the final newline'], answer: 3, why: 'The `-` chomping indicator strips the trailing newline.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,27 @@ x-airflow-common:
 			why: 'Compose ignores the `x-` key itself, but the anchor still works. The merge key copies the mapping\'s keys, and keys written in the service are added on top.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Feed the task\'s values to a real YAML 1.1 parser, see what your program would receive, then fix them until it receives what you wrote.',
+		steps: [
+			'Install PyYAML in a throwaway venv: `mkdir -p ~/yaml-lab && cd ~/yaml-lab && python3 -m venv .venv && .venv/bin/pip install pyyaml`.',
+			'Write the broken file: `printf \'country: NO\\nversion: 1.10\\nssh_port: 22:22\\nmode: 0755\\ndebug: off\\nscript: >\\n  echo one\\n  echo two\\n  echo three\\n\' > bad.yaml`.',
+			'Parse it as a program would: `.venv/bin/python -c \'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])))\' bad.yaml`.',
+			'Copy it to `good.yaml` and fix each line: quote `NO`, `1.10`, `22:22` and `0755`, write `debug: false`, and change `script: >` to `script: |`. Parse `good.yaml` with the same command.',
+			'Run the script block through bash: `.venv/bin/python -c \'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["script"], end="")\' good.yaml | bash`. Try the same on `bad.yaml`.'
+		],
+		done: [
+			'`bad.yaml` prints `\'country\': False, \'version\': 1.1, \'ssh_port\': 1342, \'mode\': 493, \'debug\': False`.',
+			'`good.yaml` prints `\'NO\'`, `\'1.10\'`, `\'22:22\'` and `\'0755\'` as strings.',
+			'The script from `good.yaml` prints `one`, `two` and `three` on three lines. The one from `bad.yaml` prints `one echo two echo three` on one line.'
+		],
+		solution: [
+			'`country: "NO"`, `version: "1.10"`, `ssh_port: "22:22"`, `mode: "0755"`, `debug: false`.',
+			'`script: |` followed by the three commands, each indented by two spaces.',
+			'Delete the folder when done: the venv lives only in `~/yaml-lab`.'
+		]
+	},
 	recall: {
 		q: 'What does a YAML 1.1 parser make of the unquoted values `NO`, `1.10`, `22:22` and `0755`, and how do you keep them as strings?',
 		a: 'It reads them as false, 1.1, 1342 and 493. Quotes, like `\'NO\'` or `"1.10"`, keep them as strings.'

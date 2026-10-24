@@ -128,6 +128,44 @@ func (r *Resolver) exchange(ctx context.Context, server string, q dnsmessage.Que
 			'(a) Chaque requête est partie et rien n’est revenu : ni réponse, ni erreur ICMP. La RFC 5737 réserve `192.0.2.0/24` à la documentation, et personne n’y a répondu. dig a attendu son minuteur de 2 secondes à chaque essai.',
 			'(b) Le datagramme est arrivé sur localhost, aucun socket n’était lié au port 5999, et le noyau a répondu par un ICMP port unreachable. Linux l’a remis au socket sous la forme `ECONNREFUSED` à l’appel suivant. (c) La réponse ne tenait pas dans 512 octets, elle est revenue avec le bit TC, et dig a reposé la question en TCP.',
 			'Go essaie chaque serveur une fois par tentative : 2 tentatives fois 2 serveurs font 4 requêtes, chacune avec une échéance de 5 secondes. La résolution échoue après environ 20 secondes.'
+		],
+		steps: [
+			{
+				title: 'Lis les timeouts de (a)',
+				questions: [
+					{ q: 'dig a affiché deux fois `timed out`. Qu’est-ce qui est revenu de `192.0.2.1` pour chaque requête ?', options: ['Un ICMP port unreachable', 'Une réponse avec le bit TC', 'Rien du tout', 'Un reset TCP'], answer: 2, why: 'Un timeout veut dire que dig n’a rien reçu : ni réponse, ni erreur ICMP. Seul son propre minuteur a mis fin à l’attente.' },
+					{ q: 'Qui a envoyé la deuxième requête ?', options: ['Le code UDP du noyau', 'dig, à la fin de son minuteur de 2 secondes', 'Un routeur sur le chemin', 'Le serveur DNS, qui redemande'], answer: 1, why: 'UDP ne renvoie jamais un datagramme perdu. Le minuteur de l’application est le seul à s’en apercevoir.' },
+					{ q: 'Pourquoi rien n’a-t-il répondu à `192.0.2.1` ?', options: ['La RFC 5737 réserve `192.0.2.0/24` à la documentation', 'Le port 53 est fermé sur tout hôte public', 'dig bloque les adresses privées par défaut', 'L’adresse n’accepte que TCP'], answer: 0, why: '`192.0.2.0/24` est une plage de documentation : aucun serveur DNS n’y est là pour répondre.' },
+					{ q: 'Combien de temps environ dig a-t-il passé avant `no servers could be reached` ?', options: ['2 secondes', '5 secondes', '10 secondes', '4 secondes'], answer: 3, why: '`+tries=2` avec `+time=2`, c’est deux essais de 2 secondes chacun.' }
+				]
+			},
+			{
+				title: 'Lis le refus de (b)',
+				questions: [
+					{ q: '`send` a renvoyé 5. Qu’est-ce que cela t’apprend ?', options: ['Le noyau a envoyé le datagramme, rien de plus', 'Un serveur a reçu les 5 octets', 'La connexion a été établie avant', 'Le datagramme a été renvoyé 5 fois'], answer: 0, why: 'UDP n’a ni connexion ni accusé de réception. `send` dit seulement que le noyau a pris les octets et les a envoyés.' },
+					{ q: 'Quel paquet a rapporté l’erreur ?', options: ['Un datagramme UDP avec un code d’erreur', 'Un reset TCP venu du port 5999', 'Un ICMP port unreachable', 'Une réponse DNS `REFUSED`'], answer: 2, why: 'Aucun socket n’était lié au port 5999 : le noyau a répondu par un ICMP port unreachable.' },
+					{ q: 'Pourquoi l’erreur est-elle sortie sur `recv` et pas sur `send` ?', options: ['`recv` est le seul appel qui peut échouer en UDP', 'La réponse ICMP est arrivée après le retour de `send`', 'Python cache les erreurs de `send`', 'Le noyau attend un deuxième envoi avant de signaler'], answer: 1, why: 'L’erreur revient après le départ du datagramme. Linux la garde et la renvoie à l’appel suivant sur ce socket.' },
+					{ q: 'Maintenant, un programme écoute sur le port 5999 mais ne répond jamais. Que fait `recv` ?', options: ['Il lève tout de suite `ConnectionRefusedError`', 'Il renvoie un datagramme vide', 'Il renvoie les 5 octets envoyés', 'Il attend, car aucune erreur ICMP ne revient'], answer: 3, why: 'Avec un socket lié, le noyau livre le datagramme et n’envoie aucune erreur ICMP. L’émetteur n’entend rien, comme en (a).' }
+				]
+			},
+			{
+				title: 'Lis la troncature de (c)',
+				questions: [
+					{ q: 'Que dit `+bufsize=512` au serveur ?', options: ['Envoie au plus 512 requêtes', 'Attends 512 ms avant de répondre', 'Passe en TCP au-delà de 512 octets', 'Le client accepte une réponse UDP de 512 octets au plus'], answer: 3, why: 'Il plafonne la taille de la réponse UDP que le client accepte.' },
+					{ q: 'Qu’a renvoyé le serveur en UDP ?', options: ['Une courte réponse avec le bit TC', 'La réponse complète, en deux datagrammes', 'Rien, donc dig a expiré', 'Une erreur ICMP'], answer: 0, why: 'Une réponse trop grosse pour le datagramme revient tronquée, avec le bit TC. Dans cette session, elle faisait 39 octets.' },
+					{ q: 'Qu’a fait dig ensuite ?', options: ['Il a redemandé en UDP avec un tampon plus grand', 'Il a envoyé la même requête en TCP', 'Il a abandonné et affiché la réponse partielle', 'Il est passé à un autre serveur'], answer: 1, why: '"Truncated, retrying in TCP mode." Le bit TC dit au client de reposer la question en TCP, ce que fait aussi `exchange` en Go.' },
+					{ q: 'Pourquoi ne pas découper une grosse réponse en plusieurs datagrammes UDP ?', options: ['UDP interdit plus d’un datagramme par port', 'Un datagramme de plus de 512 octets est toujours jeté', 'Chaque datagramme est seul, et rien ne les remet dans l’ordre', 'Un serveur DNS ne peut pas envoyer deux paquets de suite'], answer: 2, why: 'Un datagramme arrive entier ou pas du tout, et l’application doit remettre en ordre et jeter les doublons elle-même. TCP donne un flux ordonné.' }
+				]
+			},
+			{
+				title: 'Compte le pire cas',
+				questions: [
+					{ q: 'Sans option dans `resolv.conf`, quelles sont les valeurs par défaut de Go ?', options: ['`timeout` 2 s, `attempts` 5', '`timeout` 5 s, `attempts` 1', '`timeout` 5 s, `attempts` 2', '`timeout` 1 s, `attempts` 3'], answer: 2, why: '`dnsconfig_unix.go` fixe `timeout: 5 * time.Second` et `attempts: 2`, comme la glibc.' },
+					{ q: 'Comment boucle l’appelant de `exchange` ?', options: ['Sur chaque serveur, une fois par tentative', 'Sur les tentatives du premier serveur, puis du second', 'Une fois par serveur, sans nouvelle tentative', 'Jusqu’à ce qu’un serveur réponde, sans limite'], answer: 0, why: 'L’appelant boucle `cfg.attempts` fois sur tous les serveurs, avec une requête par `exchange`.' },
+					{ q: 'Combien de requêtes partent avant l’échec ?', options: ['2', '4', '5', '10'], answer: 1, why: '2 tentatives fois 2 serveurs font 4 requêtes.' },
+					{ q: 'Les deux serveurs jettent tous les paquets. Au bout de combien de temps la résolution échoue-t-elle ?', options: ['Environ 5 secondes', 'Environ 10 secondes', 'Environ 40 secondes', 'Environ 20 secondes'], answer: 3, why: 'Chacune des 4 requêtes attend son échéance complète de 5 secondes : environ 20 secondes.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,27 @@ func (r *Resolver) exchange(ctx context.Context, server string, q dnsmessage.Que
 			why: 'La boucle sur `networks` contient `"udp"` puis `"tcp"`. Quand `h.Truncated && network == "udp"`, elle passe par `continue` : le tour suivant ouvre une connexion TCP vers le même serveur et renvoie la requête.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir ce qu’UDP dit ou ne dit pas à l’émetteur : des datagrammes entiers, une erreur en retard, une perte silencieuse.',
+		steps: [
+			'Lance un récepteur qui affiche trois datagrammes : `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(("127.0.0.1",9999));[print(s.recvfrom(2048)) for _ in range(3)]\' &`.',
+			'Envoie-lui trois messages : `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);[s.sendto(m,("127.0.0.1",9999)) for m in (b"one",b"two",b"three")]\'`.',
+			'Envoie vers un port sans écouteur et lis le socket : `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("127.0.0.1",5999));print(s.send(b"hello"));s.recv(100)\'`.',
+			'Lance un écouteur qui reçoit les requêtes et ne répond jamais : `python3 -c \'import socket,time;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(("127.0.0.1",9053));time.sleep(30)\' &`.',
+			'Pose-lui une question DNS et chronomètre : `time dig +tries=2 +time=2 example.test @127.0.0.1 -p 9053`.'
+		],
+		done: [
+			'Le récepteur affiche `b\'one\'`, `b\'two\'` et `b\'three\'` sur trois lignes séparées, jamais collés.',
+			'L’étape 3 affiche `5`, puis lève `ConnectionRefusedError`.',
+			'dig affiche deux fois `timed out`, puis `no servers could be reached`, et `time` montre environ 4 secondes.'
+		],
+		solution: [
+			'Chaque `sendto` est un datagramme, et chaque `recvfrom` renvoie un datagramme entier.',
+			'À l’étape 3, le noyau a envoyé le datagramme, puis reçu un ICMP port unreachable. `send` avait déjà rendu la main : l’erreur est sortie sur `recv`.',
+			'À l’étape 5, le port est ouvert mais personne ne répond : pas d’erreur ICMP non plus. Seul le minuteur de 2 secondes de dig, lancé deux fois, met fin à l’attente.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi un seul paquet DNS perdu ajoute-t-il environ 5 secondes à une résolution sous Linux ?',
 		a: 'UDP ne renvoie jamais un datagramme perdu. Le résolveur (glibc ou Go) attend son `timeout`, 5 secondes par défaut, puis renvoie la requête.'

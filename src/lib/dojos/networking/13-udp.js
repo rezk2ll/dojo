@@ -128,6 +128,44 @@ func (r *Resolver) exchange(ctx context.Context, server string, q dnsmessage.Que
 			'(a) Each query left, and nothing came back: no answer, no ICMP error. RFC 5737 reserves `192.0.2.0/24` for documentation, and nothing answered there. dig waited its 2 second timer each time.',
 			'(b) The datagram reached localhost, no socket was bound to port 5999, and the kernel answered with ICMP port unreachable. Linux delivered it to the socket as `ECONNREFUSED` on the next call. (c) The answer did not fit in 512 bytes, the reply came back with the TC flag, and dig repeated the query over TCP.',
 			'Go tries each server once per attempt: 2 attempts times 2 servers is 4 queries, each with a 5 second deadline. The lookup fails after about 20 seconds.'
+		],
+		steps: [
+			{
+				title: 'Read the timeouts in (a)',
+				questions: [
+					{ q: 'dig printed `timed out` twice. What came back from `192.0.2.1` for each query?', options: ['An ICMP port unreachable', 'A reply with the TC flag', 'Nothing at all', 'A TCP reset'], answer: 2, why: 'A timeout means dig heard nothing: no answer and no ICMP error. Only its own timer ended the wait.' },
+					{ q: 'Who sent the second query?', options: ['The kernel\'s UDP code', 'dig, when its 2 second timer ran out', 'A router on the way', 'The DNS server, asking back'], answer: 1, why: 'UDP never resends a lost datagram. The application\'s timer is the only part that notices.' },
+					{ q: 'Why did nothing answer at `192.0.2.1`?', options: ['RFC 5737 reserves `192.0.2.0/24` for documentation', 'Port 53 is closed on every public host', 'dig blocks private addresses by default', 'The address only accepts TCP'], answer: 0, why: '`192.0.2.0/24` is a documentation range, so no DNS server sits there to reply.' },
+					{ q: 'About how long did dig spend before `no servers could be reached`?', options: ['2 seconds', '5 seconds', '10 seconds', '4 seconds'], answer: 3, why: '`+tries=2` with `+time=2` means two tries of 2 seconds each.' }
+				]
+			},
+			{
+				title: 'Read the refusal in (b)',
+				questions: [
+					{ q: '`send` returned 5. What does that tell you?', options: ['The kernel sent the datagram, nothing more', 'A server received the 5 bytes', 'The connection was set up first', 'The datagram was resent 5 times'], answer: 0, why: 'UDP has no connection and no acknowledgement. `send` only says the kernel took the bytes and sent them.' },
+					{ q: 'Which packet carried the error back?', options: ['A UDP datagram with an error code', 'A TCP reset from port 5999', 'An ICMP port unreachable', 'A DNS reply with `REFUSED`'], answer: 2, why: 'No socket was bound to port 5999, so the kernel answered with ICMP port unreachable.' },
+					{ q: 'Why did the error show up on `recv` and not on `send`?', options: ['`recv` is the only call that can fail on UDP', 'The ICMP reply arrived after `send` had already returned', 'Python hides errors from `send`', 'The kernel waits for a second send before reporting'], answer: 1, why: 'The error comes back after the datagram leaves. Linux stores it and returns it on the next call on that socket.' },
+					{ q: 'Now a program listens on port 5999 but never replies. What does `recv` do?', options: ['Raises `ConnectionRefusedError` at once', 'Returns an empty datagram', 'Returns the 5 bytes it sent', 'Waits, since no ICMP error comes back'], answer: 3, why: 'With a socket bound, the kernel delivers the datagram and sends no ICMP error. The sender hears nothing, as in (a).' }
+				]
+			},
+			{
+				title: 'Read the truncation in (c)',
+				questions: [
+					{ q: 'What does `+bufsize=512` tell the server?', options: ['Send at most 512 queries', 'Wait 512 ms before answering', 'Use TCP for anything over 512 bytes', 'The client can take a UDP reply of up to 512 bytes'], answer: 3, why: 'It caps the size of the UDP reply the client will accept.' },
+					{ q: 'What did the server send back over UDP?', options: ['A short reply with the TC flag', 'The full answer, split in two datagrams', 'Nothing, so dig timed out', 'An ICMP error'], answer: 0, why: 'An answer too big for the datagram comes back truncated, with the TC flag set. In this session it was 39 bytes.' },
+					{ q: 'What did dig do next?', options: ['Asked again over UDP with a larger buffer', 'Sent the same query over TCP', 'Gave up and printed the partial answer', 'Moved on to another server'], answer: 1, why: '"Truncated, retrying in TCP mode." The TC flag tells the client to ask again over TCP, which Go\'s `exchange` does too.' },
+					{ q: 'Why not split a big answer into several UDP datagrams?', options: ['UDP forbids more than one datagram per port', 'A datagram over 512 bytes is always dropped', 'Each datagram stands alone, and nothing puts them back in order', 'DNS servers cannot send two packets in a row'], answer: 2, why: 'A datagram arrives whole or not at all, and the application must reorder and drop duplicates itself. TCP gives an ordered stream.' }
+				]
+			},
+			{
+				title: 'Count the worst case',
+				questions: [
+					{ q: 'With no options in `resolv.conf`, what are Go\'s defaults?', options: ['`timeout` 2 s, `attempts` 5', '`timeout` 5 s, `attempts` 1', '`timeout` 5 s, `attempts` 2', '`timeout` 1 s, `attempts` 3'], answer: 2, why: '`dnsconfig_unix.go` sets `timeout: 5 * time.Second` and `attempts: 2`, the same as glibc.' },
+					{ q: 'How does the caller of `exchange` loop?', options: ['Over every server, once per attempt', 'Over attempts on the first server, then the second', 'Once per server, with no retries', 'Until one server answers, with no limit'], answer: 0, why: 'The caller loops `cfg.attempts` times over every server, sending one query per `exchange`.' },
+					{ q: 'How many queries go out before the lookup fails?', options: ['2', '4', '5', '10'], answer: 1, why: '2 attempts times 2 servers is 4 queries.' },
+					{ q: 'Both servers drop every packet. How long until the lookup fails?', options: ['About 5 seconds', 'About 10 seconds', 'About 40 seconds', 'About 20 seconds'], answer: 3, why: 'Each of the 4 queries waits its full 5 second deadline: about 20 seconds.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,27 @@ func (r *Resolver) exchange(ctx context.Context, server string, q dnsmessage.Que
 			why: 'The loop over `networks` holds `"udp"` then `"tcp"`. When `h.Truncated && network == "udp"`, it hits `continue`, so the next pass dials TCP to the same server and sends the query again.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See what UDP does and does not tell the sender: whole datagrams, a late error, a silent loss.',
+		steps: [
+			'Start a receiver that prints three datagrams: `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(("127.0.0.1",9999));[print(s.recvfrom(2048)) for _ in range(3)]\' &`.',
+			'Send three messages to it: `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);[s.sendto(m,("127.0.0.1",9999)) for m in (b"one",b"two",b"three")]\'`.',
+			'Send to a port with no listener and read the socket: `python3 -c \'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("127.0.0.1",5999));print(s.send(b"hello"));s.recv(100)\'`.',
+			'Start a listener that takes queries and never answers: `python3 -c \'import socket,time;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(("127.0.0.1",9053));time.sleep(30)\' &`.',
+			'Ask it a DNS question and time it: `time dig +tries=2 +time=2 example.test @127.0.0.1 -p 9053`.'
+		],
+		done: [
+			'The receiver prints `b\'one\'`, `b\'two\'` and `b\'three\'` on three separate lines, never glued together.',
+			'Step 3 prints `5`, then raises `ConnectionRefusedError`.',
+			'dig prints `timed out` twice, then `no servers could be reached`, and `time` shows about 4 seconds.'
+		],
+		solution: [
+			'Each `sendto` is one datagram and each `recvfrom` returns one whole datagram.',
+			'In step 3 the kernel sent the datagram, then got ICMP port unreachable back. `send` had already returned, so the error came on `recv`.',
+			'In step 5 the port is open but nobody replies, so there is no ICMP error either. Only dig\'s 2 second timer, run twice, ends the wait.'
+		]
+	},
 	recall: {
 		q: 'Why does one lost DNS packet add about 5 seconds to a lookup on Linux?',
 		a: 'UDP never resends a lost datagram. The resolver (glibc or Go) waits for its `timeout`, 5 seconds by default, then sends the query again.'

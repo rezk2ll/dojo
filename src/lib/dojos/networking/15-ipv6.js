@@ -119,6 +119,44 @@ export default {
 			'(1) The address shows 6 groups, so `::` stands for 2: `2001:0db8:0000:0000:0008:0800:200c:417a`. RFC 4291 gives the same example, `2001:DB8:0:0:8:800:200C:417A`.',
 			'(2) `proto ra` means the route was learned from a Router Advertisement. RFC 4861 requires the router to send it from its link-local address, so the host learns the gateway as a `fe80::` address, valid on that link only. The `dynamic` global addresses came from SLAAC: the advertised prefix plus the host\'s 64-bit interface identifier.',
 			'(3) curl: 200 ms + 5 ms = about 205 ms, as measured. A client with a 300 ms delay: about 305 ms. Without Happy Eyeballs, the connect waits for the SYN timeout: about 131 seconds with default `tcp_syn_retries`.'
+		],
+		steps: [
+			{
+				title: 'Expand the address',
+				questions: [
+					{ q: 'How many groups does `2001:db8::8:800:200c:417a` show?', options: ['8', '6', '5', '4'], answer: 1, why: '`2001`, `db8`, then `8`, `800`, `200c`, `417a`: six groups around the `::`.' },
+					{ q: 'How many zero groups does `::` stand for here?', options: ['2', '1', '3', '6'], answer: 0, why: 'An address has eight groups, so `::` fills the two that are missing.' },
+					{ q: 'Which is the full form?', options: ['`2001:db8:0:8:800:200c:417a:0`', '`2001:db8:0:0:0:8:800:200c:417a`', '`2001:0:0:db8:8:800:200c:417a`', '`2001:db8:0:0:8:800:200c:417a`'], answer: 3, why: 'The two zero groups go where the `::` was, between `db8` and `8`. That gives eight groups.' },
+					{ q: 'Why is `2001:db8::8::417a` not a valid address?', options: ['`::` may appear only once', 'A group cannot be a single digit', 'Addresses cannot start with `2001`', 'It has too many groups'], answer: 0, why: 'With two `::`, nobody could tell how many zeros each one hides. RFC 4291 allows only one.' }
+				]
+			},
+			{
+				title: 'Read the default route',
+				questions: [
+					{ q: 'What does `proto ra` in the route mean?', options: ['A DHCPv6 server set the route', 'Someone added it with `ip route add`', 'It was learned from a Router Advertisement', 'It points to a remote access VPN'], answer: 2, why: '`proto ra` marks routes learned from Router Advertisements, which is how SLAAC hosts get their default route.' },
+					{ q: 'Why is the gateway a `fe80::` address?', options: ['The router has no global address', 'RFC 4861 requires advertisements to come from the link-local address', 'The host hides the router\'s real address', 'Link-local addresses are faster to route'], answer: 1, why: 'The router must send its advertisements from its link-local address, so that is the address the host learns as next hop.' },
+					{ q: 'Is a `fe80::` next hop enough to reach the internet?', options: ['No: a gateway needs a global address', 'Only for traffic inside `fe80::/10`', 'Only if DHCPv6 is also running', 'Yes: the next hop only has to be reachable on the link'], answer: 3, why: 'The host only hands packets to the router on the local link. The router then forwards them with its own addresses.' },
+					{ q: 'Why does the route name `dev wlp194s0`?', options: ['A link-local address is valid only on one link', 'The route is for wireless clients only', 'The kernel picks the fastest interface', 'IPv6 routes always name an interface for logging'], answer: 0, why: '`fe80::` addresses exist on every link, so the interface says which link this one belongs to.' }
+				]
+			},
+			{
+				title: 'Explain the global addresses',
+				questions: [
+					{ q: 'Where did the `dynamic` global addresses come from?', options: ['A DHCP server leased them', 'SLAAC: the advertised prefix plus the host\'s interface identifier', 'The ISP set them by hand', 'They are link-local addresses with a new prefix'], answer: 1, why: 'With SLAAC, the router advertises a prefix and the host adds its own 64-bit interface identifier, with no DHCP server.' },
+					{ q: 'How many bits does the host add to the prefix?', options: ['32', '48', '64', '128'], answer: 2, why: 'SLAAC uses a 64-bit interface identifier.' },
+					{ q: 'Which address does every IPv6 interface have, even with no router?', options: ['A global address from SLAAC', 'An address in `2001:db8::/32`', 'An IPv4-mapped address', 'A link-local address in `fe80::/10`'], answer: 3, why: 'RFC 4291 requires every IPv6 interface to have a link-local address.' },
+					{ q: 'Both the route and the addresses came from one source. Which one?', options: ['The router\'s advertisements', 'The DNS resolver', 'The host\'s kernel defaults', 'The ISP\'s DHCPv6 server'], answer: 0, why: 'A Router Advertisement carries the router\'s link-local address and the prefix: one gives the route, the other the addresses.' }
+				]
+			},
+			{
+				title: 'Time the fallback',
+				questions: [
+					{ q: 'What does curl do when IPv6 has not connected after 200 ms?', options: ['Closes IPv6 and starts IPv4', 'Starts IPv4 in parallel, and keeps IPv6 open', 'Retries IPv6 with a new SYN', 'Gives up and reports a timeout'], answer: 1, why: 'The IPv6 socket stays open and could still win. curl races an IPv4 attempt next to it.' },
+					{ q: 'IPv4 connects in 5 ms. How long does curl take with its default?', options: ['About 5 ms', 'About 200 ms', 'About 205 ms', 'About 305 ms'], answer: 2, why: '200 ms of waiting on IPv6, then 5 ms for IPv4: about 205 ms, as measured.' },
+					{ q: 'How long for a client with a 300 ms delay, like Firefox or Chrome?', options: ['About 305 ms', 'About 300 ms', 'About 205 ms', 'About 600 ms'], answer: 0, why: '300 ms of delay plus the 5 ms IPv4 connect.' },
+					{ q: 'And for a client that tries one address at a time?', options: ['About 5 ms, it picks IPv4', 'About 1 second', 'About 30 seconds', 'About 131 seconds'], answer: 3, why: 'It waits for the kernel to give up on the SYN: about 131 seconds with the default `tcp_syn_retries` of 6.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,27 @@ export default {
 			why: 'RFC 4861 requires Router Advertisements to come from the router\'s link-local address, and the next hop only needs to be reachable on the link. `proto ra` marks routes learned that way, which is how SLAAC hosts get their default route.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Break the IPv6 path on purpose and time curl\'s Happy Eyeballs fallback.',
+		steps: [
+			'Start a throwaway shell with IPv6 on and its own network namespace: `docker run -it --rm --cap-add NET_ADMIN --sysctl net.ipv6.conf.all.disable_ipv6=0 nicolaka/netshoot:v0.13`.',
+			'Inside it, start a web server on IPv4 only: `python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &`.',
+			'Make `2001:db8::/32` a silent black hole: `ip link add dummy0 type dummy && ip link set dummy0 up && ip -6 addr add 2001:db8:ffff::2/64 dev dummy0 && ip -6 route add 2001:db8::/32 dev dummy0`.',
+			'Give curl both addresses, IPv6 first, and time the connect: `curl -s -o /dev/null -w "%{time_connect} %{remote_ip}\\n" --resolve demo.test:8000:[2001:db8::1],127.0.0.1 http://demo.test:8000/`.',
+			'Run it again with `--happy-eyeballs-timeout-ms 1000`, then with `-4`, then with `-6 --connect-timeout 5`.'
+		],
+		done: [
+			'The first run prints about `0.200` and `127.0.0.1`.',
+			'With `--happy-eyeballs-timeout-ms 1000` it prints about `1.00`, and with `-4` close to `0.000`.',
+			'With `-6 --connect-timeout 5`, curl fails after about 5000 ms with "Timeout was reached".'
+		],
+		solution: [
+			'The SYN to `2001:db8::1` goes out on `dummy0` and nothing ever answers, like the broken path in the hook. curl waits its 200 ms delay, then starts IPv4 next to it, and IPv4 wins.',
+			'With `-6`, there is nothing to fall back to: only the timeout ends the wait. Without `--connect-timeout`, the kernel\'s SYN retries would take about 131 seconds.',
+			'Type `exit`: the dummy interface and its route go away with the container.'
+		]
+	},
 	recall: {
 		q: 'With a broken IPv6 path, how long did curl and a one-address-at-a-time client take to connect in this chapter, and why the difference?',
 		a: 'curl: 0.205 s, because it starts IPv4 after its 200 ms Happy Eyeballs delay. The sequential client: 135.7 s, because it waited for the kernel\'s SYN timeout (about 131 s with `tcp_syn_retries` 6).'

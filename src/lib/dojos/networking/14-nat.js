@@ -110,6 +110,44 @@ __nf_conntrack_alloc(struct net *net,
 			'(2) TCP: 5,000 x 120 = 600,000. UDP: 3,000 x 30 = 90,000. Total 690,000 entries, 88% of the limit.',
 			'(3) TCP: 7,000 x 120 = 840,000, plus 90,000 for UDP, is 930,000, above 786,432. The kernel drops the first packet of new flows and logs `nf_conntrack: table full, dropping packet`. Connections already open keep working.',
 			'(4) 24 x 60,000 = 1,440,000, but the code at this commit caps the scaled value at 1,048,576. That covers 930,000. In 2018 the code had no cap, so the reporter got 1,440,000.'
+		],
+		steps: [
+			{
+				title: 'Find the limit',
+				questions: [
+					{ q: 'What is kube-proxy\'s default `MaxPerCore`?', options: ['32,768', '16,384', '131,072', '262,144'], answer: 0, why: 'The default is 32 x 1024 = 32,768 entries per core.' },
+					{ q: 'What `nf_conntrack_max` does kube-proxy set on the 24 core node?', options: ['131,072', '262,144', '786,432', '1,048,576'], answer: 2, why: '24 x 32,768 = 786,432, the same number as in the kube-proxy log of issue #71261.' },
+					{ q: 'Does the `Min` floor change that result?', options: ['Yes, it raises it to 1,048,576', 'No, 786,432 is above the 131,072 floor', 'Yes, it caps it at 131,072', 'No, `Min` only applies to UDP'], answer: 1, why: '`Min` (131,072 by default) is a floor. The scaled value is already above it.' },
+					{ q: 'What does kube-proxy do with the hash size?', options: ['Sets it to the entry limit', 'Leaves it to the kernel default', 'Doubles it to 1,572,864', 'Raises it to a quarter of the limit if smaller'], answer: 3, why: 'kube-proxy raises the hash size to `max / 4`, here 196,608, if it is smaller.' }
+				]
+			},
+			{
+				title: 'Count the entries in steady state',
+				questions: [
+					{ q: 'How long does an entry for a closed TCP connection stay by default?', options: ['A few milliseconds', '30 seconds', '120 seconds, in TIME_WAIT', 'Until the table is full'], answer: 2, why: 'Entries outlive the last packet. A closed TCP flow stays 120 seconds in TIME_WAIT.' },
+					{ q: 'How many TCP entries do 5,000 new connections per second keep in the table?', options: ['600,000', '5,000', '150,000', '60,000'], answer: 0, why: 'Entries = new flows per second times the seconds each stays: 5,000 x 120 = 600,000.' },
+					{ q: 'How many UDP entries do 3,000 DNS queries per second keep?', options: ['3,000', '90,000', '360,000', '6,000'], answer: 1, why: 'Each query is its own flow, kept 30 seconds: 3,000 x 30 = 90,000.' },
+					{ q: 'What share of the limit is in use?', options: ['About 50%', 'About 77%', 'About 100%', 'About 88%'], answer: 3, why: '600,000 + 90,000 = 690,000 of 786,432, about 88%.' }
+				]
+			},
+			{
+				title: 'Grow the traffic',
+				questions: [
+					{ q: 'At 7,000 TCP connections per second, how many entries in all?', options: ['790,000', '930,000', '840,000', '1,048,576'], answer: 1, why: '7,000 x 120 = 840,000 for TCP, plus 90,000 for UDP: 930,000.' },
+					{ q: 'What does the kernel do with the first packet of a new flow once the count passes the limit?', options: ['Queues it until an entry expires', 'Sends it without NAT', 'Tries `early_drop`, then drops the packet if nothing frees', 'Evicts the oldest assured entry'], answer: 2, why: '`__nf_conntrack_alloc` calls `early_drop`. If no entry can be freed, it logs "table full" and drops the packet.' },
+					{ q: 'A Pod\'s HTTP health check opens a new connection each time. What do you expect?', options: ['It keeps passing, since health checks skip conntrack', 'It fails, and the kubelet restarts the Pod', 'It gets slower but never fails', 'It switches to UDP'], answer: 1, why: 'Each check is a new flow, so its first packet can be dropped. That is what issue #71261 reported: Pods restarting often.' },
+					{ q: 'Which traffic still works while the table is full?', options: ['Packets of flows already in the table', 'Every new TCP connection', 'Every new DNS query', 'Nothing on the node'], answer: 0, why: 'The check runs only for the first packet of a flow. Known flows match their existing entry.' }
+				]
+			},
+			{
+				title: 'Raise the limit',
+				questions: [
+					{ q: 'With `maxPerCore: 60000`, what is the scaled value before any cap?', options: ['1,048,576', '786,432', '1,440,000', '60,000'], answer: 2, why: '24 x 60,000 = 1,440,000.' },
+					{ q: 'What limit does today\'s kube-proxy set?', options: ['1,440,000', '1,048,576', '131,072', '786,432'], answer: 1, why: '`getConntrackMax` caps the scaled value at 1,048,576.' },
+					{ q: 'Is that enough for 930,000 entries?', options: ['Yes, with room to spare', 'No, it is 100,000 short', 'Only if UDP stops', 'Only after a node reboot'], answer: 0, why: '1,048,576 is above 930,000.' },
+					{ q: 'Why did the reporter in 2018 get 1,440,000?', options: ['They set it by hand with sysctl', 'The kernel doubled it at boot', 'Their node had more cores', 'The code had no cap then'], answer: 3, why: 'The cap at 1,048,576 came later. In 2018 kube-proxy used the scaled value as is.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ __nf_conntrack_alloc(struct net *net,
 			why: '`getConntrackMax` multiplies `MaxPerCore`, 32 x 1024 by default, by the CPU count, and uses `Min` (131,072) as a floor. 786,432 / 32,768 = 24, the maintainer\'s guess in issue #71261.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a fake ClusterIP with one DNAT rule, then watch conntrack entries pile up after the connections close.',
+		steps: [
+			'Start a shell in its own network namespace, so nothing touches your host\'s rules: `docker run -it --rm --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Inside it, start a backend: `python3 -m http.server 8080 >/dev/null 2>&1 &`.',
+			'Add the "Service" rule: `iptables -t nat -A OUTPUT -p tcp -d 10.96.0.10 --dport 80 -j DNAT --to-destination $(hostname -i):8080`.',
+			'Call the fake ClusterIP once and read the table: `curl -s -o /dev/null -w "%{http_code}\\n" http://10.96.0.10/`, then `conntrack -L`.',
+			'Open 50 short connections and count the entries: `for i in $(seq 50); do curl -s -o /dev/null http://10.96.0.10/; done; conntrack -C`. Run `conntrack -L | head -3` a few times over the next two minutes, and read the limit with `cat /proc/sys/net/netfilter/nf_conntrack_max`.'
+		],
+		done: [
+			'`curl` prints `200`, although nothing listens on `10.96.0.10`.',
+			'`conntrack -L` shows one line with two tuples: `dst=10.96.0.10 dport=80`, then a reply tuple with `sport=8080`.',
+			'After the loop, `conntrack -C` prints about 51 although every connection has closed, and the entries show `TIME_WAIT` with a timer counting down from 120.'
+		],
+		solution: [
+			'The first packet hit the DNAT rule and conntrack stored both tuples. The reply from port 8080 matched the reply tuple and was rewritten back to `10.96.0.10:80`, with no rule walked again.',
+			'Each closed TCP flow holds its entry for 120 seconds. 50 connections in a few seconds keep about 50 entries for two minutes: the same steady state sum as the task, at a smaller rate.',
+			'Writing to `nf_conntrack_max` from the container fails with "Read-only file system": Docker mounts `/proc/sys` read-only. Type `exit` to remove the container and its rules.'
+		]
+	},
 	recall: {
 		q: 'What does the kernel do with the first packet of a new flow when `nf_conntrack_count` has reached `nf_conntrack_max`?',
 		a: 'It tries `early_drop`: free one entry that is not assured from 8 nearby hash buckets. When no entry can be freed, it drops the packet and logs `nf_conntrack: table full, dropping packet`.'

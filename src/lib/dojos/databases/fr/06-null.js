@@ -137,7 +137,7 @@ export default {
 			{
 				title: 'Prédis le compte avec `<>`',
 				questions: [
-					{ q: 'Pour la ligne `docs`, que vaut `status <> \'archived\'` ?', options: ['vrai', 'faux', 'NULL', 'Une erreur'], answer: 2, why: 'Une comparaison avec NULL donne NULL. La doc : « 7 = NULL yields null, as does 7 <> NULL ».' },
+					{ q: 'Pour la ligne `web`, que vaut `status <> \'archived\'` ?', options: ['vrai', 'faux', 'NULL', 'Une erreur'], answer: 1, why: '`\'archived\' <> \'archived\'` compare simplement deux valeurs égales. Aucun NULL en jeu, donc c’est faux.' },
 					{ q: 'Quelles lignes WHERE garde-t-il ?', options: ['Les lignes où la condition est vraie ou NULL', 'Les lignes où la condition est vraie', 'Les lignes où la condition n’est pas fausse', 'Toutes, puis il filtre plus tard'], answer: 1, why: 'La doc : si le résultat « is false or null, it is discarded » (faux ou NULL, la ligne est écartée). Seul vrai survit.' },
 					{ q: 'Que renvoie donc (a) ?', options: ['1', '2', '3', '0'], answer: 0, why: 'Seulement `api`. `web` vaut faux, et `docs` vaut NULL, donc les deux sont écartées.' },
 					{ q: 'Tu essaies `WHERE status = NULL` pour trouver `docs`. Qu’obtiens-tu ?', options: ['La ligne `docs`', 'Une erreur sur NULL', 'Toutes les lignes', 'Aucune ligne'], answer: 3, why: '`x = NULL` vaut NULL même quand `x` est NULL. Seul `status IS NULL` teste une valeur absente.' }
@@ -149,7 +149,7 @@ export default {
 					{ q: 'Que renvoie (b), avec `IS DISTINCT FROM` ?', options: ['1', '2', '3', '0'], answer: 1, why: '`api` et `docs`. Il traite le NULL comme une valeur différente de `\'archived\'`.' },
 					{ q: 'Que peut renvoyer `status IS DISTINCT FROM \'archived\'` ?', options: ['Seulement vrai ou faux, jamais NULL', 'Vrai, faux ou NULL', 'Seulement NULL quand `status` est NULL', 'La valeur de `status`'], answer: 0, why: 'C’est tout son intérêt : il compare NULL comme une valeur ordinaire.' },
 					{ q: 'Quelle autre condition garde aussi `docs` ?', options: ['`status <> \'archived\' AND status IS NOT NULL`', '`NOT (status = \'archived\')`', '`status != \'archived\'`', '`COALESCE(status, \'none\') <> \'archived\'`'], answer: 3, why: '`COALESCE` remplace le NULL par `\'none\'` avant la comparaison. Les trois autres tombent encore sur un NULL, ou l’écartent exprès.' },
-					{ q: 'Quelles lignes renvoie ici le `exclude(status="archived")` de Django ?', options: ['Seulement `api`', 'Seulement `docs`', '`api` et `docs`', 'Aucune'], answer: 2, why: 'Django envoie `NOT (status = \'archived\' AND status IS NOT NULL)`, vrai pour un statut NULL. Il colle à (b), pas à (a).' }
+					{ q: 'Quelle condition trouve `docs` comme le fait `status IS NULL` ?', options: ['`status = NULL`', '`status <> NULL`', '`status IS NOT DISTINCT FROM NULL`', '`NOT (status = NULL)`'], answer: 2, why: '`IS NOT DISTINCT FROM` compare NULL comme une valeur ordinaire, donc NULL face à NULL vaut vrai. Les trois autres valent NULL pour chaque ligne.' }
 				]
 			},
 			{
@@ -157,7 +157,7 @@ export default {
 				questions: [
 					{ q: 'La sous-requête renvoie `1` et `NULL`. Que veut dire `id NOT IN (1, NULL)` ?', options: ['`id <> 1 OR id <> NULL`', '`id <> 1 AND id <> NULL`', '`id <> 1`, les NULL sont sautés', '`id IS NOT NULL AND id <> 1`'], answer: 1, why: '`NOT IN` doit différer de chaque valeur de la liste, donc les tests se joignent par AND.' },
 					{ q: 'Pour `web` (id 2), que vaut `2 <> 1 AND 2 <> NULL` ?', options: ['vrai', 'faux', 'Une erreur', 'NULL'], answer: 3, why: '`true AND NULL` vaut NULL, donc WHERE écarte la ligne.' },
-					{ q: 'Que renvoie donc (c) ?', options: ['Aucune ligne', '`web` et `docs`', 'Seulement `docs`', 'Les trois projets'], answer: 0, why: 'Un seul NULL dans la sous-requête rend chaque `NOT IN` NULL ou faux, jamais vrai.' },
+					{ q: 'Le `project_id` du membre 11 passe à 3 au lieu de NULL. Que renvoie (c) maintenant ?', options: ['Aucune ligne', 'Seulement `web`', '`web` et `docs`', 'Seulement `docs`'], answer: 1, why: 'La liste est maintenant `(1, 3)`, sans NULL. `2 <> 1 AND 2 <> 3` vaut vrai, donc `web` reste, et `docs` (id 3) a maintenant un membre.' },
 					{ q: 'Quelle requête renvoie `web` et `docs`, comme tu le voulais ?', options: ['`... WHERE id NOT IN (SELECT DISTINCT project_id FROM members)`', '`... WHERE id <> ALL (SELECT project_id FROM members)`', '`... WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.project_id = p.id)`', '`... WHERE id NOT IN (SELECT project_id FROM members ORDER BY 1)`'], answer: 2, why: '`NOT EXISTS` renvoie quand même les lignes sans correspondance quand la sous-requête contient un NULL. Les trois autres gardent le NULL dans la liste.' }
 				]
 			},
@@ -167,7 +167,7 @@ export default {
 					{ q: 'Que renvoie (d), `count(*), count(status)` ?', options: ['3 et 3', '2 et 2', '3 et 2', '3 et NULL'], answer: 2, why: '`count(*)` compte les lignes. `count(status)` compte les lignes où status n’est pas NULL.' },
 					{ q: 'Pourquoi NULL sert-il mieux `avg(price)` qu’un 0 stocké ?', options: ['Il garde le prix absent hors du calcul, alors qu’un 0 tirerait la moyenne vers le bas', 'Les moyennes sont plus rapides sur les colonnes NULL', 'Un 0 fait renvoyer NULL à `avg`', 'Aucune différence'], answer: 0, why: 'Les agrégats sautent les NULL. Un 0 a l’air d’une vraie donnée.' },
 					{ q: 'Que change `SELECT name, COALESCE(status, \'none\') FROM projects` dans la table ?', options: ['Il écrit `none` dans la ligne `docs`', 'Il ajoute une valeur par défaut à la colonne', 'Il rend `status` NOT NULL', 'Rien : il change seulement ce que la requête affiche'], answer: 3, why: '`COALESCE` renvoie son premier argument non NULL. Il agit sur la sortie, pas sur les données stockées.' },
-					{ q: '`UNIQUE (user_id, team_id)` par défaut, et tu insères `(7, NULL)` deux fois. Que se passe-t-il ?', options: ['Les deux inserts passent', 'Le deuxième insert échoue', 'Le premier insert échoue', 'Le deuxième remplace le premier'], answer: 0, why: 'Par défaut, « null values in a unique column are not considered equal ». `NULLS NOT DISTINCT` (PostgreSQL 15 et plus) refuse le deuxième.' }
+					{ q: 'Que renvoie `SELECT count(DISTINCT status) FROM projects` ?', options: ['3', '2', '1', 'NULL'], answer: 1, why: 'Les agrégats sautent les NULL. Il compte `active` et `archived`, et laisse de côté le NULL de `docs`.' }
 				]
 			}
 		]

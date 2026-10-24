@@ -146,7 +146,7 @@ func (r *raft) becomeCandidate() {
 					{ q: 'B and C crash. Which members are left?', options: ['The leader, D and E', 'Only the leader', 'The leader and D', 'D and E'], answer: 0, why: 'Three of the five are still up.' },
 					{ q: 'Can the cluster still commit?', options: ['No: two failures always stop writes', 'Yes: three is still a quorum of five', 'Only reads work from now on', 'Only after a new election'], answer: 1, why: 'Losing a minority, 2 of 5, leaves a majority, so the leader keeps committing.' },
 					{ q: 'What must happen before a new write commits?', options: ['B and C must come back', 'The operator must reset the cluster', 'D and E must catch up and persist the entries they miss', 'A new leader must be elected'], answer: 2, why: 'D is at 4 and E at 3. The leader keeps sending them what they lack, and once both hold the new entry, three members have it.' },
-					{ q: 'How many failures does a five-member cluster survive?', options: ['1', '3', '4', '2'], answer: 3, why: 'With 2 down, 3 are left, still a quorum. A third failure leaves 2, below it.' }
+					{ q: 'Entry 10 commits while B and C are down. Which members hold it?', options: ['Only the leader', 'The leader and D', 'B and C, once they come back', 'The leader, D and E'], answer: 3, why: 'A commit needs 3 of 5, and only three members are up, so every one of them must have it on disk.' }
 				]
 			},
 			{
@@ -164,7 +164,7 @@ func (r *raft) becomeCandidate() {
 					{ q: 'Why can D never win this election?', options: ['Any majority of three includes the leader, B or C, who all hold entry 7 and reject D', 'D has the lowest node id', 'Term 9 is too high to be accepted', 'etcd forbids a member that crashed from leading'], answer: 0, why: 'D only has its own vote and E\'s. The third vote must come from a member with entry 7.' },
 					{ q: 'C heard the leader within the election timeout, and check-quorum is on. What does it do with D\'s request?', options: ['It votes yes, then steps down', 'It ignores the request outright', 'It becomes a candidate too', 'It forwards it to the leader'], answer: 1, why: 'A follower that still hears a live leader ignores vote requests, so a lagging member cannot disrupt the cluster.' },
 					{ q: 'Why does the up-to-date rule matter?', options: ['It makes elections faster', 'It sends fewer messages', 'A candidate that missed committed entries cannot win, so a committed write is never lost', 'It saves disk space'], answer: 2, why: 'A committed entry is on a quorum, and every majority shares a member with that quorum. That member blocks any candidate without it.' },
-					{ q: 'Someone proposes a sixth member "for safety". How many failures can six survive?', options: ['3', '5', '1', '2, the same as five, since the quorum rises to 4'], answer: 3, why: 'The quorum of 6 is 4, so losing 3 leaves too few. The FAQ: an even size "doesn\'t buy additional fault tolerance".' }
+					{ q: 'Why must C write its vote to disk before it answers a candidate?', options: ['To make the election faster', 'Because etcd replays votes as log entries', 'So the leader can read the vote later', 'So a crash cannot make it forget the vote and vote again in the same term'], answer: 3, why: 'The raft README: no message may be sent "until the latest HardState has been persisted to disk". A forgotten vote could let two candidates win the same term.' }
 				]
 			}
 		]

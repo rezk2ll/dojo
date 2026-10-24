@@ -139,16 +139,16 @@ export default {
 			{
 				title: 'Spot the fan-out',
 				questions: [
-					{ q: 'You add `LEFT JOIN tags g ON g.topic_id = t.id` to (1). Topic 1 has 3 posts and 2 tags. What does `count(p.id)` say?', options: ['3', '5', '2', '6'], answer: 3, why: 'Each of the 3 post rows meets both tags: 3 x 2 = 6 rows, each with a non-NULL `p.id`.' },
+					{ q: 'You add `LEFT JOIN tags g ON g.topic_id = t.id` to (1). Topic 2 has 1 post and 4 tags. What does `count(p.id)` say for it?', options: ['1', '5', '0', '4'], answer: 3, why: 'The one post row meets each of the 4 tags: 4 rows, each with the same non-NULL `p.id`.' },
 					{ q: 'What does one row of that joined result stand for?', options: ['A post and a tag of the same topic', 'One topic', 'One post', 'One tag'], answer: 0, why: 'Both joins start from the topic, so the result pairs every post with every tag of its topic.' },
 					{ q: 'What does PostgreSQL say about the overcount?', options: ['It raises a warning about duplicate rows', 'It refuses the query without DISTINCT', 'Nothing: it returns what the query asked for', 'It counts only the first join'], answer: 2, why: 'A join pairs rows, and `count` counts rows. The numbers are wrong without any error.' },
-					{ q: 'And `count(g.name)` for topic 1 in the same query?', options: ['2, because there are 2 tags', '6, because each tag meets 3 posts', '3, because there are 3 posts', '1, because tags are grouped'], answer: 1, why: 'The fan-out multiplies both sides. Each tag is repeated once per post.' }
+					{ q: 'And `count(g.name)` for topic 2 in the same query?', options: ['1, because there is 1 post', '4, because each tag meets the one post once', '5, the posts plus the tags', '8, because the fan-out doubles it'], answer: 1, why: 'Each tag is repeated once per post. With one post the tag count happens to be right, which is how a fan-out hides in small test data.' }
 				]
 			},
 			{
 				title: 'Aggregate before joining',
 				questions: [
-					{ q: 'How do you count posts and tags with no overcounting?', options: ['Count each table in its own subquery grouped by `topic_id`, then left join the totals', 'Add `ORDER BY t.id` so the rows are grouped', 'Use an inner join for tags and a left join for posts', 'Move the tags join into the WHERE clause'], answer: 0, why: 'Aggregate first, then join. That is the fix the chapter prefers to `DISTINCT`.' },
+					{ q: 'You count each table in its own subquery grouped by `topic_id`, then left join the totals. The posts subquery gives `(1, 3)`, the tags one `(1, 2)`. Which row does topic 1 get?', options: ['`(1, 3, 2)`', '`(1, 6, 6)`', '`(1, 3, 6)`', '`(1, 5, NULL)`'], answer: 0, why: 'Topic 1 meets one row of totals on each side, so both counts come through as they are.' },
 					{ q: 'Why can nothing multiply in that version?', options: ['Subqueries always return one row', 'GROUP BY removes duplicate posts', 'Each subquery gives at most one row per topic', 'Left joins never repeat a row'], answer: 2, why: 'A topic now meets one row of totals on each side, so no pairs multiply.' },
 					{ q: 'Why wrap the totals in `coalesce(p.n, 0)`?', options: ['To turn text into numbers', 'A topic with no post gets NULL from the left join, not 0', 'To make the subquery run first', 'Because `count(*)` can return NULL'], answer: 1, why: 'The subquery has no row for topic 3, so the left join fills `p.n` with NULL. `coalesce` shows it as 0.' },
 					{ q: 'What does `count(DISTINCT p.id)` cost compared with the subqueries?', options: ['It gives wrong numbers here', 'It cannot be used with GROUP BY', 'Nothing, it is the same plan', 'The join still builds all 3 x 2 rows before counting'], answer: 3, why: '`DISTINCT` hides the fan-out but does not stop it. The extra rows are still made first.' }

@@ -155,7 +155,7 @@ struct HeapTupleHeaderData
 				title: 'Check it in psql',
 				questions: [
 					{ q: 'After inserting ids 1 to 1000, where is id 186?', options: ['`(0,186)`', '`(1,1)`', '`(1,186)`', '`(0,1)`'], answer: 1, why: 'Page 0 is full after 185 rows, so id 186 takes the first slot of page 1.' },
-					{ q: 'What does a `ctid` of `(1,1)` name?', options: ['Page 1, line pointer 1', 'Byte 1 of row 1', 'Transaction 1, command 1', 'Index entry 1 of page 1'], answer: 0, why: 'The address names the page and the slot, not a byte offset, so tuples can move inside the page.' },
+					{ q: 'And where is id 1000, the last row?', options: ['`(5,75)`', '`(5,76)`', '`(6,1)`', '`(0,1000)`'], answer: 0, why: 'Pages 0 to 4 hold 5 × 185 = 925 rows, so id 1000 is the 75th row of page 5.' },
 					{ q: 'How many pages do 1000 rows need?', options: ['5', '4', '8', '6'], answer: 3, why: '1000 / 185 is about 5.4, so a sixth page holds the last rows.' },
 					{ q: 'So what does `pg_relation_size(\'t\')` return in bytes?', options: ['8192', '40960', '49152', '44000'], answer: 2, why: 'Six pages of 8192 bytes. The file grows in whole pages.' }
 				]
@@ -164,7 +164,7 @@ struct HeapTupleHeaderData
 				title: 'Watch an update move the row',
 				questions: [
 					{ q: 'You run `UPDATE t SET qty = qty + 1 WHERE id = 1`. Where does the new version go?', options: ['It overwrites `(0,1)` in place', 'Into a free slot at the end of the table', 'Into the TOAST table', 'Into the WAL only, until VACUUM'], answer: 1, why: 'An UPDATE writes a new tuple. Page 0 is full, so it lands where there is room, like `(5,76)` in the diagram.' },
-					{ q: 'What stays at `(0,1)` right after the update?', options: ['Nothing, the slot is freed at once', 'The new version', 'An empty tuple with only a header', 'The old version, with `t_xmax` set and `t_ctid` pointing to the new one'], answer: 3, why: 'Readers who started earlier may still need it. It stays until VACUUM removes it.' },
+					{ q: 'The new version is at `(5,76)`. What does a new `SELECT ctid FROM t WHERE id = 1` show?', options: ['`(0,1)`', 'Both `(0,1)` and `(5,76)`', 'No row until VACUUM runs', '`(5,76)`'], answer: 3, why: 'A new query sees only the live version. The old one is still on page 0, but it is dead for readers who start after the update.' },
 					{ q: 'You delete half the rows. What does `pg_relation_size` say?', options: ['The same 49152 bytes', 'About half, 24576 bytes', '0, until VACUUM runs', 'More, because of the deletes'], answer: 0, why: 'A delete marks tuples, it does not shrink the file. That is the hook\'s 35 MB that stays 35 MB.' },
 					{ q: 'Which column of the old tuple says which transaction updated it?', options: ['`t_xmin`', '`t_hoff`', '`t_xmax`', '`t_bits`'], answer: 2, why: '`t_xmin` is the inserting transaction, `t_xmax` the one that deleted or locked it.' }
 				]

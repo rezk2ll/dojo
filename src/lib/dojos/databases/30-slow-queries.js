@@ -148,7 +148,7 @@ export default {
 					{ q: 'In which order do you work on the three rows?', options: ['C, then B, then A', 'A, then B, then C', 'B, then A, then C', 'C, then A, then B'], answer: 1, why: 'Total time is where the server spends its time: 2,160 s, 1,620 s, then 240 s.' },
 					{ q: 'About what share of the three totals is the report C?', options: ['About 60%', 'About 25%', 'About 6%', 'About 40%'], answer: 2, why: '240 s out of 4,020 s is about 6%. It is the star of the slow log, not of the CPU.' },
 					{ q: 'Why sort by `total_exec_time` rather than `mean_exec_time`?', options: ['The mean hides fast queries that run very often', 'The mean is only computed for slow queries', 'The total is cheaper to compute', 'The mean resets every hour'], answer: 0, why: 'A 0.9 ms query called 2.4 million times costs more than an 8 second report run 30 times.' },
-					{ q: 'With `log_min_duration_statement = 250ms`, why does the slow log show C but never A?', options: ['The slow log ignores SELECTs', 'A and B run inside transactions', 'The slow log samples one query in ten', 'It looks at one run at a time, and no single run of A reaches 250 ms'], answer: 3, why: 'Every run of C passes 250 ms, and so do B\'s rare 4 s spikes. A never does, however often it runs.' }
+					{ q: 'A\'s calls come from two roles, the web app and an admin tool. How does A show up in `pg_stat_statements`?', options: ['As one row, since the constants become `$1`', 'As one row per distinct `id` value', 'Not at all, until both roles are granted the view', 'As two rows, one per role: add them to get A\'s real total'], answer: 3, why: 'The entry key holds `userid`, `dbid`, `queryid` and `toplevel`. The same query run by two roles is two rows, each with part of the time.' }
 				]
 			},
 			{

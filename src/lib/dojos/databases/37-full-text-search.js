@@ -154,7 +154,7 @@ export default {
 			{
 				title: 'Index and query',
 				questions: [
-					{ q: 'Which index serves `search @@ q`?', options: ['`CREATE INDEX posts_search_idx ON posts USING GIN (search);`', 'A B-tree on `search`', 'A B-tree on `title` and `body`', 'A GIN index with `jsonb_path_ops`'], answer: 0, why: 'The docs call GIN the preferred text search index: one entry per lexeme, with the rows that hold it.' },
+					{ q: 'Discourse does not index every post: a daily job builds a GIN index `WHERE ... post_id >= :post_id`. What does that buy?', options: ['A partial index over recent posts stays much smaller than one over the whole forum', 'GIN cannot index more than a million rows', 'A partial index needs no recheck on the heap', 'A full GIN index cannot be built `CONCURRENTLY`'], answer: 0, why: 'A partial index holds only the rows its `WHERE` keeps (day 14), so the index on recent posts stays small.' },
 					{ q: 'The table is live and busy. How do you build that index?', options: ['In a transaction, after `LOCK TABLE posts`', 'With `CREATE INDEX CONCURRENTLY`', 'Off-hours, with a plain `CREATE INDEX`', 'By copying the table first'], answer: 1, why: '`CONCURRENTLY` lets writes keep flowing while the index builds (day 26).' },
 					{ q: 'Which tsquery finds posts with both "restore" and "backup"?', options: ['`to_tsquery(\'simple\', \'restore & backup\')`', '`\'restore & backup\'::tsquery`', '`to_tsquery(\'english\', \'restore & backup\')`', '`to_tsquery(\'english\', \'!restore & backup\')`'], answer: 2, why: 'It gives `\'restor\' & \'backup\'`, the same lexemes as the vector. A different configuration or a raw cast gives words that never match.' },
 					{ q: 'The search box passes what users type. Which function do you use?', options: ['`to_tsquery` on the raw text', 'A cast to `::tsquery`', '`ILIKE` with the raw text', '`websearch_to_tsquery`'], answer: 3, why: 'It accepts quotes, `or` and `-` without syntax errors, so a stray `&` cannot break the query.' }
@@ -172,8 +172,8 @@ export default {
 			{
 				title: 'Predict the vector',
 				questions: [
-					{ q: 'Title "Backups you can restore": what does "Backups" become?', options: ['`backup`', '`backups`', '`Backups`', '`back`'], answer: 0, why: 'The `english` dictionaries lowercase and stem the word.' },
-					{ q: 'And "restore"?', options: ['`restore`', '`restor`', '`rest`', '`restored`'], answer: 1, why: 'The stemmer cuts it to `restor`. "restored" gives the same lexeme, which is why the hook\'s post now matches.' },
+					{ q: 'Body "Test the restore every week": what does "every" become?', options: ['`every`', '`everi`', 'Nothing: it is dropped as a stop word', '`ever`'], answer: 1, why: 'The `english` stemmer lowercases and cuts the word to `everi`. It is not a stop word, so it keeps its position, 8.' },
+					{ q: '"restore" is in the title and in the body. Why does `restor` appear only once in the vector?', options: ['The body copy is dropped as a duplicate', 'Each lexeme appears once, with all its positions', 'Only the title copy is kept, since it has weight A', '`||` merges equal words into one position'], answer: 1, why: 'A tsvector lists each distinct lexeme once. `restor` carries both positions, 4 from the title and 7 from the body.' },
 					{ q: 'The vector shows `\'restor\':4A,7`. Why 4 and 7, not 2 and 4?', options: ['Title positions start at 4', 'Weights shift the positions', 'Stop words are dropped but still count as positions', 'Each repeated lexeme adds 3'], answer: 2, why: '"you" and "can" sit at 2 and 3, "the" at 6. They leave gaps in the numbering.' },
 					{ q: 'In `\'backup\':1A \'everi\':8 \'restor\':4A,7 \'test\':5 \'week\':9`, how do you spot the title words?', options: ['They come first in the list', 'They have no position', 'They are in capitals', 'Their positions carry the label `A`'], answer: 3, why: 'The list is sorted by lexeme, not by origin. Only the weight label says a position came from the title.' }
 				]

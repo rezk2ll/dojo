@@ -145,7 +145,7 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 			{
 				title: 'Predict the reads',
 				questions: [
-					{ q: 'How many pages does `WHERE id = 424242` read, heap included?', options: ['Four', 'Three', 'One', 'About 7,300'], answer: 0, why: 'Root, one internal page, one leaf, then the heap page the ctid points to.' },
+					{ q: 'The leaf holds `424242` next to the ctid `(3119,58)`. Which page does the last read fetch?', options: ['Page 3119 of the table', 'Page 58 of the table', 'The index metapage', 'Leaf page 3119 of the index'], answer: 0, why: 'A ctid is the heap page, then the line pointer (day 9). The last read is page 3119 of `users`, and the row is in slot 58.' },
 					{ q: 'Why do the index pages read equal the number of levels?', options: ['Each level is cached as one page', 'The search reads exactly one page per level on the way down', 'The planner reads the root once per level', 'Leaves are read in bulk'], answer: 1, why: '`_bt_search` loops once per level, binary searches the page, and follows one downlink.' },
 					{ q: 'You run the query twice. What does the second run show?', options: ['`Buffers: shared hit=1`', '`Buffers: shared read=7300`', '`Buffers: shared hit=7`', '`Buffers: shared hit=4`'], answer: 3, why: 'The four pages of the path are now in the cache, so they are hits.' },
 					{ q: 'Why can the first run in a session read a few more pages?', options: ['The first run always scans the table', 'It also reads pages such as the index metapage', 'It builds the index on the fly', 'It reads every leaf once'], answer: 1, why: 'The metapage records where the root is (it is what `bt_metap` shows), and the first run reads it on top of the path. Later runs in the session touch only the four pages of the path.' }
@@ -156,7 +156,7 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 				questions: [
 					{ q: 'Which plan node do you expect for `WHERE id = 424242`?', options: ['`Seq Scan`', '`Hash Join`', '`Index Scan`', '`Sort`'], answer: 2, why: 'The B-tree on `id` answers an equality in a few page reads.' },
 					{ q: 'Without the index, what would the query read?', options: ['Every page of the table, more than 7,000', 'Half the table on average', 'Only the first page', 'Four pages, like with the index'], answer: 0, why: 'A `Seq Scan` reads all of the table\'s pages to find one row.' },
-					{ q: 'Why does `ORDER BY id LIMIT 20` need no sort step?', options: ['The heap is stored sorted by `id`', 'The planner caches sorted results', 'The root holds the first 20 keys', 'Leaves keep keys in order and link to the next leaf'], answer: 3, why: 'The scan goes down once, then follows the right-links and stops after 20 rows.' },
+					{ q: 'The leaf already holds `424242`. Why does the query still read a heap page?', options: ['The heap page holds the root of the index', 'PostgreSQL always checks each key twice', 'The leaf stores only every tenth key', '`SELECT *` needs `email`, and the leaf holds only the key and the ctid'], answer: 3, why: 'A leaf entry is a key and the address of its row. Every other column lives in the table, one read away.' },
 					{ q: 'What does `WHERE email LIKE \'%@example.com\'` do with a B-tree on `email`?', options: ['It uses the index from the right', 'It still reads the whole table', 'It reads only the leaves', 'It reads four pages'], answer: 1, why: 'A B-tree helps only when the query matches its order, and a leading `%` gives no starting point.' }
 				]
 			},
@@ -166,7 +166,7 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 					{ q: 'About how many leaf pages for 100 million `bigint` keys?', options: ['About 2,700', 'About 27 million', 'About 270,000', 'About 1,000'], answer: 2, why: '100,000,000 / 370 is about 270,000.' },
 					{ q: 'How many internal pages sit right above those leaves?', options: ['About 1,000', 'About 10', 'About 270,000', 'Exactly 1'], answer: 0, why: '270,000 divided by a few hundred is about 1,000. A few more pages above those, then the root.' },
 					{ q: 'How many levels in all?', options: ['Three', 'Five', 'Six', 'Four'], answer: 3, why: 'Leaves, about 1,000 internal pages, a few pages above them, and the root.' },
-					{ q: 'What does a lookup cost compared with a million rows?', options: ['A hundred times more reads', 'One more page read', 'Twice as many reads', 'The same three index reads'], answer: 1, why: 'Each level divides by a few hundred, so a table a hundred times bigger adds one level.' }
+					{ q: 'As the table grows from one million to 100 million rows, which event adds the fourth level?', options: ['A VACUUM of the index', 'A split of the root page', 'Every new leaf page', 'An ANALYZE of the table'], answer: 1, why: 'A full page splits and sends a new separator to its parent. When the root itself splits, a new root goes on top, one level higher.' }
 				]
 			}
 		]

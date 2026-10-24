@@ -131,6 +131,44 @@ def should_autorenew(lineage: storage.RenewableCert,
 			'Le certificat expire le 1er mars plus 45 jours : le 15 avril 2028 à 00:00. Du 31 mars au 15 avril, il y a 15 jours de deux passages, donc environ 30 tentatives. Toutes échouent, car le `GET` de l’AC vers le port 80 n’aboutit pas.',
 			'Chaque passage fait une tentative `http-01`, bien en dessous de la limite de 5 autorisations échouées par nom et par heure : ce n’est pas la limite de débit qui te bloque, c’est le pare-feu.',
 			'Rien ne te prévient par défaut : plus d’e-mail de Let’s Encrypt depuis juin 2025. Vérifie qu’il reste plus de 14 jours au certificat servi (`openssl s_client` et `-checkend 1209600`), ou alerte sur la variable `FAILED_DOMAINS` que certbot passe aux post hooks.'
+		],
+		steps: [
+			{
+				title: 'Trouve l’heure de renouvellement',
+				questions: [
+					{ q: 'Sans ARI ni `renew_before_expiry`, quelle fonction fixe l’heure de renouvellement ?', options: ['`_ari_renewal_time`', '`_default_renewal_time`', '`lineage.ocsp_revoked`', '`crypto_util.notAfter`'], answer: 1, why: 'La dernière branche de `should_autorenew` se rabat sur `_default_renewal_time` quand aucun des deux n’est posé.' },
+					{ q: 'Quel facteur s’applique à un certificat de 45 jours ?', options: ['1/2, car 45 jours c’est court', '3/4', '2/3, car la durée de vie dépasse 10 jours', '1/3'], answer: 2, why: 'certbot ne prend la moitié qu’en dessous de `10 * 86400` secondes de durée de vie.' },
+					{ q: 'Quand le certificat est-il donc à renouveler ?', options: ['Le 31 mars 2028 à 00:00 UTC', 'Le 16 mars 2028 à 00:00 UTC', 'Le 15 avril 2028 à 00:00 UTC', 'Le 1er avril 2028 à 12:00 UTC'], answer: 0, why: '2/3 de 45 jours, c’est 30 jours après le 1er mars.' },
+					{ q: 'Quand a lieu la première tentative, au plus tard ?', options: ['Le 31 mars à 00:00 pile', 'Le 30 mars à 12:00', 'Le 1er avril à 00:00', 'Le 31 mars à 12:00'], answer: 3, why: 'certbot renouvelle au premier passage où `now > default_renewal_time`, et les passages ont lieu à 00:00 et 12:00.' }
+				]
+			},
+			{
+				title: 'Trouve l’expiration',
+				questions: [
+					{ q: 'Quand le certificat expire-t-il ?', options: ['Le 30 avril 2028', 'Le 15 avril 2028 à 00:00 UTC', 'Le 31 mars 2028', 'Le 1er juin 2028'], answer: 1, why: 'L’expiration vaut `notBefore` plus 45 jours : le 1er mars plus 45 jours.' },
+					{ q: 'Combien de jours séparent la première tentative de l’expiration ?', options: ['Environ 15', 'Environ 30', 'Environ 45', 'Environ 5'], answer: 0, why: 'Du 31 mars au 15 avril, il y a 15 jours.' },
+					{ q: 'Que fait le changement de pare-feu du 30 mars à `http-01` ?', options: ['Rien, l’AC passe par le port 443', 'L’AC bascule sur `dns-01`', 'Le `GET` de l’AC vers le port 80 n’aboutit pas', 'certbot ouvre le port lui-même'], answer: 2, why: 'La RFC 8555 : la requête "MUST be sent to TCP port 80". Un port fermé fait échouer chaque tentative.' },
+					{ q: 'Le vieux certificat marcherait-il encore après le 15 avril ?', options: ['Oui, l’AC prolonge les renouvellements en retard', 'Oui, les navigateurs laissent 30 jours de grâce', 'Seulement pour les visiteurs qui l’ont déjà vu', 'Non, il est invalide dès ce moment'], answer: 3, why: 'Un certificat expiré échoue à la validation. Rien ne le prolonge.' }
+				]
+			},
+			{
+				title: 'Compte les tentatives',
+				questions: [
+					{ q: 'Combien de tentatives ont lieu avant l’expiration ?', options: ['Environ 30', 'Environ 15', 'Environ 90', 'Une seule'], answer: 0, why: '15 jours de deux passages, c’est environ 30 tentatives, toutes en échec.' },
+					{ q: 'Les limites de débit bloquent-elles ces tentatives ?', options: ['Oui, après 5 tentatives en tout', 'Non : une tentative par passage reste sous 5 échecs par nom et par heure', 'Oui, dès le premier échec', 'Non, les limites ne s’appliquent pas aux renouvellements'], answer: 1, why: 'Let’s Encrypt accepte 5 autorisations échouées par identifiant, par compte et par heure. Deux passages par jour n’y arrivent jamais.' },
+					{ q: 'Qu’est-ce qui bloque vraiment le renouvellement ?', options: ['La limite de débit', 'Le profil de 45 jours', 'Le port 80 fermé', 'Le planning de certbot'], answer: 2, why: 'Chaque tentative échoue au challenge, car l’AC ne peut pas atteindre le fichier.' },
+					{ q: 'Une autorisation de la commande précédente évite-t-elle le challenge ?', options: ['Oui, pendant 90 jours', 'Oui, pendant 30 jours', 'Oui, toujours', 'Non : en 2028 la réutilisation tombe à 7 heures, donc un nouveau challenge a lieu'], answer: 3, why: 'Avec 7 heures de réutilisation, un renouvellement 30 jours plus tard refait toujours un challenge.' }
+				]
+			},
+			{
+				title: 'Prévois l’alerte',
+				questions: [
+					{ q: 'Let’s Encrypt t’enverra-t-il un e-mail avant l’expiration ?', options: ['Oui, 20 jours avant', 'Non : il a arrêté les e-mails d’expiration le 4 juin 2025', 'Seulement pour les comptes payants', 'Seulement si ARI est actif'], answer: 1, why: 'Depuis juin 2025, aucun e-mail d’expiration ne part : ta propre surveillance doit l’attraper.' },
+					{ q: 'Quelle vérification attrape un certificat proche de l’expiration ?', options: ['`openssl x509 -checkend 1209600` sur le certificat servi', '`certbot --version`', 'Un `GET` sur `/.well-known/acme-challenge/`', '`ping shop.example.com`'], answer: 0, why: '`-checkend 1209600` échoue quand il reste moins de 14 jours.' },
+					{ q: 'Quelle valeur de certbot peut nourrir une alerte depuis un post hook ?', options: ['`RENEWED_LINEAGE`', '`CERTBOT_TOKEN`', '`FAILED_DOMAINS`', '`ACME_SERVER`'], answer: 2, why: 'certbot passe `FAILED_DOMAINS` aux post hooks, qui peuvent alors alerter sur un renouvellement raté.' },
+					{ q: 'Avec une alerte à 14 jours restants, quand se déclenche-t-elle ?', options: ['Le 15 avril', 'Le 31 mars', 'Le 30 mars', 'Le 1er avril'], answer: 3, why: 'Le 15 avril moins 14 jours, c’est le 1er avril : il reste deux semaines pour rouvrir le port 80.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ def should_autorenew(lineage: storage.RenewableCert,
 			why: 'Un certificat de 45 jours n’est plus valide à partir du jour 45, et le script attend le jour 60. Un client qui renouvelle à une fraction de la durée de vie (2/3 pour certbot) ou qui suit ARI continue de marcher quand la durée change.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Mener un vrai échange ACME contre Pebble, l’AC de test de Let’s Encrypt, sur ton portable : émettre un certificat de 45 jours, voir certbot sauter un renouvellement pas encore dû, puis voir un renouvellement échouer quand le port du challenge est fermé.',
+		steps: [
+			'Écris une config Pebble qui émet des certificats de 45 jours (3888000 secondes) : `mkdir ~/acme-lab && cd ~/acme-lab && printf \'%s\\n\' \'{"pebble": {"listenAddress": "0.0.0.0:14000", "managementListenAddress": "0.0.0.0:15000", "certificate": "test/certs/localhost/cert.pem", "privateKey": "test/certs/localhost/key.pem", "httpPort": 5002, "tlsPort": 5001, "certificateValidityPeriod": 3888000}}\' > pebble.json`.',
+			'Lance Pebble, avec `shop.test` qui pointe sur lui-même : `docker run -d --rm --name pebble --add-host shop.test:127.0.0.1 -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=0 -e PEBBLE_AUTHZREUSE=0 -v "$PWD/pebble.json:/test/config/pebble-config.json" ghcr.io/letsencrypt/pebble:2.6.0`. Pebble envoie ses requêtes `http-01` sur le port 5002 au lieu du 80. Les deux réglages à `0` coupent les rejets de nonce aléatoires de Pebble et sa réutilisation d’anciennes autorisations : chaque commande refait un challenge.',
+			'Commande un certificat avec certbot dans le même espace réseau : `docker run --rm --network container:pebble -v acme-le:/etc/letsencrypt certbot/certbot:v2.11.0 certonly --standalone --http-01-port 5002 --server https://localhost:14000/dir --no-verify-ssl --register-unsafely-without-email --agree-tos -d shop.test`.',
+			'Vérifie-le et tente un renouvellement : `docker run --rm -v acme-le:/etc/letsencrypt certbot/certbot:v2.11.0 certificates`, puis la commande `certonly` de l’étape 3 avec `renew --no-verify-ssl` à la place de tout ce qui suit le nom de l’image.',
+			'Ferme le port du challenge : lance `renew --force-renewal --no-random-sleep-on-renew --http-01-port 5003 --no-verify-ssl` de la même façon, pour que certbot écoute sur 5003 pendant que Pebble frappe au 5002. Sans terminal, `renew` attend d’abord jusqu’à 8 minutes, et `--no-random-sleep-on-renew` saute cette attente.',
+			'Nettoie : `docker stop pebble && docker volume rm acme-le`.'
+		],
+		done: [
+			'L’étape 3 affiche `Successfully received certificate.` et une expiration dans 45 jours.',
+			'`certificates` affiche `VALID: 44 days`, et `renew` affiche `Certificate not yet due for renewal`.',
+			'L’étape 5 affiche `Type:   connection`, `connect: connection refused` et `1 renew failure(s)`.'
+		],
+		solution: [
+			'La commande déroule tout le flux de la RFC 8555 : compte, commande, challenge `http-01` sur le port que Pebble vérifie, CSR, certificat.',
+			'certbot renouvelle un certificat de 45 jours après 2/3 de sa vie : un certificat neuf n’est pas dû, et lancer `renew` souvent ne coûte rien.',
+			'Sans rien sur le port que l’AC appelle, chaque renouvellement échoue, exactement comme le changement de pare-feu de l’exercice. Personne ne t’envoie d’e-mail : le seul signal, c’est la sortie et le log de certbot, alors branche une alerte sur les jours restants.'
+		]
+	},
 	recall: {
 		q: 'Quand certbot renouvelle-t-il un certificat par défaut, et qu’est-ce que ça donne pour un certificat de 90 jours et un de 45 jours ?',
 		a: 'Après 2/3 de sa durée de vie (la moitié sous 10 jours), sauf si ARI ou `renew_before_expiry` dit autre chose : après 60 jours pour un certificat de 90 jours, après 30 jours pour un de 45 jours.'

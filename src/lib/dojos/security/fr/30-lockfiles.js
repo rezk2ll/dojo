@@ -121,6 +121,44 @@ export default {
 			'Changement 1 : remplacer `--extra-index-url` par `--index-url https://pypi.internal.example/simple`, pour que pip n’interroge que l’index interne. Changement 2 : mettre `acme-billing==1.4.2 --hash=sha256:...` dans `requirements.txt`, avec chaque dépendance figée et hachée, et installer avec `--require-hashes`.',
 			'Face à une fausse 1.4.2, l’épinglage `==` seul ne suffit pas, puisque les deux index ont maintenant une 1.4.2. C’est le hash qui l’arrête : le fichier de PyPI a un autre `sha256`, donc pip le refuse. Le changement 1 l’arrête aussi, car PyPI n’est plus consulté.',
 			'Fais les deux. Le hash attrape aussi un fichier altéré sur l’index interne, et l’index unique couvre aussi un nouveau paquet que tu aurais oublié de hacher.'
+		],
+		steps: [
+			{
+				title: 'Prédis l’installation',
+				questions: [
+					{ q: 'Quelle version installe le build suivant ?', options: ['1.4.2, depuis l’index interne', '9000.0.0, depuis PyPI', 'Aucune : pip s’arrête sur le conflit de noms', 'Celle de l’index qui répond le premier'], answer: 1, why: 'pip regarde aux deux endroits et prend la plus haute version qui convient.' },
+					{ q: 'pip préfère-t-il l’index donné dans `--extra-index-url` ?', options: ['Oui, les index supplémentaires passent toujours en premier', 'Seulement pour les noms absents de PyPI', 'Seulement quand PyPI est en panne ou lent', 'Non : "There is no priority" entre eux'], answer: 3, why: 'Tous les emplacements sont consultés, et la "meilleure" version par numéro est choisie.' },
+					{ q: 'Qu’est-ce qui fait gagner 9000.0.0 ici ?', options: ['La dépendance `acme-billing` n’a aucune contrainte de version', 'PyPI a une priorité plus haute', 'L’index interne est plus lent', 'pip garde les résultats de PyPI en cache'], answer: 0, why: 'Sans `==`, toute version satisfait la dépendance, donc la plus haute gagne.' },
+					{ q: 'Dans les tests de Birsan, quand les paquets publiés exécutaient-ils leur code ?', options: ['Seulement quand une appli les importait', 'Jamais : les registres ne faisaient que les stocker', 'Pendant l’installation, sur la machine qui les installait', 'Seulement sur les serveurs de production'], answer: 2, why: 'Les paquets de Birsan s’exécutaient pendant l’installation (sur npm via un script `preinstall`), avant que le code de qui que ce soit soit importé.' }
+				]
+			},
+			{
+				title: 'Donne une seule source au nom',
+				questions: [
+					{ q: 'Quelle option fait interroger à pip le seul index interne ?', options: ['`--extra-index-url` deux fois', '`--index-url https://pypi.internal.example/simple`', '`--no-deps`', '`--pre`'], answer: 1, why: '`--index-url` remplace PyPI au lieu de s’y ajouter.' },
+					{ q: 'Avec le seul index interne, qu’installe le build ?', options: ['1.4.2', '9000.0.0', 'Rien, le nom est bloqué', 'Les deux versions'], answer: 0, why: 'PyPI n’est plus consulté, donc la 9000.0.0 publique n’est jamais vue.' },
+					{ q: 'Quelle est la version npm de la même correction ?', options: ['`npm audit` en CI pour signaler les noms inconnus', '`--ignore-scripts` à chaque installation', 'Une version interne plus haute comme 9999.0.0', 'Des noms à scope avec `@acme:registry`'], answer: 3, why: 'Une fois le registre du scope posé, "any `npm install` for a package with that scope will request packages from that registry instead".' },
+					{ q: 'Pourquoi ne pas simplement garder les noms internes secrets ?', options: ['Les noms ne tiennent pas compte de la casse', 'Ils fuient, par exemple dans des bundles JavaScript publics', 'PyPI publie tous les noms privés', 'pip les journalise publiquement'], answer: 1, why: 'Birsan a trouvé beaucoup de noms dans des fichiers JavaScript publics. Un nom seul n’est pas un secret.' }
+				]
+			},
+			{
+				title: 'Fige et hache',
+				questions: [
+					{ q: 'Que mets-tu dans `requirements.txt` ?', options: ['`acme-billing>=1.4.2`', '`acme-billing==1.4.2 --hash=sha256:...`', '`acme-billing`', '`acme-billing~=1.4`'], answer: 1, why: 'La version exacte et le hash du fichier que tu as relu.' },
+					{ q: 'Faut-il aussi des hashes pour les dépendances transitives ?', options: ['Non, seulement pour le paquet de tête', 'Seulement pour les paquets de PyPI', 'Oui : un seul `--hash` active le mode pour toutes les dépendances', 'Seulement quand `--require-hashes` est passé'], answer: 2, why: 'Le contrôle des hashes de pip est "all-or-nothing" : chaque dépendance, transitives comprises, doit être figée et hachée.' },
+					{ q: 'Quelle option d’installation va avec ?', options: ['`--require-hashes`', '`--force-reinstall`', '`--user`', '`--upgrade`'], answer: 0, why: '`--require-hashes` fait refuser à pip tout paquet sans hash correspondant.' },
+					{ q: 'Que fait l’épinglage `==1.4.2` seul contre 9000.0.0 ?', options: ['Rien, la version plus haute gagne toujours', 'Il la bloque : 9000.0.0 ne satisfait pas `==1.4.2`', 'Il installe les deux', 'Il fait interroger PyPI en premier'], answer: 1, why: 'Une `9000.0.0` ne change rien pour un build qui demande `==1.4.2`.' }
+				]
+			},
+			{
+				title: 'Teste contre une fausse 1.4.2',
+				questions: [
+					{ q: 'L’attaquant publie maintenant `acme-billing` 1.4.2 sur PyPI. L’épinglage `==` seul l’arrête-t-il ?', options: ['Oui, la version est la même', 'Oui, pip préfère les fichiers internes', 'Seulement sous Linux', 'Non : les deux index ont maintenant une 1.4.2'], answer: 3, why: 'L’épinglage nomme une version, et les deux fichiers prétendent l’avoir.' },
+					{ q: 'Quelle partie du changement 2 arrête la fausse ?', options: ['Le hash : le fichier de PyPI a un autre `sha256`', 'L’épinglage de version', 'Le nom du fichier', 'L’ordre des lignes'], answer: 0, why: 'pip compare le hash du fichier à celui que tu as noté et refuse un écart.' },
+					{ q: 'Le changement 1 arrête-t-il aussi la fausse ?', options: ['Non, la version correspond', 'Seulement avec `--require-hashes`', 'Oui, car PyPI n’est plus consulté', 'Seulement pour les wheels'], answer: 2, why: 'Avec un seul index interne, le fichier de PyPI n’est jamais candidat.' },
+					{ q: 'Pourquoi faire les deux changements ?', options: ['pip refuse `--require-hashes` avec un seul index', 'Chacun couvre une faille : fichier interne altéré, paquet sans hash', 'Ensemble, ils accélèrent les installations en CI', 'Le hash ne marche que si PyPI est aussi consulté'], answer: 1, why: 'Chacun ferme une faille que l’autre laisse ouverte.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,29 @@ export default {
 			why: 'Un scope pointe vers un seul registre : "any `npm install` for a package with that scope will request packages from that registry instead". `--ignore-scripts` bloque le hook d’installation, mais le code se charge quand même quand ton appli l’importe.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Rejouer la confusion de dépendances de l’exercice entre deux index de paquets sur localhost, puis l’arrêter avec un seul index et avec un hash.',
+		steps: [
+			'Prépare : `mkdir ~/confusion-lab && cd ~/confusion-lab && python3 -m venv .venv`.',
+			'Construis la 1.4.2 interne : `mkdir -p src-internal/acme_billing && echo "print(\'acme-billing 1.4.2 from internal\')" > src-internal/acme_billing/__init__.py && printf \'%s\\n\' \'[project]\' \'name = "acme-billing"\' \'version = "1.4.2"\' > src-internal/pyproject.toml && .venv/bin/pip wheel --no-deps -w internal/simple/acme-billing ./src-internal`.',
+			'Construis la 9000.0.0 de l’attaquant de la même façon, avec `src-public`, le message `acme-billing 9000.0.0 from public`, `version = "9000.0.0"` et `-w public/simple/acme-billing`.',
+			'Sers les deux index, chacun dans son terminal : `python3 -m http.server 8001 -d internal` et `python3 -m http.server 8002 -d public`.',
+			'Installe comme la CI : `.venv/bin/pip install --no-cache-dir --index-url http://localhost:8001/simple --extra-index-url http://localhost:8002/simple acme-billing && .venv/bin/python -c \'import acme_billing\'`.',
+			'Changement 1 : `.venv/bin/pip uninstall -y acme-billing`, puis réinstalle avec seulement `--index-url http://localhost:8001/simple`.',
+			'Changement 2 : `echo "acme-billing==1.4.2 $(.venv/bin/pip hash internal/simple/acme-billing/*.whl | tail -1)" > requirements.txt`. Construis une fausse 1.4.2 dans `public/simple/acme-billing` depuis un dossier `src-fake`, désinstalle, et lance `.venv/bin/pip install --no-cache-dir --index-url http://localhost:8002/simple -r requirements.txt`.'
+		],
+		done: [
+			'L’étape 5 affiche `acme-billing 9000.0.0 from public`.',
+			'L’étape 6 affiche `acme-billing 1.4.2 from internal`.',
+			'L’étape 7 échoue avec `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE`, un `Expected sha256` et un `Got` différent.'
+		],
+		solution: [
+			'pip consulte les deux index sans priorité et prend la version la plus haute : la 9000.0.0 publique gagne, et son code tourne dès qu’on l’importe.',
+			'Avec `--index-url` seul, l’index public n’est jamais interrogé.',
+			'La fausse a le bon nom et la bonne version, mais pas les bons octets : le `sha256` noté la refuse. Le même `requirements.txt` contre le port 8001 installe la 1.4.2 interne.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi `pip install --extra-index-url` permet-il la confusion de dépendances ?',
 		a: 'pip cherche dans l’index principal et dans l’index supplémentaire sans priorité, et installe la meilleure correspondance par numéro de version. Un paquet public au nom interne et à la version plus haute gagne.'

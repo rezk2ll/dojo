@@ -140,6 +140,44 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			'(2) Garde le `published_at` et l’`id` de la dernière ligne, puis ajoute `AND (published_at, id) < ($1, $2)` avec le même ORDER BY et le même LIMIT. Dans cette pagination par clé, la comparaison de lignes suit l’ordre de tri, et elle ne lit pas les lignes qu’elle saute.',
 			'(3) Répète l’expression dans WHERE et garde l’alias dans ORDER BY : `... WHERE reading_time * 60 > 600 ORDER BY seconds DESC`. WHERE tourne avant que l’alias existe, ORDER BY après.',
 			'Vérifie : lance (3) avec l’alias dans WHERE et lis l’erreur, `column "seconds" does not exist`. Puis essaie `ORDER BY seconds + 0` et constate qu’un alias doit être seul.'
+		],
+		steps: [
+			{
+				title: 'Trie la première page',
+				questions: [
+					{ q: 'Quel WHERE donne les entrées non lues de l’utilisateur 7 ?', options: ['`WHERE user_id = 7 OR status = \'unread\'`', '`WHERE user_id = 7 AND status = \'unread\'`', '`WHERE id = 7 AND status = \'unread\'`', '`WHERE user_id = 7 LIMIT \'unread\'`'], answer: 1, why: 'Les deux conditions doivent tenir, elles se joignent donc par AND, comme Miniflux joint sa liste de conditions avec `" AND "`.' },
+					{ q: 'Quel ORDER BY rend les 20 plus récentes stables d’une page à l’autre ?', options: ['`ORDER BY published_at DESC`', '`ORDER BY id DESC, published_at DESC`', '`ORDER BY published_at ASC, id ASC`', '`ORDER BY published_at DESC, id DESC`'], answer: 3, why: 'Les plus récentes d’abord, et l’`id` unique départage les égalités, donc chaque ligne a une place fixe.' },
+					{ q: 'Pourquoi `ORDER BY published_at DESC` seul ne suffit-il pas ?', options: ['Plusieurs entrées partagent un horodatage, et les égalités reviennent dans n’importe quel ordre', 'PostgreSQL ne sait pas trier seul une colonne `timestamptz`', 'DESC est ignoré si aucune seconde colonne ne le suit', 'Il trie par date d’insertion, pas par `published_at`'], answer: 0, why: 'Des lignes à clé de tri égale n’ont pas d’ordre fixe, et il peut changer d’une exécution à l’autre. C’est comme ça que la page 2 montre une ligne de la page 1.' },
+					{ q: 'Quel ordre obtiens-tu sans aucun ORDER BY ?', options: ['L’ordre de la clé primaire', 'L’ordre d’insertion des lignes', 'L’ordre qui coûte le moins au système', 'L’ordre de la première colonne de la liste SELECT'], answer: 2, why: 'La doc ne promet rien sans ORDER BY. LIMIT garde alors « an unpredictable subset of the query’s rows » (un sous-ensemble imprévisible).' }
+				]
+			},
+			{
+				title: 'Va chercher la page suivante',
+				questions: [
+					{ q: 'Quelles valeurs de la dernière ligne gardes-tu pour la page 2 ?', options: ['Son `published_at` et son `id`', 'Sa position, 20', 'Son `title` et son `status`', 'Seulement son `id`'], answer: 0, why: 'Ce sont les deux clés de tri. La page suivante commence juste après cette paire.' },
+					{ q: 'Quelle condition ajoutes-tu pour la page suivante ?', options: ['`AND published_at < $1`', '`AND (published_at, id) > ($1, $2)`', '`AND id < $2`', '`AND (published_at, id) < ($1, $2)`'], answer: 3, why: 'La comparaison de lignes suit l’ordre de tri `published_at DESC, id DESC`, donc elle reprend pile là où la page précédente s’est arrêtée.' },
+					{ q: 'Pourquoi pas simplement `AND published_at < $1` ?', options: ['Un horodatage ne peut pas passer en paramètre', 'C’est plus lent que la comparaison de lignes dans tous les cas', 'Ça saute les entrées qui partagent l’horodatage de la dernière ligne', 'Ça rend des lignes d’autres utilisateurs'], answer: 2, why: 'Les entrées au même `published_at` mais à l’`id` plus petit n’apparaîtraient jamais. La partie `id` les garde.' },
+					{ q: 'Pourquoi éviter `OFFSET 20` pour la page 2 ?', options: ['OFFSET ne marche qu’avec une clé primaire', 'Les lignes sautées doivent quand même être calculées dans le serveur', 'OFFSET tourne avant WHERE, donc il saute les mauvaises lignes', 'PostgreSQL plafonne OFFSET à 100'], answer: 1, why: 'La doc : « a large OFFSET might be inefficient ». La pagination par clé ne lit pas les lignes qu’elle saute.' }
+				]
+			},
+			{
+				title: 'Lis l’erreur',
+				questions: [
+					{ q: '`... WHERE seconds > 600` échoue avec `column "seconds" does not exist`. Pourquoi ?', options: ['`seconds` est un mot réservé', 'WHERE tourne avant que la liste SELECT crée l’alias', 'Les alias ne marchent qu’après GROUP BY', 'Un alias doit être entre guillemets doubles'], answer: 1, why: 'Dans l’ordre logique, WHERE filtre d’abord les lignes, puis la liste SELECT calcule `seconds`.' },
+					{ q: 'Dans quel ordre les clauses agissent-elles ?', options: ['SELECT, FROM, WHERE, ORDER BY, LIMIT', 'FROM, SELECT, WHERE, LIMIT, ORDER BY', 'FROM, WHERE, SELECT, ORDER BY, LIMIT', 'FROM, WHERE, ORDER BY, LIMIT, SELECT'], answer: 2, why: 'La doc de SELECT le décrit étape par étape. Tu écris SELECT en premier, mais il tourne en troisième.' },
+					{ q: '`ORDER BY seconds DESC` peut-il utiliser l’alias ?', options: ['Oui : ORDER BY tourne après la liste SELECT', 'Non : aucune clause ne voit un alias', 'Seulement si `seconds` est aussi une colonne de la table', 'Seulement avec un GROUP BY'], answer: 0, why: 'La doc : un nom de colonne de sortie s’utilise « in ORDER BY and GROUP BY clauses, but not in the WHERE or HAVING clauses ».' },
+					{ q: 'Que peut voir WHERE ?', options: ['Chaque alias de la liste SELECT', 'Seulement la clé primaire', 'Le résultat des fonctions de fenêtrage comme `count(*) OVER()`', 'Les colonnes des tables de FROM'], answer: 3, why: 'WHERE travaille sur les lignes produites par FROM. Les alias et les fonctions de fenêtrage viennent plus tard.' }
+				]
+			},
+			{
+				title: 'Écris la correction',
+				questions: [
+					{ q: 'Quelle version de (3) marche ?', options: ['`WHERE reading_time * 60 > 600 ORDER BY seconds DESC`', '`WHERE seconds > 600 ORDER BY reading_time * 60 DESC`', '`WHERE "seconds" > 600 ORDER BY seconds DESC`', '`HAVING seconds > 600 ORDER BY seconds DESC`'], answer: 0, why: 'Répète l’expression là où l’alias n’existe pas encore, et garde l’alias là où il existe.' },
+					{ q: 'Tu essaies `ORDER BY seconds + 0 DESC`. Que se passe-t-il ?', options: ['Ça marche comme `ORDER BY seconds DESC`', 'Ça échoue : un alias dans ORDER BY doit être seul', 'Ça trie par le texte de la colonne', 'Ça trie dans un ordre aléatoire'], answer: 1, why: 'La doc : un nom de colonne de sortie « has to stand alone » (doit être seul). Dans une expression, PostgreSQL cherche de nouveau une colonne de table.' },
+					{ q: 'Tu veux écrire `reading_time * 60` une seule fois. Qu’utilises-tu ?', options: ['Un second alias dans WHERE', 'Une clause OFFSET', 'Une sous-requête ou un CTE qui le nomme', 'Une fonction de fenêtrage'], answer: 2, why: 'La requête intérieure crée `seconds`, donc le WHERE extérieur le voit. Le prix, c’est un niveau de plus.' },
+					{ q: 'Tu ajoutes `count(*) OVER()` et `LIMIT 20` à la correction. Que contient le compte ?', options: ['20, la taille de la page', 'Les lignes de toute la table', 'Le numéro de ligne, de 1 à 20', 'Chaque ligne qui a passé WHERE'], answer: 3, why: 'La fonction de fenêtrage tourne avec la liste SELECT, avant LIMIT. Une seule requête donne la page et le total.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,27 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			why: 'Des lignes à clé de tri égale peuvent revenir dans n’importe quel ordre, et cet ordre peut changer d’une exécution à l’autre. La doc : utilise « an ORDER BY clause that constrains the result rows into a unique order ». Un départage unique comme `id` fait ça.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir l’ordre logique de SELECT à l’œuvre : un alias que WHERE ne voit pas, des égalités qui demandent un départage, et une page 2 sans OFFSET.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-select -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis ouvre un shell avec `docker exec -it pg-select psql -U postgres`.',
+			'Crée la table et 100 entrées, dix par heure pour que les horodatages soient à égalité : `CREATE TABLE entries (id bigint PRIMARY KEY, user_id bigint, title text, status text, published_at timestamptz, reading_time int);` puis `INSERT INTO entries SELECT g, 7, \'entry \' || g, \'unread\', timestamptz \'2024-01-01\' + (g / 10) * interval \'1 hour\', g % 30 FROM generate_series(1, 100) g;`',
+			'Lance la requête cassée : `SELECT title, reading_time * 60 AS seconds FROM entries WHERE seconds > 600 ORDER BY seconds DESC;`. Corrige-la, puis essaie `ORDER BY seconds + 0 DESC`.',
+			'Récupère la page 1 avec cinq lignes pour qu’elle tienne à l’écran : `SELECT id, published_at FROM entries WHERE user_id = 7 AND status = \'unread\' ORDER BY published_at DESC, id DESC LIMIT 5;`. Note le `published_at` et l’`id` de la dernière ligne.',
+			'Récupère la page 2 avec une comparaison de lignes sur ces deux valeurs, puis ajoute `count(*) OVER () AS total` à la liste SELECT de la requête corrigée de l’étape 3, avec `LIMIT 3`. Quitte avec `\\q` et nettoie avec `docker rm -f pg-select`.'
+		],
+		done: [
+			'L’étape 3 affiche d’abord `column "seconds" does not exist`, et la version `seconds + 0` aussi.',
+			'La page 1 finit sur l’`id` 96 à `2024-01-01 09:00:00+00`, et la page 2 commence à l’`id` 95 au même horodatage : aucune ligne sautée ni répétée.',
+			'La colonne `total` affiche `57` sur les trois lignes, alors que `LIMIT 3` en a rendu trois.'
+		],
+		solution: [
+			'Correction de l’étape 3 : `SELECT title, reading_time * 60 AS seconds FROM entries WHERE reading_time * 60 > 600 ORDER BY seconds DESC;`',
+			'Page 2 : `SELECT id, published_at FROM entries WHERE user_id = 7 AND status = \'unread\' AND (published_at, id) < (\'2024-01-01 09:00:00+00\', 96) ORDER BY published_at DESC, id DESC LIMIT 5;`',
+			'Total : `SELECT count(*) OVER () AS total, title FROM entries WHERE reading_time * 60 > 600 ORDER BY id LIMIT 3;`. La fonction de fenêtrage tourne avant LIMIT, donc elle compte chaque ligne qui a passé WHERE.'
+		]
+	},
 	recall: {
 		q: 'Dans quel ordre PostgreSQL applique-t-il FROM, WHERE, SELECT, ORDER BY et LIMIT, et pourquoi `WHERE seconds > 600` échoue-t-il ?',
 		a: 'FROM, WHERE, la liste SELECT, ORDER BY, puis LIMIT. WHERE passe avant que la liste SELECT crée l’alias `seconds`, donc il doit répéter `reading_time * 60`. ORDER BY passe après et peut utiliser l’alias.'

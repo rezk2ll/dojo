@@ -140,6 +140,44 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			'(2) Keep the last row\'s `published_at` and `id`, then add `AND (published_at, id) < ($1, $2)` with the same ORDER BY and LIMIT. In this keyset pagination, the row comparison matches the sort order, and it does not read the rows it skips.',
 			'(3) Repeat the expression in WHERE and keep the alias in ORDER BY: `... WHERE reading_time * 60 > 600 ORDER BY seconds DESC`. WHERE runs before the alias exists, ORDER BY runs after.',
 			'Check: run (3) with the alias in WHERE and read the error, `column "seconds" does not exist`. Then try `ORDER BY seconds + 0` and see that an alias must stand alone.'
+		],
+		steps: [
+			{
+				title: 'Sort the first page',
+				questions: [
+					{ q: 'Which WHERE gives user 7\'s unread entries?', options: ['`WHERE user_id = 7 OR status = \'unread\'`', '`WHERE user_id = 7 AND status = \'unread\'`', '`WHERE id = 7 AND status = \'unread\'`', '`WHERE user_id = 7 LIMIT \'unread\'`'], answer: 1, why: 'Both conditions must hold, so they join with AND, like Miniflux joins its condition list with `" AND "`.' },
+					{ q: 'Which ORDER BY makes the 20 newest stable across pages?', options: ['`ORDER BY published_at DESC`', '`ORDER BY id DESC, published_at DESC`', '`ORDER BY published_at ASC, id ASC`', '`ORDER BY published_at DESC, id DESC`'], answer: 3, why: 'Newest first, and the unique `id` breaks ties, so every row has one fixed place.' },
+					{ q: 'Why is `ORDER BY published_at DESC` alone not enough?', options: ['Several entries share a timestamp, and ties can come back in any order', 'PostgreSQL cannot sort a `timestamptz` column on its own', 'DESC is ignored unless a second column follows it', 'It sorts by the time of insert, not by `published_at`'], answer: 0, why: 'Rows with equal sort keys have no fixed order, and it can differ between two runs. That is how page 2 shows a row from page 1.' },
+					{ q: 'What order do you get with no ORDER BY at all?', options: ['The order of the primary key', 'The order the rows were inserted', 'Whatever order the system finds fastest to produce', 'The order of the first column in the SELECT list'], answer: 2, why: 'The docs promise nothing without ORDER BY. LIMIT then keeps "an unpredictable subset of the query\'s rows".' }
+				]
+			},
+			{
+				title: 'Fetch the next page',
+				questions: [
+					{ q: 'Which values of the last row do you keep for page 2?', options: ['Its `published_at` and its `id`', 'Its position, 20', 'Its `title` and `status`', 'Only its `id`'], answer: 0, why: 'Those are the two sort keys. The next page starts right after that pair.' },
+					{ q: 'Which condition do you add for the next page?', options: ['`AND published_at < $1`', '`AND (published_at, id) > ($1, $2)`', '`AND id < $2`', '`AND (published_at, id) < ($1, $2)`'], answer: 3, why: 'The row comparison matches the sort order `published_at DESC, id DESC`, so it picks up exactly where the last page stopped.' },
+					{ q: 'Why not just `AND published_at < $1`?', options: ['A timestamp cannot be passed as a parameter', 'It is slower than the row comparison in all cases', 'It skips the entries that share the last row\'s timestamp', 'It returns rows from other users'], answer: 2, why: 'Entries with the same `published_at` but a smaller `id` would never appear. The `id` part keeps them.' },
+					{ q: 'Why avoid `OFFSET 20` for page 2?', options: ['OFFSET only works with a primary key', 'The skipped rows still have to be computed inside the server', 'OFFSET runs before WHERE, so it skips the wrong rows', 'PostgreSQL caps OFFSET at 100'], answer: 1, why: 'The docs: "a large OFFSET might be inefficient". Keyset pagination does not read the rows it skips.' }
+				]
+			},
+			{
+				title: 'Read the error',
+				questions: [
+					{ q: '`... WHERE seconds > 600` fails with `column "seconds" does not exist`. Why?', options: ['`seconds` is a reserved word', 'WHERE runs before the SELECT list creates the alias', 'Aliases only work after GROUP BY', 'An alias must be in double quotes'], answer: 1, why: 'In the logical order, WHERE filters rows first, then the SELECT list computes `seconds`.' },
+					{ q: 'In which order do the clauses take effect?', options: ['SELECT, FROM, WHERE, ORDER BY, LIMIT', 'FROM, SELECT, WHERE, LIMIT, ORDER BY', 'FROM, WHERE, SELECT, ORDER BY, LIMIT', 'FROM, WHERE, ORDER BY, LIMIT, SELECT'], answer: 2, why: 'The SELECT docs list it step by step. You type SELECT first, but it runs third.' },
+					{ q: 'Can `ORDER BY seconds DESC` use the alias?', options: ['Yes: ORDER BY runs after the SELECT list', 'No: no clause can see an alias', 'Only if `seconds` is also a table column', 'Only with a GROUP BY'], answer: 0, why: 'The docs: an output column\'s name can be used "in ORDER BY and GROUP BY clauses, but not in the WHERE or HAVING clauses".' },
+					{ q: 'What can WHERE see?', options: ['Every alias in the SELECT list', 'Only the primary key', 'The result of window functions like `count(*) OVER()`', 'The columns of the tables in FROM'], answer: 3, why: 'WHERE works on the rows FROM produced. Aliases and window functions come later.' }
+				]
+			},
+			{
+				title: 'Write the fix',
+				questions: [
+					{ q: 'Which version of (3) works?', options: ['`WHERE reading_time * 60 > 600 ORDER BY seconds DESC`', '`WHERE seconds > 600 ORDER BY reading_time * 60 DESC`', '`WHERE "seconds" > 600 ORDER BY seconds DESC`', '`HAVING seconds > 600 ORDER BY seconds DESC`'], answer: 0, why: 'Repeat the expression where the alias does not exist yet, and keep the alias where it does.' },
+					{ q: 'You try `ORDER BY seconds + 0 DESC`. What happens?', options: ['It works like `ORDER BY seconds DESC`', 'It fails: an alias in ORDER BY has to stand alone', 'It sorts by the text of the column', 'It sorts in random order'], answer: 1, why: 'The docs: an output column name "has to stand alone". Inside an expression, PostgreSQL looks for a table column again.' },
+					{ q: 'You want to write `reading_time * 60` only once. What can you use?', options: ['A second alias inside WHERE', 'An OFFSET clause', 'A subquery or a CTE that names it', 'A window function'], answer: 2, why: 'The inner query creates `seconds`, so the outer WHERE can see it. The price is one more level.' },
+					{ q: 'You add `count(*) OVER()` and `LIMIT 20` to the fix. What does the count hold?', options: ['20, the size of the page', 'The rows in the whole table', 'The row number, 1 to 20', 'Every row that passed WHERE'], answer: 3, why: 'The window function runs with the SELECT list, before LIMIT. One query gives the page and the total.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,27 @@ func (s *Storage) NewEntryQueryBuilder(userID int64) *EntryQueryBuilder {
 			why: 'Rows with equal sort keys may come back in any order, and that order can differ between two runs. The docs: use "an ORDER BY clause that constrains the result rows into a unique order". A unique tie-breaker like `id` does that.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See the logical order of SELECT at work: an alias that WHERE cannot see, ties that need a tie-breaker, and a page 2 without OFFSET.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-select -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then open a shell with `docker exec -it pg-select psql -U postgres`.',
+			'Create the table and 100 entries, ten per hour so timestamps tie: `CREATE TABLE entries (id bigint PRIMARY KEY, user_id bigint, title text, status text, published_at timestamptz, reading_time int);` then `INSERT INTO entries SELECT g, 7, \'entry \' || g, \'unread\', timestamptz \'2024-01-01\' + (g / 10) * interval \'1 hour\', g % 30 FROM generate_series(1, 100) g;`',
+			'Run the broken query: `SELECT title, reading_time * 60 AS seconds FROM entries WHERE seconds > 600 ORDER BY seconds DESC;`. Fix it, then try `ORDER BY seconds + 0 DESC`.',
+			'Get page 1 with five rows so it fits on screen: `SELECT id, published_at FROM entries WHERE user_id = 7 AND status = \'unread\' ORDER BY published_at DESC, id DESC LIMIT 5;`. Note the last row\'s `published_at` and `id`.',
+			'Get page 2 with a row comparison on those two values, then add `count(*) OVER () AS total` to the SELECT list of the fixed query from step 3 with `LIMIT 3`. Quit with `\\q` and clean up with `docker rm -f pg-select`.'
+		],
+		done: [
+			'Step 3 first prints `column "seconds" does not exist`, and so does the `seconds + 0` version.',
+			'Page 1 ends on `id` 96 at `2024-01-01 09:00:00+00`, and page 2 starts at `id` 95 with the same timestamp: no row is skipped or repeated.',
+			'The `total` column shows `57` on all three rows, though `LIMIT 3` returned three.'
+		],
+		solution: [
+			'Fix for step 3: `SELECT title, reading_time * 60 AS seconds FROM entries WHERE reading_time * 60 > 600 ORDER BY seconds DESC;`',
+			'Page 2: `SELECT id, published_at FROM entries WHERE user_id = 7 AND status = \'unread\' AND (published_at, id) < (\'2024-01-01 09:00:00+00\', 96) ORDER BY published_at DESC, id DESC LIMIT 5;`',
+			'Total: `SELECT count(*) OVER () AS total, title FROM entries WHERE reading_time * 60 > 600 ORDER BY id LIMIT 3;`. The window function runs before LIMIT, so it counts every row that passed WHERE.'
+		]
+	},
 	recall: {
 		q: 'In which order does PostgreSQL apply FROM, WHERE, SELECT, ORDER BY and LIMIT, and why does `WHERE seconds > 600` fail?',
 		a: 'FROM, WHERE, the SELECT list, ORDER BY, then LIMIT. WHERE runs before the SELECT list creates the alias `seconds`, so it must repeat `reading_time * 60`. ORDER BY runs after and can use the alias.'

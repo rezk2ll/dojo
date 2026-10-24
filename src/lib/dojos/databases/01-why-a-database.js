@@ -128,6 +128,44 @@ export default {
 			'(2) SQLite. One user, one machine, but edits must survive a crash and search must not read every note. SQLite\'s docs call this an "application file format", and Anki uses SQLite this way.',
 			'(3) PostgreSQL. Four servers write at once over the network. SQLite\'s docs say to "avoid using SQLite in situations where the same database will be accessed directly (without an intervening application server) and simultaneously from many computers over a network".',
 			'(4) A plain file. Another program reads it. A database can produce it, but the export itself is a file.'
+		],
+		steps: [
+			{
+				title: 'Ask the three questions',
+				questions: [
+					{ q: 'Your app crashes halfway through rewriting `tasks.json`. What can you find on disk?', options: ['Always the old file: the OS rolls back a partial write', 'A file that may mix old and new data, or stop short', 'Always the new file: one write call is all or nothing', 'A rollback journal the app can play back on start'], answer: 1, why: 'A plain file has no journal. Nothing undoes a save that stopped halfway.' },
+					{ q: 'Two browser tabs save `tasks.json` at the same moment. What happens?', options: ['The second save fails with a clear error', 'The file keeps both sets of changes, merged', 'One tab\'s changes vanish without an error', 'The OS locks the file until the first tab closes'], answer: 2, why: 'Each tab writes back its own copy of the list. The last write wins, and nothing warns you.' },
+					{ q: 'Someone asks for "every task due this week". How does a JSON file answer?', options: ['You read the whole file and loop over every task', 'The OS keeps an index of the keys in the file', 'You jump to the right line, since JSON is sorted', 'You run one query, like with a database'], answer: 0, why: 'A file has no index. A database answers with one query, and an index avoids reading every task.' },
+					{ q: 'Once you need a database, which question decides between SQLite and PostgreSQL?', options: ['Whether the data fits in memory', 'Whether you need to search by content', 'Whether the app is written in Rust or in Python', 'Whether many machines write at the same time'], answer: 3, why: 'SQLite "will only allow one writer at any instant in time". Many machines writing at once is the PostgreSQL case.' }
+				]
+			},
+			{
+				title: 'Settle the one-user cases',
+				questions: [
+					{ q: '(1) A CLI tool\'s settings, read once at start. What do you pick?', options: ['PostgreSQL', 'A plain file', 'SQLite', 'SQLite on a network share'], answer: 1, why: 'Read once, written rarely, by one process. A database solves problems this case does not have.' },
+					{ q: 'What tips (1) toward a plain file, beyond its size?', options: ['A person may want to edit it by hand', 'Files are faster than SQLite for every read', 'SQLite cannot store key and value pairs', 'Settings must be shared with other machines'], answer: 0, why: 'A JSON or text file opens in any editor. A database file needs `sqlite3` or another tool.' },
+					{ q: '(2) A desktop notes app with search and tags. What do you pick?', options: ['A plain file per note', 'PostgreSQL on the same laptop', 'SQLite', 'A nightly CSV export'], answer: 2, why: 'One user on one machine, but edits must survive a crash and search must not read every note. SQLite\'s docs call this an "application file format".' },
+					{ q: 'Which app in this chapter uses SQLite the way (2) would?', options: ['Chrome, which keeps each tab in its own JSON file', 'Anki, which keeps each flashcard collection in one SQLite file', 'Firefox, which runs a PostgreSQL server for bookmarks', 'Anki, which writes a JSON file and checksums it'], answer: 1, why: 'Anki opens its collection with `Connection::open(path)`. It has no file format of its own.' }
+				]
+			},
+			{
+				title: 'Settle the shop',
+				questions: [
+					{ q: '(3) A web shop with 4 app servers taking orders at the same time. What do you pick?', options: ['SQLite on a shared network drive', 'One JSON file per order', 'SQLite on each app server', 'PostgreSQL'], answer: 3, why: 'Four servers write at once over the network. A server like PostgreSQL lets many write at once.' },
+					{ q: 'Why not one SQLite file on a network filesystem for (3)?', options: ['File locking is buggy on many network filesystems, and that can corrupt the file', 'SQLite refuses to open a file that is not on a local disk', 'SQLite cannot store more than one table per file', 'Network filesystems do not support the `fsync()` call at all'], answer: 0, why: 'The docs warn that two clients might then write the same part of the file at once, "resulting in corruption".' },
+					{ q: 'What does SQLite do when a second writer arrives while the first holds its write lock?', options: ['It merges both writes into one commit', 'It lets both write, then keeps the last one', 'It makes the second one wait or get `SQLITE_BUSY`', 'It writes the second change to a new file'], answer: 2, why: 'SQLite serializes writers: one at a time. Anki even sets `busy_timeout` to zero, so a second process gets `SQLITE_BUSY` at once.' },
+					{ q: 'What does PostgreSQL cost you that SQLite does not?', options: ['A file you cannot copy or mail', 'A process to run, upgrade, back up and secure', 'No way to run a query with an index', 'No support for transactions'], answer: 1, why: 'A server database is one more service to look after. That is the price of many writers at once.' }
+				]
+			},
+			{
+				title: 'Settle the export',
+				questions: [
+					{ q: '(4) A nightly CSV export someone opens in a spreadsheet. What do you pick?', options: ['A plain file', 'SQLite', 'PostgreSQL', 'A rollback journal'], answer: 0, why: 'Another program reads it, and a spreadsheet opens a CSV file directly.' },
+					{ q: 'The shop data lives in PostgreSQL. Does that change the answer for (4)?', options: ['Yes: the spreadsheet must connect to PostgreSQL', 'Yes: the export must become a SQLite file', 'No: a database can produce it, but the export itself is a file', 'No: CSV files are a kind of database'], answer: 2, why: 'Where the data lives and what the reader needs are two questions. The reader here needs a file.' },
+					{ q: 'In SQLite\'s rollback journal mode, when does a change count as committed?', options: ['When the new pages reach the OS cache', 'When the journal file is created', 'When the journal is flushed to disk', 'When the journal file is deleted'], answer: 3, why: 'The docs: "This is the instant where the transaction commits." A journal left after a crash is played back to undo the change.' },
+					{ q: 'Your notes app moves from JSON to SQLite. What does it cost the user?', options: ['They need `sqlite3` or another tool to look inside the file', 'They need a server running in the background', 'They can no longer copy the data as one file', 'They lose all edits made since the last backup'], answer: 0, why: 'SQLite keeps the one-file simplicity, but a JSON file opens in any editor and a database file does not.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,27 @@ export default {
 			why: 'File locking "is buggy in many network filesystem implementations", and two clients might then write the same part of the file at once, "resulting in corruption". The other three are cases the docs list as a good fit.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Crash SQLite in the middle of a transaction, and watch it keep the old state and turn away a second writer.',
+		steps: [
+			'Make a scratch folder and a table: `mkdir -p ~/db-lab && cd ~/db-lab && sqlite3 tasks.db "CREATE TABLE task(id INTEGER PRIMARY KEY, title TEXT NOT NULL);"`.',
+			'Start a writer that opens a transaction and never commits: `(echo "BEGIN; INSERT INTO task(title) VALUES (\'buy milk\'), (\'call mom\');"; sleep 30) | sqlite3 tasks.db &`. Run `ls` right away: a `tasks.db-journal` file sits next to the database.',
+			'Within the 30 seconds, try a second writer: `sqlite3 tasks.db "INSERT INTO task(title) VALUES (\'from tab 2\');"`.',
+			'Crash the first writer with `kill -9 %1`, then count the rows: `sqlite3 tasks.db "SELECT count(*) FROM task;"` and check the file with `sqlite3 tasks.db "PRAGMA integrity_check;"`.',
+			'Now do it with a commit: `sqlite3 tasks.db "BEGIN; INSERT INTO task(title) VALUES (\'buy milk\'), (\'call mom\'); COMMIT;"` and count again.'
+		],
+		done: [
+			'The second writer in step 3 prints `database is locked`.',
+			'After the crash, `SELECT count(*) FROM task;` prints `0` and `PRAGMA integrity_check;` prints `ok`.',
+			'After the committed run, the count is `2`.'
+		],
+		solution: [
+			'The journal holds what SQLite needs to undo the change, so the crash leaves the old state: no rows, and no half-written file.',
+			'SQLite lets one writer in at a time. The second one gets `SQLITE_BUSY`, shown as `database is locked`, instead of silently losing a write like the two browser tabs.',
+			'Only the `COMMIT` makes the rows count. Rewrite the same test with `tasks.json` and a `kill -9` in the middle of the save, and nothing protects you.'
+		]
+	},
 	recall: {
 		q: 'Which three problems of `tasks.json` does a database solve, and when do you pick PostgreSQL over SQLite?',
 		a: 'A crash halfway through a save, two writers losing each other\'s changes, and reading the whole file to answer a question. Pick PostgreSQL when many machines write at once, because SQLite allows one writer at a time.'

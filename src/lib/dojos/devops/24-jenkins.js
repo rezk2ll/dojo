@@ -190,6 +190,29 @@ export default {
 			why: 'Jenkins is self-hosted end to end and runs agents anywhere, including a network with no internet access. For zero maintenance or a small GitHub project, a hosted service is simpler.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Run a declarative Jenkinsfile on a Jenkins in Docker, and watch `input` come before `when` until you add `beforeInput true`.',
+		steps: [
+			'Start Jenkins: `docker run -d --rm --name jenkins-lab -p 8080:8080 jenkins/jenkins:lts`. Print the setup password with `docker exec jenkins-lab cat /var/jenkins_home/secrets/initialAdminPassword`, open `http://localhost:8080`, pick "Install suggested plugins" and create an admin user.',
+			'Click "New Item", pick "Pipeline" and name it `lab`. In the "Pipeline script" box, write a `pipeline { agent any ... }` with three stages. `Build` runs `sh \'mkdir -p out && date > out/build.txt\'`. `Test` runs `sh \'test -s out/build.txt\'` with `post { always { echo \'Test stage finished\' } }`. `Deploy` has `when { branch \'main\' }`, `input { message \'Deploy to production?\' }` and `sh \'echo deploying\'`.',
+			'Click "Build Now" and open the console output. When the build stops, click "Proceed" and read the end of the log.',
+			'Change the `when` to `when { beforeInput true; branch \'main\' }`, save, and build again.',
+			'Break the test: change it to `sh \'test -s out/missing.txt\'` and build again. Clean up with `docker stop jenkins-lab`: `--rm` removes the container and its data.'
+		],
+		done: [
+			'Build 1 stops at `Deploy to production?` and waits for a click, although this job builds no branch.',
+			'After "Proceed", the log says `Stage "Deploy" skipped due to when conditional`.',
+			'Build 2 never asks: it skips `Deploy` at once and ends with `Finished: SUCCESS`.',
+			'Build 3 prints `Test stage finished`, then `Stage "Deploy" skipped due to earlier failure(s)`, and ends with `Finished: FAILURE`.'
+		],
+		solution: [
+			'A plain Pipeline job has no `BRANCH_NAME`, so `branch \'main\'` is false here, as on a feature branch of a multibranch pipeline.',
+			'By default Jenkins evaluates `input` before `when`, so build 1 asks a human to approve a stage it then skips. `beforeInput true` moves the check first, and build 2 skips without asking.',
+			'`post { always }` ran in build 3 although the test failed. That is why the tutorial puts `junit` there: the report is kept when you need it.',
+			'`agent any` ran every stage on the controller. That is fine for a lab only: a real setup adds an agent with a label and points `agent { label \'...\' }` at it.'
+		]
+	},
 	recall: {
 		q: 'A `Deploy` stage has `when { branch \'main\' }` and an `input`. Without `beforeInput true`, what happens on a feature branch?',
 		a: 'Jenkins asks for the `input` before it checks `when`, so the feature branch build stops and waits for an approval. With `beforeInput true`, the stage is skipped on every branch but `main`.'

@@ -186,6 +186,28 @@ export default {
 			why: 'Les devs veulent lancer des fonctionnalités, les ops veulent que le service ne casse pas. Comme le changement est la première cause de panne, l’objectif de chacun joue contre celui de l’autre.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Chercher le mur dans l’historique d’un vrai projet : qui modifie les fichiers ops, qui modifie le code de l’appli, et qui fait les deux.',
+		steps: [
+			'Clone un vrai projet avec son historique mais sans le contenu des fichiers : `mkdir -p ~/devops-lab && cd ~/devops-lab && git clone --filter=blob:none https://github.com/louislam/uptime-kuma.git && cd uptime-kuma`.',
+			'Trouve les fichiers qui disent comment l’appli tourne : `git ls-files | grep -iE "dockerfile|compose|\\.github/workflows"`. Ils sont dans le même dépôt que le code de l’appli, dans `src/` et `server/`.',
+			'Liste qui a modifié ces fichiers ops dans l’année, sans les bots : `git log --since="1 year ago" --format=%an -- docker .github/workflows compose.yaml | grep -v "\\[bot\\]" | sort -u > ../ops.txt`.',
+			'Fais pareil pour le code de l’appli : `git log --since="1 year ago" --format=%an -- src server | grep -v "\\[bot\\]" | sort -u > ../dev.txt`. Compare avec `wc -l ../ops.txt ../dev.txt`, `comm -12 ../ops.txt ../dev.txt` (les personnes des deux côtés) et `comm -23 ../ops.txt ../dev.txt` (celles qui ne touchent que les fichiers ops).',
+			'Écris `~/devops-lab/calms.txt` avec une ligne par lettre de CALMS : la preuve trouvée dans ce dépôt, ou « pas visible dans git ».'
+		],
+		done: [
+			'`ops.txt` et `dev.txt` existent et ne sont pas vides.',
+			'`comm -12` affiche les personnes qui ont modifié à la fois des fichiers ops et du code de l’appli dans l’année.',
+			'`calms.txt` a cinq lignes, et chacune cite un fichier, une sortie de commande, ou « pas visible dans git ».'
+		],
+		solution: [
+			'Au moment de l’écriture, 7 des 9 personnes de `ops.txt` sont aussi dans `dev.txt`. Les fichiers de déploiement et le code changent dans le même dépôt, avec la même revue : pas de mur au niveau des fichiers.',
+			'Quelques noms seulement dans `ops.txt`, c’est normal. Beaucoup de noms seulement dans `ops.txt` et peu dans les deux, c’est à ça que ressemble une équipe ops à part dans git.',
+			'L’Automation se voit dans `.github/workflows`, et le Sharing dans la liste de `comm -12`. Culture, Lean et Measurement (qui porte le pager, la taille des changements, les chiffres que les deux côtés regardent) ne sont presque pas dans git : tu demandes aux gens.',
+			'Lance les mêmes commandes sur un dépôt de ton travail pour voir ton propre mur. Nettoie avec `rm -rf ~/devops-lab`.'
+		]
+	},
 	recall: {
 		q: 'Que veulent dire les cinq lettres de CALMS, et que se passe-t-il quand une boîte ajoute une « équipe DevOps » entre dev et ops ?',
 		a: 'Culture, Automation, Lean, Measurement, Sharing. La nouvelle équipe ajoute un deuxième mur (dev vers équipe DevOps vers ops) : c’est l’anti-pattern du silo d’équipe DevOps.'

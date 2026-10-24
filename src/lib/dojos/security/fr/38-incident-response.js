@@ -204,6 +204,30 @@ type CircleCIAPIContextVariable = {
 			why: 'Un service en marche garde la clé en mémoire pour déchiffrer les secrets qu’il utilise. Avec un accès à la production, l’attaquant a « extracted encryption keys from a running process » : la copie chiffrée et sa clé sont parties ensemble.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Répondre à un conteneur compromis dans l’ordre du chapitre : garder les preuves, confiner, faire tourner le secret, remplacer.',
+		steps: [
+			'Lance la victime avec un secret dans son environnement : `mkdir -p ~/ir-lab && cd ~/ir-lab && docker run -d --name ir-victim -e API_TOKEN=old-token-1234 alpine:3.20 sleep 3600`.',
+			'Joue l’attaquant. Dépose un script et lis le secret : `docker exec ir-victim sh -c \'printf "#!/bin/sh\\nwhile true; do sleep 60; done\\n" > /tmp/.cache-update && chmod +x /tmp/.cache-update && printenv API_TOKEN\'`, puis lance le script avec `docker exec -d ir-victim /tmp/.cache-update`.',
+			'Tu es maintenant celui qui répond. Note les preuves avant de toucher à quoi que ce soit : `date -u > notes.txt`, `docker diff ir-victim > diff.txt`, `docker top ir-victim -o pid,args > ps.txt`, puis `docker cp ir-victim:/tmp/.cache-update ./evidence.bin && shasum -a 256 evidence.bin >> notes.txt`.',
+			'Confine : `docker network disconnect bridge ir-victim`, puis vérifie avec `docker exec ir-victim wget -q -T 3 -O /dev/null http://example.com`.',
+			'Fais tourner le secret et remplace le conteneur. L’ancien token est volé, donc lance un conteneur neuf avec un nouveau : `docker run -d --name ir-clean -e API_TOKEN=new-token-5678 alpine:3.20 sleep 3600`. Cherche-y les indicateurs avec `docker diff ir-clean` et `docker top ir-clean -o pid,args`.',
+			'Nettoie : `docker rm -f ir-victim ir-clean && rm -rf ~/ir-lab`.'
+		],
+		done: [
+			'`diff.txt` affiche `A /tmp/.cache-update`, et `ps.txt` affiche `/bin/sh /tmp/.cache-update`.',
+			'`notes.txt` contient l’heure UTC et une ligne SHA256 pour `evidence.bin`.',
+			'Après l’étape 4, `wget` échoue avec `bad address \'example.com\'`.',
+			'`docker diff ir-clean` n’affiche rien, `docker top ir-clean` ne montre que `sleep 3600`, et `docker exec ir-clean printenv API_TOKEN` affiche `new-token-5678`.'
+		],
+		solution: [
+			'L’ordre compte. `docker diff`, `docker top` et le fichier copié sont les traces, et supprimer le conteneur d’abord les aurait effacées toutes les trois.',
+			'Le hash dans `notes.txt` est un indicateur de compromission. N’importe qui peut chercher sur ses propres machines un fichier avec le même SHA256, comme les clients de CircleCI l’ont fait avec le hash du rapport.',
+			'Débrancher le réseau empêche l’attaquant d’aller plus loin pendant que tu gardes le conteneur. CircleCI a fait pareil avec les accès : couper d’abord, enquêter ensuite.',
+			'Dans la vraie vie, la rotation a une seconde moitié : révoquer `old-token-1234` là où il a été émis, pour que la copie affichée par l’attaquant ne marche plus. Un conteneur neuf ne suffit pas pour ça.'
+		]
+	},
 	recall: {
 		q: 'Dans l’incident CircleCI, quelle date ouvre la période que les clients devaient fouiller, et pourquoi celle-là ?',
 		a: 'Le 16 décembre 2022, jour où le malware a compromis le portable de l’ingénieur. La période se termine quand tu as fini de faire tourner tes secrets après l’alerte du 4 janvier 2023.'

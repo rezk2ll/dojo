@@ -211,6 +211,29 @@ RESET_PASSWORD_LOCK_TIME = parse(
 			why: 'La valeur par défaut est `*`, et `fnmatchcase("https://evil.example", "*")` est vrai. Le handler renvoie alors `access-control-allow-origin: https://evil.example` avec `access-control-allow-credentials: true`. En production, pose la variable avec les origines de ta boutique et de ton dashboard.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Écrire les contrôles de la boutique de mugs, puis en déployer une tranche pour de vrai : un fichier envoyé servi en téléchargement, depuis un conteneur sans root, sans écriture et sans capabilities.',
+		steps: [
+			'Écris le plan : `mkdir -p ~/capstone-lab/media && cd ~/capstone-lab`, puis écris `controls.md` pour la boutique de mugs de l’exercice, une ligne par contrôle, chacune terminée par son jour, comme `(jour 24)`.',
+			'Dépose un fichier malveillant et écris la config des médias : `printf \'%s\\n\' \'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.domain)</script></svg>\' > media/evil.svg && printf \'%s\\n\' \'server {\' \'    listen 8080;\' \'    location /media/ {\' \'        alias /srv/media/;\' \'        add_header Content-Disposition attachment always;\' \'        add_header X-Content-Type-Options nosniff always;\' \'    }\' \'}\' > default.conf`.',
+			'Déploie-le durci : `docker run -d --name capstone-lab --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:8080:8080 -v "$PWD/default.conf":/etc/nginx/conf.d/default.conf:ro -v "$PWD/media":/srv/media:ro nginxinc/nginx-unprivileged:1.27-alpine`.',
+			'Vérifie le contrôle des fichiers envoyés : `curl -sI localhost:8080/media/evil.svg`, puis ouvre `http://localhost:8080/media/evil.svg` dans ton navigateur.',
+			'Vérifie les contrôles du déploiement : `docker exec capstone-lab id`, `docker exec capstone-lab touch /etc/x` et `docker exec capstone-lab grep CapEff /proc/1/status`.',
+			'Copie `controls.md` ailleurs si tu veux le garder, puis nettoie : `docker rm -f capstone-lab && rm -rf ~/capstone-lab`.'
+		],
+		done: [
+			'`controls.md` a des lignes pour le threat model, le navigateur, les comptes, les données, les entrées venues de l’extérieur, la chaîne d’approvisionnement, le déploiement et l’après-intrusion, chacune avec un jour.',
+			'La réponse de `curl` contient `Content-Disposition: attachment` et `X-Content-Type-Options: nosniff`, et le navigateur télécharge le fichier sans alerte.',
+			'`id` affiche `uid=101(nginx)`, `touch` échoue avec `Read-only file system`, et `CapEff` vaut `0000000000000000`.'
+		],
+		solution: [
+			'Le SVG contient un script. Servi en ligne depuis l’origine de la boutique, il tournerait avec les accès du dashboard : c’est GHSA-666h. `attachment` fait enregistrer le fichier par le navigateur, et `nosniff` l’empêche de deviner un autre type (jour 24).',
+			'Le conteneur montre trois contrôles du jour 33 à la fois : un utilisateur non root fourni par l’image, `--read-only` avec un `tmpfs` seulement pour `/tmp`, et `--cap-drop ALL`. `no-new-privileges` empêche un binaire setuid de retrouver root.',
+			'Le reste de `controls.md` ne tient pas dans un conteneur : TLS, cookies, Argon2id, vérification du propriétaire, signature du webhook et NetworkPolicy vivent dans l’appli et le cluster. Garde le fichier comme la liste contre laquelle tu les relis.',
+			'En production, les médias passeraient aussi sur `media.`, un autre domaine. Chaque condition suffit contre GHSA-666h, et avoir les deux, c’est la défense en profondeur (jour 4).'
+		]
+	},
 	recall: {
 		q: 'Cite les trois avis Saleor de ce chapitre et le jour qui correspond à chacun.',
 		a: 'GHSA-666h, XSS stocké via des fichiers HTML et SVG envoyés (jours 18 et 24). GHSA-r6fj, IDOR sur d’anciennes commandes (jour 16). GHSA-ff69, contournement CSRF dans `refreshToken` (jour 11).'

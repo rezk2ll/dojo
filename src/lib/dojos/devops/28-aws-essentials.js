@@ -190,6 +190,29 @@ Resources:
 			why: 'Each subnet sits entirely in one AZ. AZs are isolated locations, so spreading across two protects you from the failure of one.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Build the chapter\'s network, firewall, role and bucket with real AWS CLI calls, against LocalStack on your machine, at no cost.',
+		steps: [
+			'Start LocalStack and wait for it: `docker run -d --rm --name aws-lab -e AWS_DEFAULT_REGION=eu-west-1 localstack/localstack:4.0`, then `until docker logs aws-lab 2>&1 | grep -q Ready; do sleep 1; done`. Give your shell a short command: `awslocal() { docker exec aws-lab awslocal "$@"; }`.',
+			'List the AZs with `awslocal ec2 describe-availability-zones --query "AvailabilityZones[].ZoneName" --output text`. Make the VPC: `VPC=$(awslocal ec2 create-vpc --cidr-block 10.0.0.0/16 --query Vpc.VpcId --output text)`. Add one subnet per AZ: `awslocal ec2 create-subnet --vpc-id $VPC --cidr-block 10.0.101.0/24 --availability-zone eu-west-1a`, then the same with `10.0.1.0/24` in `eu-west-1b`.',
+			'Make a security group: `SG=$(awslocal ec2 create-security-group --group-name web --description "lab web" --vpc-id $VPC --query GroupId --output text)`. Read its rules with `awslocal ec2 describe-security-groups --group-ids $SG --query "SecurityGroups[0].[IpPermissions,IpPermissionsEgress]"`, then allow SSH from one address: `awslocal ec2 authorize-security-group-ingress --group-id $SG --protocol tcp --port 22 --cidr 203.0.113.7/32`, and read the rules again.',
+			'Make a role EC2 can assume, and its instance profile: `awslocal iam create-role --role-name backup-role --assume-role-policy-document \'{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}\'`, `awslocal iam create-instance-profile --instance-profile-name backup-profile`, `awslocal iam add-role-to-instance-profile --instance-profile-name backup-profile --role-name backup-role`. Then the bucket: `awslocal s3 mb s3://lab-backups && awslocal s3api put-object --bucket lab-backups --key backups/db.sql.gz`.',
+			'Start an instance in the `eu-west-1a` subnet with all of it: `SUB=$(awslocal ec2 describe-subnets --filters Name=cidr-block,Values=10.0.101.0/24 --query "Subnets[0].SubnetId" --output text)`, `AMI=$(awslocal ec2 describe-images --owners amazon --query "Images[0].ImageId" --output text)`, then `awslocal ec2 run-instances --image-id $AMI --instance-type t3.micro --subnet-id $SUB --security-group-ids $SG --iam-instance-profile Name=backup-profile`. Clean up with `docker stop aws-lab`: `--rm` removes the container and everything in it.'
+		],
+		done: [
+			'`awslocal ec2 describe-subnets --filters Name=vpc-id,Values=$VPC --query "Subnets[].[CidrBlock,AvailabilityZone]" --output text` shows `10.0.101.0/24 eu-west-1a` and `10.0.1.0/24 eu-west-1b`.',
+			'The new security group shows `[]` for inbound and one outbound rule to `0.0.0.0/0`. After the authorize call, inbound holds only tcp 22 from `203.0.113.7/32`.',
+			'`awslocal s3 ls s3://lab-backups --recursive` lists `backups/db.sql.gz`.',
+			'`awslocal ec2 describe-instances --query "Reservations[].Instances[].[State.Name,Placement.AvailabilityZone,IamInstanceProfile.Arn]" --output text` shows `running`, `eu-west-1a` and the `backup-profile` ARN.'
+		],
+		solution: [
+			'`create-subnet` takes one `--availability-zone`, never two, so two AZs need two subnets. Nothing here routes to an internet gateway, so both subnets are in fact private.',
+			'A new security group lets nothing in and everything out. There is no deny call: `authorize-security-group-ingress` is the only way to open it, one allowed source at a time.',
+			'The trust policy says who may assume the role, here `ec2.amazonaws.com`. The instance profile carries the role to the instance, and no access key was created at any step. A real role also gets a policy that allows `s3:PutObject` on the bucket.',
+			'LocalStack answers the API but does not enforce security groups or IAM. On a real account the same commands work with `aws` in place of `awslocal`, and the instance costs money until you terminate it.'
+		]
+	},
 	recall: {
 		q: 'Your two web servers must survive the loss of one AZ and must write to S3. Where do you put them, and how do they get AWS credentials?',
 		a: 'In subnets in two different AZs, since each subnet sits in exactly one AZ. Each instance gets an IAM role through its instance profile, so it receives temporary credentials and no access keys sit on the server.'

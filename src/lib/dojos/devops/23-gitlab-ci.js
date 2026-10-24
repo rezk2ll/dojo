@@ -207,6 +207,29 @@ deploy:
 			why: 'If no rule matches, the job is not added to the pipeline at all. So one file can give feature branches and the default branch different jobs.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Run a three-stage pipeline on your machine and watch cache, artifacts and `rules` behave as in GitLab.',
+		steps: [
+			'Make a scratch repo: `mkdir ~/gitlab-ci-lab && cd ~/gitlab-ci-lab && git init -b main`.',
+			'Write `.gitlab-ci.yml` with `image: alpine:3.20` and `stages: [build, test, deploy]`. `build` runs `ls .cache || echo "cache empty"`, then writes `.cache/deps.txt` and `build/app.txt`. It caches `.cache/` and keeps `build/` as artifacts. `test` runs `cat build/app.txt` and `ls .cache || echo "no cache"`. `deploy` runs `cat build/app.txt`, has `environment: production` and a rule for the default branch with `when: manual`.',
+			'Commit it with `git add . && git commit -m "add pipeline"`. List the jobs with `npx gitlab-ci-local --list`, then run the pipeline with `npx gitlab-ci-local`. Docker must be running: each job starts in its own `alpine:3.20` container.',
+			'Run `npx gitlab-ci-local` a second time, then click the button the local way: `npx gitlab-ci-local --manual deploy`.',
+			'Switch to a feature branch with `git switch -c feature` and list the jobs again. Clean up with `cd ~ && rm -rf ~/gitlab-ci-lab`.'
+		],
+		done: [
+			'`--list` shows `deploy` in the `deploy` stage, with `when` set to `manual`.',
+			'On the first run, `build` prints `cache empty` and `test` prints `no cache`, but `test` still prints the content of `build/app.txt`.',
+			'On the second run, `build` prints `deps.txt`. `deploy` runs only with `--manual deploy`.',
+			'On the `feature` branch, `--list` shows only `build` and `test`.'
+		],
+		solution: [
+			'`build`: `stage: build`, `cache:` with `paths: [.cache/]`, `artifacts:` with `paths: [build/]`. Only `build` declares the cache, so `test` starts without it.',
+			'`test` gets `build/app.txt` with no extra line: later stages download the artifacts of earlier stages. The cache only speeds up the next `build`.',
+			'`deploy`: `rules:` then `- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` with `when: manual`. The repo has no remote, so gitlab-ci-local warns and takes `main` as the default branch.',
+			'On `feature` no rule matches, so `deploy` is not in the pipeline at all. On `main` it waits for a click, and `--manual deploy` is that click.'
+		]
+	},
 	recall: {
 		q: 'A build job makes `build/*` and a deploy job in a later stage needs it. Do you put it in `cache` or `artifacts`, and why?',
 		a: 'In `artifacts`. GitLab stores them and later stages download them by default. The cache is for downloads like `.cache/pip`, and a job can start with it empty.'

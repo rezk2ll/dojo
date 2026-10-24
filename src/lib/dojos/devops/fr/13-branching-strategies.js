@@ -183,6 +183,28 @@ jobs:
 			why: 'Pour les applis web en livraison continue, il conseille un flow plus simple. GitFlow est pour les logiciels versionnés explicitement, ou quand tu maintiens plusieurs versions à la fois.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Payer une fois le prix d’une branche longue, puis livrer du travail inachevé sur le trunk derrière un flag sur off, et retirer le flag quand c’est fini.',
+		steps: [
+			'Crée un dépôt où une branche longue réécrit chaque ligne pendant que `main` avance aussi : `mkdir -p ~/branch-lab/long && cd ~/branch-lab/long && git init -q -b main && seq 1 10 > app.txt && git add app.txt && git commit -qm start`, puis `git switch -c feature/billing && seq 1 10 | sed \'s/$/ billing/\' > app.txt && git commit -qam "billing, three weeks"`, puis `git switch main && seq 1 10 | sed \'s/$/ hotfix/\' > app.txt && git commit -qam "fixes on main"`.',
+			'Merge-la à la fin, comme en GitFlow : `git merge feature/billing`. Compte les lignes que tu devrais lire pour résoudre le conflit avec `sed -n \'/^<<<<<<</,/^>>>>>>>/p\' app.txt | wc -l`, puis recule avec `git merge --abort`.',
+			'Démarre un dépôt trunk-based et une branche courte : `mkdir -p ~/branch-lab/trunk && cd ~/branch-lab/trunk && git init -q -b main && git commit -q --allow-empty -m start && git switch -c billing-flag`. Écris `app.sh` : il affiche `billing v1`, ou `billing v2 (unfinished)` quand `BILLING_V2=on`.',
+			'Merge-la le jour même et supprime la branche : `git add app.sh && git commit -qm "billing v2 behind a flag, off" && git switch main && git merge --ff-only billing-flag && git branch -d billing-flag`. Lance `bash app.sh`, puis `BILLING_V2=on bash app.sh`.',
+			'La fonctionnalité est finie, donc retire le flag par une autre branche courte : `git switch -c remove-flag`, fais en sorte que `app.sh` affiche seulement `billing v2`, commite, puis `git switch main && git merge --ff-only remove-flag && git branch -d remove-flag`.'
+		],
+		done: [
+			'L’étape 2 compte 23 lignes : les 10 lignes deux fois, plus trois marqueurs.',
+			'Depuis le même commit sur `main`, `bash app.sh` affiche `billing v1` et `BILLING_V2=on bash app.sh` affiche `billing v2 (unfinished)`.',
+			'Après l’étape 5, `app.sh` n’a plus de `if`, `git branch` ne liste que `main`, et `git log --oneline` montre trois petits commits.'
+		],
+		solution: [
+			'Les deux branches ont modifié les mêmes 10 lignes pendant qu’elles étaient séparées, donc Git ne peut pas choisir un côté. Plus une branche vit longtemps, plus les deux côtés touchent de lignes. Les branches courtes gardent ce nombre proche de zéro.',
+			'`app.sh` : `if [ "${BILLING_V2:-off}" = on ]; then echo "billing v2 (unfinished)"; else echo "billing v1"; fi`.',
+			'Le code inachevé était sur `main` et pouvait être déployé, mais les utilisateurs auraient vu la v1. C’est le flag qui décidait ce que voient les utilisateurs, pas la branche.',
+			'L’étape 5 paie le coût de stockage dont parle Fowler : tant que tu ne le supprimes pas, le flag double les chemins à tester. Nettoie avec `rm -rf ~/branch-lab`.'
+		]
+	},
 	recall: {
 		q: 'Une fonctionnalité prend trois semaines. En trunk-based development, comment son code arrive-t-il dans `main` sans que les utilisateurs le voient ?',
 		a: 'Tu le merges dans `main` par petits morceaux au moins une fois par jour, derrière un feature flag qui reste sur off jusqu’à la fin. Ensuite tu supprimes le flag.'

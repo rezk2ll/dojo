@@ -183,6 +183,28 @@ jobs:
 			why: 'For continuously delivered web apps he suggests a simpler flow. GitFlow is for explicitly versioned software, or when you support several versions at once.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Pay for a long-lived branch once, then ship unfinished work to the trunk behind a flag that is off, and remove the flag when it is done.',
+		steps: [
+			'Make a repo where a long-lived branch rewrites every line while `main` moves on too: `mkdir -p ~/branch-lab/long && cd ~/branch-lab/long && git init -q -b main && seq 1 10 > app.txt && git add app.txt && git commit -qm start`, then `git switch -c feature/billing && seq 1 10 | sed \'s/$/ billing/\' > app.txt && git commit -qam "billing, three weeks"`, then `git switch main && seq 1 10 | sed \'s/$/ hotfix/\' > app.txt && git commit -qam "fixes on main"`.',
+			'Merge it at the end, as in GitFlow: `git merge feature/billing`. Count the lines you would have to read to resolve it with `sed -n \'/^<<<<<<</,/^>>>>>>>/p\' app.txt | wc -l`, then back out with `git merge --abort`.',
+			'Start a trunk-based repo and a short branch: `mkdir -p ~/branch-lab/trunk && cd ~/branch-lab/trunk && git init -q -b main && git commit -q --allow-empty -m start && git switch -c billing-flag`. Write `app.sh`: it prints `billing v1`, or `billing v2 (unfinished)` when `BILLING_V2=on`.',
+			'Merge it the same day and delete the branch: `git add app.sh && git commit -qm "billing v2 behind a flag, off" && git switch main && git merge --ff-only billing-flag && git branch -d billing-flag`. Run `bash app.sh`, then `BILLING_V2=on bash app.sh`.',
+			'The feature is done, so remove the flag through another short branch: `git switch -c remove-flag`, make `app.sh` print only `billing v2`, commit, then `git switch main && git merge --ff-only remove-flag && git branch -d remove-flag`.'
+		],
+		done: [
+			'Step 2 counts 23 lines: all 10 lines twice, plus three markers.',
+			'From the same commit on `main`, `bash app.sh` prints `billing v1` and `BILLING_V2=on bash app.sh` prints `billing v2 (unfinished)`.',
+			'After step 5, `app.sh` has no `if`, `git branch` lists only `main`, and `git log --oneline` shows three small commits.'
+		],
+		solution: [
+			'Both branches changed the same 10 lines while apart, so Git cannot pick a side. The longer a branch lives, the more lines both sides touch. Short branches keep that number near zero.',
+			'`app.sh`: `if [ "${BILLING_V2:-off}" = on ]; then echo "billing v2 (unfinished)"; else echo "billing v1"; fi`.',
+			'The unfinished code was on `main` and could be deployed, but users would see v1. The flag decided what users see, not the branch.',
+			'Step 5 pays the carrying cost Fowler warns about: until you delete it, the flag doubles the paths to test. Clean up with `rm -rf ~/branch-lab`.'
+		]
+	},
 	recall: {
 		q: 'A feature takes three weeks. In trunk-based development, how does its work reach `main` without users seeing it?',
 		a: 'You merge it into `main` in small pieces at least once a day, behind a feature flag that stays off until the feature is done. Then you delete the flag.'

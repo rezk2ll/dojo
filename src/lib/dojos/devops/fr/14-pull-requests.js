@@ -185,6 +185,30 @@ export default {
 			why: 'GitHub exige que chaque check obligatoire finisse en succès, skipped ou neutral. Un check en échec garde le merge bloqué.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Protéger `main` sur un dépôt GitHub jetable, puis le voir refuser un push direct et une PR au check rouge, venant de toi, l’admin.',
+		steps: [
+			'Il te faut un compte GitHub gratuit et `gh auth login`. Crée le dépôt avec un script et un fichier CODEOWNERS où un propriétaire n’existe pas : `mkdir -p ~/pr-lab && cd ~/pr-lab && git init -q -b main && echo \'echo deploying\' > deploy.sh && mkdir -p .github && printf \'* @%s\\n/prod/ @acme/ops\\n\' "$(gh api user --jq .login)" > .github/CODEOWNERS`.',
+			'Ajoute un job `lint` qui vérifie le script, puis publie le dépôt : `mkdir -p .github/workflows && printf \'on: [push, pull_request]\\njobs:\\n  lint:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - run: bash -n deploy.sh\\n\' > .github/workflows/lint.yml && git add . && git commit -qm start && gh repo create pr-lab --public --source=. --push`. Il est public parce que les comptes gratuits n’ont la protection de branche que sur les dépôts publics. Demande ensuite à GitHub de vérifier CODEOWNERS : `gh api repos/{owner}/{repo}/codeowners/errors --jq \'.errors[] | {line, kind}\'`.',
+			'Protège `main` : sur la page du dépôt, ouvre Settings, Branches, Add classic branch protection rule, avec le motif `main`. Active « Require a pull request before merging » et désactive « Require approvals », puisque tu ne peux pas approuver ta propre PR. Active « Require status checks to pass before merging » et choisis `lint`. Active « Do not allow bypassing the above settings » et enregistre. Vérifie avec `gh api repos/{owner}/{repo}/branches/main/protection --jq \'.required_status_checks.contexts, .enforce_admins.enabled\'`.',
+			'Pousse un changement cassé directement sur `main` : `printf \'if then\\n\' >> deploy.sh && git commit -qam "break deploy" && git push origin main`. Déplace ensuite ce commit sur une branche et ouvre une PR : `git switch -c break && git branch -f main origin/main && git push -u origin break && gh pr create --fill`.',
+			'Laisse quelques secondes au run pour démarrer, puis `gh pr checks --watch` et essaie `gh pr merge --merge`. Corrige le script sur la branche : `echo \'echo deploying v2\' > deploy.sh && git commit -qam "fix deploy" && git push`, puis `gh pr checks --watch` et `gh pr merge --merge --delete-branch`.',
+			'Supprime le dépôt : `gh auth refresh -h github.com -s delete_repo`, puis `gh repo delete "$(gh api user --jq .login)/pr-lab" --yes` et `rm -rf ~/pr-lab`.'
+		],
+		done: [
+			'L’étape 2 signale une erreur à la ligne 2, où GitHub ne connaît pas `@acme/ops`. La ligne 1, avec ton propre login, n’a pas d’erreur.',
+			'L’étape 3 affiche `["lint"]` et `true`.',
+			'Le push direct est refusé avec `GH006: Protected branch update failed`, alors que tu es admin du dépôt.',
+			'Avec `lint` rouge, `gh pr merge` refuse. Après la correction, `lint` est vert et la PR est mergée.'
+		],
+		solution: [
+			'GitHub ignore une ligne de CODEOWNERS qu’il ne peut pas utiliser et garde le reste. Un propriétaire doit exister et avoir l’accès en écriture, donc une faute de frappe dans un nom d’équipe coupe sans bruit les demandes de revue pour ce chemin, jusqu’à ce que quelqu’un lise les erreurs.',
+			'« Require a pull request before merging » fait que `main` ne change que par une PR. « Do not allow bypassing the above settings » explique pourquoi ton push a échoué aussi : sans ce réglage, le push direct d’un admin passe.',
+			'`bash -n` lit le script sans l’exécuter, et échoue sur `if then`. Le check obligatoire a gardé le merge bloqué jusqu’à ce qu’il soit vert, donc le script cassé n’a jamais atteint `main`.',
+			'La règle vit dans les réglages du dépôt, pas dans Git : supprime le dépôt et la règle part avec lui. Sur un dépôt d’équipe, tu activerais aussi « Require approvals » et « Require review from Code Owners ».'
+		]
+	},
 	recall: {
 		q: 'CODEOWNERS contient `/prod/ @acme/ops`. Qu’est-ce qui rend l’approbation d’ops obligatoire avant qu’un changement dans `prod/` soit mergé ?',
 		a: 'Une règle de protection de branche (ou un ruleset) sur `main` avec « Require review from Code Owners » activé. Tout seul, CODEOWNERS ne fait que demander la revue.'

@@ -190,6 +190,29 @@ Resources:
 			why: 'Chaque subnet est entièrement dans une AZ. Les AZ sont des emplacements isolés, donc répartir sur deux te protège de la panne de l’une.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Construire le réseau, le pare-feu, le rôle et le bucket du chapitre avec de vrais appels AWS CLI, contre LocalStack sur ta machine, sans rien payer.',
+		steps: [
+			'Lance LocalStack et attends-le : `docker run -d --rm --name aws-lab -e AWS_DEFAULT_REGION=eu-west-1 localstack/localstack:4.0`, puis `until docker logs aws-lab 2>&1 | grep -q Ready; do sleep 1; done`. Donne à ton shell une commande courte : `awslocal() { docker exec aws-lab awslocal "$@"; }`.',
+			'Liste les AZ avec `awslocal ec2 describe-availability-zones --query "AvailabilityZones[].ZoneName" --output text`. Crée le VPC : `VPC=$(awslocal ec2 create-vpc --cidr-block 10.0.0.0/16 --query Vpc.VpcId --output text)`. Ajoute un subnet par AZ : `awslocal ec2 create-subnet --vpc-id $VPC --cidr-block 10.0.101.0/24 --availability-zone eu-west-1a`, puis la même chose avec `10.0.1.0/24` dans `eu-west-1b`.',
+			'Crée un security group : `SG=$(awslocal ec2 create-security-group --group-name web --description "lab web" --vpc-id $VPC --query GroupId --output text)`. Lis ses règles avec `awslocal ec2 describe-security-groups --group-ids $SG --query "SecurityGroups[0].[IpPermissions,IpPermissionsEgress]"`, puis autorise SSH depuis une seule adresse : `awslocal ec2 authorize-security-group-ingress --group-id $SG --protocol tcp --port 22 --cidr 203.0.113.7/32`, et relis les règles.',
+			'Crée un rôle qu’EC2 peut endosser, et son instance profile : `awslocal iam create-role --role-name backup-role --assume-role-policy-document \'{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}\'`, `awslocal iam create-instance-profile --instance-profile-name backup-profile`, `awslocal iam add-role-to-instance-profile --instance-profile-name backup-profile --role-name backup-role`. Puis le bucket : `awslocal s3 mb s3://lab-backups && awslocal s3api put-object --bucket lab-backups --key backups/db.sql.gz`.',
+			'Démarre une instance dans le subnet de `eu-west-1a` avec tout ça : `SUB=$(awslocal ec2 describe-subnets --filters Name=cidr-block,Values=10.0.101.0/24 --query "Subnets[0].SubnetId" --output text)`, `AMI=$(awslocal ec2 describe-images --owners amazon --query "Images[0].ImageId" --output text)`, puis `awslocal ec2 run-instances --image-id $AMI --instance-type t3.micro --subnet-id $SUB --security-group-ids $SG --iam-instance-profile Name=backup-profile`. Nettoie avec `docker stop aws-lab` : `--rm` supprime le conteneur et tout ce qu’il contient.'
+		],
+		done: [
+			'`awslocal ec2 describe-subnets --filters Name=vpc-id,Values=$VPC --query "Subnets[].[CidrBlock,AvailabilityZone]" --output text` montre `10.0.101.0/24 eu-west-1a` et `10.0.1.0/24 eu-west-1b`.',
+			'Le nouveau security group montre `[]` en entrée et une règle sortante vers `0.0.0.0/0`. Après l’appel authorize, l’entrée ne contient que tcp 22 depuis `203.0.113.7/32`.',
+			'`awslocal s3 ls s3://lab-backups --recursive` liste `backups/db.sql.gz`.',
+			'`awslocal ec2 describe-instances --query "Reservations[].Instances[].[State.Name,Placement.AvailabilityZone,IamInstanceProfile.Arn]" --output text` montre `running`, `eu-west-1a` et l’ARN de `backup-profile`.'
+		],
+		solution: [
+			'`create-subnet` prend une seule `--availability-zone`, jamais deux, donc deux AZ demandent deux subnets. Rien ici ne route vers une internet gateway, donc les deux subnets sont en fait privés.',
+			'Un nouveau security group ne laisse rien entrer et tout sortir. Il n’y a pas d’appel pour interdire : `authorize-security-group-ingress` est la seule façon de l’ouvrir, une source autorisée à la fois.',
+			'La trust policy dit qui peut endosser le rôle, ici `ec2.amazonaws.com`. L’instance profile porte le rôle jusqu’à l’instance, et aucune access key n’a été créée à aucune étape. Un vrai rôle reçoit aussi une policy qui autorise `s3:PutObject` sur le bucket.',
+			'LocalStack répond à l’API mais n’applique ni les security groups ni IAM. Sur un vrai compte, les mêmes commandes marchent avec `aws` à la place de `awslocal`, et l’instance coûte de l’argent tant que tu ne la termines pas.'
+		]
+	},
 	recall: {
 		q: 'Tes deux serveurs web doivent survivre à la perte d’une AZ et écrire dans S3. Où les places-tu, et comment reçoivent-ils leurs identifiants AWS ?',
 		a: 'Dans des subnets de deux AZ différentes, car chaque subnet est dans une seule AZ. Chaque instance a un rôle IAM via son instance profile : elle reçoit des identifiants temporaires, et aucune access key ne reste sur le serveur.'

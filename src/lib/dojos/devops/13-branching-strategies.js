@@ -108,6 +108,44 @@ jobs:
 			'New rule: branches live less than a day, merge through a pull request with CI green. DORA\'s guidance: merge to trunk at least once a day.',
 			'Billing page: merge it in small pieces behind a feature flag that is off. Turn it on when it is done, then **delete the flag**.',
 			'Deploy from `main`, no freeze. Keep a release branch only if you must patch an old version. Track the number of active branches: DORA says three or fewer.'
+		],
+		steps: [
+			{
+				title: 'Pick the trunk',
+				questions: [
+					{ q: 'Which branch becomes the trunk?', options: ['`develop`, since all features already merge there', '`main`', 'A new `trunk` branch next to `develop`', 'The current `release/*` branch'], answer: 1, why: 'The trunk is the one shared branch everybody merges into, usually `main`.' },
+					{ q: 'What do you do with `develop`?', options: ['Merge it into `main` one last time, then delete it', 'Keep it as a backup of `main`', 'Rename it to `main` and delete the old `main`', 'Freeze it until the billing page is done'], answer: 0, why: 'Trunk-based development has **one** long-lived branch. Keeping `develop` keeps two.' },
+					{ q: 'Why does a long-lived `develop` hurt this team today?', options: ['GitHub cannot run CI on it', 'It needs more disk on the server', 'Work drifts for weeks, so the release merge is big and breaks things', 'Only one developer can push to it'], answer: 2, why: 'Two months on `develop` end in a big merge and days of fixing. Small daily merges keep conflicts small.' },
+					{ q: 'Which branches does the CI workflow watch once you switch?', options: ['`develop` and every `release/*` branch', 'Every feature branch, on push only', 'Only branches whose name starts with `feature/`', 'The trunk, on push and on pull requests into it'], answer: 3, why: 'The starter workflow watches one branch, the default branch. With GitFlow it would also list `develop` and the release branches.' }
+				]
+			},
+			{
+				title: 'Set the branch rule',
+				questions: [
+					{ q: 'How long may a branch live under the new rule?', options: ['Until the feature is finished', 'Less than a day', 'One sprint', 'Until the next release'], answer: 1, why: 'A short-lived branch lives hours, at most a day or two, then merges and is deleted.' },
+					{ q: 'How often should each developer merge into the trunk, per DORA?', options: ['Once a week', 'Once per release', 'Only when a feature is complete', 'At least once a day'], answer: 3, why: 'DORA\'s guidance is to merge to trunk at least once a day.' },
+					{ q: 'How does a change get into `main`?', options: ['Through a pull request, with CI green', 'By a direct push, to save time', 'Through `develop`, as before', 'Once a week, in a batch'], answer: 0, why: 'Review and CI still run on every pull request. Trunk-based does not mean skipping them.' },
+					{ q: 'What must the team trust before daily merges are safe?', options: ['A long manual test phase', 'A weekly code freeze', 'Fast automated tests they believe', 'One person who approves every merge'], answer: 2, why: 'Every merge relies on fast, trusted tests, because a broken trunk blocks everybody.' }
+				]
+			},
+			{
+				title: 'Ship the billing page dark',
+				questions: [
+					{ q: 'The billing page takes three weeks. How does its code reach `main`?', options: ['On one feature branch, merged after three weeks', 'In small pieces every day, behind a feature flag that is off', 'On `develop`, merged at the next release', 'Directly to production, visible to users'], answer: 1, why: 'The work merges daily so the branch stays short. The flag keeps users from seeing it.' },
+					{ q: 'What does the flag being off mean in production?', options: ['The code is not deployed at all', 'The tests for it are skipped', 'Only the billing team can deploy', 'The code is deployed but users do not see it'], answer: 3, why: 'A release toggle lets incomplete code ship to production as latent code. The flag decides what users see.' },
+					{ q: 'The page is done and the flag is on. What is left?', options: ['Delete the flag', 'Keep the flag forever, in case', 'Add a second flag for the next version', 'Cut a release branch for the page'], answer: 0, why: 'Fowler calls flags inventory with a carrying cost. Each one costs work until someone removes it.' },
+					{ q: 'Why not test only the "flag on" path?', options: ['Because flags are removed before deploy', 'Because CI cannot read flags', 'Because a flag adds code paths, and both run in production', 'Because the flag only exists on the branch'], answer: 2, why: 'Flags add code paths to test. Until the flag goes, both paths are real.' }
+				]
+			},
+			{
+				title: 'Deploy and measure',
+				questions: [
+					{ q: 'Which commit can go to production?', options: ['Only a commit on a `release/*` branch', 'Only a commit after a code freeze', 'Only a tagged commit on `develop`', 'Any commit on `main` with green CI'], answer: 3, why: 'In trunk-based development any green commit on the trunk can be released, so you deploy on any day.' },
+					{ q: 'What happens to the one-week code freeze?', options: ['It moves to the day before each deploy', 'It goes away', 'It becomes two weeks to be safe', 'It applies only to the billing page'], answer: 1, why: 'DORA\'s research links dropping the code freeze and the integration phase to better delivery.' },
+					{ q: 'When do you still keep a release branch?', options: ['When you must patch an old released version', 'For every deploy, out of habit', 'When a feature takes more than a week', 'When CI is slow'], answer: 0, why: 'Supporting several released versions at once still needs release branches. That is the case GitFlow\'s author says it fits.' },
+					{ q: 'Which number do you track to see the move is working?', options: ['The number of tags', 'Lines of code per developer', 'The number of active branches, three or fewer', 'The length of the code freeze'], answer: 2, why: 'DORA suggests tracking active branches. Three or fewer means nobody drifts far from the trunk.' }
+				]
+			}
 		]
 	},
 	quiz: [

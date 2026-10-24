@@ -100,6 +100,44 @@ You might also consider changing your \`.git/config\` file via
 			'Choisis la bonne valeur (demande à l’auteur de l’autre côté si tu ne sais pas), supprime les trois lignes de marqueurs, enregistre. Lance `nginx -t` au passage.',
 			'`git add nginx.conf` marque le conflit comme résolu. Ensuite `git commit` écrit le commit de merge.',
 			'Perdu ? `git merge --abort` essaie de te ramener à l’état d’avant le merge, pour repartir de zéro.'
+		],
+		steps: [
+			{
+				title: 'Lis les marqueurs',
+				questions: [
+					{ q: 'Pourquoi Git s’est-il arrêté au lieu de merger tout seul ?', options: ['`main` et `feature` ont changé la même ligne', '`feature` est plus ancienne que `main`', '`nginx.conf` n’a pas d’ancêtre commun', 'Git ne merge jamais seul les fichiers de config'], answer: 0, why: 'Quand les deux côtés ont changé les mêmes lignes, Git ne peut pas choisir. Il s’arrête sur un conflit et te demande.' },
+					{ q: 'À qui est `worker_connections 2048;`, entre `<<<<<<< HEAD` et `=======` ?', options: ['La version venue de `feature`', 'La version de l’ancêtre commun', 'La version de `main`, la branche sur laquelle tu es', 'La version du remote'], answer: 2, why: 'HEAD est la branche sur laquelle tu es. Tu as lancé le merge sur `main`, donc ce côté est `main`.' },
+					{ q: 'À qui est `worker_connections 4096;`, avant `>>>>>>> feature` ?', options: ['La version de `main`', 'La version de `feature`, la branche que tu merges', 'Une valeur calculée par Git à partir des deux côtés', 'La valeur du dernier commit sur `main`'], answer: 1, why: 'La moitié du bas vient de la branche que tu merges, et le marqueur la nomme.' },
+					{ q: 'À quoi sert la ligne `=======` ?', options: ['Elle marque la ligne que Git a gardée', 'Elle fait partie de la syntaxe nginx', 'Elle montre où commence l’ancêtre commun', 'Elle sépare les deux versions'], answer: 3, why: 'C’est un marqueur, comme les deux autres. Ton côté est au-dessus, l’autre côté en dessous.' }
+				]
+			},
+			{
+				title: 'Choisis et nettoie',
+				questions: [
+					{ q: 'Tu ne sais pas si 2048 ou 4096 est la bonne valeur. Que fais-tu ?', options: ['Garder les deux lignes, nginx prend la dernière', 'Demander à l’auteur de l’autre côté', 'Garder `main`, puisque c’est la branche cible', 'Garder le plus grand nombre'], answer: 1, why: 'Le conflit est une question d’intention. La personne qui a écrit l’autre côté sait pourquoi.' },
+					{ q: 'Quelles lignes supprimes-tu une fois la valeur choisie ?', options: ['Seulement `=======`', 'Seulement les lignes `<<<<<<<` et `>>>>>>>`', 'Les trois lignes de marqueurs et la valeur que tu écartes', 'Aucune : Git les retire au moment du commit'], answer: 2, why: 'Git veut que les marqueurs disparaissent. Le fichier que tu enregistres est celui qui entre dans le commit de merge.' },
+					{ q: 'Pourquoi lancer `nginx -t` avant de continuer ?', options: ['Pour vérifier que la config que tu vas commiter est valide', 'Pour dire à Git que le conflit est réglé', 'Pour recharger nginx avec la nouvelle valeur', 'Pour trouver les autres conflits du dépôt'], answer: 0, why: 'Un merge peut produire un fichier qu’aucun des deux côtés n’a écrit. Vérifie-le avant qu’il devienne un commit.' },
+					{ q: 'Tu as enregistré le fichier propre, mais Git le montre toujours en conflit. Pourquoi ?', options: ['Tu dois supprimer le fichier et le recréer', 'nginx n’a pas encore rechargé', 'Le merge a d’abord besoin de `git merge --abort`', 'Tu ne l’as pas encore stagé avec `git add`'], answer: 3, why: 'Enregistrer ne change que le working tree. Git considère le conflit résolu une fois le fichier stagé.' }
+				]
+			},
+			{
+				title: 'Termine le merge',
+				questions: [
+					{ q: 'Quelle commande marque le conflit de `nginx.conf` comme résolu ?', options: ['`git add nginx.conf`', '`git restore nginx.conf`', '`git merge --continue-all`', '`git rebase main`'], answer: 0, why: 'Stager le fichier nettoyé dit à Git que ce conflit est réglé.' },
+					{ q: 'Qu’écrit `git commit` ensuite ?', options: ['Un commit normal avec un parent', 'Un commit de merge avec deux parents', 'Rien : le merge était déjà fait', 'Une copie de `feature` avec de nouveaux hashes'], answer: 1, why: 'Merger deux branches qui ont divergé se termine par un commit de merge, dont les parents sont les deux bouts de branche.' },
+					{ q: 'Que deviennent les commits qui étaient sur `feature` ?', options: ['Ils reçoivent de nouveaux hashes', 'Ils sont supprimés de l’historique', 'Ils gardent leurs hashes', 'Ils sont écrasés dans le commit de merge'], answer: 2, why: 'Le merge ne réécrit aucun commit. Seul le rebase rejoue des commits avec de nouveaux hashes.' },
+					{ q: 'Où pointe `main` une fois le commit fait ?', options: ['Sur le bout de `feature`', 'Sur l’ancêtre commun', 'Toujours sur son ancien commit', 'Sur le nouveau commit de merge'], answer: 3, why: 'Tu étais sur `main`, donc le commit fait avancer `main` sur le commit de merge.' }
+				]
+			},
+			{
+				title: 'Connais la sortie de secours',
+				questions: [
+					{ q: 'Tu es perdu en plein milieu. Quelle commande essaie de te ramener avant le merge ?', options: ['`git restore .`', '`git merge --abort`', '`git switch feature`', '`git commit --amend`'], answer: 1, why: '`git merge --abort` essaie de remettre les choses comme avant le merge, pour repartir de zéro.' },
+					{ q: 'Ce merge aurait-il pu être un fast-forward ?', options: ['Non : `main` a bougé depuis la séparation de `feature`', 'Oui, si tu avais d’abord fait `git merge --abort`', 'Oui : tout merge de deux branches en est un', 'Seulement si `feature` avait un seul commit'], answer: 0, why: 'Un fast-forward demande que la branche cible n’ait pas bougé depuis la séparation. Ici `main` a reçu son propre changement.' },
+					{ q: 'Qu’est-ce qui rend ce genre de conflit plus gros ?', options: ['Utiliser merge plutôt que rebase', 'De petits commits sur `feature`', 'Deux branches qui vivent longtemps séparées', 'Lancer `git fetch` trop souvent'], answer: 2, why: 'Plus deux branches vivent longtemps séparées, plus elles changent, et plus le conflit est gros quand elles se retrouvent.' },
+					{ q: 'La prochaine fois, comment le guide Kubernetes garde-t-il une branche de travail proche d’upstream ?', options: ['`git pull` sur chaque branche, tous les jours', '`git merge main` dans `feature` toutes les heures', 'Un force push de `main` sur le fork', '`git fetch upstream`, puis `git rebase upstream/master`'], answer: 3, why: 'Se synchroniser souvent garde la branche près de l’autre ligne. Kubernetes choisit fetch puis rebase pour que la branche reste une ligne droite.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -137,6 +175,28 @@ You might also consider changing your \`.git/config\` file via
 			why: 'Le rebase remplace des commits par de nouveaux. Si d’autres ont construit sur les anciens, leur historique et le tien ne correspondent plus.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Provoquer exprès le conflit du chapitre, le résoudre en commit de merge, puis voir un fast-forward.',
+		steps: [
+			'Crée un dépôt : `mkdir -p ~/merge-lab && cd ~/merge-lab && git init -b main && printf \'worker_connections 1024;\\n\' > nginx.conf && git add . && git commit -m "C1"`.',
+			'Fais diverger : `git switch -c feature && printf \'worker_connections 4096;\\n\' > nginx.conf && git commit -am "C3: 4096"`, puis `git switch main && printf \'worker_connections 2048;\\n\' > nginx.conf && git commit -am "C4: 2048"`.',
+			'Merge et lis le conflit : `git merge feature`, puis `cat nginx.conf` et `git status --short`. Recule une fois avec `git merge --abort` et `cat nginx.conf`.',
+			'Merge à nouveau et résous : `git merge feature`, écris la valeur que tu gardes avec `printf \'worker_connections 4096;\\n\' > nginx.conf`, puis `git add nginx.conf && git commit --no-edit`. Regarde `git log --oneline --graph` et `git cat-file -p HEAD`.',
+			'Vois un fast-forward : `git switch -c quick && echo \'# tuned\' >> nginx.conf && git commit -am "C5" && git switch main && git merge quick`.'
+		],
+		done: [
+			'À l’étape 3, `cat nginx.conf` montre `<<<<<<< HEAD`, `worker_connections 2048;`, `=======`, `worker_connections 4096;` et `>>>>>>> feature`, et `git status --short` montre `UU nginx.conf`.',
+			'Après `git merge --abort`, `cat nginx.conf` montre seulement `worker_connections 2048;`.',
+			'À l’étape 4, `git cat-file -p HEAD` liste deux lignes `parent`, et le graphe montre C3 et C4 qui se rejoignent.',
+			'À l’étape 5, `git merge quick` affiche `Fast-forward`.'
+		],
+		solution: [
+			'`UU` veut dire que les deux côtés ont modifié le fichier. La moitié du haut est HEAD, `main` ; celle du bas est `feature`.',
+			'Retirer les marqueurs puis lancer `git add` résout le conflit. `git commit --no-edit` garde le message de Git, `Merge branch \'feature\'`.',
+			'`main` n’avait pas bougé depuis la création de `quick`, donc Git a juste déplacé le pointeur : pas de nouveau commit, un seul parent.'
+		]
+	},
 	recall: {
 		q: '`main` a reçu le hotfix C4 après ton commit C3 sur `feature`. Qu’écrit `git merge feature`, et que fait `git rebase main` à la place ?',
 		a: 'Le merge écrit un commit de merge avec deux parents, C3 et C4. Le rebase rejoue C3 au-dessus de C4 sous forme d’un nouveau commit avec un nouveau hash, donc tu ne rebases que des commits sur lesquels personne n’a construit.'

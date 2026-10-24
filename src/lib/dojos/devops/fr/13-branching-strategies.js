@@ -108,6 +108,44 @@ jobs:
 			'Nouvelle règle : les branches vivent moins d’un jour et sont mergées via une pull request avec la CI verte. La consigne DORA : merger dans le trunk au moins une fois par jour.',
 			'Page de facturation : merge-la par petits morceaux derrière un feature flag sur off. Active-le quand elle est finie, puis **supprime le flag**.',
 			'Déploie depuis `main`, sans gel. Garde une branche release seulement si tu dois patcher une ancienne version. Suis le nombre de branches actives : DORA dit trois ou moins.'
+		],
+		steps: [
+			{
+				title: 'Choisis le trunk',
+				questions: [
+					{ q: 'Quelle branche devient le trunk ?', options: ['`develop`, puisque toutes les features y sont déjà mergées', '`main`', 'Une nouvelle branche `trunk` à côté de `develop`', 'La branche `release/*` en cours'], answer: 1, why: 'Le trunk est la branche partagée unique dans laquelle tout le monde merge, en général `main`.' },
+					{ q: 'Que fais-tu de `develop` ?', options: ['La merger dans `main` une dernière fois, puis la supprimer', 'La garder comme sauvegarde de `main`', 'La renommer en `main` et supprimer l’ancien `main`', 'La geler jusqu’à la fin de la page de facturation'], answer: 0, why: 'Le trunk-based development a **une seule** branche longue. Garder `develop`, c’est en garder deux.' },
+					{ q: 'Pourquoi une branche `develop` qui dure fait-elle mal à cette équipe aujourd’hui ?', options: ['GitHub ne peut pas lancer la CI dessus', 'Elle prend plus de disque sur le serveur', 'Le travail dérive pendant des semaines, donc le merge de release est gros et casse des choses', 'Un seul développeur peut pousser dessus'], answer: 2, why: 'Deux mois sur `develop` finissent en gros merge et en jours de réparation. De petits merges quotidiens gardent les conflits petits.' },
+					{ q: 'Quelles branches le workflow de CI surveille-t-il après le passage ?', options: ['`develop` et chaque branche `release/*`', 'Chaque branche feature, au push seulement', 'Seulement les branches dont le nom commence par `feature/`', 'Le trunk, au push et sur les pull requests vers lui'], answer: 3, why: 'Le workflow de démarrage surveille une seule branche, la branche par défaut. Avec GitFlow, il listerait aussi `develop` et les branches release.' }
+				]
+			},
+			{
+				title: 'Fixe la règle des branches',
+				questions: [
+					{ q: 'Combien de temps une branche peut-elle vivre avec la nouvelle règle ?', options: ['Jusqu’à ce que la fonctionnalité soit finie', 'Moins d’un jour', 'Un sprint', 'Jusqu’à la prochaine release'], answer: 1, why: 'Une branche courte vit quelques heures, un ou deux jours au maximum, puis est mergée et supprimée.' },
+					{ q: 'À quelle fréquence chaque développeur doit-il merger dans le trunk, selon DORA ?', options: ['Une fois par semaine', 'Une fois par release', 'Seulement quand une fonctionnalité est complète', 'Au moins une fois par jour'], answer: 3, why: 'La consigne DORA est de merger dans le trunk au moins une fois par jour.' },
+					{ q: 'Comment un changement arrive-t-il dans `main` ?', options: ['Par une pull request, avec la CI verte', 'Par un push direct, pour gagner du temps', 'Par `develop`, comme avant', 'Une fois par semaine, en lot'], answer: 0, why: 'La relecture et la CI tournent toujours sur chaque pull request. Trunk-based ne veut pas dire les sauter.' },
+					{ q: 'En quoi l’équipe doit-elle avoir confiance avant que les merges quotidiens soient sûrs ?', options: ['Une longue phase de tests manuels', 'Un gel du code chaque semaine', 'Des tests automatiques rapides et fiables', 'Une personne qui valide chaque merge'], answer: 2, why: 'Chaque merge repose sur des tests rapides et fiables, car un trunk cassé bloque tout le monde.' }
+				]
+			},
+			{
+				title: 'Livre la facturation éteinte',
+				questions: [
+					{ q: 'La page de facturation prend trois semaines. Comment son code arrive-t-il dans `main` ?', options: ['Sur une branche feature, mergée au bout de trois semaines', 'Par petits morceaux chaque jour, derrière un feature flag sur off', 'Sur `develop`, mergé à la prochaine release', 'Directement en production, visible des utilisateurs'], answer: 1, why: 'Le travail est mergé chaque jour, donc la branche reste courte. Le flag empêche les utilisateurs de le voir.' },
+					{ q: 'Que veut dire un flag sur off en production ?', options: ['Le code n’est pas déployé du tout', 'Ses tests sont sautés', 'Seule l’équipe facturation peut déployer', 'Le code est déployé mais les utilisateurs ne le voient pas'], answer: 3, why: 'Un release toggle permet d’envoyer du code incomplet en production sous forme de code dormant. Le flag décide de ce que voient les utilisateurs.' },
+					{ q: 'La page est finie et le flag est sur on. Que reste-t-il à faire ?', options: ['Supprimer le flag', 'Garder le flag pour toujours, au cas où', 'Ajouter un second flag pour la version suivante', 'Créer une branche release pour la page'], answer: 0, why: 'Fowler décrit les flags comme un stock qui a un coût de possession. Chacun coûte du travail tant que personne ne le retire.' },
+					{ q: 'Pourquoi ne pas tester seulement le chemin « flag sur on » ?', options: ['Parce que les flags sont retirés avant le déploiement', 'Parce que la CI ne sait pas lire les flags', 'Parce qu’un flag ajoute des chemins de code, et les deux tournent en production', 'Parce que le flag n’existe que sur la branche'], answer: 2, why: 'Les flags ajoutent des chemins de code à tester. Tant que le flag est là, les deux chemins sont réels.' }
+				]
+			},
+			{
+				title: 'Déploie et mesure',
+				questions: [
+					{ q: 'Quel commit peut partir en production ?', options: ['Seulement un commit sur une branche `release/*`', 'Seulement un commit après un gel du code', 'Seulement un commit tagué sur `develop`', 'Tout commit de `main` avec la CI verte'], answer: 3, why: 'En trunk-based development, tout commit vert du trunk peut être livré, donc tu déploies n’importe quel jour.' },
+					{ q: 'Que devient la semaine de gel du code ?', options: ['Elle passe à la veille de chaque déploiement', 'Elle disparaît', 'Elle passe à deux semaines par sécurité', 'Elle ne s’applique plus qu’à la page de facturation'], answer: 1, why: 'La recherche DORA relie l’abandon du gel du code et de la phase d’intégration à une meilleure livraison.' },
+					{ q: 'Quand gardes-tu encore une branche release ?', options: ['Quand tu dois patcher une ancienne version publiée', 'Pour chaque déploiement, par habitude', 'Quand une fonctionnalité prend plus d’une semaine', 'Quand la CI est lente'], answer: 0, why: 'Maintenir plusieurs versions publiées à la fois demande encore des branches release. C’est le cas pour lequel l’auteur de GitFlow dit qu’il est fait.' },
+					{ q: 'Quel chiffre suis-tu pour voir si le passage marche ?', options: ['Le nombre de tags', 'Les lignes de code par développeur', 'Le nombre de branches actives, trois ou moins', 'La durée du gel du code'], answer: 2, why: 'DORA conseille de suivre les branches actives. Trois ou moins veut dire que personne ne s’éloigne trop du trunk.' }
+				]
+			}
 		]
 	},
 	quiz: [

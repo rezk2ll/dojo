@@ -132,6 +132,44 @@ export default {
 			'(c) No rows, although `web` and `docs` have no members. The NULL in `members` makes every `NOT IN` NULL. `SELECT name FROM projects p WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.project_id = p.id)` returns `web` and `docs`.',
 			'(d) 3 and 2. `count(*)` counts rows, `count(status)` counts the rows where status is not NULL.',
 			'Bonus: `SELECT name, COALESCE(status, \'none\') FROM projects` shows `none` for `docs`, without changing the stored data.'
+		],
+		steps: [
+			{
+				title: 'Predict the `<>` count',
+				questions: [
+					{ q: 'For the `docs` row, what is `status <> \'archived\'`?', options: ['true', 'false', 'NULL', 'An error'], answer: 2, why: 'A comparison with NULL gives NULL. The docs: "7 = NULL yields null, as does 7 <> NULL".' },
+					{ q: 'Which rows does WHERE keep?', options: ['Rows where the condition is true or NULL', 'Rows where the condition is true', 'Rows where the condition is not false', 'Every row, then it filters later'], answer: 1, why: 'The docs: if the result "is false or null, it is discarded". Only true survives.' },
+					{ q: 'So what does (a) return?', options: ['1', '2', '3', '0'], answer: 0, why: 'Only `api`. `web` is false, and `docs` is NULL, so both are dropped.' },
+					{ q: 'You try `WHERE status = NULL` to find `docs`. What do you get?', options: ['The `docs` row', 'An error about NULL', 'Every row', 'No rows'], answer: 3, why: '`x = NULL` is NULL even when `x` is NULL. Only `status IS NULL` tests for a missing value.' }
+				]
+			},
+			{
+				title: 'Keep the NULL row',
+				questions: [
+					{ q: 'What does (b), with `IS DISTINCT FROM`, return?', options: ['1', '2', '3', '0'], answer: 1, why: '`api` and `docs`. It treats the NULL as a value that differs from `\'archived\'`.' },
+					{ q: 'What can `status IS DISTINCT FROM \'archived\'` return?', options: ['Only true or false, never NULL', 'True, false or NULL', 'Only NULL when `status` is NULL', 'The value of `status`'], answer: 0, why: 'That is its whole point: it compares NULL like an ordinary value.' },
+					{ q: 'Which other condition also keeps `docs`?', options: ['`status <> \'archived\' AND status IS NOT NULL`', '`NOT (status = \'archived\')`', '`status != \'archived\'`', '`COALESCE(status, \'none\') <> \'archived\'`'], answer: 3, why: '`COALESCE` replaces the NULL with `\'none\'` before the compare. The other three still meet a NULL, or drop it on purpose.' },
+					{ q: 'Which rows does Django\'s `exclude(status="archived")` return here?', options: ['Only `api`', 'Only `docs`', '`api` and `docs`', 'None'], answer: 2, why: 'Django sends `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. It matches (b), not (a).' }
+				]
+			},
+			{
+				title: 'Trace the NOT IN',
+				questions: [
+					{ q: 'The subquery returns `1` and `NULL`. What does `id NOT IN (1, NULL)` mean?', options: ['`id <> 1 OR id <> NULL`', '`id <> 1 AND id <> NULL`', '`id <> 1`, NULLs are skipped', '`id IS NOT NULL AND id <> 1`'], answer: 1, why: '`NOT IN` must differ from every value in the list, so the tests join with AND.' },
+					{ q: 'For `web` (id 2), what is `2 <> 1 AND 2 <> NULL`?', options: ['true', 'false', 'An error', 'NULL'], answer: 3, why: '`true AND NULL` is NULL, so WHERE drops the row.' },
+					{ q: 'So what does (c) return?', options: ['No rows', '`web` and `docs`', '`docs` only', 'All three projects'], answer: 0, why: 'One NULL in the subquery makes every `NOT IN` NULL or false, never true.' },
+					{ q: 'Which query returns `web` and `docs`, as you meant?', options: ['`... WHERE id NOT IN (SELECT DISTINCT project_id FROM members)`', '`... WHERE id <> ALL (SELECT project_id FROM members)`', '`... WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.project_id = p.id)`', '`... WHERE id NOT IN (SELECT project_id FROM members ORDER BY 1)`'], answer: 2, why: '`NOT EXISTS` still returns the rows with no match when the subquery holds a NULL. The other three keep the NULL in the list.' }
+				]
+			},
+			{
+				title: 'Count the NULLs',
+				questions: [
+					{ q: 'What does (d), `count(*), count(status)`, return?', options: ['3 and 3', '2 and 2', '3 and 2', '3 and NULL'], answer: 2, why: '`count(*)` counts rows. `count(status)` counts the rows where status is not NULL.' },
+					{ q: 'Why does NULL help `avg(price)` more than a stored 0?', options: ['It keeps the missing price out, while a 0 would pull the average down', 'Averages are faster on NULL columns', 'A 0 makes `avg` return NULL', 'There is no difference'], answer: 0, why: 'Aggregates skip NULLs. A 0 looks like real data.' },
+					{ q: 'What does `SELECT name, COALESCE(status, \'none\') FROM projects` change in the table?', options: ['It writes `none` into the `docs` row', 'It adds a default to the column', 'It makes `status` NOT NULL', 'Nothing: it only changes what the query shows'], answer: 3, why: '`COALESCE` returns its first argument that is not NULL. It works on the output, not on the stored data.' },
+					{ q: '`UNIQUE (user_id, team_id)` with the defaults, and you insert `(7, NULL)` twice. What happens?', options: ['Both inserts succeed', 'The second insert fails', 'The first insert fails', 'The second replaces the first'], answer: 0, why: 'By default "null values in a unique column are not considered equal". `NULLS NOT DISTINCT` (PostgreSQL 15 and later) rejects the second one.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,29 @@ export default {
 			why: 'Django adds `IS NOT NULL` inside the negation, so the SQL is `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. A hand-written `status <> \'archived\'` would drop those rows.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a NULL drop rows from `<>` and `NOT IN`, then keep them with the right test, and let a NULL slip past a unique constraint.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-null -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-null psql -U postgres`.',
+			'Create the task\'s data: `CREATE TABLE projects (id int, name text, status text); INSERT INTO projects VALUES (1, \'api\', \'active\'), (2, \'web\', \'archived\'), (3, \'docs\', NULL); CREATE TABLE members (user_id int, project_id int); INSERT INTO members VALUES (10, 1), (11, NULL);`',
+			'Write your four predictions down, then run (a) to (d) from the task, and the `NOT EXISTS` version of (c).',
+			'See the NULL itself: `SELECT NULL = NULL AS eq, NULL IS NULL AS is_null;`',
+			'Try the unique key: `CREATE TABLE team_members (user_id int, team_id int, UNIQUE (user_id, team_id));` then run `INSERT INTO team_members VALUES (7, NULL);` twice. Then `CREATE TABLE team_members2 (user_id int, team_id int, UNIQUE NULLS NOT DISTINCT (user_id, team_id));` and the same two inserts into it. Quit with `\\q` and clean up with `docker rm -f pg-null`.'
+		],
+		done: [
+			'(a) prints 1, (b) prints 2, (c) prints `(0 rows)`, and the `NOT EXISTS` version prints `web` and `docs`.',
+			'(d) prints 3 and 2.',
+			'`eq` is empty (NULL) and `is_null` is `t`.',
+			'`team_members` holds two `(7, NULL)` rows; the second insert into `team_members2` fails with `duplicate key value violates unique constraint`.'
+		],
+		solution: [
+			'(a) `SELECT count(*) FROM projects WHERE status <> \'archived\';` and (b) `SELECT count(*) FROM projects WHERE status IS DISTINCT FROM \'archived\';`',
+			'(c) `SELECT name FROM projects WHERE id NOT IN (SELECT project_id FROM members);` then `SELECT name FROM projects p WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.project_id = p.id);`',
+			'(d) `SELECT count(*), count(status) FROM projects;`',
+			'The first three surprises have one cause: a comparison with NULL is NULL, and WHERE keeps only true. The last one is a default: a unique index does not count two NULLs as equal unless you say `NULLS NOT DISTINCT`.'
+		]
+	},
 	recall: {
 		q: 'A project has a NULL status. Why does `WHERE status <> \'archived\'` drop it, and which condition keeps it?',
 		a: '`NULL <> \'archived\'` is NULL, and WHERE keeps only rows where the condition is true. `status IS DISTINCT FROM \'archived\'` is true for that row, so it keeps it.'

@@ -125,6 +125,44 @@ export default {
 			'(2) Aggregate before joining: `SELECT t.id, coalesce(p.n, 0) AS posts, coalesce(g.n, 0) AS tags FROM topics t LEFT JOIN (SELECT topic_id, count(*) AS n FROM posts GROUP BY topic_id) p ON p.topic_id = t.id LEFT JOIN (SELECT topic_id, count(*) AS n FROM tags GROUP BY topic_id) g ON g.topic_id = t.id;` Each subquery gives one row per topic, so nothing multiplies.',
 			'(2, shortcut) `count(DISTINCT p.id)` and `count(DISTINCT g.name)` give the same numbers here, but the join still builds 3 x 2 rows for topic 1 before counting.',
 			'(3) `SELECT t.id FROM topics t WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id);` or `SELECT t.id FROM topics t LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL;` Check both against your data: topic 3 only.'
+		],
+		steps: [
+			{
+				title: 'Count posts per topic',
+				questions: [
+					{ q: 'Which join keeps topic 3, which has no post?', options: ['`topics t JOIN posts p ON p.topic_id = t.id`', '`posts p JOIN topics t ON p.topic_id = t.id`', '`topics t LEFT JOIN posts p ON p.topic_id = t.id`', '`topics t, posts p WHERE p.topic_id = t.id`'], answer: 2, why: 'A left join keeps every row of the left table, matched or not. The other three are inner joins.' },
+					{ q: 'In the left join, what are the posts columns of topic 3\'s row?', options: ['NULL', '0', 'The values of the last post', 'An empty string'], answer: 0, why: 'When B has no match, the B columns are NULL. The row is still there, once.' },
+					{ q: 'Why `count(p.id)` and not `count(*)`?', options: ['`count(*)` is slower on large tables', '`count(*)` would count topic 3\'s unmatched row as 1', '`count(*)` cannot follow a GROUP BY', '`count(p.id)` also counts the tags'], answer: 1, why: '`count(*)` counts rows, and topic 3 has one row. `count(p.id)` skips NULLs, so topic 3 shows 0.' },
+					{ q: 'With an inner join instead, what happens to topic 3?', options: ['It shows a count of 0', 'It shows a count of NULL', 'The query fails', 'It disappears from the result'], answer: 3, why: 'An inner join keeps only the pairs where the condition is true. A topic with no post has no pair.' }
+				]
+			},
+			{
+				title: 'Spot the fan-out',
+				questions: [
+					{ q: 'You add `LEFT JOIN tags g ON g.topic_id = t.id` to (1). Topic 1 has 3 posts and 2 tags. What does `count(p.id)` say?', options: ['3', '5', '2', '6'], answer: 3, why: 'Each of the 3 post rows meets both tags: 3 x 2 = 6 rows, each with a non-NULL `p.id`.' },
+					{ q: 'What does one row of that joined result stand for?', options: ['A post and a tag of the same topic', 'One topic', 'One post', 'One tag'], answer: 0, why: 'Both joins start from the topic, so the result pairs every post with every tag of its topic.' },
+					{ q: 'What does PostgreSQL say about the overcount?', options: ['It raises a warning about duplicate rows', 'It refuses the query without DISTINCT', 'Nothing: it returns what the query asked for', 'It counts only the first join'], answer: 2, why: 'A join pairs rows, and `count` counts rows. The numbers are wrong without any error.' },
+					{ q: 'And `count(g.name)` for topic 1 in the same query?', options: ['2, because there are 2 tags', '6, because each tag meets 3 posts', '3, because there are 3 posts', '1, because tags are grouped'], answer: 1, why: 'The fan-out multiplies both sides. Each tag is repeated once per post.' }
+				]
+			},
+			{
+				title: 'Aggregate before joining',
+				questions: [
+					{ q: 'How do you count posts and tags with no overcounting?', options: ['Count each table in its own subquery grouped by `topic_id`, then left join the totals', 'Add `ORDER BY t.id` so the rows are grouped', 'Use an inner join for tags and a left join for posts', 'Move the tags join into the WHERE clause'], answer: 0, why: 'Aggregate first, then join. That is the fix the chapter prefers to `DISTINCT`.' },
+					{ q: 'Why can nothing multiply in that version?', options: ['Subqueries always return one row', 'GROUP BY removes duplicate posts', 'Each subquery gives at most one row per topic', 'Left joins never repeat a row'], answer: 2, why: 'A topic now meets one row of totals on each side, so no pairs multiply.' },
+					{ q: 'Why wrap the totals in `coalesce(p.n, 0)`?', options: ['To turn text into numbers', 'A topic with no post gets NULL from the left join, not 0', 'To make the subquery run first', 'Because `count(*)` can return NULL'], answer: 1, why: 'The subquery has no row for topic 3, so the left join fills `p.n` with NULL. `coalesce` shows it as 0.' },
+					{ q: 'What does `count(DISTINCT p.id)` cost compared with the subqueries?', options: ['It gives wrong numbers here', 'It cannot be used with GROUP BY', 'Nothing, it is the same plan', 'The join still builds all 3 x 2 rows before counting'], answer: 3, why: '`DISTINCT` hides the fan-out but does not stop it. The extra rows are still made first.' }
+				]
+			},
+			{
+				title: 'Find topics with no post',
+				questions: [
+					{ q: 'Which query is the `NOT EXISTS` form?', options: ['`... WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id)`', '`... WHERE NOT EXISTS (SELECT 1 FROM posts)`', '`... WHERE t.id NOT EXISTS posts.topic_id`', '`... WHERE EXISTS (SELECT 1 FROM posts p WHERE p.topic_id <> t.id)`'], answer: 0, why: 'The subquery must look for this topic\'s posts. Without the link to `t.id`, it asks whether any post exists at all.' },
+					{ q: 'Which is the left join form?', options: ['`... JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL`', '`... LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id = NULL`', '`... LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL`', '`... LEFT JOIN posts p ON p.id IS NULL`'], answer: 2, why: 'The left join keeps the unmatched topic with NULL post columns, and `IS NULL` keeps only those. `= NULL` is never true.' },
+					{ q: 'With the chapter\'s data, what should both return?', options: ['Topics 2 and 3', 'Topic 3 only', 'Topic 1 only', 'No rows'], answer: 1, why: 'Topic 1 has three posts and topic 2 has one. Only topic 3 has none.' },
+					{ q: 'Why can `NOT EXISTS` stay cheap on a topic with many posts?', options: ['It reads the posts table only once per day', 'It caches the answer for all topics', 'It always uses a hash index', 'The subquery stops at the first matching row'], answer: 3, why: 'The docs: the subquery runs "only long enough to determine whether at least one row is returned".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,27 @@ export default {
 			why: 'The left join produces the row with NULL post columns, then the inner join needs `posts.topic_id = topics.id`, which is never true for NULL. The row is gone before WHERE runs. NULL comparisons get their own chapter (day 6).'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Make a join overcount on purpose, then fix it, and find the topic with no post two ways.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-joins -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-joins psql -U postgres`.',
+			'Load the chapter\'s data: `CREATE TABLE topics (id int PRIMARY KEY); CREATE TABLE posts (id int PRIMARY KEY, topic_id int); CREATE TABLE tags (topic_id int, name text); INSERT INTO topics VALUES (1), (2), (3); INSERT INTO posts VALUES (10, 1), (11, 1), (12, 1), (20, 2); INSERT INTO tags VALUES (1, \'x\'), (1, \'y\');`',
+			'Compare `count(*)` and `count(p.id)`: `SELECT t.id, count(*) AS star, count(p.id) AS posts FROM topics t LEFT JOIN posts p ON p.topic_id = t.id GROUP BY t.id ORDER BY t.id;`',
+			'Add the tags join and watch the fan-out: `SELECT t.id, count(p.id) AS posts, count(g.name) AS tags FROM topics t LEFT JOIN posts p ON p.topic_id = t.id LEFT JOIN tags g ON g.topic_id = t.id GROUP BY t.id ORDER BY t.id;`. Then write the version that aggregates before joining.',
+			'Find the topics with no post with `NOT EXISTS`, then with a left join, and put `EXPLAIN` in front of the `NOT EXISTS` one. Quit with `\\q` and clean up with `docker rm -f pg-joins`.'
+		],
+		done: [
+			'In step 3, topic 3 shows `star` 1 and `posts` 0.',
+			'In step 4, topic 1 shows 6 posts and 6 tags; your fixed version shows 3 and 2.',
+			'Both anti-joins return topic 3 only, and the `EXPLAIN` output has an `Anti Join` node.'
+		],
+		solution: [
+			'Fixed counts: `SELECT t.id, coalesce(p.n, 0) AS posts, coalesce(g.n, 0) AS tags FROM topics t LEFT JOIN (SELECT topic_id, count(*) AS n FROM posts GROUP BY topic_id) p ON p.topic_id = t.id LEFT JOIN (SELECT topic_id, count(*) AS n FROM tags GROUP BY topic_id) g ON g.topic_id = t.id ORDER BY t.id;`',
+			'`SELECT t.id FROM topics t WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.topic_id = t.id);`',
+			'`SELECT t.id FROM topics t LEFT JOIN posts p ON p.topic_id = t.id WHERE p.id IS NULL;`'
+		]
+	},
 	recall: {
 		q: 'A topic has 3 posts and 2 tags. Why does a query that left joins both tables count 6 posts, and how do you get 3?',
 		a: 'Each post row pairs with each tag, so the join makes 3 x 2 = 6 rows. Count the posts per topic in a subquery before the join, or use `count(DISTINCT p.id)`.'

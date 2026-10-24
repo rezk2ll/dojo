@@ -123,7 +123,7 @@ jobs:
 				title: 'Set the branch rule',
 				questions: [
 					{ q: 'How long may a branch live under the new rule?', options: ['Until the feature is finished', 'Less than a day', 'One sprint', 'Until the next release'], answer: 1, why: 'A short-lived branch lives hours, at most a day or two, then merges and is deleted.' },
-					{ q: 'How often should each developer merge into the trunk, per DORA?', options: ['Once a week', 'Once per release', 'Only when a feature is complete', 'At least once a day'], answer: 3, why: 'DORA\'s guidance is to merge to trunk at least once a day.' },
+					{ q: 'All 6 developers follow DORA\'s guidance. How many merges into `main` does a normal working day bring?', options: ['About one, from whoever finishes first', 'One per sprint, from the whole team', 'None until the billing page is done', 'At least six, one or more per developer'], answer: 3, why: 'DORA\'s guidance is that each developer merges to trunk at least once a day, so six people make at least six small merges.' },
 					{ q: 'How does a change get into `main`?', options: ['Through a pull request, with CI green', 'By a direct push, to save time', 'Through `develop`, as before', 'Once a week, in a batch'], answer: 0, why: 'Review and CI still run on every pull request. Trunk-based does not mean skipping them.' },
 					{ q: 'What must the team trust before daily merges are safe?', options: ['A long manual test phase', 'A weekly code freeze', 'Fast automated tests they believe', 'One person who approves every merge'], answer: 2, why: 'Every merge relies on fast, trusted tests, because a broken trunk blocks everybody.' }
 				]
@@ -131,9 +131,9 @@ jobs:
 			{
 				title: 'Ship the billing page dark',
 				questions: [
-					{ q: 'The billing page takes three weeks. How does its code reach `main`?', options: ['On one feature branch, merged after three weeks', 'In small pieces every day, behind a feature flag that is off', 'On `develop`, merged at the next release', 'Directly to production, visible to users'], answer: 1, why: 'The work merges daily so the branch stays short. The flag keeps users from seeing it.' },
-					{ q: 'What does the flag being off mean in production?', options: ['The code is not deployed at all', 'The tests for it are skipped', 'Only the billing team can deploy', 'The code is deployed but users do not see it'], answer: 3, why: 'A release toggle lets incomplete code ship to production as latent code. The flag decides what users see.' },
-					{ q: 'The page is done and the flag is on. What is left?', options: ['Delete the flag', 'Keep the flag forever, in case', 'Add a second flag for the next version', 'Cut a release branch for the page'], answer: 0, why: 'Fowler calls flags inventory with a carrying cost. Each one costs work until someone removes it.' },
+					{ q: 'Which kind of feature flag hides the half-built billing page?', options: ['A permission flag for admins', 'A release toggle', 'A kill switch for outages', 'A branch protection rule'], answer: 1, why: 'A release toggle is the flag that hides unfinished work while its code already sits in `main`.' },
+					{ q: 'The billing page is ready. How do users get it?', options: ['You merge `feature/billing` into `main`', 'You cut a `release/*` branch for it', 'You wait for the next two-month release', 'Someone turns the flag on, without a new deploy'], answer: 3, why: 'A feature flag turns a feature on or off without a deploy. The code has been in production for weeks already.' },
+					{ q: 'Six months later the billing flag is still in the code, always on. What does it cost?', options: ['Work: an extra code path to keep and test until someone removes it', 'Nothing, since it is always on', 'A slower deploy, since flags block CI', 'A long-lived branch, since flags live on branches'], answer: 0, why: 'Fowler calls flags inventory with a carrying cost. Each one costs work until someone removes it.' },
 					{ q: 'Why not test only the "flag on" path?', options: ['Because flags are removed before deploy', 'Because CI cannot read flags', 'Because a flag adds code paths, and both run in production', 'Because the flag only exists on the branch'], answer: 2, why: 'Flags add code paths to test. Until the flag goes, both paths are real.' }
 				]
 			},
@@ -142,7 +142,7 @@ jobs:
 				questions: [
 					{ q: 'Which commit can go to production?', options: ['Only a commit on a `release/*` branch', 'Only a commit after a code freeze', 'Only a tagged commit on `develop`', 'Any commit on `main` with green CI'], answer: 3, why: 'In trunk-based development any green commit on the trunk can be released, so you deploy on any day.' },
 					{ q: 'What happens to the one-week code freeze?', options: ['It moves to the day before each deploy', 'It goes away', 'It becomes two weeks to be safe', 'It applies only to the billing page'], answer: 1, why: 'DORA\'s research links dropping the code freeze and the integration phase to better delivery.' },
-					{ q: 'When do you still keep a release branch?', options: ['When you must patch an old released version', 'For every deploy, out of habit', 'When a feature takes more than a week', 'When CI is slow'], answer: 0, why: 'Supporting several released versions at once still needs release branches. That is the case GitFlow\'s author says it fits.' },
+					{ q: 'This team runs one web app, and users only ever see the version in production. Does it keep `release/*` branches?', options: ['No: there is no older released version to patch', 'Yes, one per deploy, as before', 'Yes, but only for the billing page', 'Only while a feature flag is off'], answer: 0, why: 'Release branches are for patching old versions that are still in use. A single web app has only the version on `main` in production.' },
 					{ q: 'Which number do you track to see the move is working?', options: ['The number of tags', 'Lines of code per developer', 'The number of active branches, three or fewer', 'The length of the code freeze'], answer: 2, why: 'DORA suggests tracking active branches. Three or fewer means nobody drifts far from the trunk.' }
 				]
 			}

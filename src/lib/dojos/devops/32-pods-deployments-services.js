@@ -124,8 +124,8 @@ spec:
 				title: 'Read the symptom',
 				questions: [
 					{ q: 'Three Pods are `Running`, yet the Service has no endpoints. Where is the break?', options: ['Inside the containers', 'In the cluster DNS', 'On the node\'s disk', 'Between the Service and the Pods'], answer: 3, why: 'The Pods run, so the break is in the link that ties the Service to them.' },
-					{ q: 'What is the only thing that links a Service to its Pods?', options: ['Its label selector', 'The Deployment\'s name', 'A list of Pod IPs in the Service spec', 'The node the Pods run on'], answer: 0, why: 'A Service does not know the Deployment exists. It only has a selector.' },
-					{ q: 'A selector matches no Pod at all. What error does Kubernetes give?', options: ['The API server rejects the Service', 'The Pods crash with `CrashLoopBackOff`', 'None: the Service simply has no Pods', 'A warning in `kubectl get pods`'], answer: 2, why: 'A typo in a selector raises no error. The Service just gets zero endpoints.' },
+					{ q: '`kubectl get pods -l app=shop` lists 3 Pods. Why does that not prove the Service selects them?', options: ['The Service selector may use another value, or add a key the Pods lack', 'kubectl hides Pods that are not ready', 'Pods listed with `-l` always run on another node', 'It does prove it, so the break must be in DNS'], answer: 0, why: 'Your `-l app=shop` is your own query. The Service runs its own selector, and only that one decides its endpoints.' },
+					{ q: 'Traffic does not arrive. Which objects, and what between them, do you have to check?', options: ['The node, the kubelet and etcd', 'The Ingress, the DNS and the firewall', 'The Deployment, the Pods and the Service, and the labels between them', 'The ConfigMap, the Secret and the volume'], answer: 2, why: 'The Deployment makes the Pods, the Service finds them by label. A wrong label anywhere in that chain leaves the Service empty.' },
 					{ q: 'Could readiness alone explain **zero** endpoints here?', options: ['Yes: Pods that are not ready are dropped from the list', 'Yes: Running Pods are never ready at first', 'No: only the port can cause it', 'No: a Pod that is not ready still shows, marked `ready: false`'], answer: 3, why: 'An unready Pod stays in the EndpointSlice with `ready: false`. Zero endpoints points to the selector.' }
 				]
 			},
@@ -134,7 +134,7 @@ spec:
 				questions: [
 					{ q: 'Which command shows the Service selector?', options: ['`kubectl get svc shop -o yaml`', '`kubectl logs svc/shop`', '`kubectl get nodes`', '`kubectl rollout status shop`'], answer: 0, why: 'The full YAML of the Service shows its `spec.selector`.' },
 					{ q: 'Which command shows the labels on the Pods?', options: ['`kubectl describe svc shop`', '`kubectl get pods --show-labels`', '`kubectl get endpointslices`', '`kubectl top pods`'], answer: 1, why: '`--show-labels` adds a column with every label on each Pod.' },
-					{ q: 'The Service selects `app: shop`, the Pods carry `app: shopp`. How many endpoints?', options: ['Three, one per Pod', 'One, the first Pod found', 'Zero', 'Three, but all marked not ready'], answer: 2, why: 'Labels match exactly. One extra letter and nothing matches.' },
+					{ q: 'The Pods carry `app: shopp` because the Deployment\'s selector and template say so. You want `app: shop`. What must you do with the Deployment?', options: ['Edit `spec.selector` in place with `kubectl edit`', 'Relabel the running Pods by hand with `kubectl label`', 'Delete the Deployment and create it again with the right labels', 'Restart the Pods with `kubectl rollout restart`'], answer: 2, why: 'A Deployment\'s selector cannot be changed after creation. Relabeled Pods would drop out of the ReplicaSet, and a restart keeps the same template.' },
 					{ q: 'The Service selects `app: shop` and `tier: web`. The Pods only have `app: shop`. What happens?', options: ['The Pods match, since one label is enough', 'No Pod matches: every key in the selector must match', 'The Service adds `tier: web` to the Pods', 'The API server rejects the Service'], answer: 1, why: 'A selector is "every Pod with all these labels". An extra key in the selector gives zero matches.' }
 				]
 			},
@@ -142,7 +142,7 @@ spec:
 				title: 'Check readiness',
 				questions: [
 					{ q: 'The selector now matches. Which column shows whether each Pod is ready?', options: ['STATUS', 'RESTARTS', 'AGE', 'READY'], answer: 3, why: 'STATUS can say Running while READY still says `0/1`.' },
-					{ q: 'A Pod is `Running` but not ready. Does the Service send it traffic?', options: ['No: traffic only goes to ready Pods', 'Yes: Running is enough', 'Yes, but at half the rate', 'Only from inside the same node'], answer: 0, why: 'Kubernetes marks which endpoints are ready, and the Service only sends to those.' },
+					{ q: 'Once fixed, you roll out a new image to 4 `shop` Pods with the default settings. At most how many may be unavailable at once?', options: ['1', '2', '0', '4'], answer: 0, why: 'By default a Deployment keeps at most 25% of its Pods unavailable during a rollout: one Pod out of four.' },
 					{ q: 'How does a not-ready Pod show up in the EndpointSlice?', options: ['It does not show at all', 'With `ready: false`', 'With a new IP address', 'As a duplicate entry'], answer: 1, why: 'It stays in the list, marked not ready, so you can see it is selected but not used.' },
 					{ q: 'Why check readiness only after the selector?', options: ['Readiness checks are slow to run', 'kubectl cannot show readiness before a fix', 'With no match, no Pod is in the list to be ready or not', 'Readiness depends on the Service type'], answer: 2, why: 'Fix the link first. Readiness only matters for Pods the Service already selects.' }
 				]

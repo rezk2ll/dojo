@@ -105,7 +105,7 @@ WantedBy=multi-user.target`,
 			{
 				title: 'Comprends pourquoi il est resté arrêté',
 				questions: [
-					{ q: 'L’unit Caddy n’a pas de ligne `Restart=`. Que fait systemd quand Caddy plante ?', options: ['Il le redémarre au bout de 5 secondes', 'Il le laisse arrêté', 'Il le redémarre 5 fois, puis abandonne', 'Il redémarre la machine'], answer: 1, why: '`Restart=` vaut `no` par défaut, donc un service planté reste arrêté jusqu’à ce que quelqu’un le relance.' },
+					{ q: 'Tu trouves Caddy arrêté à 8 h. Avant toute correction, quelle commande le relance tout de suite ?', options: ['`sudo systemctl reload caddy`', '`sudo systemctl start caddy`', '`sudo systemctl enable caddy`', '`sudo systemctl daemon-reload`'], answer: 1, why: 'Un service planté reste arrêté jusqu’à ce que quelqu’un le relance. `reload` lance `ExecReload`, qui applique seulement une nouvelle config à un Caddy déjà en marche.' },
 					{ q: 'Comment systemd sait-il que Caddy a échoué ?', options: ['Par le code de sortie du processus', 'Par un fichier PID', 'Par une tâche cron', 'Par la taille du journal'], answer: 0, why: 'systemd démarre le processus, le suit et lit son code de sortie quand il se termine.' },
 					{ q: 'Quelle valeur de `Restart=` ne redémarre que si le service échoue ?', options: ['`always`', '`no`', '`on-failure`', '`notify`'], answer: 2, why: '`on-failure` redémarre après un échec. `always` redémarrerait aussi après une sortie propre.' },
 					{ q: 'Pourquoi ne pas modifier directement le `caddy.service` du paquet ?', options: ['systemd ignore les modifs des fichiers d’unit', 'Les fichiers d’unit sont en lecture seule partout', 'Caddy vérifie une somme de contrôle de son unit', 'Une mise à jour du paquet peut effacer ta modif'], answer: 3, why: 'Ce fichier appartient au paquet. Ta modif va dans un fichier à part, empilé par-dessus.' }
@@ -124,7 +124,7 @@ WantedBy=multi-user.target`,
 				title: 'Choisis quelles sorties redémarrent',
 				questions: [
 					{ q: 'Quelle ligne en plus la doc de Caddy ajoute-t-elle à l’override de redémarrage ?', options: ['`Restart=always`', '`RestartPreventExitStatus=1`', '`StandardError=null`', '`User=root`'], answer: 1, why: 'La doc de Caddy ajoute `RestartPreventExitStatus=1`, pour que le code de sortie 1 ne déclenche pas de redémarrage.' },
-					{ q: 'En général, que veut dire le code de sortie 0 ?', options: ['Succès', 'Échec', 'Commande introuvable', 'Tué par un signal'], answer: 0, why: '0 veut dire succès. Tout ce qui va de 1 à 255 veut dire échec, et c’est le programme qui choisit le nombre.' },
+					{ q: 'Un contrôle de santé lance `curl http://localhost/` et Caddy répond HTTP 500. Sans `--fail`, quel code de sortie renvoie `curl` ?', options: ['0', '500', '1', '127'], answer: 0, why: 'Certains outils sortent avec 0 sur ce que toi tu appelles un échec. `curl` renvoie 0 sur un HTTP 500 si tu ne passes pas `--fail`, donc un contrôle qui se fie au code de sortie voit un Caddy en bonne santé.' },
 					{ q: 'Un processus tué par le signal 15 (SIGTERM) affiche quel code en bash ?', options: ['15', '127', '0', '143'], answer: 3, why: 'Bash rend une mort par le signal N comme 128 + N, donc 128 + 15 = 143.' },
 					{ q: 'Un script demande `systemctl is-active caddy`. Comment lit-il la réponse ?', options: ['Seulement par le texte affiché', 'Par le journal', 'Par le code de sortie : 0 si active, autre chose sinon', 'Par un fichier dans `/run`'], answer: 2, why: 'Les outils parlent aux scripts par codes de sortie, et `is-active` ne renvoie 0 que si l’unit est active.' }
 				]

@@ -142,7 +142,7 @@ resource "aws_instance" "app_server" {
 				title: 'Reference it from the instance',
 				questions: [
 					{ q: 'Which line changes in the instance?', options: ['`tags = { Name = var.instance_name, Backups = aws_s3_bucket.backups.bucket }`', '`tags = { Name = var.instance_name, Backups = "myteam-backups-1234" }`', '`ami = aws_s3_bucket.backups.id`', '`subnet_id = aws_s3_bucket.backups.bucket`'], answer: 0, why: 'A reference keeps one source for the name, and tells Terraform about the link.' },
-					{ q: 'What does that reference do to the order?', options: ['Nothing: blocks run top to bottom', 'The instance is created first, then the bucket', 'The instance now depends on the bucket, so the bucket comes first', 'Both are created at the same moment'], answer: 2, why: 'Terraform builds its dependency graph from the references between blocks.' },
+					{ q: 'A colleague writes the tag as the plain string `"myteam-backups-1234"` instead of the reference. What changes?', options: ['Nothing at all', 'The plan fails, because tags must be references', 'Terraform sees no link, so it may create both in parallel, and the name now lives in two places', 'The bucket is created twice'], answer: 2, why: 'Terraform builds the order from references. Without one, the two resources are independent, and a rename must be done in two places.' },
 					{ q: 'Do you also need `depends_on = [aws_s3_bucket.backups]`?', options: ['Yes, always, for every link', 'Yes, or the plan fails', 'Only for S3 buckets', 'No: it is only for hidden dependencies Terraform cannot see'], answer: 3, why: 'The reference already makes the dependency visible.' },
 					{ q: 'Two resources do not reference each other. How does Terraform create them?', options: ['One at a time, in file order', 'In parallel, up to 10 at a time', 'In alphabetical order', 'Only after you add `depends_on`'], answer: 1, why: 'Things that do not depend on each other run in parallel.' }
 				]
@@ -159,10 +159,10 @@ resource "aws_instance" "app_server" {
 			{
 				title: 'Apply it safely',
 				questions: [
-					{ q: 'What does `terraform plan` change in AWS?', options: ['Nothing', 'Only the tags', 'Only new resources', 'Everything, then rolls back'], answer: 0, why: '`plan` compares and lists the changes. It changes nothing.' },
+					{ q: 'Before anyone types `yes`, how can a teammate review this change?', options: ['Paste the `plan` output into the pull request', 'Read the AWS console after the apply', 'Run `apply` on a second laptop', 'Read `.terraform.lock.hcl`'], answer: 0, why: 'The plan lists every change before it happens, so it fits in a pull request next to the code.' },
 					{ q: 'What does `terraform apply` do first?', options: ['It creates the bucket at once', 'It runs `init` again', 'It deletes the state', 'It shows the plan and asks for `yes`'], answer: 3, why: 'Then it makes the changes in dependency order.' },
-					{ q: 'The plan shows `-/+` on the instance after all. What do you do?', options: ['Type yes: `-/+` is harmless', 'Stop and read: the instance and what is on it will be destroyed', 'Add `depends_on` and apply', 'Run `plan` until the symbol changes'], answer: 1, why: '`-/+` means destroy and create a replacement. Anything stored on it goes with it.' },
-					{ q: 'Months later you delete the bucket block. What does the next plan propose?', options: ['Nothing: Terraform never removes things', 'An error, because the bucket still exists', 'To destroy the bucket', 'To keep the bucket with a warning'], answer: 2, why: 'A managed resource missing from the code should not exist, so the plan shows `-`.' }
+					{ q: 'A teammate applies the same code from his laptop. What makes sure he runs the same AWS provider version as you?', options: ['The `region` line in the provider block', 'The `.terraform.lock.hcl` file committed in the repo', 'The `bucket` name', 'Running `plan` twice'], answer: 1, why: '`init` records the exact provider versions in `.terraform.lock.hcl`. Committed, it gives every laptop and the CI the same version.' },
+					{ q: 'Next week you add a second bucket. Do you run `terraform init` again?', options: ['Yes, before every plan', 'Yes, once per new resource', 'No: the AWS provider is already downloaded, and init is needed again only when providers or modules change', 'No: `apply` never needs `init`'], answer: 2, why: '`init` runs once per working directory, then again when the providers or modules change. A new bucket uses the same AWS provider.' }
 				]
 			}
 		]

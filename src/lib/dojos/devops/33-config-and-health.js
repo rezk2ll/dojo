@@ -129,9 +129,9 @@ export default {
 				title: 'Count to the first restart',
 				questions: [
 					{ q: 'When does the kubelet run the first liveness check?', options: ['At 0 s, as soon as the container starts', 'At 90 s, when the app is up', 'At 10 s, after `initialDelaySeconds`', 'At 30 s, after three periods'], answer: 2, why: '`initialDelaySeconds: 10` holds the first check back for 10 seconds.' },
-					{ q: 'What is the default `failureThreshold`?', options: ['1', '3', '5', '10'], answer: 1, why: 'After 3 failures in a row by default, the kubelet acts on the probe.' },
+					{ q: 'A teammate raises the liveness `failureThreshold` to 10 instead. When is the first restart now?', options: ['At about 30 s', 'At about 100 s', 'At about 10 s', 'Never'], answer: 1, why: 'Ten failed checks, 10 s apart from 10 s, take about 100 s. The app would boot, but a stuck app would also wait 100 s for its restart.' },
 					{ q: 'About when does the kubelet restart the container?', options: ['At about 10 s', 'At about 120 s', 'At about 90 s', 'At about 30 s'], answer: 3, why: 'Checks at 10, 20 and 30 s all fail while the app boots. Three failures in a row, and the container restarts.' },
-					{ q: 'What does a failed liveness probe make the kubelet do?', options: ['Restart the container', 'Stop sending Service traffic only', 'Move the Pod to another node', 'Delete the Deployment'], answer: 0, why: 'Liveness checks whether the container is stuck. Failing it means a restart. Readiness is the one that only cuts traffic.' }
+					{ q: 'Which `kubectl describe pod` event shows that liveness causes the loop?', options: ['`Container ... failed liveness probe, will be restarted`', '`Startup probe failed`', '`OOMKilled`', '`FailedScheduling`'], answer: 0, why: 'The kubelet logs each liveness restart as an event, and RESTARTS climbs in `kubectl get pod`. There is no startup probe yet, and nothing points at memory or scheduling.' }
 				]
 			},
 			{
@@ -156,7 +156,7 @@ export default {
 				title: 'Gate the traffic',
 				questions: [
 					{ q: 'Why also add a readiness probe?', options: ['So the Pod gets traffic only while it can answer', 'So the kubelet restarts the app faster', 'So the scheduler picks a bigger node', 'So liveness can be removed'], answer: 0, why: 'Readiness decides when the Service sends traffic, and it keeps checking after the start: an app that cannot answer for a while gets no traffic, with no restart.' },
-					{ q: 'The readiness probe fails while the app is busy. What happens to the container?', options: ['It is restarted', 'It keeps running, and the Service stops sending it traffic', 'It is moved to another node', 'It is OOM killed'], answer: 1, why: 'Readiness never restarts. Traffic comes back when the probe passes again.' },
+					{ q: 'At 60 s the startup probe has not passed yet. Does the Service send the Pod traffic?', options: ['Yes: a Running Pod gets traffic by default', 'No: readiness does not run yet, so the Pod is not ready', 'Yes, but only health check traffic', 'Only from Pods on the same node'], answer: 1, why: 'Until the startup probe passes, readiness waits too. The Pod stays not ready, so the half-booted app gets no requests.' },
 					{ q: 'Someone suggests making `/health` check the database too. What is the risk for liveness?', options: ['None: deeper checks are always better', 'The probe stops working on HTTP', 'One slow database restarts every Pod', 'The startup probe stops running'], answer: 2, why: 'If liveness depends on the database, a slow database fails it everywhere, and the restarts add load.' },
 					{ q: 'Which set of probes fits this service?', options: ['Liveness only, with a 90 s delay', 'Readiness only', 'Startup only, with a long threshold', 'Startup, then liveness and readiness'], answer: 3, why: 'Startup covers the slow boot, liveness catches a stuck app, readiness gates the traffic.' }
 				]

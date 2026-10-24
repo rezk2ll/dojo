@@ -124,7 +124,7 @@ You might also consider changing your \`.git/config\` file via
 				title: 'Finish the merge',
 				questions: [
 					{ q: 'Which command marks the conflict in `nginx.conf` as resolved?', options: ['`git add nginx.conf`', '`git restore nginx.conf`', '`git merge --continue-all`', '`git rebase main`'], answer: 0, why: 'Staging the cleaned file tells Git this conflict is settled.' },
-					{ q: 'What does `git commit` write next?', options: ['A normal commit with one parent', 'A merge commit with two parents', 'Nothing: the merge was already done', 'A copy of `feature` with new hashes'], answer: 1, why: 'Merging two diverged branches ends in a merge commit whose parents are the two branch tips.' },
+					{ q: 'To find that both sides changed `worker_connections`, which third commit did Git compare them with?', options: ['The first commit of the repository', 'Their common ancestor, where `feature` split off from `main`', 'The last commit you pushed', 'The previous merge commit on `main`'], answer: 1, why: 'A three-way merge compares the two branch tips with their common ancestor. A line changed on both sides since that ancestor is a conflict.' },
 					{ q: 'What happens to the commits that were on `feature`?', options: ['They get new hashes', 'They are deleted from history', 'They keep their hashes', 'They are squashed into the merge commit'], answer: 2, why: 'Merge rewrites no commit. Only rebase replays commits with new hashes.' },
 					{ q: 'Where does `main` point once the commit is done?', options: ['At the tip of `feature`', 'At the common ancestor', 'Still at the commit it had before', 'At the new merge commit'], answer: 3, why: 'You were on `main`, so committing moves `main` forward to the merge commit.' }
 				]

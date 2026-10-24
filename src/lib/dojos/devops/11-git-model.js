@@ -110,14 +110,14 @@ crash.*.log
 					{ q: 'You run `git status`. Where is the new version of `nginx.conf`?', options: ['Only in the working tree', 'In the working tree and the index', 'In the repository, as a new commit', 'Only in the index'], answer: 0, why: 'You edited the file on disk and nothing else. Git notices it is modified, but it is not staged yet.' },
 					{ q: 'What does the index hold right now?', options: ['Both of your modified files', 'The same content as the last commit', 'Only `nginx.conf`, since it is the real fix', 'Nothing until you run `git add`'], answer: 1, why: 'You have not staged anything, so the index still matches the last commit.' },
 					{ q: 'Which command shows your edits that are not staged yet?', options: ['`git diff --staged`', '`git log`', '`git diff`', '`git show HEAD`'], answer: 2, why: '`git diff` compares the working tree with the index. `git diff --staged` shows only what is already staged.' },
-					{ q: 'What does HEAD point at?', options: ['The hash of the commit you will make next', 'The `main` branch on the remote server', 'The newest file you edited', 'The branch `main`, as `refs/heads/main`'], answer: 3, why: 'HEAD is usually a ref to the branch you are on. It holds a bare hash only in detached HEAD.' }
+					{ q: 'How does `git status --short` show the two files before you stage anything?', options: ['`M ` for both: staged, not yet committed', '`??` for both: untracked', '`M ` for `nginx.conf` and ` M` for `debug.conf`', '` M` for both: modified on disk, not staged'], answer: 3, why: 'The left column is the index and the right column is the working tree. Both edits are on disk only, so the M sits in the right column.' }
 				]
 			},
 			{
 				title: 'Stage only the fix',
 				questions: [
 					{ q: 'Which command puts only the fix into the next commit?', options: ['`git add .`', '`git add nginx.conf`', '`git restore nginx.conf`', '`git commit nginx.conf debug.conf`'], answer: 1, why: '`git add` copies one file into the index. You choose what goes into the next commit, file by file.' },
-					{ q: 'After `git add nginx.conf`, where is the fix?', options: ['In the working tree and the index', 'Only in the index', 'In the repository, not yet on the remote', 'Only in the working tree'], answer: 0, why: '`git add` copies the current version into the index. The file on disk stays as it is.' },
+					{ q: 'After `git add nginx.conf`, which command shows the fix?', options: ['`git diff --staged`', '`git diff`', '`git log`', '`git show HEAD`'], answer: 0, why: 'The fix is now staged. `git diff` lists only `debug.conf`, the edit still unstaged, so you check the fix with `git diff --staged`.' },
 					{ q: 'Where is your test edit to `debug.conf` now?', options: ['In the index, next to the fix', 'In the repository, as a draft', 'Only in the working tree', 'Nowhere: `git add` reset it'], answer: 2, why: 'You did not stage it, so it stays on disk only. The index still has the old version.' },
 					{ q: 'Why not run `git add .` here?', options: ['It only works on new files', 'It would also commit the change right away', 'It skips files that are already tracked', 'It would stage `debug.conf` too'], answer: 3, why: '`git add .` stages every modified file. The index lets you leave the test out, but only if you add files one by one.' }
 				]
@@ -126,8 +126,8 @@ crash.*.log
 				title: 'Commit the fix',
 				questions: [
 					{ q: 'What does `git commit -m "Raise worker_connections"` do with the index?', options: ['It turns it into a snapshot in the repository', 'It sends it to the remote server', 'It empties it, so the next commit starts blank', 'It copies it back over the working tree'], answer: 0, why: 'A commit is a snapshot of the whole project, made from the index, with a link to its parent.' },
-					{ q: 'What does the branch `main` hold after the commit?', options: ['The hash of the previous commit', 'A list of every file in the snapshot', 'The hash of the new commit', 'The name of the file you committed'], answer: 2, why: 'A branch is a ref that holds one commit hash. HEAD points at `main`, so the commit moves `main` forward.' },
-					{ q: 'What does HEAD point at after the commit?', options: ['The new commit hash directly', 'Still the branch `main`', 'The parent commit', 'Nothing until you push'], answer: 1, why: 'HEAD keeps pointing at `main`. It is `main` that moved to the new commit.' },
+					{ q: 'How do you check that `main` moved to the new commit?', options: ['Run `cat .git/HEAD` and read the hash', 'Run `git diff --staged` and look for the fix', 'Compare `git rev-parse HEAD` with `cat .git/refs/heads/main`', 'Run `git diff` and look for the fix'], answer: 2, why: 'Both print the hash of the new commit. `cat .git/HEAD` prints only `ref: refs/heads/main`, not a hash.' },
+					{ q: 'Right after the commit, what does `git diff --staged` print?', options: ['The fix to `nginx.conf`', 'Nothing: the index matches the new commit', 'The test edit to `debug.conf`', 'Both files, until you push'], answer: 1, why: 'The commit was made from the index, so the index and the last commit are the same again. Only `debug.conf` still differs, on disk.' },
 					{ q: 'Is the fix on the remote now?', options: ['Yes: a commit goes to the remote right away', 'Yes, but only on the remote `main` branch', 'Only if the remote runs `git pull`', 'No: it reaches the remote only with `git push`'], answer: 3, why: 'The commit lives in your local repository in `.git`. `git push` is what sends it.' }
 				]
 			},

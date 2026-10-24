@@ -138,7 +138,7 @@ spec:
 			{
 				title: 'Let Argo CD apply it',
 				questions: [
-					{ q: 'Where does Argo CD run?', options: ['Inside the cluster', 'In the GitLab runner', 'On each developer laptop', 'In the Git server'], answer: 0, why: 'It is a pull deploy: the agent in the cluster fetches Git, and the credentials stay inside.' },
+					{ q: 'Argo CD deploys to the cluster it runs in. Which `destination.server` does each Application use?', options: ['`https://kubernetes.default.svc`', 'The GitLab runner\'s address', 'The URL of the config repo', 'The API server address from the old cluster-admin kubeconfig'], answer: 0, why: '`https://kubernetes.default.svc` is the in-cluster address of the API server. Argo CD reaches it from inside, with no kubeconfig handed out.' },
 					{ q: 'How many Applications do you create?', options: ['One for the whole company', 'One per Git commit', 'One per environment', 'One per Pod'], answer: 2, why: 'An Application links one path in Git to one namespace in a cluster, so each environment gets its own.' },
 					{ q: 'Which three blocks does an Application need?', options: ['`image`, `replicas`, `ports`', '`source`, `destination`, `syncPolicy`', '`metadata`, `status`, `events`', '`values`, `chart`, `kubeconfig`'], answer: 1, why: 'Where the manifests are, where they go, and how to sync.' },
 					{ q: 'How fast does Argo CD notice a new commit by default?', options: ['Instantly, through a hook in CI', 'Once a day', 'Only when you click Sync', 'Within 3 minutes, by polling'], answer: 3, why: 'It polls the repo every 3 minutes at most by default.' }
@@ -148,8 +148,8 @@ spec:
 				title: 'Find the drift, then heal it',
 				questions: [
 					{ q: 'Why start with `selfHeal` off?', options: ['To see the drift first, before Argo CD overwrites it', 'Because self-heal needs a paid plan', 'Because `automated` sync breaks with it', 'Because Argo CD cannot detect drift with it on'], answer: 0, why: 'Hand edits may hide real fixes. Read the OutOfSync reports, move what matters into Git, then turn self-heal on.' },
-					{ q: 'Self-heal is off and someone scales a Deployment by hand. What happens?', options: ['Argo CD reverts it at once', 'Argo CD deletes the Deployment', 'The app shows OutOfSync, nothing is reverted', 'Argo CD cannot see it'], answer: 2, why: 'Argo CD detects the drift, but only self-heal makes it act on it.' },
-					{ q: 'After you turn self-heal on, what happens to a Friday `kubectl edit`?', options: ['It stays until the next commit', 'Argo CD puts Git\'s version back within seconds', 'It is copied into Git', 'It locks the Application'], answer: 1, why: 'Self-heal syncs again on drift. The change now has to go through a pull request.' },
+					{ q: 'The drift report shows production at 5 replicas, set by hand, while the values file says 3. What do you do before turning self-heal on?', options: ['Turn self-heal on and let it pick', 'Delete the Application and create it again', 'Decide which count is right and commit it to the values file', 'Run `helm upgrade` from CI one last time'], answer: 2, why: 'Self-heal puts Git\'s version back. If 5 is the count production needs, it must be in Git first, or self-heal drops it to 3.' },
+					{ q: 'Self-heal is on. The team needs more memory for the app on Friday. Where does that change go?', options: ['`kubectl edit` on the Deployment', 'A pull request to the values file in Git', 'A new GitLab job with the old kubeconfig', 'The Argo CD dashboard, by hand'], answer: 1, why: 'A hand edit is undone within seconds. Git is the desired state, so the change goes through review and Argo CD applies it.' },
 					{ q: 'In an incident you need a hand fix right away. What do you do?', options: ['Edit and hope self-heal is slow', 'Delete Argo CD', 'Turn off RBAC', 'Fix forward through Git, or pause auto-sync first'], answer: 3, why: 'An emergency edit gets reverted. Go through Git, or pause sync on purpose.' }
 				]
 			},

@@ -145,7 +145,7 @@ spec:
 			{
 				title: 'Read the history after',
 				questions: [
-					{ q: 'After `helm rollback shop 4`, what is the newest revision number?', options: ['4', '5', '6', '1'], answer: 2, why: 'A rollback is recorded like any other change, as the next number: 6.' },
+					{ q: 'After the rollback, you run `helm upgrade` with the fixed tag `2.4.1`. Which revision does that upgrade create?', options: ['5, replacing the broken one', '6', '7', '1, a fresh start'], answer: 2, why: 'The rollback took 6, and every install, upgrade or rollback adds 1. Broken revision 5 is never reused, so the fix is 7.' },
 					{ q: 'What does revision 6 contain?', options: ['A copy of revision 4', 'The broken image `2.4.0`', 'Nothing: it is a marker', 'Chart defaults only'], answer: 0, why: 'Revision 6 applies the content of revision 4 again.' },
 					{ q: 'Is revision 5, the broken one, still in the history?', options: ['No: rollback deletes it', 'No: it is renamed to 4', 'Only if you passed `--keep`', 'Yes: revisions 1 to 5 stay'], answer: 3, why: 'Rollback never rewrites the past. The broken revision stays, which shows what happened.' },
 					{ q: 'Why does it help that the rollback is a new revision?', options: ['It frees disk space', 'The history shows every change in order, rollbacks included', 'It makes the next upgrade faster', 'It hides the crash from the team'], answer: 1, why: 'You can read the release story top to bottom: what went out, what broke, what you went back to.' }
@@ -156,7 +156,7 @@ spec:
 				questions: [
 					{ q: 'Which command prints the YAML Helm would send, without touching the cluster?', options: ['`helm install --force`', '`helm get values shop`', '`helm template shop ./chart -f prod.yaml --set image.tag=2.4.1`', '`kubectl diff shop`'], answer: 2, why: '`helm template` renders the templates locally with your values and prints plain manifests.' },
 					{ q: 'Why pass the same `-f prod.yaml` to `helm template`?', options: ['Without it you see chart defaults, not what production gets', 'helm template refuses to run without a file', 'It uploads the file to the cluster', 'It locks the release'], answer: 0, why: 'Values change what the templates produce. Preview with the values you will really use.' },
-					{ q: 'Both `prod.yaml` and `--set` set `image.tag`. Which wins?', options: ['`prod.yaml`', 'The chart default', 'The first one Helm reads', '`--set`'], answer: 3, why: 'Chart defaults, then `-f` files, then `--set`, which wins over all.' },
+					{ q: 'Your chart has the image line of the example. Neither `prod.yaml` nor `values.yaml` sets `image.tag`, and you drop the `--set`. Which tag does the template render?', options: ['`latest`', 'An empty tag, so the YAML is invalid', 'The chart\'s `version`', 'The chart\'s `appVersion` from `Chart.yaml`'], answer: 3, why: 'The image line uses `.Values.image.tag | default .Chart.AppVersion`. `version` numbers the chart package, not the app.' },
 					{ q: 'Where does the real fix go, so the next upgrade does not bring the crash back?', options: ['A note in the release history', 'In Git, in the chart or the image', 'A `kubectl patch` on the Deployment', 'Nowhere: rollback is enough'], answer: 1, why: 'Rollback only buys time. The bug is still in `2.4.0` until someone fixes the code or the chart.' }
 				]
 			}

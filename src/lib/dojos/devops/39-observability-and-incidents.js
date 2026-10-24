@@ -130,7 +130,7 @@ export default {
 					{ q: 'Which of the four alerts is a symptom users feel?', options: ['CPU over 80%', 'Pod restarted', 'Error ratio over 5% for 10 minutes', 'Disk over 85% on any node of the cluster'], answer: 2, why: 'Errors are what is broken for users. The other three are possible causes.' },
 					{ q: 'CPU is at 85% and every checkout succeeds fast. Should someone wake up?', options: ['No: nothing is broken for users', 'Yes: CPU is a golden signal', 'Yes: 80% is the limit', 'Only on weekdays'], answer: 0, why: 'Page on symptoms. High CPU that hurts nobody belongs on a dashboard.' },
 					{ q: 'Why does on-call ignore most of the 30 pages?', options: ['They are lazy', 'The pager is too quiet', 'There are too few alerts', 'Most pages are causes that hurt nobody'], answer: 3, why: 'A system has a thousand possible causes of trouble, and most of them hurt nobody. Paging on them trains people to ignore pages.' },
-					{ q: 'Which list is the four golden signals?', options: ['CPU, memory, disk, network', 'Latency, traffic, errors, saturation', 'Metrics, logs, traces, events', 'Uptime, MTTR, MTBF, SLA'], answer: 1, why: 'From the SRE book: measure these four on a user-facing system.' }
+					{ q: 'Of the four golden signals, which one do the CPU and disk alerts measure?', options: ['Latency', 'Saturation', 'Traffic', 'Errors'], answer: 1, why: 'CPU and disk use say how full the system is: saturation. Useful on a dashboard, but users feel errors and latency.' }
 				]
 			},
 			{
@@ -139,7 +139,7 @@ export default {
 					{ q: 'What is a better basis for the error page than a fixed 5%?', options: ['A higher CPU threshold', 'An SLO, with alerts on burn rate', 'One page per failed request', 'A daily email'], answer: 1, why: 'Agree on a target, like 99.5% of checkouts succeed in under 1 s, and page when the budget burns too fast.' },
 					{ q: 'Why use two windows for a burn-rate alert?', options: ['The long one shows it lasted, the short one shows it is still happening', 'Prometheus cannot compute a rate over more than one window in a single rule', 'One window per data center', 'To page twice as often'], answer: 0, why: 'The long window says it matters, the short window says it is not already over.' },
 					{ q: 'Which symptom is missing from the current list?', options: ['Disk', 'Pod restarts', 'Memory', 'Latency'], answer: 3, why: 'Slow checkouts hurt users as much as failed ones.' },
-					{ q: 'The error rule has `for: 10m`. Errors spike for 4 minutes, then stop. Does it page?', options: ['Yes, after 4 minutes', 'Yes, at 10 minutes', 'No: it stays pending and goes away', 'Only if the spike repeats'], answer: 2, why: 'The alert fires only once the condition has held for the whole `for` duration.' }
+					{ q: 'Checkout fails completely at 14:00. With the current rule (5% for 10 minutes), when is on-call first paged?', options: ['At 14:00', 'At about 14:01, after one scrape', 'At about 14:10', 'Only after the next postmortem'], answer: 2, why: 'The condition must hold for the whole `for: 10m` before the alert fires. Users get ten minutes of errors with nobody paged, which a short burn-rate window fixes.' }
 				]
 			},
 			{
@@ -157,7 +157,7 @@ export default {
 					{ q: 'What should every remaining alert carry?', options: ['A summary, a severity and a `runbook_url`', 'Only the PromQL query', 'The name of the last person on call', 'A link to the source code'], answer: 0, why: 'The person paged at 3 a.m. needs to know what broke, how bad it is, and what to check first.' },
 					{ q: 'You are paged for checkout errors. What comes first?', options: ['Find the root cause, so the fix is right the first time', 'Write the postmortem', 'Limit the damage: roll back or scale up', 'Silence the alert'], answer: 2, why: 'Stop the harm for users first, then look for the cause.' },
 					{ q: 'After the next incident, what does the postmortem check about alerting?', options: ['Who wrote the alert', 'Whether the alert fired early enough', 'How many alerts exist', 'Whether CPU was high'], answer: 1, why: 'One of the action items often changes an alert rule.' },
-					{ q: 'What makes that postmortem blameless?', options: ['No timeline', 'Anonymous authors', 'It is only shared with the team that caused the incident, never wider', 'It looks for contributing causes, assuming good faith'], answer: 3, why: 'Blame makes people hide what they did, and then the real causes stay hidden.' }
+					{ q: 'The timeline shows a teammate\'s deploy started the checkout errors. Which action item fits a blameless postmortem?', options: ['The teammate no longer deploys alone', 'The teammate writes an apology to the team', 'Remove that deploy from the timeline', 'Find what let the bad deploy reach users, and fix that, for example a missing check'], answer: 3, why: 'The deploy stays in the timeline as a fact. The action items target the contributing causes, because blame makes people hide what they did next time.' }
 				]
 			}
 		]

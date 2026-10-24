@@ -123,8 +123,8 @@ env:
 			{
 				title: 'Read the symptom',
 				questions: [
-					{ q: 'All five servers ran `docker pull acme/api:latest`. Does that mean they run the same image?', options: ['Yes: same name, same image', 'Yes, if they pulled the same day', 'No: `latest` may have pointed at different images when each one pulled', 'No: each server builds its own image'], answer: 2, why: 'A tag is a movable name. The same name can mean different images at different times.' },
-					{ q: 'What does the cron job pull each time it runs?', options: ['Whatever `latest` points at in that moment', 'The image the server already has', 'The newest digest of the stable release', 'The image named in Git'], answer: 0, why: 'Pulling a tag asks the registry what the tag points at now.' },
+					{ q: 'In `acme/api:latest`, which part names the repository on the registry?', options: ['`latest`', '`acme`', '`acme/api`', '`api:latest`'], answer: 2, why: 'Each image name in a registry is a repository. The part after the colon is only a tag inside it.' },
+					{ q: 'Suppose nobody pushes to `acme/api` for two weeks. After their next cron pull, what do the five servers run?', options: ['The same image: the tag points at one digest until someone moves it', 'Five different images, one per pull', 'Whatever each server built last', 'Nothing: a tag expires after a week'], answer: 0, why: 'A tag points at one digest at a time. Without a push, every pull of `latest` gets those same bytes.' },
 					{ q: 'Who can move `acme/api:latest`?', options: ['Only Docker Hub staff', 'Nobody once it is pushed', 'Only the server that pulls it', 'Anyone who can push to the repository'], answer: 3, why: 'Anyone who can push can point `latest` at a new image.' },
 					{ q: 'What would show you which image each server really runs?', options: ['The tag name', 'The image digest on each server', 'The cron schedule', 'The size of the compose file'], answer: 1, why: 'A digest is a hash of the content. Two images with the same digest have the same bytes.' }
 				]
@@ -132,8 +132,8 @@ env:
 			{
 				title: 'Name the cause',
 				questions: [
-					{ q: 'What most likely happened before Monday?', options: ['Two servers have a corrupted disk', 'The registry served a random image', 'Someone pushed a new image to `latest` between the servers\' pulls', 'The compose file changed on two servers'], answer: 2, why: 'Servers that pulled before and after the push run different images under the same name.' },
-					{ q: 'What does `latest` mean on a registry?', options: ['Just a tag, moved by whoever pushes it', 'The newest stable version', 'The image with the highest version number', 'The image most servers run'], answer: 0, why: '`latest` is a tag like any other. It looks like a version, but nothing guarantees it.' },
+					{ q: 'Two servers differ from three. Since last week, how many digests has `acme/api:latest` pointed at?', options: ['Exactly one', 'None: tags have no digest', 'At least two', 'Five, one per server'], answer: 2, why: 'Servers that pulled the same digest run the same bytes. Two behaviours means the tag pointed at a second digest at some point.' },
+					{ q: 'With `docker/metadata-action` defaults, a push to the branch `main` tags the image how?', options: ['`main`, named after the branch', '`latest`', 'With the commit date', 'It gets no tag'], answer: 0, why: 'A branch push gives a tag named after the branch. `latest` comes from a Git tag like `v1.2.3`, so look at the Git tags pushed before Monday.' },
 					{ q: 'With `docker/metadata-action` defaults, which Git tag can move `latest`?', options: ['Only a stable `v1.2.3`', 'Only a manual push', 'Branch pushes only', 'A tag like `v2.0.8-beta.67` too'], answer: 3, why: 'Its README shows a beta tag also gets `latest`, so `latest` can point at a beta.' },
 					{ q: 'Why is this hard to see from the servers?', options: ['Docker hides the digest', 'All five report the same image name', 'The servers have no logs', 'Registries delete old images'], answer: 1, why: 'Every server says `acme/api:latest`. The name is the same, the bytes are not.' }
 				]
@@ -143,7 +143,7 @@ env:
 				questions: [
 					{ q: 'How should CI tag each build?', options: ['With `latest` only', 'With the date of the week', 'With something unique, like the Git tag or commit SHA', 'With the server name'], answer: 2, why: 'A unique tag per build stops two builds from sharing one name.' },
 					{ q: 'What should CI record after the push?', options: ['The image size', 'The digest of the pushed image', 'The cron schedule', 'The list of servers'], answer: 1, why: 'The digest names exactly the image that was built and pushed.' },
-					{ q: 'Which reference should the servers deploy?', options: ['`acme/api:latest`', '`acme/api`, with no tag', '`acme/api:stable`', '`acme/api@sha256:...`, set in Git'], answer: 3, why: 'A digest cannot be moved to other content, so every server pulls the same image.' },
+					{ q: 'A teammate proposes `acme/api:v2.0.8` instead of a digest. What risk is left?', options: ['None: version tags cannot be pushed twice', 'The servers can no longer pull it', 'Someone can still push a new image under `v2.0.8`', 'Compose refuses version tags'], answer: 2, why: 'Every tag is mutable, not only `latest`. It helps humans read the deploy, but only a digest is fixed to one set of bytes.' },
 					{ q: 'What is the cost of deploying by digest?', options: ['Digests are long, so you need tooling to update them', 'Pulls get slower', 'The registry stops storing tags', 'You can no longer roll back'], answer: 0, why: 'Digests are unreadable, so CI output, Renovate or Dependabot keep them up to date.' }
 				]
 			},
@@ -151,7 +151,7 @@ env:
 				title: 'Plan the rollback',
 				questions: [
 					{ q: 'The new digest is broken. How do you roll back?', options: ['Push the old image to `latest` again', 'Put the previous digest back in Git and redeploy', 'Delete the new image from the registry', 'Wait for the cron job'], answer: 1, why: 'The previous digest still names the old bytes, whatever happened to the tags.' },
-					{ q: 'Why is the old digest a safe rollback target?', options: ['It always names the same bytes', 'It is shorter than a tag', 'Registries keep it on top', 'It skips the pull'], answer: 0, why: 'Pull by digest and you get exactly that image, forever.' },
+					{ q: 'The rollback is deployed. What do you check on each of the five servers?', options: ['That it runs the previous digest', 'That `latest` points back at the old image', 'That the cron job ran', 'That the image name is `acme/api`'], answer: 0, why: 'The name is the same on every server whatever runs. Only the digest tells you all five run the same bytes again.' },
 					{ q: 'Why keep the digest in Git rather than only on the servers?', options: ['Git can pull images', 'Servers cannot store digests', 'Docker requires it', 'Every server reads the same value, and the change is reviewed'], answer: 3, why: 'One value in Git means one image everywhere, and the history shows what ran when.' },
 					{ q: 'Which part of the deploy path can still stop a rollout?', options: ['The digest', 'Git', 'The registry, if it is down or rate limited', 'The tag name'], answer: 2, why: 'A registry is part of your deploy path. If it is unreachable, nothing new can start.' }
 				]

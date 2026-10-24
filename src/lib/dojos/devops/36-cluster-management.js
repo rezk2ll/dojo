@@ -111,7 +111,7 @@ spec:
 			{
 				title: 'Plan the version path',
 				questions: [
-					{ q: 'Can you go from 1.30 straight to 1.32?', options: ['Yes, if every node is drained first', 'Yes, on a managed cluster', 'No: the API server must not skip a minor version', 'No: you must reinstall the cluster'], answer: 2, why: 'You go one minor version at a time: 1.30 to 1.31, then 1.31 to 1.32.' },
+					{ q: 'A teammate says: "We only care about 1.32, so we can skip the 1.31 release notes." What is the risk?', options: ['None: only the target version matters', 'The 1.32 notes repeat everything from 1.31', 'An API removed in 1.31 breaks your manifests in the first round', 'Managed clusters do not publish notes for 1.31'], answer: 2, why: 'You pass through 1.31 on the way, and each minor release can remove APIs. The 1.31 changelog is the one that warns you before round one.' },
 					{ q: 'How many upgrade rounds does that make?', options: ['One', 'Two', 'Three', 'One per node'], answer: 1, why: 'Two minor versions, one round each.' },
 					{ q: 'What do you read before each round?', options: ['The changelog, for removed APIs', 'The HPA metrics', 'The node pool bill', 'The PDB of every app'], answer: 0, why: 'A round can remove APIs your manifests still use. Find them before the upgrade, not after.' },
 					{ q: 'Why upgrade a few times a year at all?', options: ['New versions are faster', 'Nodes stop booting after a year', 'The HPA needs the newest version', 'Only the three most recent minor releases get patches'], answer: 3, why: 'A cluster that falls behind the three supported minor releases gets no more security patches.' }
@@ -120,8 +120,8 @@ spec:
 			{
 				title: 'Order control plane and nodes',
 				questions: [
-					{ q: 'In each round, what goes first?', options: ['The nodes', 'The control plane', 'The apps', 'Whatever has the most pods'], answer: 1, why: 'Control plane first, nodes after.' },
-					{ q: 'Why that order?', options: ['A kubelet must never be newer than the API server', 'The scheduler only runs on new nodes', 'Nodes upgrade themselves after the control plane', 'etcd refuses old kubelets'], answer: 0, why: 'Kubelets may be older than the API server, never newer.' },
+					{ q: 'In round one, you add a new node pool. Which version do its nodes get?', options: ['1.32, the target', '1.31, the version of the control plane', '1.30, like the old pool', 'Any version, the kubelet adapts'], answer: 1, why: 'The control plane is on 1.31 in round one. A 1.32 kubelet would be newer than the API server, which is not allowed.' },
+					{ q: 'Why does the control plane go before the nodes in each round?', options: ['A kubelet must never be newer than the API server', 'The scheduler only runs on new nodes', 'Nodes upgrade themselves after the control plane', 'etcd refuses old kubelets'], answer: 0, why: 'Kubelets may be older than the API server, never newer.' },
 					{ q: 'The control plane is on 1.31 and nodes are on 1.30. Is that safe?', options: ['No: all versions must match', 'Only for one hour', 'Yes: a kubelet may be up to three minor versions older', 'Only if no pod restarts until the nodes reach 1.31 as well'], answer: 2, why: 'Old nodes keep working during the upgrade, which is what lets you move one node at a time.' },
 					{ q: 'Which state would be unsupported?', options: ['Control plane 1.31, nodes 1.30', 'Control plane 1.31, nodes 1.32', 'Control plane 1.32, nodes 1.31', 'Control plane 1.32, nodes 1.32'], answer: 1, why: 'Nodes newer than the API server break the rule. Upgrading nodes first would land you there.' }
 				]
@@ -129,8 +129,8 @@ spec:
 			{
 				title: 'Protect the apps',
 				questions: [
-					{ q: 'Which PDB fits the 3-replica payment API?', options: ['`minAvailable: 3`', '`minAvailable: 0`', '`maxUnavailable: 3`', '`minAvailable: 2`'], answer: 3, why: 'Two must stay up, so a drain moves only one of its pods at a time.' },
-					{ q: 'Two drains run in parallel, each node holds one payment pod. What happens?', options: ['One pod is evicted, the other waits for a healthy replacement', 'Both pods go at once', 'Both drains fail at once with an error about the PDB, and you retry', 'The PDB is ignored during upgrades'], answer: 0, why: 'The Eviction API refuses an eviction that would break the PDB, and drain retries until it can go on.' },
+					{ q: 'How does the payment API\'s PDB find the payment pods?', options: ['By the Deployment name in `metadata.name`', 'By the node they run on', 'Through `minAvailable`', 'By its `selector`, matching the pods\' labels'], answer: 3, why: 'A PDB selects pods by label, the same way a Service does. Its name and its budget do not pick any pod.' },
+					{ q: 'During the drain, someone runs `kubectl delete pod` on a payment pod to speed things up. Does the PDB stop it?', options: ['No: a delete skips the Eviction API, so the PDB never sees it', 'Yes: the PDB blocks every way to remove a pod', 'Yes, but only during an upgrade', 'Only if the node is cordoned'], answer: 0, why: 'A PDB only guards voluntary disruptions that go through the Eviction API. `kubectl delete pod` and a node losing power bypass it.' },
 					{ q: 'Why not put `minAvailable: 1` on the 1-replica batch worker?', options: ['PDBs only work on Deployments with 3 pods', 'It would block the drain forever', 'It would delete the worker', 'It would double the replicas'], answer: 1, why: 'Zero disruptions are ever allowed, so the drain can never evict that pod.' },
 					{ q: 'What are your real options for the batch worker?', options: ['Add a PDB with `maxUnavailable: 0`', 'Skip draining its node', 'Accept a short outage while it moves, or run two replicas', 'Delete it during the upgrade'], answer: 2, why: 'One replica means downtime when it moves. Either accept that, or give it a second copy.' }
 				]

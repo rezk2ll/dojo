@@ -148,17 +148,17 @@ secrets:
 			{
 				title: 'Explain the crash',
 				questions: [
-					{ q: 'What does plain `depends_on: [db]` wait for?', options: ['Until `db` accepts connections', 'Until the `db` container is running', 'Until the `db` healthcheck passes', 'Nothing: it only documents the link'], answer: 1, why: 'Compose waits for the container process to run, not for PostgreSQL to be ready.' },
+					{ q: '`web` logs "connection refused" from `db`. What does that tell you about `db` at that moment?', options: ['The password is wrong', 'Nothing accepted connections yet: PostgreSQL was still starting', '`web` used the wrong host name', 'The volume is full'], answer: 1, why: 'The name resolved and the packet arrived, but nothing accepted it. A wrong password would fail later, after the connection.' },
 					{ q: 'Why does `web` fail only about one time in three?', options: ['It is a race: sometimes PostgreSQL is ready in time, sometimes not', 'The network drops one packet in three', 'Compose starts services in random order', 'The password is wrong one time in three'], answer: 0, why: 'The database process can run for a while before it accepts connections. Whether `web` connects first depends on timing.' },
 					{ q: 'Why does it work after a restart?', options: ['Restarting clears the volume', 'Compose switches to a healthcheck', 'By then PostgreSQL is accepting connections', 'The restart picks a new port'], answer: 2, why: 'The second try comes later, after the database finished starting.' },
-					{ q: 'Which host name does `web` use to reach the database?', options: ['`localhost`', 'The host\'s IP address', 'The IP from `docker inspect`', '`db`, the service name'], answer: 3, why: 'Every service joins the project network and is found by its service name.' }
+					{ q: '`db` has no `ports:` line. How can `web` still reach it on 5432?', options: ['It cannot: add `ports: 5432:5432`', 'Through the host\'s port 5432', 'Only after `expose: 5432` is added', 'Services on the project network reach any port of each other'], answer: 3, why: '`ports:` only publishes a port to the host. Inside the shared network, other services can reach any port of `db`.' }
 				]
 			},
 			{
 				title: 'Add a healthcheck',
 				questions: [
-					{ q: 'Which service gets the healthcheck?', options: ['`db`', '`web`', 'Both, with the same command', 'Neither: Compose checks ports itself'], answer: 0, why: 'The question is "is the database ready?", so the check runs in `db`.' },
-					{ q: 'Which test fits PostgreSQL?', options: ['`["CMD", "ps", "postgres"]`', '`["CMD", "pg_isready"]`', '`["CMD", "true"]`', '`["CMD", "ls", "/var/lib/postgresql/data"]`'], answer: 1, why: '`pg_isready` passes only once PostgreSQL accepts connections.' },
+					{ q: 'The check runs with `interval: 10s` and `retries: 5`. About how long can PostgreSQL fail it before `db` is marked unhealthy?', options: ['About 50 seconds', '10 seconds', '5 seconds', 'Forever: retries only add log lines'], answer: 0, why: 'Five failures in a row, ten seconds apart, mark the container unhealthy.' },
+					{ q: 'You add the healthcheck to `db`, but `web` keeps plain `depends_on: [db]`. Does the crash stop?', options: ['Yes: Compose now waits for the check', 'No: plain `depends_on` ignores the health status', 'Yes, but only on the first `up`', 'No: healthchecks only run in Kubernetes'], answer: 1, why: 'The health status changes nothing until a service asks for it with `condition: service_healthy`.' },
 					{ q: 'What do `interval` and `retries` set?', options: ['How long `web` waits before starting', 'How often the volume is backed up', 'How often the check runs, and how many failures mark it unhealthy', 'The connection timeout of `web`'], answer: 2, why: 'The container runs the command on a schedule. Its result is the health status.' },
 					{ q: 'Why not just check that port 5432 is open?', options: ['Compose cannot test ports', 'Port checks need root', 'Port 5432 is never open inside the network', 'A weak check passes too early, while the app still refuses requests'], answer: 3, why: 'You write each healthcheck yourself. A weak one says "ready" before the service really is.' }
 				]
@@ -166,8 +166,8 @@ secrets:
 			{
 				title: 'Wait for healthy',
 				questions: [
-					{ q: 'What do you write on `web`?', options: ['`depends_on: [db]` twice', '`depends_on: { db: { condition: service_healthy } }`', '`restart: always`', '`links: [db]`'], answer: 1, why: 'With `condition: service_healthy`, Compose waits for the healthcheck to pass before starting `web`.' },
-					{ q: 'In the example, `proxy` has the short form `depends_on: [backend]`. What does it wait for?', options: ['Only for the backend container to start', 'For the backend healthcheck to pass', 'For `db` to be healthy too', 'For port 80 to open'], answer: 0, why: 'The short form only waits for the container to start. Only `condition: service_healthy` waits for a healthcheck.' },
+					{ q: 'The password file is wrong, so `db` never becomes healthy. What happens to `web` on `docker compose up`?', options: ['It starts after a timeout anyway', 'It does not start, because `db` never passes its check', 'It starts and crashes, as before', 'Compose restarts `db` until it works'], answer: 1, why: 'With `condition: service_healthy`, `web` starts only once the check passes. A broken `db` now shows up as an unhealthy dependency, not as a crash in `web`.' },
+					{ q: 'Later you put an nginx `proxy` in front, with `condition: service_healthy` on `web`. `web` has no healthcheck. Does that work?', options: ['No: `web` needs its own healthcheck first', 'Yes: Compose checks the port itself', 'Yes: `web` inherits the `db` healthcheck', 'Only with `restart: always`'], answer: 0, why: 'A service is healthy only by the result of its own healthcheck command. Without one, there is no status to wait for.' },
 					{ q: 'With the fix, what does `web` see on its first connection?', options: ['"connection refused" once, then success', 'A timeout', 'A database that already accepts connections', 'An empty volume'], answer: 2, why: 'Compose starts `web` only after `pg_isready` passed.' },
 					{ q: 'Does this make Compose fit for a fleet of servers?', options: ['Yes, with healthchecks it fails over', 'Yes, if each host runs the same file', 'Only with `depends_on`', 'No: Compose runs every service on one host'], answer: 3, why: 'Compose has no failover to another machine and no rolling deploys across a fleet. Kubernetes handles those.' }
 				]
@@ -178,7 +178,7 @@ secrets:
 					{ q: 'Which option keeps the password out of `compose.yaml` and out of the container environment?', options: ['A Compose `secret` read from a file, with `POSTGRES_PASSWORD_FILE`', '`POSTGRES_PASSWORD` under `environment`', 'A comment in the YAML', 'A build argument'], answer: 0, why: 'The secret appears in the container at `/run/secrets/...`, not in the YAML and not in the environment.' },
 					{ q: 'Where does the secret file live?', options: ['Committed next to `compose.yaml`', 'Inside the image', 'In a file that is not committed', 'In the volume'], answer: 2, why: 'If the file is in Git, the password is in Git.' },
 					{ q: 'You choose a git-ignored `.env` instead. How does the compose file use it?', options: ['`env_file: .env` fills `${DB_PASSWORD}` in the YAML', 'It references `${DB_PASSWORD}`, which Compose fills from `.env`', 'Compose ignores `.env`', 'You copy it into the image'], answer: 1, why: 'A `.env` file fills `${VAR}` in the compose file. `env_file:` is a different thing: it passes variables into a container.' },
-					{ q: 'After `docker compose down`, is the database data gone?', options: ['Yes, with the containers', 'Yes, unless the secret is set', 'Only if PostgreSQL was stopped cleanly', 'No: the named volume stays unless you add `-v`'], answer: 3, why: '`down` removes containers and networks. Named volumes go only with `-v`.' }
+					{ q: '`db` lists the secret under `secrets:`. `web` must log in with the same password. What does `web` need?', options: ['Nothing: secrets are shared with every service', 'The password under its `environment`', 'A copy of `db`\'s volume', 'Its own `secrets:` entry for the same secret'], answer: 3, why: 'A secret is mounted only in the services that list it. Listed on both, it appears in each at `/run/secrets/...`.' }
 				]
 			}
 		]

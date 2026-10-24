@@ -100,6 +100,44 @@ export default {
 			'Run B: 873,584 × 0.064 ms = 55,909 ms per second, so `aqu-sz` is about 55.9. The test measured 55.51, close to the 64 readers.',
 			'`%util` does not show the headroom: it is about the same in both runs. Run B shows it: 12 times the reads per second, and `r_await` only rose from 0.012 to 0.064 ms. On a disk that serves one request at a time, r/s would stay flat and `await` would grow with the queue.',
 			'To try it, run `iostat -x 1 nvme0n1` in one terminal and `dd if=big.file of=/dev/null bs=4k iflag=direct` in another, then start more `dd` processes with different `skip=` values.'
+		],
+		steps: [
+			{
+				title: 'Read the two runs',
+				questions: [
+					{ q: 'Both runs use `dd iflag=direct`. Why does that matter here?', options: ['It makes each read 4 KiB larger', 'It turns off `%util` accounting', 'Every read skips the page cache and reaches the device', 'It lets `dd` keep 64 reads in flight'], answer: 2, why: 'Direct I/O uses `O_DIRECT`, so no read is served from memory. The counters see every one.' },
+					{ q: 'What does `r_await` include?', options: ['Only the time the device spent on the read', 'Queue time plus device time, from request creation to completion', 'The time `dd` spent between two reads', 'Only the time the request waited in the queue'], answer: 1, why: 'The kernel measures from `blk_mq_alloc_request()` to `__blk_mq_end_request()`, so queue time is part of it.' },
+					{ q: 'What does `%util` count?', options: ['The share of the interval with at least one request in flight', 'The share of the device\'s maximum throughput in use', 'The share of the queue slots that are full', 'The share of time the CPU waited on the disk'], answer: 0, why: 'iostat computes it from `io_ticks`, the milliseconds with requests queued, whatever their number.' },
+					{ q: 'What does `aqu-sz` tell you?', options: ['The size of each request in kB', 'The number of requests rejected per second', 'The number of processes reading the disk', 'The average number of requests in flight'], answer: 3, why: '`aqu-sz` is the queue depth the device sees, averaged over the interval.' }
+				]
+			},
+			{
+				title: 'Compute run A',
+				questions: [
+					{ q: 'How do you get the average queue depth from r/s and r_await?', options: ['r/s ÷ r_await', 'r/s × r_await ÷ 1000 ms', 'r_await × 1000 ÷ r/s', 'r/s × %util ÷ 100'], answer: 1, why: 'Each second the reads spend r/s × await milliseconds waiting in total. Divided by the 1000 ms of the second, that is how many were in flight on average.' },
+					{ q: 'Run A: 71,008 r/s × 0.012 ms is about how much waiting per second?', options: ['85 ms', '8,520 ms', '852 ms', '71 ms'], answer: 2, why: '71,008 × 0.012 = 852 ms of waiting in each second.' },
+					{ q: 'So `aqu-sz` for run A is about...', options: ['0.85', '8.5', '1', '85'], answer: 0, why: '852 ms ÷ 1000 ms gives about 0.85. The test measured 0.83.' },
+					{ q: 'Why is run A under 1?', options: ['The SSD drops some reads', '`%util` caps the queue at 81.5%', 'Direct I/O halves the queue depth', 'One `dd` keeps at most one read in flight, with gaps between reads'], answer: 3, why: 'A single reader issues one read, waits for it, then spends a little time in `dd` itself before the next one.' }
+				]
+			},
+			{
+				title: 'Compute run B',
+				questions: [
+					{ q: 'Run B: 873,584 r/s × 0.064 ms is about how much waiting per second?', options: ['55,909 ms', '5,591 ms', '559 ms', '873 ms'], answer: 0, why: '873,584 × 0.064 = 55,909 ms of waiting in each second.' },
+					{ q: 'So `aqu-sz` for run B is about...', options: ['5.6', '64', '55.9', '0.064'], answer: 2, why: '55,909 ms ÷ 1000 ms gives about 55.9. The test measured 55.51.' },
+					{ q: 'Why is it close to 64?', options: ['iostat rounds the queue to the reader count', '64 readers each keep about one read in flight', 'The NVMe queue is 64 entries long', '`%util` rose to 64%'], answer: 1, why: 'Each `dd` has one read in flight at a time, so 64 of them give a queue depth near 64.' },
+					{ q: 'How much did `r_await` grow from A to B?', options: ['It stayed at 0.012 ms', 'From 0.012 to 0.64 ms', 'It dropped to 0.006 ms', 'From 0.012 to 0.064 ms'], answer: 3, why: 'About 5 times longer per read, for a queue near 56 instead of under 1. The device served them in parallel.' }
+				]
+			},
+			{
+				title: 'Find the headroom',
+				questions: [
+					{ q: 'Does `%util` show that run A had room for more work?', options: ['Yes: 81.5% leaves 18.5% free', 'Yes: it is higher than run B', 'No: it is about the same in both runs', 'No: it only counts writes'], answer: 2, why: '`%util` went from 81.5 to 73.0 while the reads per second grew 12 times. It does not see parallel requests.' },
+					{ q: 'Which numbers do show the headroom?', options: ['r/s grew 12 times while `r_await` only rose to 0.064 ms', '`%util` dropped from 81.5 to 73.0', '`aqu-sz` stayed under 1 in run A', 'The request size stayed at 4 KiB'], answer: 0, why: 'More work got done with little extra wait per read, so the disk was not saturated in run A.' },
+					{ q: 'On a disk that serves one request at a time, what would 64 readers do?', options: ['Raise r/s 12 times, like the SSD', 'Lower `aqu-sz` below 1', 'Keep `await` the same and lower `%util`', 'Keep r/s flat and make `await` grow with the queue'], answer: 3, why: 'A serial device cannot do more per second, so the extra requests wait in line.' },
+					{ q: 'How would you see this on your own disk?', options: ['`iostat -x 1` in one terminal, `dd ... iflag=direct` in another, then more `dd` with different `skip=`', '`df -h` before and after one `dd`', 'One `dd` without `iflag=direct`, twice in a row', '`du -sh big.file` while `dd` runs'], answer: 0, why: 'Adding readers with different offsets raises the queue depth, and iostat shows how r/s and `await` respond.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -132,6 +170,27 @@ export default {
 			why: 'Each second, the reads spend 2000 × 4 ms = 8000 ms waiting in total. Divided by 1000 ms, that is 8 requests in flight on average, which is what the `time_in_queue` counter measures.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Compute `await`, `%util` and `aqu-sz` yourself from `/sys/block/<dev>/stat`, with one reader and then eight.',
+		steps: [
+			'Work in a folder on a real disk, under your home (not `/tmp`, which can be a tmpfs where `O_DIRECT` fails). Make a test file and flush it to disk, so its writes do not land in your samples: `head -c 512M /dev/urandom > big.file && sync`.',
+			'Find the device behind the folder: `dev=$(basename "$(readlink -f "$(findmnt -no SOURCE -T .)")"); echo $dev; cat /sys/class/block/$dev/stat`. The 1st field is reads, the 4th read ticks (ms), the 10th `io_ticks`, the 11th `time_in_queue`.',
+			'One reader: `cat /sys/class/block/$dev/stat > before; dd if=big.file of=/dev/null bs=4k iflag=direct; cat /sys/class/block/$dev/stat > after`. Note the seconds `dd` prints.',
+			'Compare the two samples: `awk \'NR==1{for(i=1;i<=NF;i++)a[i]=$i} NR==2{r=$1-a[1]; print "reads",r,"await_ms",($4-a[4])/r,"io_ticks_ms",$10-a[10],"queue_ms",$11-a[11]}\' before after`.',
+			'Eight readers on different parts of the file, in bash: `cat /sys/class/block/$dev/stat > before; time (for i in 0 1 2 3 4 5 6 7; do dd if=big.file of=/dev/null bs=4k iflag=direct skip=$((i*16384)) count=16384 2>/dev/null & done; wait); cat /sys/class/block/$dev/stat > after`, then the same `awk`. Clean up with `rm big.file before after`.'
+		],
+		done: [
+			'You have `await` in ms for both runs, from the read ticks divided by the reads.',
+			'You have `%util` for both runs: `io_ticks_ms` divided by the elapsed ms.',
+			'You have `aqu-sz` for both runs: `queue_ms` divided by the elapsed ms, around 1 for one reader and several times higher for eight.'
+		],
+		solution: [
+			'On the test laptop, one reader took 3.21 s: 131,903 reads, `await` 0.020 ms, `io_ticks` 2524 ms (79% util), `time_in_queue` 2843 ms (`aqu-sz` 0.89).',
+			'Eight readers read the same 512 MB in 0.97 s: `await` 0.054 ms, `io_ticks` 970 ms (100% util), `time_in_queue` 7115 ms (`aqu-sz` 7.3).',
+			'Throughput went up about 3.3 times while `%util` only went from 79% to 100%. The disk had room that `%util` did not show. Other processes write to the disk during the run, so expect a little noise in the counts.'
+		]
+	},
 	recall: {
 		q: 'What does iostat\'s `%util` count, and why can an NVMe SSD at 80% `%util` still serve 12 times more reads?',
 		a: 'The time with at least one request in flight (`io_ticks`), whatever the number of requests. An SSD serves many requests in parallel: in the test, 64 readers got 3578 MB/s against 291 MB/s for one, at about the same `%util`.'

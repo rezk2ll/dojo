@@ -100,6 +100,44 @@ export default {
 			'Essai B : 873 584 × 0,064 ms = 55 909 ms par seconde, donc `aqu-sz` vaut environ 55,9. L’essai a mesuré 55,51, proche des 64 lecteurs.',
 			'`%util` ne montre pas la marge : il est à peu près le même dans les deux essais. C’est l’essai B qui la montre : 12 fois plus de lectures par seconde, et `r_await` n’est monté que de 0,012 à 0,064 ms. Sur un disque qui sert une requête à la fois, r/s resterait plat et `await` grandirait avec la file.',
 			'Pour essayer, lance `iostat -x 1 nvme0n1` dans un terminal et `dd if=big.file of=/dev/null bs=4k iflag=direct` dans un autre, puis démarre d’autres `dd` avec des valeurs `skip=` différentes.'
+		],
+		steps: [
+			{
+				title: 'Lis les deux essais',
+				questions: [
+					{ q: 'Les deux essais utilisent `dd iflag=direct`. Pourquoi est-ce important ici ?', options: ['Chaque lecture fait 4 KiB de plus', 'Ça coupe le calcul de `%util`', 'Chaque lecture saute le cache de pages et atteint le périphérique', 'Ça permet à `dd` de garder 64 lectures en cours'], answer: 2, why: 'L’I/O directe utilise `O_DIRECT`, donc aucune lecture n’est servie depuis la mémoire. Les compteurs les voient toutes.' },
+					{ q: 'Que comprend `r_await` ?', options: ['Seulement le temps passé sur le périphérique', 'L’attente en file plus le service, de la création de la requête à sa fin', 'Le temps que `dd` passe entre deux lectures', 'Seulement le temps d’attente dans la file'], answer: 1, why: 'Le noyau mesure de `blk_mq_alloc_request()` à `__blk_mq_end_request()`, donc l’attente en file en fait partie.' },
+					{ q: 'Que compte `%util` ?', options: ['La part de l’intervalle avec au moins une requête en cours', 'La part du débit maximal du périphérique utilisée', 'La part des places de la file qui sont prises', 'La part du temps où le CPU attendait le disque'], answer: 0, why: 'iostat le calcule à partir de `io_ticks`, les millisecondes avec des requêtes en file, quel que soit leur nombre.' },
+					{ q: 'Que te dit `aqu-sz` ?', options: ['La taille de chaque requête en kB', 'Le nombre de requêtes refusées par seconde', 'Le nombre de processus qui lisent le disque', 'Le nombre moyen de requêtes en cours'], answer: 3, why: '`aqu-sz` est la profondeur de file que voit le périphérique, en moyenne sur l’intervalle.' }
+				]
+			},
+			{
+				title: 'Calcule l’essai A',
+				questions: [
+					{ q: 'Comment obtenir la profondeur de file moyenne à partir de r/s et de r_await ?', options: ['r/s ÷ r_await', 'r/s × r_await ÷ 1000 ms', 'r_await × 1000 ÷ r/s', 'r/s × %util ÷ 100'], answer: 1, why: 'Chaque seconde, les lectures passent au total r/s × await millisecondes à attendre. Divisé par les 1000 ms de la seconde, ça donne combien étaient en cours en moyenne.' },
+					{ q: 'Essai A : 71 008 r/s × 0,012 ms, c’est environ combien d’attente par seconde ?', options: ['85 ms', '8 520 ms', '852 ms', '71 ms'], answer: 2, why: '71 008 × 0,012 = 852 ms d’attente dans chaque seconde.' },
+					{ q: 'Donc `aqu-sz` pour l’essai A vaut environ...', options: ['0,85', '8,5', '1', '85'], answer: 0, why: '852 ms ÷ 1000 ms donne environ 0,85. L’essai a mesuré 0,83.' },
+					{ q: 'Pourquoi l’essai A reste-t-il sous 1 ?', options: ['Le SSD perd des lectures', '`%util` plafonne la file à 81,5 %', 'L’I/O directe divise la profondeur de file par deux', 'Un seul `dd` garde au plus une lecture en cours, avec des trous entre deux lectures'], answer: 3, why: 'Un seul lecteur envoie une lecture, l’attend, puis passe un peu de temps dans `dd` lui-même avant la suivante.' }
+				]
+			},
+			{
+				title: 'Calcule l’essai B',
+				questions: [
+					{ q: 'Essai B : 873 584 r/s × 0,064 ms, c’est environ combien d’attente par seconde ?', options: ['55 909 ms', '5 591 ms', '559 ms', '873 ms'], answer: 0, why: '873 584 × 0,064 = 55 909 ms d’attente dans chaque seconde.' },
+					{ q: 'Donc `aqu-sz` pour l’essai B vaut environ...', options: ['5,6', '64', '55,9', '0,064'], answer: 2, why: '55 909 ms ÷ 1000 ms donne environ 55,9. L’essai a mesuré 55,51.' },
+					{ q: 'Pourquoi est-ce proche de 64 ?', options: ['iostat arrondit la file au nombre de lecteurs', 'Les 64 lecteurs gardent chacun environ une lecture en cours', 'La file NVMe fait 64 places', '`%util` est monté à 64 %'], answer: 1, why: 'Chaque `dd` a une lecture en cours à la fois, donc 64 d’entre eux donnent une profondeur de file proche de 64.' },
+					{ q: 'De combien `r_await` a-t-il grandi entre A et B ?', options: ['Il est resté à 0,012 ms', 'De 0,012 à 0,64 ms', 'Il est descendu à 0,006 ms', 'De 0,012 à 0,064 ms'], answer: 3, why: 'Environ 5 fois plus long par lecture, pour une file proche de 56 au lieu de moins de 1. Le périphérique les a servies en parallèle.' }
+				]
+			},
+			{
+				title: 'Trouve la marge',
+				questions: [
+					{ q: '`%util` montre-t-il que l’essai A avait de la marge ?', options: ['Oui : 81,5 % laisse 18,5 % de libre', 'Oui : il est plus haut que dans l’essai B', 'Non : il est à peu près le même dans les deux essais', 'Non : il ne compte que les écritures'], answer: 2, why: '`%util` est passé de 81,5 à 73,0 alors que les lectures par seconde ont été multipliées par 12. Il ne voit pas les requêtes en parallèle.' },
+					{ q: 'Quels chiffres montrent la marge ?', options: ['r/s multiplié par 12 alors que `r_await` n’est monté qu’à 0,064 ms', '`%util` descendu de 81,5 à 73,0', '`aqu-sz` resté sous 1 dans l’essai A', 'La taille des requêtes restée à 4 KiB'], answer: 0, why: 'Le disque a fait plus de travail avec peu d’attente en plus par lecture, donc il n’était pas saturé dans l’essai A.' },
+					{ q: 'Sur un disque qui sert une requête à la fois, que feraient 64 lecteurs ?', options: ['Multiplier r/s par 12, comme le SSD', 'Faire tomber `aqu-sz` sous 1', 'Garder `await` égal et baisser `%util`', 'Laisser r/s plat et faire grandir `await` avec la file'], answer: 3, why: 'Un périphérique série ne peut pas faire plus par seconde, donc les requêtes en plus attendent leur tour.' },
+					{ q: 'Comment le voir sur ton propre disque ?', options: ['`iostat -x 1` dans un terminal, `dd ... iflag=direct` dans un autre, puis d’autres `dd` avec des `skip=` différents', '`df -h` avant et après un `dd`', 'Un `dd` sans `iflag=direct`, deux fois de suite', '`du -sh big.file` pendant que `dd` tourne'], answer: 0, why: 'Ajouter des lecteurs à des positions différentes augmente la profondeur de file, et iostat montre comment r/s et `await` réagissent.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -132,6 +170,27 @@ export default {
 			why: 'Chaque seconde, les lectures passent au total 2000 × 4 ms = 8000 ms à attendre. Divisé par 1000 ms, cela fait 8 requêtes en cours en moyenne, ce que mesure le compteur `time_in_queue`.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Calculer toi-même `await`, `%util` et `aqu-sz` à partir de `/sys/block/<dev>/stat`, avec un lecteur puis huit.',
+		steps: [
+			'Travaille dans un dossier sur un vrai disque, sous ton home (pas `/tmp`, qui peut être un tmpfs où `O_DIRECT` échoue). Crée un fichier de test et écris-le sur le disque, pour que ses écritures ne tombent pas dans tes relevés : `head -c 512M /dev/urandom > big.file && sync`.',
+			'Trouve le périphérique derrière le dossier : `dev=$(basename "$(readlink -f "$(findmnt -no SOURCE -T .)")"); echo $dev; cat /sys/class/block/$dev/stat`. Le 1er champ compte les lectures, le 4e les read ticks (ms), le 10e `io_ticks`, le 11e `time_in_queue`.',
+			'Un lecteur : `cat /sys/class/block/$dev/stat > before; dd if=big.file of=/dev/null bs=4k iflag=direct; cat /sys/class/block/$dev/stat > after`. Note les secondes affichées par `dd`.',
+			'Compare les deux relevés : `awk \'NR==1{for(i=1;i<=NF;i++)a[i]=$i} NR==2{r=$1-a[1]; print "reads",r,"await_ms",($4-a[4])/r,"io_ticks_ms",$10-a[10],"queue_ms",$11-a[11]}\' before after`.',
+			'Huit lecteurs sur des parties différentes du fichier, dans bash : `cat /sys/class/block/$dev/stat > before; time (for i in 0 1 2 3 4 5 6 7; do dd if=big.file of=/dev/null bs=4k iflag=direct skip=$((i*16384)) count=16384 2>/dev/null & done; wait); cat /sys/class/block/$dev/stat > after`, puis le même `awk`. Fais le ménage avec `rm big.file before after`.'
+		],
+		done: [
+			'Tu as `await` en ms pour les deux essais : les read ticks divisés par le nombre de lectures.',
+			'Tu as `%util` pour les deux essais : `io_ticks_ms` divisé par les ms écoulées.',
+			'Tu as `aqu-sz` pour les deux essais : `queue_ms` divisé par les ms écoulées, autour de 1 avec un lecteur et plusieurs fois plus haut avec huit.'
+		],
+		solution: [
+			'Sur le portable de test, un lecteur a mis 3,21 s : 131 903 lectures, `await` 0,020 ms, `io_ticks` 2524 ms (79 % d’util), `time_in_queue` 2843 ms (`aqu-sz` 0,89).',
+			'Huit lecteurs ont lu les mêmes 512 MB en 0,97 s : `await` 0,054 ms, `io_ticks` 970 ms (100 % d’util), `time_in_queue` 7115 ms (`aqu-sz` 7,3).',
+			'Le débit a été multiplié par environ 3,3 alors que `%util` n’est passé que de 79 % à 100 %. Le disque avait une marge que `%util` ne montrait pas. D’autres processus écrivent sur le disque pendant l’essai, donc attends-toi à un peu de bruit dans les chiffres.'
+		]
+	},
 	recall: {
 		q: 'Que compte le `%util` d’iostat, et pourquoi un SSD NVMe à 80 % de `%util` peut-il encore servir 12 fois plus de lectures ?',
 		a: 'Le temps avec au moins une requête en cours (`io_ticks`), quel que soit leur nombre. Un SSD sert beaucoup de requêtes en parallèle : dans l’essai, 64 lecteurs ont obtenu 3578 MB/s contre 291 MB/s pour un seul, à `%util` à peu près égal.'

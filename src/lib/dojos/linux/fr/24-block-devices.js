@@ -120,6 +120,44 @@ export default {
 			'`pvresize /dev/sda1` : dit à LVM que le PV fait maintenant 100G. `vgs` montre environ 50G libres dans `vg0`.',
 			'`lvextend -r -l +100%FREE vg0/data` : donne au LV tous les extents libres du VG, puis `-r` lance fsadm, qui appelle resize2fs sur l’ext4 monté.',
 			'`df -h /data` doit montrer environ 100G, moins les métadonnées d’ext4. Sans `-r`, le LV grandit et `df` reste à 50G jusqu’à ce que tu lances `resize2fs /dev/vg0/data`.'
+		],
+		steps: [
+			{
+				title: 'Lis l’arbre',
+				questions: [
+					{ q: 'Le disque `sda` affiche 100G. Pourquoi `df -h /data` affiche-t-il toujours 50G ?', options: ['La console du cloud n’a pas fini l’agrandissement', 'Le noyau doit redémarrer pour voir le disque', 'La partition, le PV, le LV et le système de fichiers ont gardé leur ancienne taille', '`df` garde les tailles en cache jusqu’au prochain montage'], answer: 2, why: 'Chaque couche a sa propre taille. Agrandir le disque ne change que celle du bas.' },
+					{ q: 'Quel périphérique est encore à 50G juste au-dessus du disque de 100G ?', options: ['`vg0-data`', '`sda1`', '`/data`', '`sda`'], answer: 1, why: 'L’indice dit de partir du bas. `sda1` est posé directement sur `sda` et finit toujours là où finissait l’ancien disque.' },
+					{ q: 'Que te dit le type `LVM2_member` sur `sda1` ?', options: ['La partition est un volume physique LVM', 'La partition porte un système de fichiers ext4', 'La partition est une zone de swap', 'La partition est un volume logique'], answer: 0, why: '`lsblk` affiche un PV préparé avec `pvcreate` comme `LVM2_member`.' },
+					{ q: 'Dans quel ordre agrandis-tu les couches ?', options: ['Système de fichiers, LV, PV, partition', 'LV, partition, PV, système de fichiers', 'PV, partition, système de fichiers, LV', 'Partition, PV, LV, système de fichiers'], answer: 3, why: 'De bas en haut : chaque couche ne peut grandir que dans la place que la couche du dessous a déjà.' }
+				]
+			},
+			{
+				title: 'Agrandis la partition',
+				questions: [
+					{ q: 'Quelle commande étend `sda1` jusqu’au bout du disque ?', options: ['`resize2fs /dev/sda1`', '`growpart /dev/sda 1`', '`pvresize /dev/sda`', '`lvextend /dev/sda1`'], answer: 1, why: '`growpart`, de cloud-utils, réécrit la table de partitions « so that the given partition takes up as much space as it can ».' },
+					{ q: 'Pourquoi ne pas lancer `resize2fs` d’abord ?', options: ['resize2fs « does not manipulate the size of partitions »', 'resize2fs ne marche que sur XFS', 'resize2fs demande un disque démonté', 'resize2fs efface les métadonnées LVM'], answer: 0, why: 'resize2fs(8) le dit. Il ne peut agrandir un système de fichiers que dans un périphérique déjà plus grand.' },
+					{ q: 'Note l’espace entre `/dev/sda` et `1`. Quels sont les deux arguments ?', options: ['La partition et sa nouvelle taille en GB', 'Le groupe de volumes et le numéro du LV', 'Le disque et le numéro de la partition', 'Le disque source et le disque cible'], answer: 2, why: '`growpart` prend le disque et le numéro de la partition à agrandir dessus.' },
+					{ q: 'Comment vérifier que cette étape a marché ?', options: ['`df -h /data` affiche 100G', '`vgs` montre 50G libres', '`lvs` montre le LV à 100G', '`lsblk` montre `sda1` à 100G'], answer: 3, why: 'Seule la partition a changé. `df`, `vgs` et `lvs` montrent encore les anciennes tailles jusqu’aux étapes suivantes.' }
+				]
+			},
+			{
+				title: 'Agrandis le PV',
+				questions: [
+					{ q: 'Quelle commande dit à LVM que le PV est plus grand ?', options: ['`pvresize /dev/sda1`', '`vgextend vg0 /dev/sda1`', '`pvcreate /dev/sda1`', '`lvextend vg0/data`'], answer: 0, why: '`pvresize` « resizes a PV », même avec des LV actifs dessus.' },
+					{ q: 'Pourquoi ne pas relancer `pvcreate /dev/sda1` ?', options: ['Il demande un redémarrage ensuite', 'Il prépare un PV neuf, et `sda1` en est déjà un qui porte `vg0`', 'Il ne marche que sur des disques entiers', 'C’est la même commande sous un autre nom'], answer: 1, why: '`pvcreate` prépare un PV neuf. `sda1` en est déjà un et porte `vg0`.' },
+					{ q: 'Après `pvresize`, que montre `vgs` ?', options: ['Aucune place libre : le LV l’a prise', 'Le VG à 50G, inchangé', 'Environ 50G libres dans `vg0`', 'Un second VG de 50G'], answer: 2, why: 'La nouvelle place du PV rejoint le VG sous forme d’extents libres. Aucun LV ne la possède encore.' },
+					{ q: '`/data` est-il déjà plus grand ?', options: ['Oui, `df` affiche maintenant 100G', 'Seulement après un remontage', 'Oui, mais seulement pour root', 'Non : le LV et le système de fichiers sont toujours à 50G'], answer: 3, why: 'La place est dans la réserve du VG. Il reste deux couches.' }
+				]
+			},
+			{
+				title: 'Agrandis le LV et le système de fichiers',
+				questions: [
+					{ q: 'Quelle commande donne toute la place libre à `vg0/data` et agrandit le système de fichiers ?', options: ['`lvextend -l +100%FREE vg0/data`', '`lvextend -r -l +100%FREE vg0/data`', '`lvresize -L 100G vg0`', '`resize2fs -l +100%FREE vg0/data`'], answer: 1, why: '`-l +100%FREE` prend tous les extents libres du VG, et `-r` agrandit le système de fichiers « together with the LV using fsadm(8) ».' },
+					{ q: 'Faut-il démonter `/data` ?', options: ['Non : resize2fs agrandit un ext4 monté avec `EXT4_IOC_RESIZE_FS`', 'Oui : resize2fs refuse sur un système de fichiers monté', 'Oui, sauf avec `--force`', 'Seulement au premier agrandissement'], answer: 0, why: 'resize2fs(8) : « If the file system is mounted, it can be used to expand the size of the mounted file system ». Seule la réduction demande un démontage.' },
+					{ q: 'Tu as oublié `-r`. `lvs` montre 100G et `df` 50G. Que lances-tu ?', options: ['`pvresize /dev/sda1`', '`growpart /dev/sda 1`', '`resize2fs /dev/vg0/data`', 'Un redémarrage'], answer: 2, why: 'Le LV a grandi, l’ext4 dessus non. `df` affiche la taille du système de fichiers.' },
+					{ q: '`df -h /data` affiche un peu moins de 100G. Pourquoi ?', options: ['LVM garde 5 % pour les snapshots', 'growpart laisse un trou à la fin du disque', 'L’agrandissement tourne encore en arrière-plan', 'Les métadonnées d’ext4 ne comptent pas dans la taille de `df`'], answer: 3, why: 'Les tables d’inodes, le journal et les bitmaps prennent une place que `df` ne montre jamais : 16 GB d’un LV de 1 TB sur le portable de test.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,27 @@ export default {
 			why: 'La partition et le PV ont déjà la place : le VG montre 40G libres. Seuls le LV et son système de fichiers sont trop petits, et `lvextend -r` agrandit les deux.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir un disque agrandi laisser la partition et le système de fichiers à leur ancienne taille, puis agrandir chaque couche toi-même, sur des fichiers image et sans root.',
+		steps: [
+			'Dans un dossier de travail, crée un « disque » de 50 MB avec une partition : `truncate -s 50M disk.img && parted -s disk.img mklabel msdos mkpart primary ext4 1MiB 100%`, puis `parted -s disk.img unit MiB print`. Si un outil est introuvable, il est dans `/usr/sbin` : lance `export PATH=$PATH:/usr/sbin`.',
+			'Agrandis le disque comme le fait la console du cloud : `truncate -s 100M disk.img`, et réaffiche la table.',
+			'Agrandis la partition, le travail que fait `growpart` sur une VM : `parted -s disk.img resizepart 1 100%`, et réaffiche.',
+			'Passe à la couche système de fichiers, dans son propre fichier : `truncate -s 50M fs.img && mkfs.ext4 -q -F fs.img && truncate -s 100M fs.img`, puis `dumpe2fs -h fs.img | grep "^Block count"`.',
+			'Agrandis-le : `resize2fs fs.img`, et relis le nombre de blocs. Fais le ménage avec `rm disk.img fs.img`.'
+		],
+		done: [
+			'Après `truncate -s 100M`, `parted` affiche `Disk ... 100MiB` et la partition finit toujours à `50.0MiB`.',
+			'Après `resizepart`, la partition finit à `100MiB`.',
+			'`dumpe2fs` affiche `Block count: 12800` sur le fichier de 100 MB avant `resize2fs`, et `25600` après.'
+		],
+		solution: [
+			'Un périphérique plus grand ne change rien au-dessus. La table de partitions dit toujours où finit la partition, et le superbloc dit toujours combien de blocs a le système de fichiers.',
+			'12800 blocs de 4 KiB font 50 MiB. resize2fs affiche `The filesystem on fs.img is now 25600 (4k) blocks long`.',
+			'Sur une vraie VM avec LVM, `pvresize` et `lvextend` se placent entre ces deux étapes. La règle reste la même : agrandir chaque couche de bas en haut.'
+		]
+	},
 	recall: {
 		q: 'Un disque cloud passe de 50 à 100 GB sous un montage LVM. Quelles couches faut-il encore agrandir avant que `df` le voie, et avec quelles commandes ?',
 		a: 'La partition (`growpart`), le volume physique (`pvresize`), le volume logique et son système de fichiers (`lvextend -r`, qui lance resize2fs). Chaque couche garde son ancienne taille tant que tu ne l’agrandis pas.'

@@ -134,6 +134,44 @@ export default {
 			'`CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);` hors de toute transaction. Une construction ratée laisse un index `INVALID` : lance `DROP INDEX CONCURRENTLY orders_customer_id_idx;` puis reconstruis-le.',
 			'`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;` prend `SHARE ROW EXCLUSIVE` sur les deux tables, mais un instant seulement, puisqu’aucune ligne n’est parcourue. Ensuite, `ALTER TABLE orders VALIDATE CONSTRAINT orders_customer_fk;` parcourt la table sous `SHARE UPDATE EXCLUSIVE` pendant que les écritures continuent.',
 			'Mêmes deux étapes pour le check : `ADD CONSTRAINT orders_total_check CHECK (total >= 0) NOT VALID;`, puis `VALIDATE CONSTRAINT orders_total_check;`. Mets chaque étape dans sa propre migration : un lock timeout ne relance alors qu’une étape, et les autres restent faites.'
+		],
+		steps: [
+			{
+				title: 'Repère les formes qui bloquent',
+				questions: [
+					{ q: 'Que fait un simple `CREATE INDEX ON orders (customer_id)` à l’appli ?', options: ['Rien : une construction d’index ne verrouille jamais la table', 'Il bloque les lectures mais pas les écritures', 'Il bloque les écritures pendant toute la construction sur 50 millions de lignes', 'Il bloque seulement les autres constructions d’index'], answer: 2, why: 'Le message de strong_migrations le dit : « Adding an index non-concurrently blocks writes » (ajouter un index sans CONCURRENTLY bloque les écritures).' },
+					{ q: 'Quel verrou prend un simple `ADD FOREIGN KEY` ?', options: ['`ACCESS SHARE` sur `orders` seulement', '`SHARE ROW EXCLUSIVE` sur les deux tables, pendant qu’il parcourt chaque ligne', '`SHARE UPDATE EXCLUSIVE` sur `customers` seulement', 'Aucun : les contraintes sont vérifiées plus tard'], answer: 1, why: 'La doc dit qu’il prend `SHARE ROW EXCLUSIVE` sur la table et sur la table référencée. La vérification des lignes existantes se fait sous ce verrou.' },
+					{ q: 'Un rapport lit `orders` quand ton `ALTER TABLE` demande `ACCESS EXCLUSIVE`. Que deviennent les simples SELECT de l’appli ?', options: ['Ils passent, puisque les lectures n’entrent jamais en conflit entre elles', 'Ils échouent tout de suite avec une erreur de verrou', 'Ils passent devant la migration', 'Ils font la queue derrière la migration en attente'], answer: 3, why: 'Une demande n’est accordée que si elle n’entre en conflit avec aucun verrou tenu ni aucun verrou en attente. L’ALTER en attente bloque tous ceux qui arrivent après.' },
+					{ q: 'Qu’est-ce que chaque étape de la migration doit donc éviter ?', options: ['Tenir un verrou fort pendant un long parcours, ou l’attendre sans limite', 'Tourner hors transaction', 'Toucher plus d’une table', 'Prendre le moindre verrou'], answer: 0, why: 'Les longs parcours doivent se faire sous un verrou qui laisse passer les écritures. Un verrou fort n’est acceptable qu’un instant.' }
+				]
+			},
+			{
+				title: 'Protège d’abord la session',
+				questions: [
+					{ q: 'Quelle est la première instruction de la session de migration ?', options: ['`BEGIN;`', '`LOCK TABLE orders;`', '`SET lock_timeout = \'5s\';`', '`SET statement_timeout = 0;`'], answer: 2, why: 'Toute étape qui n’obtient pas vite son verrou échoue, au lieu de faire attendre l’appli derrière elle.' },
+					{ q: 'Que veut dire `lock_timeout = 0` ?', options: ['L’instruction attend son verrou sans limite', 'L’instruction échoue si le verrou n’est pas libre tout de suite', 'L’instruction ne prend aucun verrou', 'Le défaut de 5 secondes s’applique'], answer: 0, why: '0 est le défaut, et ça veut dire sans limite. C’est comme ça qu’une migration a attendu une minute dans l’accroche.' },
+					{ q: 'L’ALTER atteint la limite de 5 secondes. Que voit l’appli ?', options: ['Une minute d’erreurs 502', 'Environ cinq secondes de pages lentes, puis un service normal', 'Rien du tout', 'Une table à moitié modifiée'], answer: 1, why: 'La migration abandonne, la file derrière elle se vide, et tu réessaies plus tard.' },
+					{ q: 'Que fait strong_migrations quand `SHOW lock_timeout` renvoie zéro hors dev et test ?', options: ['Il met 10 secondes pour toi', 'Il refuse de lancer toute migration', 'Il relance chaque instruction trois fois', 'Il prévient « DANGER: No lock timeout set »'], answer: 3, why: 'Le README dit qu’un lock timeout court est « extremely important » (extrêmement important). L’adaptateur le vérifie et prévient.' }
+				]
+			},
+			{
+				title: 'Construis l’index',
+				questions: [
+					{ q: 'Quelle instruction construit l’index sans bloquer les écritures ?', options: ['`CREATE INDEX orders_customer_id_idx ON orders (customer_id);`', '`CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);`', '`REINDEX TABLE orders;`', '`ALTER TABLE orders ADD INDEX (customer_id);`'], answer: 1, why: 'La construction concurrente prend `SHARE UPDATE EXCLUSIVE`, qui laisse passer les lectures et les écritures.' },
+					{ q: 'Où doit tourner cette instruction ?', options: ['Hors de tout bloc de transaction', 'Dans `BEGIN ... COMMIT`, pour pouvoir annuler', 'Dans la même transaction que la clé étrangère', 'Seulement sur un réplica'], answer: 0, why: 'PostgreSQL refuse `CREATE INDEX CONCURRENTLY` dans un bloc de transaction. Rails a besoin de `disable_ddl_transaction!` pour ça.' },
+					{ q: 'La construction concurrente échoue au milieu. Que reste-t-il ?', options: ['Rien : PostgreSQL l’annule', 'Un index valide qui couvre la moitié des lignes', 'Un verrou sur `orders` jusqu’au redémarrage', 'Un index `INVALID` qui coûte encore à chaque écriture'], answer: 3, why: 'Lance `DROP INDEX CONCURRENTLY orders_customer_id_idx;` puis reconstruis-le.' },
+					{ q: 'Quel est le prix d’une construction concurrente ?', options: ['Elle bloque les lectures un instant', 'Elle demande un superutilisateur', 'Deux parcours de table, plus de temps, et plus de CPU et de disque', 'Les requêtes ne peuvent pas l’utiliser avant un redémarrage'], answer: 2, why: 'La doc dit qu’elle prend « significantly longer » (nettement plus longtemps). Elle parcourt deux fois et attend les transactions plus anciennes.' }
+				]
+			},
+			{
+				title: 'Ajoute les contraintes en deux temps',
+				questions: [
+					{ q: 'Quelle instruction ajoute la clé étrangère sans long verrou ?', options: ['`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;`', '`ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id);`', '`CREATE INDEX CONCURRENTLY ON customers (id);`', '`ALTER TABLE customers ADD CONSTRAINT orders_customer_fk NOT VALID;`'], answer: 0, why: 'Elle prend quand même `SHARE ROW EXCLUSIVE` sur les deux tables, mais un instant seulement, puisqu’aucune ligne n’est parcourue.' },
+					{ q: 'Juste après le commit de `CHECK (total >= 0) NOT VALID`, qu’est-ce qui est vérifié ?', options: ['Rien avant la validation', 'Les anciennes lignes, en tâche de fond', 'Les nouveaux inserts et updates ; les anciennes lignes attendent `VALIDATE CONSTRAINT`', 'Toutes les lignes, d’un coup'], answer: 2, why: 'La doc : la contrainte s’applique aux écritures suivantes, mais n’est pas supposée vraie pour toutes les lignes tant qu’elle n’est pas validée.' },
+					{ q: 'Quel verrou prend `VALIDATE CONSTRAINT` pendant son parcours ?', options: ['`ACCESS EXCLUSIVE`', '`SHARE ROW EXCLUSIVE`', '`ROW EXCLUSIVE`', '`SHARE UPDATE EXCLUSIVE`, donc les écritures continuent'], answer: 3, why: 'Le long parcours se fait sous un verrou qui laisse passer les lectures et les écritures.' },
+					{ q: 'Pourquoi mettre chaque étape dans sa propre migration ?', options: ['Rails n’autorise qu’une instruction par migration', 'Un lock timeout ne relance alors qu’une étape, et les autres restent faites', 'Chaque migration reçoit un `lock_timeout` par défaut de 5 s', 'PostgreSQL exige un commit entre deux ALTER'], answer: 1, why: 'Les étapes tournent hors d’une transaction unique, donc un échec au milieu laisserait sinon un état à nettoyer à la main.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,31 @@ export default {
 			why: 'La doc d’ALTER TABLE : « The constraint will still be applied against subsequent inserts or updates » (la contrainte s’applique aux inserts et updates suivants), mais la base « will not assume that the constraint holds for all rows in the table, until it is validated » (ne suppose pas qu’elle tient pour toutes les lignes tant qu’elle n’est pas validée). `VALIDATE CONSTRAINT` fait ce parcours plus tard, sous `SHARE UPDATE EXCLUSIVE` (jour 22).'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Voir un `ALTER TABLE` en attente geler les simples lectures, le couper avec `lock_timeout`, puis ajouter un index, une clé étrangère et un check sans bloquer les écritures.',
+		steps: [
+			'Lance PostgreSQL : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`. Ouvre trois terminaux, chacun avec `docker exec -it dojo-pg psql -U postgres` : rapport, migration et appli.',
+			'Dans rapport : `CREATE TABLE customers (id bigint PRIMARY KEY); INSERT INTO customers SELECT g FROM generate_series(1, 1000) g;` puis `CREATE TABLE orders (id bigserial PRIMARY KEY, customer_id bigint NOT NULL, total int NOT NULL); INSERT INTO orders (customer_id, total) SELECT 1 + g % 1000, g % 500 FROM generate_series(1, 200000) g;`',
+			'Dans rapport, joue le long rapport : `BEGIN; SELECT count(*) FROM orders;` et laisse la transaction ouverte.',
+			'Dans migration : `ALTER TABLE orders ADD COLUMN note text;`. Dans appli : `SELECT count(*) FROM orders;`. Les deux bloquent. Dans un quatrième shell, regarde : `docker exec dojo-pg psql -U postgres -c "SELECT pid, mode, granted FROM pg_locks WHERE relation = \'orders\'::regclass"`. Puis `COMMIT;` dans rapport.',
+			'Recommence avec une protection. Dans rapport : `BEGIN; SELECT count(*) FROM orders;`. Dans migration : `SET lock_timeout = \'5s\';` puis `ALTER TABLE orders ADD COLUMN note2 text;`. Après l’échec, `COMMIT;` dans rapport.',
+			'La bonne méthode, dans migration : `CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);`, puis `ALTER TABLE orders ADD CONSTRAINT orders_customer_fk FOREIGN KEY (customer_id) REFERENCES customers (id) NOT VALID;` et `ALTER TABLE orders VALIDATE CONSTRAINT orders_customer_fk;`, puis les mêmes deux étapes pour `CHECK (total >= 0)` nommé `orders_total_check`.',
+			'Essaie l’index dans une transaction : `BEGIN; CREATE INDEX CONCURRENTLY orders_total_idx ON orders (total);` puis `ROLLBACK;`'
+		],
+		done: [
+			'À l’étape 4, `pg_locks` montre un `AccessShareLock` accordé pour le rapport, un `AccessExclusiveLock` en attente pour la migration, et un `AccessShareLock` en attente pour le SELECT de l’appli.',
+			'À l’étape 5, l’ALTER échoue au bout de cinq secondes avec `canceling statement due to lock timeout`, et un SELECT dans appli répond tout de suite juste après, alors que le rapport est encore ouvert.',
+			'Après l’étape 6, `\\d orders` liste `orders_customer_id_idx`, `orders_customer_fk` et `orders_total_check`, et `INSERT INTO orders (customer_id, total) VALUES (1, -1);` échoue sur `orders_total_check`.',
+			'L’étape 7 échoue avec `CREATE INDEX CONCURRENTLY cannot run inside a transaction block`.'
+		],
+		solution: [
+			'Le SELECT de l’appli n’entre pas en conflit avec le rapport. Il entre en conflit avec l’`AccessExclusiveLock` déjà en attente, et une demande n’est accordée que si elle n’entre en conflit avec aucun verrou tenu ni en attente.',
+			'`lock_timeout` fait abandonner la migration, donc la file derrière elle se vide. Réessaie quand le rapport a fini.',
+			'`NOT VALID` ne prend son verrou fort qu’un instant, et `VALIDATE CONSTRAINT` parcourt la table sous `SHARE UPDATE EXCLUSIVE`. Pour le voir, lance le VALIDATE dans un `BEGIN` et regarde `pg_locks` depuis un autre shell : un INSERT passe toujours.',
+			'Nettoie avec `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Une migration attend `ACCESS EXCLUSIVE` derrière un long rapport. Pourquoi les simples `SELECT` sur la table restent-ils bloqués aussi, et quel paramètre limite cette attente ?',
 		a: 'Une nouvelle demande attend si elle entre en conflit avec un verrou tenu ou avec un verrou en attente : chaque `SELECT` fait donc la queue derrière la migration. `SET lock_timeout = \'5s\'` fait abandonner la migration au bout de 5 secondes.'

@@ -119,6 +119,44 @@ export default {
 			'Derrière PgBouncer : 190 connexions clientes partagent 20 connexions serveur pour l’utilisateur et la base de l’appli. Ça marche tant qu’au plus 20 transactions tournent au même moment ; les autres attendent dans la file de PgBouncer.',
 			'Vérification 1 : les migrations. Mets `advisory_locks: false`, ou lance les migrations par une connexion directe, puisqu’elles prennent un verrou consultatif de session.',
 			'Vérification 2 : les prepared statements. Rails utilise ceux du protocole par défaut, donc mets `max_prepared_statements` de PgBouncer au-dessus de zéro, ou `prepared_statements: false` dans Rails. Vérification 3 : tout `SET` hors transaction (un `statement_timeout` par requête, un `search_path` par tenant) et tout `LISTEN`. Utilise `SET LOCAL` dans la transaction, et donne aux listeners une connexion directe.'
+		],
+		steps: [
+			{
+				title: 'Compte les connexions clientes',
+				questions: [
+					{ q: 'Combien de connexions les pods web peuvent-ils ouvrir ?', options: ['40', '160', '20', '32'], answer: 1, why: '8 pods × 4 processus × un pool de 5, ça fait 160.' },
+					{ q: 'Et les pods de workers ?', options: ['13', '10', '30', '300'], answer: 2, why: '3 pods × un pool de 10, ça fait 30.' },
+					{ q: 'Combien de places l’utilisateur ordinaire de l’appli peut-il avoir, avec `max_connections = 100` ?', options: ['97', '100', '103', '90'], answer: 0, why: 'Trois places sont réservées aux superutilisateurs par défaut, donc les utilisateurs ordinaires ont 100 moins 3.' },
+					{ q: 'Les 190 connexions possibles tiennent-elles ?', options: ['Oui, puisque la plupart sont inactives', 'Oui, PostgreSQL met les connexions en trop en file', 'Seulement après un redémarrage', 'Non : une fois les pools remplis, les connexions sont refusées'], answer: 3, why: '190, c’est presque le double des 97 places. Le serveur refuse les connexions en trop au lieu de les mettre en file.' }
+				]
+			},
+			{
+				title: 'Dimensionne derrière PgBouncer',
+				questions: [
+					{ q: 'Avec le mode transaction et `default_pool_size = 20`, combien de connexions serveur servent l’utilisateur et la base de l’appli ?', options: ['20', '190', '97', '100'], answer: 0, why: 'La taille de pool est par paire utilisateur et base. Les 190 clients partagent ces 20.' },
+					{ q: 'Quand est-ce que ça marche ?', options: ['Toujours : PgBouncer multiplexe les requêtes sur une connexion', 'Seulement si les clients se connectent un par un', 'Tant qu’au plus 20 transactions tournent au même moment', 'Seulement en mode session'], answer: 2, why: 'Un client ne tient une connexion serveur que pendant sa transaction. Les requêtes qui passent l’essentiel de leur temps hors de la base la laissent libre.' },
+					{ q: 'Une 21e transaction démarre pendant que 20 tournent. Que lui arrive-t-il ?', options: ['PostgreSQL refuse la connexion', 'Elle attend dans la file de PgBouncer', 'PgBouncer ouvre une 21e connexion serveur', 'Elle tourne sur une connexion déjà en transaction'], answer: 1, why: 'Le pooler met les clients en file quand toutes les connexions serveur sont occupées, au lieu que la base les refuse.' },
+					{ q: 'Pourquoi ne pas utiliser le mode session avec les mêmes 190 clients ?', options: ['Le mode session ne fait pas tourner Rails', 'Le mode session perd les valeurs de `SET`', 'Le mode session est plus lent par requête', 'Les pools d’appli restent connectés, donc chaque client bloque une connexion serveur'], answer: 3, why: 'En mode session, une connexion serveur ne revient au pool que quand le client se déconnecte. Les pools d’appli le font rarement.' }
+				]
+			},
+			{
+				title: 'Trouve ce qui casse en mode transaction',
+				questions: [
+					{ q: 'Pourquoi les migrations Rails sont-elles à risque derrière un pooler en mode transaction ?', options: ['Elles prennent un verrou consultatif de session, et le déverrouillage peut atteindre une autre connexion serveur', 'Elles lancent du DDL, que PgBouncer refuse', 'Elles ont besoin d’une place superutilisateur', 'Elles ouvrent plus de 20 connexions'], answer: 0, why: '`pg_try_advisory_lock` et `pg_advisory_unlock` sont deux appels séparés. En mode transaction, ils peuvent arriver sur des connexions serveur différentes.' },
+					{ q: 'Rails utilise par défaut les prepared statements du protocole. Que vérifies-tu dans PgBouncer ?', options: ['Que `pool_mode` vaut `statement`', 'Que `server_reset_query` vaut `DISCARD ALL`', 'Que `default_pool_size` dépasse 100', 'Que `max_prepared_statements` est au-dessus de zéro'], answer: 3, why: 'PgBouncer ne suit les prepared statements du protocole que si ce réglage n’est pas nul. Sinon, coupe-les dans Rails.' },
+					{ q: 'Une requête lance `SET search_path = tenant_42` hors transaction. Qu’est-ce qui peut mal tourner ?', options: ['PgBouncer rejette le SET', 'La transaction suivante peut tourner sur une connexion serveur qui ne l’a jamais vu, et un autre client peut en hériter', 'PostgreSQL le remet à zéro après chaque requête', 'Rien : SET dure toute la session du client'], answer: 1, why: 'SET modifie la connexion serveur, pas le client. Le mode transaction ne lance aucune requête de reset entre clients.' },
+					{ q: 'Un worker lance `LISTEN jobs` à travers PgBouncer en mode transaction. Qu’entend-il ?', options: ['Chaque NOTIFY, comme une connexion directe', 'Seulement les NOTIFY de ses propres transactions', 'Peut-être rien : le LISTEN reste sur la connexion serveur qui l’a lancé', 'Une erreur au prochain COMMIT'], answer: 2, why: '`LISTEN` est un état de session. Le tableau des fonctionnalités de PgBouncer le marque « Never » en mode transaction.' }
+				]
+			},
+			{
+				title: 'Corrige chacune',
+				questions: [
+					{ q: 'Comment corriges-tu les migrations ?', options: ['Mettre `advisory_locks: false`, ou lancer les migrations par une connexion directe', 'Monter `default_pool_size` à 100', 'Lancer les migrations deux fois', 'Passer PgBouncer en mode statement'], answer: 0, why: 'Rails a un réglage `advisory_locks` pour exactement ce cas. Une connexion directe garde le verrou sur une seule session.' },
+					{ q: 'Comment poser un `statement_timeout` par requête sans risque ?', options: ['`SET statement_timeout` une fois au démarrage', '`SET SESSION statement_timeout` avant chaque requête', '`ALTER SYSTEM SET statement_timeout`', '`SET LOCAL statement_timeout` dans la transaction'], answer: 3, why: '`SET LOCAL` se termine avec la transaction, donc il ne fuit jamais vers le client suivant sur cette connexion serveur.' },
+					{ q: 'Où vont les listeners ?', options: ['À travers le même pool en mode transaction, avec un `default_pool_size` plus grand', 'À travers PgBouncer avec `max_prepared_statements` réglé', 'Sur une connexion directe à PostgreSQL', 'Sur un réplica en lecture'], answer: 2, why: 'Un listener a besoin d’une connexion qui reste la sienne. Le notifier Postgres d’Oban prévient qu’il ne marche pas à travers un pooler en mode transaction.' },
+					{ q: 'Quelle partie de la pile doit maintenant avoir du sens par rapport à `max_connections` ?', options: ['Seulement les pools d’appli', 'Chaque couche : pools d’appli, puis pools de PgBouncer, puis `max_connections`', 'Seulement `max_client_conn` de PgBouncer', 'Aucune : PgBouncer s’en charge'], answer: 1, why: 'Les pools s’empilent. Les connexions serveur de PgBouncer, plus les connexions directes, doivent encore tenir dans les places du serveur.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,31 @@ export default {
 			why: 'En mode session, une connexion serveur est « released back to pool after client disconnects » (rendue au pool quand le client se déconnecte). Les pools d’appli se déconnectent rarement, donc PgBouncer n’économise presque rien. Avec un `pool_size` plus petit, les clients en trop attendraient qu’un autre client se déconnecte.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Épuiser les places de connexion d’un tout petit serveur, puis laisser PgBouncer partager une connexion entre dix clients et voir un `SET` fuir de l’un à l’autre.',
+		steps: [
+			'Crée un réseau et un serveur avec seulement 10 places : `docker network create dojo-net` puis `docker run -d --name dojo-pg --network dojo-net -e POSTGRES_PASSWORD=dojo postgres:17 -c max_connections=10`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`.',
+			'Crée un utilisateur d’appli ordinaire : `docker exec dojo-pg psql -U postgres -c "CREATE ROLE app LOGIN PASSWORD \'app\';"`',
+			'Remplis les places : `for i in 1 2 3 4 5 6 7; do docker exec -d dojo-pg psql postgres://app:app@localhost/postgres -c "SELECT pg_sleep(60)"; done`. Puis essaie une de plus : `docker exec dojo-pg psql postgres://app:app@localhost/postgres -c "SELECT 1"`, et la même en superutilisateur : `docker exec dojo-pg psql -U postgres -c "SELECT count(*) FROM pg_stat_activity WHERE usename = \'app\'"`.',
+			'Attends une minute que les sleeps finissent. Lance PgBouncer en mode transaction avec un pool d’une connexion : `docker run -d --name dojo-pgb --network dojo-net -e DATABASE_URL=postgres://app:app@dojo-pg:5432/postgres -e POOL_MODE=transaction -e DEFAULT_POOL_SIZE=1 -e AUTH_TYPE=scram-sha-256 edoburu/pgbouncer:v1.26.1-p0`',
+			'Envoie dix clients à travers lui en même temps : `for i in 1 2 3 4 5 6 7 8 9 10; do docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_sleep(1)" & done; wait`. Puis relance le comptage `pg_stat_activity` de l’étape 3.',
+			'Fais fuir un réglage. Client un : `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_backend_pid()" -c "SET statement_timeout = \'2s\'"`. Client deux : `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_backend_pid()" -c "SHOW statement_timeout" -c "SELECT pg_sleep(3)"`.',
+			'Corrige. Annule la fuite : `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "RESET statement_timeout"`. Pose le timeout dans une seule transaction : `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "BEGIN" -c "SET LOCAL statement_timeout = \'2s\'" -c "SELECT pg_sleep(3)" -c "COMMIT"`. Puis un nouveau client : `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SHOW statement_timeout"`.'
+		],
+		done: [
+			'À l’étape 3, la huitième connexion `app` échoue avec `remaining connection slots are reserved for roles with the SUPERUSER attribute`, et le superutilisateur entre quand même et compte 7.',
+			'À l’étape 5, les dix clients finissent, certains après `client being queued`, et le comptage montre 1 connexion `app`.',
+			'À l’étape 6, les deux clients affichent le même pid de backend. Le client deux montre `2s` et son sleep échoue avec `canceling statement due to statement timeout`.',
+			'À l’étape 7, le sleep sous `SET LOCAL` est annulé, et le client suivant montre `statement_timeout` à `0`.'
+		],
+		solution: [
+			'Avec `max_connections = 10`, trois places sont gardées pour les superutilisateurs, donc les utilisateurs ordinaires en ont 7. Le serveur refuse la huitième connexion ; il ne la met jamais en file.',
+			'PgBouncer met les clients en file et leur passe son unique connexion serveur une transaction à la fois. Dix clients coûtent un seul processus au serveur.',
+			'Le client deux a tourné sur la connexion serveur que le client un avait modifiée. Le mode transaction ne lance aucune requête de reset entre clients, donc l’état de session voyage vers le suivant.',
+			'`SET LOCAL` se termine avec sa transaction, donc il ne peut pas fuir. Nettoie avec `docker rm -f dojo-pgb dojo-pg` et `docker network rm dojo-net`.'
+		]
+	},
 	recall: {
 		q: '40 pods avec 4 processus et un pool de 5 chacun ouvrent 800 connexions face à `max_connections = 100`. Qu’est-ce qui règle le problème, et sur quoi le code ne doit-il plus compter ?',
 		a: 'PgBouncer en mode transaction, qui partage environ 20 connexions serveur entre les 800 clients. Le code ne doit plus garder d’état de session d’une transaction à l’autre : `SET`, `LISTEN`, verrous consultatifs de session, `PREPARE` SQL.'

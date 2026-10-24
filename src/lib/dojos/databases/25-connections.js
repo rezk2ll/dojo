@@ -119,6 +119,44 @@ export default {
 			'Behind PgBouncer: 190 client connections share 20 server connections for the app\'s user and database. That works as long as no more than 20 transactions run at the same moment; the rest wait in PgBouncer\'s queue.',
 			'Check 1: migrations. Set `advisory_locks: false`, or run migrations through a direct connection, since they take a session advisory lock.',
 			'Check 2: prepared statements. Rails uses protocol-level ones by default, so set PgBouncer\'s `max_prepared_statements` above zero, or `prepared_statements: false` in Rails. Check 3: any `SET` outside a transaction (a per-request `statement_timeout`, a tenant `search_path`) and any `LISTEN`. Use `SET LOCAL` inside the transaction, and give listeners a direct connection.'
+		],
+		steps: [
+			{
+				title: 'Count the client connections',
+				questions: [
+					{ q: 'How many connections can the web pods open?', options: ['40', '160', '20', '32'], answer: 1, why: '8 pods × 4 processes × a pool of 5 is 160.' },
+					{ q: 'And the worker pods?', options: ['13', '10', '30', '300'], answer: 2, why: '3 pods × a pool of 10 is 30.' },
+					{ q: 'How many slots can the app\'s ordinary user get, with `max_connections = 100`?', options: ['97', '100', '103', '90'], answer: 0, why: 'Three slots are reserved for superusers by default, so ordinary users get 100 minus 3.' },
+					{ q: 'Do the 190 possible connections fit?', options: ['Yes, since most of them sit idle', 'Yes, PostgreSQL queues the extra logins', 'Only after a restart', 'No: once the pools fill up, logins are refused'], answer: 3, why: '190 is almost twice the 97 slots. The server refuses the extra logins instead of queuing them.' }
+				]
+			},
+			{
+				title: 'Size it behind PgBouncer',
+				questions: [
+					{ q: 'With transaction mode and `default_pool_size = 20`, how many server connections serve the app\'s user and database?', options: ['20', '190', '97', '100'], answer: 0, why: 'The pool size is per user and database pair. All 190 clients share those 20.' },
+					{ q: 'When does that work?', options: ['Always: PgBouncer multiplexes queries on one connection', 'Only if the clients connect one at a time', 'As long as no more than 20 transactions run at the same moment', 'Only in session mode'], answer: 2, why: 'A client holds a server connection only while its transaction runs. Requests that spend most of their time outside the database leave it free.' },
+					{ q: 'A 21st transaction starts while 20 are running. What happens to it?', options: ['PostgreSQL refuses the login', 'It waits in PgBouncer\'s queue', 'PgBouncer opens a 21st server connection', 'It runs on a connection already in a transaction'], answer: 1, why: 'The pooler queues clients when all server connections are busy, instead of the database refusing them.' },
+					{ q: 'Why not use session mode with the same 190 clients?', options: ['Session mode cannot run Rails', 'Session mode drops `SET` values', 'Session mode is slower per query', 'App pools stay connected, so each client pins a server connection'], answer: 3, why: 'In session mode a server connection goes back to the pool only when the client disconnects. App pools rarely do.' }
+				]
+			},
+			{
+				title: 'Find what breaks in transaction mode',
+				questions: [
+					{ q: 'Why are Rails migrations at risk behind a transaction pooler?', options: ['They take a session advisory lock, and the unlock can reach another server connection', 'They run DDL, which PgBouncer refuses', 'They need a superuser slot', 'They open more than 20 connections'], answer: 0, why: '`pg_try_advisory_lock` and `pg_advisory_unlock` are separate calls. In transaction mode they can land on different server connections.' },
+					{ q: 'Rails uses protocol-level prepared statements by default. What do you check in PgBouncer?', options: ['That `pool_mode` is `statement`', 'That `server_reset_query` is `DISCARD ALL`', 'That `default_pool_size` is above 100', 'That `max_prepared_statements` is above zero'], answer: 3, why: 'PgBouncer tracks protocol-level prepared statements only when that setting is non-zero. Otherwise turn them off in Rails.' },
+					{ q: 'A request runs `SET search_path = tenant_42` outside a transaction. What can go wrong?', options: ['PgBouncer rejects the SET', 'The next transaction may run on a server connection that never saw it, and another client may inherit it', 'PostgreSQL resets it after each query', 'Nothing: SET lasts for the client session'], answer: 1, why: 'SET changes the server connection, not the client. Transaction mode runs no reset query between clients.' },
+					{ q: 'A worker runs `LISTEN jobs` through PgBouncer in transaction mode. What does it hear?', options: ['Every NOTIFY, like a direct connection', 'Only NOTIFYs from its own transactions', 'Possibly nothing: the LISTEN stays on whichever server connection ran it', 'An error at the next COMMIT'], answer: 2, why: '`LISTEN` is session state. PgBouncer\'s feature table marks it "Never" for transaction mode.' }
+				]
+			},
+			{
+				title: 'Fix each one',
+				questions: [
+					{ q: 'How do you fix migrations?', options: ['Set `advisory_locks: false`, or run migrations through a direct connection', 'Raise `default_pool_size` to 100', 'Run migrations twice', 'Switch PgBouncer to statement mode'], answer: 0, why: 'Rails has an `advisory_locks` setting for exactly this case. A direct connection keeps the lock on one session.' },
+					{ q: 'How do you set a per-request `statement_timeout` safely?', options: ['`SET statement_timeout` once at boot', '`SET SESSION statement_timeout` before each request', '`ALTER SYSTEM SET statement_timeout`', '`SET LOCAL statement_timeout` inside the transaction'], answer: 3, why: '`SET LOCAL` ends with the transaction, so it never leaks to the next client on that server connection.' },
+					{ q: 'Where do listeners go?', options: ['Through the same transaction-mode pool, with a bigger `default_pool_size`', 'Through PgBouncer with `max_prepared_statements` set', 'On a direct connection to PostgreSQL', 'On a read replica'], answer: 2, why: 'A listener needs one connection that stays its own. Oban\'s Postgres notifier warns it does not work through a transaction pooler.' },
+					{ q: 'Which part of the stack must make sense against `max_connections` now?', options: ['Only the app pools', 'Each layer: app pools, then PgBouncer\'s pools, then `max_connections`', 'Only PgBouncer\'s `max_client_conn`', 'None: PgBouncer handles it'], answer: 1, why: 'Pools stack. PgBouncer\'s server connections, plus any direct ones, must still fit in the server\'s slots.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,31 @@ export default {
 			why: 'In session mode a server connection is "released back to pool after client disconnects". App pools rarely disconnect, so PgBouncer saves almost nothing. With a smaller `pool_size`, the clients beyond it would wait until another client disconnects.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Run out of connection slots on a tiny server, then let PgBouncer share one connection among ten clients and watch a `SET` leak between them.',
+		steps: [
+			'Create a network and a server with only 10 slots: `docker network create dojo-net` then `docker run -d --name dojo-pg --network dojo-net -e POSTGRES_PASSWORD=dojo postgres:17 -c max_connections=10`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`.',
+			'Create an ordinary app user: `docker exec dojo-pg psql -U postgres -c "CREATE ROLE app LOGIN PASSWORD \'app\';"`',
+			'Fill the slots: `for i in 1 2 3 4 5 6 7; do docker exec -d dojo-pg psql postgres://app:app@localhost/postgres -c "SELECT pg_sleep(60)"; done`. Then try one more: `docker exec dojo-pg psql postgres://app:app@localhost/postgres -c "SELECT 1"`, and the same as superuser: `docker exec dojo-pg psql -U postgres -c "SELECT count(*) FROM pg_stat_activity WHERE usename = \'app\'"`.',
+			'Wait a minute for the sleeps to end. Start PgBouncer in transaction mode with a pool of one: `docker run -d --name dojo-pgb --network dojo-net -e DATABASE_URL=postgres://app:app@dojo-pg:5432/postgres -e POOL_MODE=transaction -e DEFAULT_POOL_SIZE=1 -e AUTH_TYPE=scram-sha-256 edoburu/pgbouncer:v1.26.1-p0`',
+			'Send ten clients through it at once: `for i in 1 2 3 4 5 6 7 8 9 10; do docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_sleep(1)" & done; wait`. Then run the `pg_stat_activity` count from step 3 again.',
+			'Leak a setting. Client one: `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_backend_pid()" -c "SET statement_timeout = \'2s\'"`. Client two: `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SELECT pg_backend_pid()" -c "SHOW statement_timeout" -c "SELECT pg_sleep(3)"`.',
+			'Fix it. Undo the leak: `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "RESET statement_timeout"`. Set the timeout inside one transaction: `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "BEGIN" -c "SET LOCAL statement_timeout = \'2s\'" -c "SELECT pg_sleep(3)" -c "COMMIT"`. Then a new client: `docker exec dojo-pg psql postgres://app:app@dojo-pgb:5432/postgres -c "SHOW statement_timeout"`.'
+		],
+		done: [
+			'In step 3, the eighth `app` login fails with `remaining connection slots are reserved for roles with the SUPERUSER attribute`, and the superuser still gets in and counts 7.',
+			'In step 5, all ten clients finish, some after `client being queued`, and the count shows 1 `app` connection.',
+			'In step 6, both clients print the same backend pid. Client two shows `2s` and its sleep fails with `canceling statement due to statement timeout`.',
+			'In step 7, the `SET LOCAL` sleep is cancelled, and the next client shows `statement_timeout` as `0`.'
+		],
+		solution: [
+			'With `max_connections = 10`, three slots are kept for superusers, so ordinary users get 7. The server refuses the eighth login; it never queues it.',
+			'PgBouncer queues clients and hands them its single server connection one transaction at a time. Ten clients cost the server one process.',
+			'Client two ran on the server connection client one changed. Transaction mode runs no reset query between clients, so session state travels to whoever comes next.',
+			'`SET LOCAL` ends with its transaction, so it cannot leak. Clean up with `docker rm -f dojo-pgb dojo-pg` and `docker network rm dojo-net`.'
+		]
+	},
 	recall: {
 		q: '40 pods with 4 processes and a pool of 5 each open 800 connections against `max_connections = 100`. What fixes it, and what must the code stop relying on?',
 		a: 'PgBouncer in transaction mode, sharing about 20 server connections among the 800 clients. The code must not keep session state across transactions: `SET`, `LISTEN`, session advisory locks, SQL `PREPARE`.'

@@ -121,6 +121,44 @@ export default {
 			'It replays Sunday to Wednesday 14:03:00 and pauses. Check: `SELECT count(*), max(created_at) FROM orders;`. If the newest order is too old, set a later target and restart; replay continues. If you went past the drop, start again from the base backup.',
 			'Copy the table back: `pg_dump -t orders` from the recovered server, load it into the primary. The rows written between 14:03:00 and the drop are the only ones lost.',
 			'With only the 02:00 dump: the same copy-back, but every order from 02:00 to 14:03 is gone, about twelve hours.'
+		],
+		steps: [
+			{
+				title: 'Pick the backup and the place',
+				questions: [
+					{ q: 'Which base backup do you restore?', options: ['Any backup, since WAL can replay backward', 'Sunday 01:00: the newest one that ended before 14:03:10', 'The next base backup, taken after the drop', 'None: replay the WAL archive alone'], answer: 1, why: 'Replay starts from a base backup and only goes forward. The stop point must be after the backup ended.' },
+					{ q: 'Where do you restore it?', options: ['Over the primary, to roll everything back', 'On a read replica that follows the primary', 'On a new server or data directory, while the primary keeps running', 'Into a new schema on the primary'], answer: 2, why: 'Other tables took writes after 14:03. Rolling the whole cluster back would lose them.' },
+					{ q: 'Why can\'t you restore just the `orders` table from the base backup?', options: ['It restores a whole cluster or nothing', 'Tables are stored in the WAL, not in the backup', 'pgBackRest encrypts each table separately', 'You can, with `--table=orders`'], answer: 0, why: 'The docs: the method "can only support restoration of an entire database cluster, not a subset". So you recover elsewhere and copy the table back.' },
+					{ q: 'What must the archive hold for this to work?', options: ['Only the WAL from Wednesday', 'Only the last WAL segment before the drop', 'The WAL of the primary\'s `pg_wal` directory', 'Every segment from Sunday\'s backup to 14:03, with no gap'], answer: 3, why: 'Recovery needs "a continuous sequence of archived WAL files". One missing segment stops replay there.' }
+				]
+			},
+			{
+				title: 'Write the recovery settings',
+				questions: [
+					{ q: 'What does `restore_command` do?', options: ['It copies the base backup into place', 'It fetches each archived WAL segment, `%f` the file name, `%p` where to copy it', 'It writes WAL segments to the archive', 'It stops replay at the target'], answer: 1, why: 'Recovery runs that shell command for each segment it needs. pgBackRest writes one that calls its own `archive-get`.' },
+					{ q: 'Which target do you set?', options: ['`recovery_target_time = \'2026-10-14 14:03:00+00\'`', '`recovery_target_time = \'14:03:10\'`', '`recovery_target = \'immediate\'`', '`recovery_target_time = \'2026-10-14 14:04:00+00\'`'], answer: 0, why: 'Just before the drop, with Wednesday\'s date and the time zone. 14:04 would replay the drop too.' },
+					{ q: 'What happens at the target if you leave `recovery_target_action` alone?', options: ['The server promotes at once', 'The server shuts down', 'Replay keeps going to the end of the WAL', 'The server pauses, so you can query first'], answer: 3, why: 'The default is `pause`. You check the rows before you end recovery.' },
+					{ q: 'What tells PostgreSQL to recover at startup?', options: ['A `recovery.conf` file with `standby_mode = on`', 'Starting it with `--recover`', 'An empty `recovery.signal` file in the data directory', 'The `restore_command` setting alone'], answer: 2, why: 'pgBackRest creates `recovery.signal` too. Without it, the server starts normally and ignores the target.' }
+				]
+			},
+			{
+				title: 'Check before you resume',
+				questions: [
+					{ q: 'Replay paused. What do you run first?', options: ['`SELECT count(*), max(created_at) FROM orders;`', '`SELECT pg_wal_replay_resume();`', '`DROP TABLE orders;`', '`pg_basebackup` of the new server'], answer: 0, why: 'The count and the newest order show whether you stopped at the right moment.' },
+					{ q: 'The newest order is from 13:40, too early. What now?', options: ['Start over from Sunday\'s backup', 'Set a later target and restart: replay goes on', 'Accept the loss', 'Run `pg_wal_replay_resume()`'], answer: 1, why: 'Replay only moves forward, and it has not passed the drop yet, so a later target just continues.' },
+					{ q: 'You set the target too late and the table is gone again. What now?', options: ['Set an earlier target and restart', 'Run `pg_rewind`', 'Undo the drop with `ROLLBACK`', 'Start again from the base backup'], answer: 3, why: '"PostgreSQL can only play forward, not backward." Past the drop, only a fresh restore gets back before it.' },
+					{ q: 'The rows look right and you call `pg_wal_replay_resume()`. What happens?', options: ['Replay continues to the end of the archive', 'The server shuts down cleanly', 'Recovery ends and a new timeline begins', 'The primary receives the restored rows'], answer: 2, why: 'The new timeline ID goes into the WAL file names, so WAL written after the restore never overwrites the old history.' }
+				]
+			},
+			{
+				title: 'Bring `orders` home and count the cost',
+				questions: [
+					{ q: 'How does `orders` get back to production?', options: ['Promote the recovered server and point the app at it', '`pg_dump -t orders` from the recovered server, loaded into the primary', 'Copy its data files into the primary\'s data directory', 'Replay the archive on the primary'], answer: 1, why: 'A logical dump of one table copies cleanly into the running primary, and the other tables keep their writes.' },
+					{ q: 'Which rows are lost with this recovery?', options: ['Only those written between 14:03:00 and the drop', 'Everything since Sunday 01:00', 'None at all', 'All of Wednesday\'s orders'], answer: 0, why: 'Replay stopped at 14:03:00, so only the seconds before the drop are missing.' },
+					{ q: 'With only a `pg_dump` at 02:00, what would it cost?', options: ['The same few seconds, using the WAL archive', 'Nothing, the dump has every order', 'Every order from 02:00 to 14:03, about twelve hours', 'Every order since Sunday'], answer: 2, why: 'A dump is a snapshot of one moment, and nothing can be replayed on top of it.' },
+					{ q: 'Why can\'t you replay WAL on top of the 02:00 dump?', options: ['WAL is deleted at each checkpoint', 'pg_dump stops WAL writing while it runs', 'Replay works only for tables with a primary key', 'A dump is logical, and WAL replay needs the data files'], answer: 3, why: 'WAL describes changes to pages, so it needs a file-level base backup to apply them to.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,31 @@ export default {
 			why: 'The docs: "Upon getting a zero result, PostgreSQL will assume that the file has been successfully archived, and will remove or recycle it." The chain now has a hole, and you learn it during the restore. A nonzero exit is the safe failure: PostgreSQL retries.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Drop a table, then bring it back as it was seconds before, with a base backup, a WAL archive and `recovery_target_time`.',
+		steps: [
+			'Start a primary that archives WAL into a volume: `docker volume create dojo-archive` then `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo -v dojo-archive:/archive postgres:17 -c archive_mode=on -c "archive_command=test ! -f /archive/%f && cp %p /archive/%f"`. Wait for `docker exec dojo-pg pg_isready`, then `docker exec dojo-pg chown postgres /archive`.',
+			'Take the base backup: `docker exec -u postgres dojo-pg pg_basebackup -D /archive/base`.',
+			'Write after the backup: `docker exec dojo-pg psql -U postgres -c "CREATE TABLE orders (id serial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now())" -c "INSERT INTO orders (created_at) SELECT now() FROM generate_series(1, 100)"`. Then note the time: `docker exec dojo-pg psql -U postgres -At -c "SELECT now()"`.',
+			'Wait a few seconds, then the accident: `docker exec dojo-pg psql -U postgres -c "INSERT INTO orders (created_at) SELECT now() FROM generate_series(1, 5)" -c "DROP TABLE orders" -c "SELECT pg_switch_wal()"`. The switch pushes the current segment to the archive. Check with `docker exec dojo-pg ls /archive`.',
+			'Prepare the restore next to the primary: `docker exec -u postgres dojo-pg cp -a /archive/base /archive/restore`. Then add the settings, with your time from step 3: `docker exec -u postgres dojo-pg sh -c "echo \\"restore_command = \'cp /archive/%f %p\'\\" >> /archive/restore/postgresql.auto.conf && echo \\"recovery_target_time = \'<your time>\'\\" >> /archive/restore/postgresql.auto.conf && touch /archive/restore/recovery.signal"`',
+			'Start a second server on the restored directory: `docker run -d --name dojo-restore -e PGDATA=/archive/restore -v dojo-archive:/archive postgres:17`. Read `docker logs dojo-restore`, then check: `docker exec dojo-restore psql -U postgres -c "SELECT pg_get_wal_replay_pause_state()" -c "SELECT count(*), max(created_at) FROM orders"`.',
+			'Copy the table home: `docker exec dojo-restore pg_dump -U postgres -t orders | docker exec -i dojo-pg psql -U postgres`. Then end recovery: `docker exec dojo-restore psql -U postgres -c "SELECT pg_wal_replay_resume()"`.'
+		],
+		done: [
+			'`ls /archive` lists WAL segments, a `.backup` file and `base`.',
+			'The restore logs show `restored log file ... from archive`, `recovery stopping before commit` and `pausing at the end of recovery`.',
+			'On `dojo-restore`, the pause state is `paused` and `orders` has 100 rows: the 5 written after your target are not there.',
+			'On `dojo-pg`, `SELECT count(*) FROM orders;` returns 100, and `docker logs dojo-restore` now shows `selected new timeline ID: 2` and `archive recovery complete`.'
+		],
+		solution: [
+			'Replay started from the base backup, fetched each segment with `restore_command`, and stopped at the first commit after the target. That commit was the INSERT of 5 rows, so the DROP was never replayed either.',
+			'The default `recovery_target_action` is `pause`, which is why you could count rows before deciding. If the count were wrong, a later target and a restart would carry on.',
+			'The primary kept running the whole time. Only `orders` came back, through `pg_dump`, so other tables keep their newer writes.',
+			'Clean up with `docker rm -f dojo-restore dojo-pg` and `docker volume rm dojo-archive`.'
+		]
+	},
 	recall: {
 		q: 'A `DELETE` hit `orders` at 14:03. What do you need to bring the rows back as of 14:02:59, and why can a nightly `pg_dump` not get you there?',
 		a: 'A base backup that ended before 14:03, plus every archived WAL segment since, replayed with `recovery_target_time`. WAL replay needs the data files, so it cannot run on top of a logical dump.'

@@ -116,6 +116,44 @@ jobs:
 			'`if: github.event_name == \'push\' && github.ref == \'refs/heads/main\'`: a pull request never deploys.',
 			'The key lives in the repo settings as a secret, never in the YAML. The step reads it with `env: DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}`.',
 			'Bonus: GitHub does not pass secrets (apart from `GITHUB_TOKEN`, which is read-only there) to workflows triggered from a fork. A stranger\'s pull request cannot read your deploy key. The `pull_request_target` event is the exception: it runs in your repo\'s context, with your secrets, so never build the pull request\'s code in it.'
+		],
+		steps: [
+			{
+				title: 'Wait for the matrix',
+				questions: [
+					{ q: 'Which key makes `deploy` wait for the build job?', options: ['`runs-on: build`', '`strategy: build`', '`needs: build`', '`uses: build`'], answer: 2, why: '`needs` orders jobs. `runs-on` picks a runner and `uses` calls an action.' },
+					{ q: 'The build job has a matrix of three Node.js versions. What does `needs: build` wait for?', options: ['Every matrix copy of the build job', 'Only the first copy to finish', 'Only the 22.x copy', 'Nothing: matrix copies count as separate workflows'], answer: 0, why: 'The matrix makes three jobs under one job id. `needs` waits for all of them.' },
+					{ q: 'The 18.x copy fails. What does `deploy` do?', options: ['It runs with the 20.x and 22.x results', 'It waits for someone to rerun 18.x', 'It runs, marked with a warning', 'It is skipped'], answer: 3, why: 'A job is skipped when a job it `needs` fails.' },
+					{ q: 'Without `needs`, when would `deploy` start?', options: ['After the build jobs anyway, because it is lower in the file', 'Right away, in parallel with the build jobs', 'Never, because it has no trigger', 'Only after the whole workflow ends'], answer: 1, why: 'Jobs run in parallel unless one `needs` another. The order in the file does not matter.' }
+				]
+			},
+			{
+				title: 'Limit it to main',
+				questions: [
+					{ q: 'Which line keeps `deploy` to pushes on `main`?', options: ['`if: github.event_name == \'push\' && github.ref == \'refs/heads/main\'`', '`if: github.event_name == \'pull_request\'`', '`if: github.ref == \'main\' || github.event_name == \'push\'`', '`if: matrix.node-version == \'22.x\'`'], answer: 0, why: 'Both checks must hold: the event is a push, and the ref is the `main` branch.' },
+					{ q: 'Why not just remove `pull_request` from the workflow\'s `on:`?', options: ['GitHub refuses a workflow with only `push`', 'Secrets need a `pull_request` trigger', 'The build and tests still have to run on pull requests', 'The matrix only works on pull requests'], answer: 2, why: 'You want every pull request tested. Only the `deploy` job is limited.' },
+					{ q: 'Someone pushes to a branch called `feature-x`. Does `deploy` run?', options: ['Yes, it is a push', 'Yes, but without secrets', 'Only if all matrix jobs pass', 'No: the ref is not `refs/heads/main`'], answer: 3, why: 'The event check passes, the branch check fails, so the `if` is false.' },
+					{ q: 'Where does the `if` go?', options: ['On the `deploy` job, next to `needs`', 'Inside the build job\'s matrix', 'On the `actions/checkout` step', 'Under the workflow\'s `on:` key'], answer: 0, why: 'A job-level `if` decides whether that one job runs. The build jobs are not affected.' }
+				]
+			},
+			{
+				title: 'Store the key',
+				questions: [
+					{ q: 'Where does `DEPLOY_KEY` live?', options: ['In the YAML, under `env:`', 'In the repo settings, as a secret', 'In a file committed under `.github/`', 'In the runner image'], answer: 1, why: 'Secrets live in the repo settings, outside the YAML, so the key is never in the code.' },
+					{ q: 'How does the deploy step read the key?', options: ['`run: cat DEPLOY_KEY`', '`with: secrets.DEPLOY_KEY`', '`uses: secrets/DEPLOY_KEY`', '`env: DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}`'], answer: 3, why: 'The `secrets` context holds the value. `env:` hands it to the step\'s shell.' },
+					{ q: 'The key ends up in a log line. What does GitHub do?', options: ['It masks the value, on a best effort basis', 'It deletes the whole log', 'It fails the job and rotates the key', 'Nothing: logs show secrets as they are'], answer: 0, why: 'GitHub masks secrets in logs. A transformed secret (encoded, or inside JSON) can still leak.' },
+					{ q: 'Why not paste the key into the workflow file?', options: ['YAML cannot hold multi-line strings', 'Anyone who can read the repo could read the key', 'The runner deletes YAML values before it starts', 'GitHub rejects files longer than a key'], answer: 1, why: 'The workflow is code in the repo. Secrets stay in the settings so the code can be shared and reviewed.' }
+				]
+			},
+			{
+				title: 'Check the forks',
+				questions: [
+					{ q: 'A stranger opens a pull request from a fork. What does `secrets.DEPLOY_KEY` hold in that run?', options: ['The real key', 'The real key, shown as ***', 'No value', 'An error before the first step'], answer: 2, why: 'GitHub does not pass secrets to runs from a fork.' },
+					{ q: 'Which token does a run from a fork still get?', options: ['`DEPLOY_KEY`, made read-only', '`GITHUB_TOKEN`, read-only there', 'Every secret, made read-only', 'None at all'], answer: 1, why: '`GITHUB_TOKEN` is the one exception, and it is read-only for a fork.' },
+					{ q: 'The `pull_request_target` event runs in your repo\'s context, with your secrets. What must you never do in it?', options: ['Read `GITHUB_TOKEN`', 'Use a matrix', 'Run on `ubuntu-latest`', 'Build the pull request\'s code'], answer: 3, why: 'The pull request\'s code would run next to your secrets and could print them.' },
+					{ q: 'Why does GitHub hold secrets back from fork runs?', options: ['Otherwise anyone could open a pull request that prints them', 'Fork runs are too slow to use secrets', 'Forks always run on self-hosted runners', 'Masking does not work in forks'], answer: 0, why: 'A pull request can change the workflow steps. Without this rule, one `echo` would leak your key.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -153,6 +191,28 @@ jobs:
 			why: 'GitHub does not send your secrets to a run started from a forked repository. Otherwise anyone could open a pull request that prints them.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Run a workflow with a matrix, a gated `deploy` job and a secret on your laptop, with `act` and Docker.',
+		steps: [
+			'Install [act](https://github.com/nektos/act), which runs GitHub workflows in local Docker containers: `brew install act` on macOS, or unpack `act_Linux_x86_64.tar.gz` from its releases page.',
+			'Make a repo: `mkdir -p ~/gha-lab/.github/workflows && cd ~/gha-lab && git init -b main`.',
+			'Write `.github/workflows/ci.yml`: `on: [push, pull_request]`, a `build` job with a matrix `version: [18, 20, 22]` and one step `run: echo "testing on $VERSION"` (with `env: VERSION: ${{ matrix.version }}`), and a `deploy` job with the `needs`, `if` and secret lines from the task. Its step runs `echo "key is $DEPLOY_KEY"`. Commit it.',
+			'Run `act push -P ubuntu-latest=node:24-slim --secret DEPLOY_KEY=s3cr3t`, then the same with `act pull_request`.',
+			'Make the 18 copy fail: change the build step to `run: test "$VERSION" != 18` and run the same `act push` command again, with its `-P` and `--secret` flags.'
+		],
+		done: [
+			'The push run prints `testing on 18`, `20` and `22`, then `key is ***`: the value is masked.',
+			'The `pull_request` run shows only the three build jobs. `deploy` never appears.',
+			'With the 18 copy failing, act ends with `Error: Job \'build\' failed` and `deploy` does not start.'
+		],
+		solution: [
+			'`deploy:` then `needs: build`, `if: github.event_name == \'push\' && github.ref == \'refs/heads/main\'`, `runs-on: ubuntu-latest`.',
+			'Its step: `- run: echo "key is $DEPLOY_KEY"` with `env:` then `DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}`.',
+			'`-P ubuntu-latest=node:24-slim` maps the runner label to a small image that has `bash`. On GitHub the same file runs on a real Ubuntu VM.',
+			'On GitHub the value comes from the repo settings. `--secret` is act\'s stand-in for that page.'
+		]
+	},
 	recall: {
 		q: 'In the Node.js starter workflow, the 18.x matrix job fails. What happens to the 20.x and 22.x jobs, and which setting controls it?',
 		a: 'GitHub cancels them if they are still running or queued, because `strategy.fail-fast` defaults to `true`. Set it to `false` to get every result.'

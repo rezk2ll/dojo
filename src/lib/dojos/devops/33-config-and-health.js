@@ -123,6 +123,44 @@ export default {
 			'Add a **startup probe** on the same endpoint, for example `periodSeconds: 10` and `failureThreshold: 12`: up to 120 s to start.',
 			'While the startup probe has not passed, liveness and readiness do not run. Once it passes, liveness keeps its fast 10 s period.',
 			'Also add a readiness probe, so the Pod only gets traffic once it can answer.'
+		],
+		steps: [
+			{
+				title: 'Count to the first restart',
+				questions: [
+					{ q: 'When does the kubelet run the first liveness check?', options: ['At 0 s, as soon as the container starts', 'At 90 s, when the app is up', 'At 10 s, after `initialDelaySeconds`', 'At 30 s, after three periods'], answer: 2, why: '`initialDelaySeconds: 10` holds the first check back for 10 seconds.' },
+					{ q: 'What is the default `failureThreshold`?', options: ['1', '3', '5', '10'], answer: 1, why: 'After 3 failures in a row by default, the kubelet acts on the probe.' },
+					{ q: 'About when does the kubelet restart the container?', options: ['At about 10 s', 'At about 120 s', 'At about 90 s', 'At about 30 s'], answer: 3, why: 'Checks at 10, 20 and 30 s all fail while the app boots. Three failures in a row, and the container restarts.' },
+					{ q: 'What does a failed liveness probe make the kubelet do?', options: ['Restart the container', 'Stop sending Service traffic only', 'Move the Pod to another node', 'Delete the Deployment'], answer: 0, why: 'Liveness checks whether the container is stuck. Failing it means a restart. Readiness is the one that only cuts traffic.' }
+				]
+			},
+			{
+				title: 'See why it loops',
+				questions: [
+					{ q: 'The app needs 90 s and is restarted at about 30 s. What happens after the restart?', options: ['The app resumes where it stopped', 'It starts from zero and is killed again at about 30 s', 'The kubelet waits 90 s this time', 'The probe is turned off'], answer: 1, why: 'Each restart begins the boot again, and the same probe kills it again. It never finishes starting.' },
+					{ q: 'Why not just set `initialDelaySeconds: 90` on liveness?', options: ['Kubernetes caps it at 60 s', 'It would make readiness slower too', 'It has no effect after the first restart', 'Boot time can vary, and you guess one fixed delay instead of waiting for the app'], answer: 3, why: 'A fixed delay is a guess. A startup probe waits until the app really answers, up to a limit.' },
+					{ q: 'Why not raise `periodSeconds` on liveness to 60?', options: ['It makes liveness slower for the app once it runs', 'periodSeconds cannot go above 30', 'It would turn liveness into readiness', 'The startup probe needs it at 10'], answer: 0, why: 'The task asks to keep liveness fast for the running app. A slow period would delay the restart of a stuck container.' },
+					{ q: 'Is this a bug in the app?', options: ['Yes: a healthy app answers within 10 s', 'Yes: `/health` should never fail', 'No: the probe settings do not fit how long the app takes to start', 'No: it is a scheduler bug'], answer: 2, why: 'The app would work. The kubelet kills it before it is up, because the probe expects a fast start.' }
+				]
+			},
+			{
+				title: 'Add a startup probe',
+				questions: [
+					{ q: 'Which probe holds the other probes back until it passes?', options: ['The readiness probe', 'The liveness probe', 'The startup probe', 'None: all three run together'], answer: 2, why: 'Until the startup probe passes, liveness and readiness wait.' },
+					{ q: 'With `periodSeconds: 10` and `failureThreshold: 12`, how long can the app take to start?', options: ['Up to 120 s', 'Up to 12 s', 'Up to 22 s', 'Up to 90 s'], answer: 0, why: '12 checks, 10 s apart, gives up to 120 s. That covers the 90 s boot with some margin.' },
+					{ q: 'Which endpoint does the startup probe check?', options: ['A new `/startup` endpoint the team must write', 'The same `/health` endpoint', 'The database port', 'The node\'s kubelet port'], answer: 1, why: 'The same endpoint works: the startup probe only changes how long the kubelet waits before liveness takes over.' },
+					{ q: 'Once the startup probe passes, how often does liveness check?', options: ['Every 120 s', 'Never again', 'Every 90 s', 'Every 10 s, as before'], answer: 3, why: 'Liveness keeps its own `periodSeconds: 10`. A stuck container is still caught fast.' }
+				]
+			},
+			{
+				title: 'Gate the traffic',
+				questions: [
+					{ q: 'Why also add a readiness probe?', options: ['So the Pod gets traffic only while it can answer', 'So the kubelet restarts the app faster', 'So the scheduler picks a bigger node', 'So liveness can be removed'], answer: 0, why: 'Readiness decides when the Service sends traffic, and it keeps checking after the start: an app that cannot answer for a while gets no traffic, with no restart.' },
+					{ q: 'The readiness probe fails while the app is busy. What happens to the container?', options: ['It is restarted', 'It keeps running, and the Service stops sending it traffic', 'It is moved to another node', 'It is OOM killed'], answer: 1, why: 'Readiness never restarts. Traffic comes back when the probe passes again.' },
+					{ q: 'Someone suggests making `/health` check the database too. What is the risk for liveness?', options: ['None: deeper checks are always better', 'The probe stops working on HTTP', 'One slow database restarts every Pod', 'The startup probe stops running'], answer: 2, why: 'If liveness depends on the database, a slow database fails it everywhere, and the restarts add load.' },
+					{ q: 'Which set of probes fits this service?', options: ['Liveness only, with a 90 s delay', 'Readiness only', 'Startup only, with a long threshold', 'Startup, then liveness and readiness'], answer: 3, why: 'Startup covers the slow boot, liveness catches a stuck app, readiness gates the traffic.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ export default {
 			why: 'Anyone who can read the Secret, or read etcd, gets the value. Encryption at rest and access rules (RBAC) are what protect it.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Watch a liveness probe kill a slow-starting container in a loop, then fix it with a startup probe and keep liveness fast.',
+		steps: [
+			'Start a local cluster with `minikube start`, then make a folder: `mkdir -p ~/probe-lab && cd ~/probe-lab`.',
+			'Write a Pod that needs 40 seconds to start, with a liveness check every 5 seconds: `printf \'kind: Pod\\napiVersion: v1\\nmetadata: {name: slow}\\nspec:\\n  terminationGracePeriodSeconds: 2\\n  containers:\\n  - name: app\\n    image: busybox:1.36\\n    command: [sh, -c, "sleep 40; touch /tmp/started; sleep 3600"]\\n    livenessProbe: {exec: {command: [cat, /tmp/started]}, initialDelaySeconds: 5, periodSeconds: 5}\\n\' > slow.yaml`.',
+			'Apply it, wait about 50 seconds, and look: `kubectl apply -f slow.yaml`, then `kubectl get pod slow` and `kubectl describe pod slow`.',
+			'Add a startup probe that allows up to 60 seconds: `printf \'    startupProbe: {exec: {command: [cat, /tmp/started]}, periodSeconds: 5, failureThreshold: 12}\\n\' >> slow.yaml`. Probes cannot change on a running Pod, so run `kubectl delete pod slow && kubectl apply -f slow.yaml`.',
+			'Wait about 70 seconds, check `kubectl get pod slow`, then simulate a stuck app with `kubectl exec slow -- rm /tmp/started` and check again after 25 seconds. Clean up with `kubectl delete pod slow`.'
+		],
+		done: [
+			'Without the startup probe, RESTARTS climbs (2 after about 50 seconds) and `describe` shows `Container app failed liveness probe, will be restarted`.',
+			'With the startup probe, the Pod reaches `1/1 Running` with `0` restarts, and `describe` lists `Startup probe failed` events instead.',
+			'After `rm /tmp/started`, RESTARTS goes to `1` within about 20 seconds: liveness still reacts fast.'
+		],
+		solution: [
+			'Liveness checks at 5, 10 and 15 seconds all fail while the app sleeps, and 3 failures in a row restart it. Each restart starts the 40 seconds from zero.',
+			'`startupProbe` with `periodSeconds: 5` and `failureThreshold: 12` gives up to 60 seconds. Liveness does not run until it passes.',
+			'Liveness keeps its own `periodSeconds: 5`, so a container that gets stuck later is still restarted quickly. `terminationGracePeriodSeconds: 2` only makes the lab faster, because `sh` ignores the stop signal.'
+		]
+	},
 	recall: {
 		q: 'A readiness probe fails. A liveness probe fails. What does Kubernetes do in each case?',
 		a: 'Readiness: the Pod is marked not ready and the Service stops sending it traffic, with no restart. Liveness: after 3 failures in a row by default, the kubelet restarts the container.'

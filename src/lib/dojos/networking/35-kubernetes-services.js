@@ -130,6 +130,44 @@ export default {
 			'A: 0.25. B: 0.75 x 1/3 = 0.25. C: 0.75 x 2/3 x 1/2 = 0.25. D gets the remaining 0.25. Each Pod gets a quarter of new connections.',
 			'With no endpoint, kube-proxy writes no nat chain for the Service. It writes a filter rule with comment `"prod/api:http has no endpoints"` and target `REJECT` ([lines 888 to 897](https://github.com/kubernetes/kubernetes/blob/949f064e6d9e32f0a597795c265fcd50c6aad66e/pkg/proxy/iptables/proxier.go#L888-L897)).',
 			'`REJECT` with no option sends an ICMP port unreachable, and the kernel turns that into `ECONNREFUSED`. `curl` fails at once with "Connection refused". That error points at the Service having no Pods.'
+		],
+		steps: [
+			{
+				title: 'Read the chain',
+				questions: [
+					{ q: 'In what order does a new connection meet the four rules?', options: ['All four at once, and the kernel picks one', 'Top to bottom, until one matches', 'From D up to A', 'In a random order each time'], answer: 1, why: 'The rules of a chain run top to bottom. The first one that matches jumps to its endpoint chain.' },
+					{ q: 'What does `--probability 0.2500000000` on the first rule mean?', options: ['A gets 25% of the bandwidth', '25% of packets in a connection go to A', 'The rule matches a quarter of the connections that reach it', 'A has a weight of 25 out of 100'], answer: 2, why: 'The `statistic` match in `random` mode matches with that chance. Only connections that reach the rule are tested.' },
+					{ q: 'Why does the rule for D have no probability?', options: ['It is the last rule, so it always matches', 'D is the busiest Pod', 'kube-proxy forgot to write it', 'D gets no traffic'], answer: 0, why: 'Line 35 skips the probability on the last endpoint, so a connection that skipped the others always lands there.' },
+					{ q: 'When do these rules run for a client?', options: ['On every HTTP request', 'On every packet, independently', 'Once a minute, when kube-proxy syncs', 'Once, when a new connection starts'], answer: 3, why: 'The nat rules choose when the connection starts. Conntrack sends the rest of it to the same Pod.' }
+				]
+			},
+			{
+				title: 'Work out A and B',
+				questions: [
+					{ q: 'What share of new connections goes to A?', options: ['0.25', '0.33', '0.5', '1.0'], answer: 0, why: 'Every new connection reaches the first rule, and it matches with probability 0.25.' },
+					{ q: 'What share of connections reaches the rule for B?', options: ['0.25', '0.5', '0.75', '1.0'], answer: 2, why: 'The ones A did not take: 1 - 0.25 = 0.75.' },
+					{ q: 'So what share goes to B?', options: ['0.33', '0.25', '0.75', '0.5'], answer: 1, why: '0.75 × 1/3 = 0.25. The rule matches a third of the three quarters that reach it.' },
+					{ q: 'What share reaches the rule for C?', options: ['0.25', '0.33', '0.75', '0.5'], answer: 3, why: '0.75 reached B and 0.25 went to B, so 0.5 is left.' }
+				]
+			},
+			{
+				title: 'Work out C and D',
+				questions: [
+					{ q: 'What share goes to C?', options: ['0.5', '0.25', '0.125', '0.33'], answer: 1, why: '0.75 × 2/3 × 1/2 = 0.25: half of the half that reaches C.' },
+					{ q: 'What share goes to D?', options: ['0.25', '0', '0.5', '0.125'], answer: 0, why: 'D takes every connection left after C: the remaining 0.25.' },
+					{ q: 'Where do the numbers 0.25, 0.333 and 0.5 come from?', options: ['The CPU load of each Pod', 'The age of each Pod', '`1.0/n` for n = 4, 3, then 2 endpoints left', 'Weights set in the Service spec'], answer: 2, why: 'Line 40 passes `numEndpoints - i`, and `computeProbability` formats `1.0/n`. Each rule splits evenly among the endpoints still left.' },
+					{ q: 'With 5 ready Pods, what probability does the first rule get?', options: ['0.25', '0.5', '0.1', '0.2'], answer: 3, why: '`1.0/5` is 0.2. The pattern always gives each of n Pods 1/n of new connections.' }
+				]
+			},
+			{
+				title: 'Scale to 0',
+				questions: [
+					{ q: 'With no endpoint left, what does kube-proxy write for `prod/api:http`?', options: ['A `KUBE-SVC` chain with no rules', 'A filter rule with target `REJECT` and comment "has no endpoints"', 'Nothing at all', 'A DNAT rule to the node IP'], answer: 1, why: 'The `!hasEndpoints` branch writes no nat chain and adds a `REJECT` rule in the filter table.' },
+					{ q: 'What does `REJECT` with no option send back?', options: ['An ICMP port unreachable', 'A TCP RST', 'Nothing', 'An HTTP 503'], answer: 0, why: 'With no `--reject-with`, iptables `REJECT` answers with ICMP port unreachable.' },
+					{ q: 'What does `curl http://<ClusterIP>/` print?', options: ['A timeout after about two minutes', 'An empty reply from the server', 'A 503 page from kube-proxy', '"Connection refused", at once'], answer: 3, why: 'The kernel turns the ICMP port unreachable into `ECONNREFUSED`, so `connect()` fails right away.' },
+					{ q: 'What does that error tell you to check first?', options: ['The CNI plugin', 'The node firewall', 'Whether the Service has any ready Pods', 'DNS for the Service name'], answer: 2, why: 'kube-proxy rejects on purpose when a Service has no endpoints. A refused connection to a ClusterIP points there first.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -167,6 +205,28 @@ export default {
 			why: 'The nat rules run when the connection starts. Conntrack applies the same rewrite to every later packet of that connection, so all its requests reach the same Pod.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Read the rules kube-proxy writes for a Service, see why `ping` fails while `curl` works, and see the `REJECT` of a Service with no Pods.',
+		steps: [
+			'Start a local cluster: `minikube start -p svc-lab`.',
+			'Create a Service with 3 Pods: `kubectl create deployment web --image=nginx:1.27 --replicas=3 && kubectl expose deployment web --port=80`. Start a client: `kubectl run client --image=nicolaka/netshoot:v0.13 -- sleep 3600`. Wait for both: `kubectl rollout status deployment web && kubectl wait --for=condition=Ready pod/client`.',
+			'Read the ClusterIP with `kubectl get svc web`. Then `kubectl exec client -- ping -c 3 -W 1 <ClusterIP>` and `kubectl exec client -- curl -s -o /dev/null -w \'%{http_code}\\n\' http://web/`.',
+			'Read the nat rules on the node: `minikube -p svc-lab ssh -- sudo iptables-save -t nat | grep default/web`.',
+			'Scale to zero with `kubectl scale deployment web --replicas=0`, then run the `curl` again and `minikube -p svc-lab ssh -- sudo iptables-save -t filter | grep "has no endpoints"`. Clean up with `minikube delete -p svc-lab`.'
+		],
+		done: [
+			'`ping` to the ClusterIP reports `100% packet loss`, and `curl` prints `200`.',
+			'The nat dump shows one `KUBE-SERVICES` rule for the ClusterIP and port 80, and three rules in the `KUBE-SVC` chain of `default/web` that jump to a `KUBE-SEP` chain.',
+			'Two of those three jumps carry `-m statistic --mode random --probability`, and the last one has none.',
+			'After the scale to zero, `curl` fails at once (exit code 7), and the filter dump shows a `REJECT` rule for `default/web`.'
+		],
+		solution: [
+			'The `KUBE-SERVICES` rule matches `-p tcp`, the ClusterIP and `--dport 80`. ICMP has no port, so `ping` matches nothing and nobody answers.',
+			'The two probabilities are about 1/3 and 1/2: each of the 3 Pods gets a third of new connections.',
+			'The fast failure is the `REJECT`: an ICMP port unreachable that the kernel turns into "Connection refused". A refused ClusterIP means "check the endpoints" before "check the network".'
+		]
+	},
 	recall: {
 		q: 'Why does a ClusterIP not answer `ping`, and how does kube-proxy choose among 3 Pods?',
 		a: 'kube-proxy rules match only the Service protocol (TCP, UDP or SCTP) and port, so ICMP is never rewritten to a Pod. For 3 Pods it writes rules with probability 0.3333333333, then 0.5, then an unconditional last rule: 1/3 of new connections each.'

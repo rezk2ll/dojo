@@ -110,6 +110,44 @@ export default {
 			'Par défaut, cas (b) : les 3 sites annoncent `med 1000`. La route reste, et les requêtes arrivent encore sur des sites dont le check échoue. L’adresse reste joignable, et les réponses dépendent de ce que le démon sait encore servir.',
 			'Avec `--withdraw-on-down`, cas (a) : le site 2 retire `192.0.2.53/32` et les routeurs envoient ses utilisateurs vers les sites 1 et 3, quel que soit leur AS voisin.',
 			'Avec `--withdraw-on-down`, cas (b) : les 3 sites retirent la route et `192.0.2.53` n’a plus de route du tout, la panne de Facebook en octobre 2021. Les résolveurs tombent en timeout et répondent SERVFAIL.'
+		],
+		steps: [
+			{
+				title: 'Lis les défauts',
+				questions: [
+					{ q: 'Sans `--withdraw-on-down`, qu’envoie un site quand son check échoue ?', options: ['Un retrait de `192.0.2.53/32`', 'Rien tant que le check ne repasse pas', 'La même annonce, avec `med 1000`', 'Une annonce avec un AS_PATH plus long'], answer: 2, why: 'Les lignes 6 à 10 laissent l’action à `announce`. Seul le MED change, de la métrique UP à la métrique DOWN.' },
+					{ q: 'Quel MED annonce un site sain par défaut ?', options: ['100', '0', '1000', '3'], answer: 0, why: 'Les défauts sont `--up-metric 100` et `--down-metric 1000`.' },
+					{ q: 'Combien de checks ratés avant qu’un site compte comme DOWN ?', options: ['1', '5', '10', '3'], answer: 3, why: 'La ligne 2 fixe `--fall` à 3 par défaut, et les lignes 24 à 28 comptent jusque-là.' },
+					{ q: 'Sans l’option, quand la route est-elle retirée ?', options: ['Après 3 checks ratés', 'Quand le processus healthcheck s’arrête', 'Quand le MED atteint 1000', 'Jamais'], answer: 1, why: 'La ligne 7 ne retire qu’avec `--withdraw-on-down` ou dans l’état `EXIT`, à l’arrêt du processus.' }
+				]
+			},
+			{
+				title: 'Cas (a), par défaut',
+				questions: [
+					{ q: 'Le démon meurt sur le site 2. Qu’annonce le site 2 après 3 checks ratés ?', options: ['Un retrait', '`med 1000`', '`med 100`', 'Rien de nouveau'], answer: 1, why: 'Le check échoue, l’état passe DOWN, et la route est réannoncée avec la métrique DOWN.' },
+					{ q: 'Qu’annoncent les sites 1 et 3 ?', options: ['`med 100`, comme avant', '`med 1000`', 'Un retrait', 'Une route vers le site 2'], answer: 0, why: 'Leurs checks passent toujours : rien ne change pour eux.' },
+					{ q: 'Quels routeurs envoient les utilisateurs du site 2 vers les sites 1 ou 3 ?', options: ['Tous les routeurs d’Internet', 'Seulement les routeurs du site 2', 'Seulement les routeurs sans route vers le site 2', 'Les routeurs qui comparent le MED, entre routes venant du même AS voisin'], answer: 3, why: 'La RFC 4271 ne compare le MED qu’entre routes apprises du même AS voisin.' },
+					{ q: 'Des requêtes peuvent-elles encore arriver au site 2 ?', options: ['Non, un MED de 1000 le bloque', 'Non, la route a disparu', 'Oui, là où les routeurs ne comparent pas son MED à celui des sites 1 et 3', 'Seulement les requêtes en TCP'], answer: 2, why: 'Un routeur qui apprend le site 2 par un autre AS voisin que les autres sites ne compare jamais leurs MED : il peut continuer à choisir le site 2.' }
+				]
+			},
+			{
+				title: 'Cas (b), par défaut',
+				questions: [
+					{ q: 'La base partagée est en panne, donc chaque check échoue. Qu’annoncent les 3 sites ?', options: ['`med 1000` depuis les 3', 'Rien, ils retirent tous', '`med 100` depuis les 3', '`med 1000` depuis le site 1 seulement'], answer: 0, why: 'Chaque site passe DOWN et continue d’annoncer, avec la métrique DOWN.' },
+					{ q: '`192.0.2.53` est-elle encore joignable ?', options: ['Non, elle n’a plus de route', 'Seulement depuis un site', 'Oui, la route reste', 'Seulement pour les réponses en cache'], answer: 2, why: 'Chaque site l’annonce encore : les routeurs ont toujours un chemin.' },
+					{ q: 'Où vont les requêtes ?', options: ['Nulle part : elles sont jetées', 'Vers des sites dont le check échoue', 'Vers une adresse de secours', 'Retour au client'], answer: 1, why: 'Les trois annoncent le même MED dégradé : les routeurs choisissent encore un site, et chaque site rate son check.' },
+					{ q: 'Que reçoivent les clients ?', options: ['Toujours SERVFAIL', 'Toujours un timeout', 'Toujours une bonne réponse', 'Ce que le démon sait encore servir sans la base'], answer: 3, why: 'L’adresse reste joignable. Ce qui revient dépend du démon, pas de BGP.' }
+				]
+			},
+			{
+				title: 'Ajoute `--withdraw-on-down`',
+				questions: [
+					{ q: 'Cas (a) : qu’envoie le site 2 maintenant ?', options: ['`med 1000`', 'Un retrait de `192.0.2.53/32`', '`med 100`', 'Seulement un KEEPALIVE'], answer: 1, why: 'Avec l’option, la ligne 8 choisit `withdraw` pour tout état autre que UP.' },
+					{ q: 'Quels routeurs détournent les utilisateurs du site 2 ?', options: ['Tous, quel que soit leur AS voisin', 'Seulement ceux qui comparent le MED', 'Aucun avant l’expiration du Hold Time', 'Seulement les routeurs du même AS'], answer: 0, why: 'Un retrait supprime la route elle-même. Aucune comparaison de MED n’est nécessaire.' },
+					{ q: 'Cas (b) : que reste-t-il de `192.0.2.53` sur Internet ?', options: ['Une route, celle du dernier site tombé', 'Trois routes avec `med 1000`', 'Aucune route', 'Une route vers la base'], answer: 2, why: 'Les trois sites retirent la route : aucun routeur n’a plus de chemin vers l’adresse.' },
+					{ q: 'Quelle vraie panne le cas (b) reproduit-il ?', options: ['Une route leak, comme dans la RFC 7908', 'Un certificat TLS expiré', 'L’expiration d’un Hold Time BGP', 'Facebook, octobre 2021 : chaque site a retiré ses routes et les résolveurs ont répondu SERVFAIL'], answer: 3, why: 'Les serveurs DNS de Facebook ont retiré leurs propres routes en perdant les data centers. Tous les sites coupés d’un coup, il ne restait rien.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,28 @@ export default {
 			why: 'Sans `--withdraw-on-down`, l’état DOWN annonce toujours la route, simplement avec la métrique DOWN de 1000 au lieu de 100. La ligne 7 ne retire qu’avec cette option ou dans l’état `EXIT`, à l’arrêt du processus.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire tourner seul le healthcheck d’ExaBGP et voir les lignes exactes qu’il enverrait à BGP quand un service tombe, avec et sans `--withdraw-on-down`.',
+		steps: [
+			'Prépare un bac à sable : `mkdir bgp-lab && cd bgp-lab && python3 -m venv venv && venv/bin/pip install exabgp==4.2.25`.',
+			'Crée le marqueur « service en marche » : `touch up`.',
+			'Lance le healthcheck avec un intervalle d’une seconde et sans configuration d’IP : `venv/bin/python -m exabgp healthcheck --no-ip-setup --ip 192.0.2.53/32 --cmd "test -f up" -i 1`. Regarde quelques lignes.',
+			'Dans un second terminal, dans le même dossier, casse le service avec `rm up`. Regarde environ 5 lignes de plus, puis arrête le healthcheck avec Ctrl-C.',
+			'Lance `touch up` et refais l’étape 3 en ajoutant `--withdraw-on-down`. Casse le service avec `rm up`, rétablis-le avec `touch up`, puis arrête avec Ctrl-C.'
+		],
+		done: [
+			'Le premier lancement affiche `neighbor * announce route 192.0.2.53/32 next-hop self med 100` tant que `up` existe.',
+			'Après `rm up`, il affiche la même ligne avec `med 1000`, jamais de `withdraw`.',
+			'À l’arrêt, il affiche une ligne `withdraw route 192.0.2.53/32`.',
+			'Avec `--withdraw-on-down`, `rm up` donne des lignes `withdraw`, et `touch up` ramène `announce ... med 100`.'
+		],
+		solution: [
+			'Ces lignes sont ce qu’ExaBGP lit sur stdout et transforme en messages BGP UPDATE pour ses pairs. Pas besoin de pair pour voir la décision.',
+			'Le retrait au Ctrl-C, c’est l’état `EXIT` de la ligne 7 : arrêter le processus retire la route, même sans l’option.',
+			'Après `rm up`, la sortie se tait environ 3 secondes avant le changement : aucune ligne ne s’affiche pendant que l’état descend, et il faut 3 checks ratés, le `--fall` par défaut. Imagine maintenant tous les sites qui perdent `up` en même temps avec l’option : c’est la panne de Facebook.'
+		]
+	},
 	recall: {
 		q: 'Qu’ont fait les serveurs DNS de Facebook le 4 octobre 2021 en perdant le backbone, et qu’ont vu les résolveurs ?',
 		a: 'Ils ont retiré, sur chaque site, leurs annonces BGP pour les préfixes DNS comme 129.134.30.0/23. Sans route, les résolveurs comme 1.1.1.1 ont renvoyé SERVFAIL de 15:50 à 21:20 UTC environ.'

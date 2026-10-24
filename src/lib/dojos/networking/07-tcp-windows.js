@@ -127,6 +127,44 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 			'cwnd in bytes: 51 × 1388 = 70,788. The receiver advertises 229,376 bytes. The smaller value governs, so cwnd limits this upload.',
 			'Rate: 70,788 × 8 = 566,304 bits per round trip, divided by 0.004781 s, gives 118.4 Mbit/s. That matches `send 118448860bps`.',
 			'0.3 s later the same connection showed `cwnd:61 ssthresh:41`: cwnd keeps growing slowly in congestion avoidance.'
+		],
+		steps: [
+			{
+				title: 'Read the fields',
+				questions: [
+					{ q: 'What does `cwnd:51` count?', options: ['51 segments the sender may have unacknowledged', '51 KB of data in flight', '51 ACKs received so far', '51 ms of round trip'], answer: 0, why: 'On Linux, cwnd is counted in segments. It is the sender\'s own limit on unacknowledged data.' },
+					{ q: 'What is `snd_wnd:229376`?', options: ['The sender\'s cwnd, in bytes', 'The peer\'s advertised receive window, in bytes', 'The bytes sent since the start', 'The send buffer of curl'], answer: 1, why: '`snd_wnd` is the receive window the peer advertises, already scaled to bytes. It is the rwnd side of the comparison.' },
+					{ q: 'Why do you need `mss:1388`?', options: ['It is the RTO, in milliseconds', 'It is the window scale factor', 'It turns cwnd from segments into bytes', 'It is the number of segments per second'], answer: 2, why: 'cwnd counts segments and the receive window counts bytes. Multiplying by the segment size lets you compare them.' },
+					{ q: 'What does `rtt:4.781/0.586` give you?', options: ['An RTO of 4.781 s', '4.781 retransmissions per second', 'An upload that lasted 4.781 s', 'A smoothed round trip of 4.781 ms, with a variation of 0.586 ms'], answer: 3, why: '`ss` prints the smoothed round trip and its variation in milliseconds. The RTO is the separate `rto:205`.' }
+				]
+			},
+			{
+				title: 'Decide if it is in slow start',
+				questions: [
+					{ q: 'cwnd is 51 and ssthresh is 35. Which phase is the sender in?', options: ['Slow start, because cwnd is still growing', 'Congestion avoidance, because cwnd is above ssthresh', 'Slow start, because ssthresh is below 64', 'Recovery after a timeout, with cwnd back at 1'], answer: 1, why: 'Slow start runs only while cwnd < ssthresh. cwnd grows in both phases, just more slowly in congestion avoidance.' },
+					{ q: 'What does `bytes_retrans:2776` tell you?', options: ['Two segments of 1388 bytes were sent again: a loss happened', 'Nothing has been lost yet', 'The receiver refused 2776 bytes', 'The upload has sent 2776 bytes so far'], answer: 0, why: '2776 is 2 × 1388. Bytes were retransmitted, so the sender detected a loss.' },
+					{ q: 'What set ssthresh to 35?', options: ['The initial window of 10 segments', 'The receive window of the peer', 'The loss shown by `bytes_retrans`', 'The RTO of 205 ms'], answer: 2, why: 'A loss sets ssthresh to about half of cwnd, which ends slow start. `bytes_retrans` shows that the loss happened.' },
+					{ q: '0.3 s later the line shows `cwnd:61 ssthresh:41`. What happened?', options: ['The sender went back to slow start', 'Another loss halved cwnd', 'The receive window shrank', 'cwnd kept growing slowly in congestion avoidance'], answer: 3, why: 'cwnd went from 51 to 61 and stays above ssthresh, so the sender is still in congestion avoidance.' }
+				]
+			},
+			{
+				title: 'Find the limit',
+				questions: [
+					{ q: 'How many bytes does cwnd allow in flight?', options: ['51 × 1388 = 70,788 bytes', '51 × 1460 = 74,460 bytes', '35 × 1388 = 48,580 bytes', '51 × 8 = 408 bytes'], answer: 0, why: 'Use the connection\'s own `mss`, 1388, not the common 1460.' },
+					{ q: 'Which number is smaller?', options: ['The receive window, 229,376 bytes', 'cwnd, 70,788 bytes', 'They are equal', 'ssthresh in bytes'], answer: 1, why: '70,788 is less than a third of 229,376.' },
+					{ q: 'Which value governs the data in flight?', options: ['Only the receive window', 'The larger of cwnd and the receive window', 'The smaller of cwnd and the receive window', 'cwnd plus the receive window'], answer: 2, why: 'RFC 5681: "The minimum of cwnd and rwnd governs data transmission."' },
+					{ q: 'So what limits this upload?', options: ['The receiver\'s buffer', 'The window scale factor', 'The RTO', 'cwnd, the sender\'s estimate of what the path carries'], answer: 3, why: 'The receiver could take three times more. The sender holds back because of its own congestion window.' }
+				]
+			},
+			{
+				title: 'Check the send figure',
+				questions: [
+					{ q: 'How does `ss` compute `send`?', options: ['cwnd × mss × 8 / rtt', 'snd_wnd × 8 / rtt', 'cwnd / rtt', 'mss × 8 / rto'], answer: 0, why: 'One window of bytes per round trip, times 8 to get bits.' },
+					{ q: 'How many bits leave per round trip?', options: ['70,788', '566,304', '229,376', '1,835,008'], answer: 1, why: '70,788 bytes × 8 = 566,304 bits.' },
+					{ q: 'Which rtt do you divide by?', options: ['4.781 s', '0.205 s', '0.004781 s', '0.000586 s'], answer: 2, why: '4.781 ms is 0.004781 s. The 205 is the RTO and the 0.586 is the variation.' },
+					{ q: 'What do you get?', options: ['About 566 Mbit/s', 'About 11.8 Mbit/s', 'About 1.18 Gbit/s', 'About 118.4 Mbit/s, which matches `send 118448860bps`'], answer: 3, why: '566,304 / 0.004781 is about 118.4 million bits per second.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -164,6 +202,28 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 			why: 'With `tcp_slow_start_after_idle = 1`, `tcp_cwnd_restart` halves cwnd for each RTO of idle time, down to the initial window. Two seconds of silence allows 9 halvings, which brings a cwnd of up to 5,120 back to 10.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See slow start cost round trips on a fast link: add 100 ms of round trip to loopback and time a small and a large download.',
+		steps: [
+			'Start a container that may change its own network: `docker run --rm -it --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Inside it, make loopback look like a real path, with 1500-byte packets and 50 ms each way: `ip link set lo mtu 1500 && tc qdisc add dev lo root netem delay 50ms`. Check with `ping -c2 127.0.0.1`.',
+			'Serve a 10 KB file and a 175 KB file: `cd /tmp && head -c 10000 /dev/zero > small && head -c 175000 /dev/zero > big && python3 -m http.server 8000 >/dev/null 2>&1 &`.',
+			'Time both, each on a new connection: `for f in small big; do curl -s -o /dev/null -w "$f connect=%{time_connect} first_byte=%{time_starttransfer} total=%{time_total}\\n" http://127.0.0.1:8000/$f; done`.',
+			'Raise the initial window toward 127.0.0.1 from 10 to 40 segments, then run the loop from step 4 again: `ip route change local 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 initcwnd 40`. Type `exit` to leave.'
+		],
+		done: [
+			'`ping` shows about 100 ms per round trip.',
+			'`small` ends at about 0.2 s: one round trip for the handshake, one for the request and the whole reply.',
+			'`big` ends at about 0.5 s, even though loopback moves data far faster than 175 KB in 0.3 s.',
+			'With `initcwnd 40`, `big` ends at about 0.4 s.'
+		],
+		solution: [
+			'The 175 KB file is about 120 segments, the RFC 6928 example. The first flight carries only 10 of them, then 20, then 40, then 80, one flight per round trip.',
+			'`big` spends 3 more round trips than `small` after the first byte. The link speed plays no part: each flight waits for the ACKs of the previous one.',
+			'A larger initial window puts more segments in the first flight and saves a round trip. The default of 10 is `TCP_INIT_CWND`.'
+		]
+	},
 	recall: {
 		q: 'What sets the amount of unacknowledged data a TCP sender may have in flight, and what does cwnd do in slow start?',
 		a: 'The smaller of cwnd and the receive window. In slow start cwnd starts at 10 segments on Linux and grows by one for each segment ACKed, so it doubles every round trip until ssthresh or a loss.'

@@ -130,6 +130,44 @@ export default {
 			'A : 0,25. B : 0,75 x 1/3 = 0,25. C : 0,75 x 2/3 x 1/2 = 0,25. D reçoit les 0,25 restants. Chaque Pod reçoit un quart des nouvelles connexions.',
 			'Sans endpoint, kube-proxy n’écrit aucune chaîne nat pour le Service. Il écrit une règle filter avec le commentaire `"prod/api:http has no endpoints"` et la cible `REJECT` ([lignes 888 à 897](https://github.com/kubernetes/kubernetes/blob/949f064e6d9e32f0a597795c265fcd50c6aad66e/pkg/proxy/iptables/proxier.go#L888-L897)).',
 			'`REJECT` sans option envoie un ICMP port unreachable, que le noyau traduit en `ECONNREFUSED`. `curl` échoue aussitôt avec « Connection refused ». Cette erreur indique que le Service n’a plus de Pod.'
+		],
+		steps: [
+			{
+				title: 'Lis la chaîne',
+				questions: [
+					{ q: 'Dans quel ordre une nouvelle connexion rencontre-t-elle les quatre règles ?', options: ['Les quatre en même temps, et le noyau en choisit une', 'De haut en bas, jusqu’à ce qu’une corresponde', 'De D jusqu’à A', 'Dans un ordre au hasard à chaque fois'], answer: 1, why: 'Les règles d’une chaîne s’évaluent de haut en bas. La première qui correspond saute vers sa chaîne d’endpoint.' },
+					{ q: 'Que veut dire `--probability 0.2500000000` sur la première règle ?', options: ['A reçoit 25 % de la bande passante', '25 % des paquets d’une connexion vont vers A', 'La règle attrape un quart des connexions qui l’atteignent', 'A a un poids de 25 sur 100'], answer: 2, why: 'Le match `statistic` en mode `random` correspond avec cette probabilité. Seules les connexions qui atteignent la règle sont testées.' },
+					{ q: 'Pourquoi la règle de D n’a-t-elle pas de probabilité ?', options: ['C’est la dernière règle : elle correspond toujours', 'D est le Pod le plus chargé', 'kube-proxy a oublié de l’écrire', 'D ne reçoit aucun trafic'], answer: 0, why: 'La ligne 35 saute la probabilité sur le dernier endpoint : une connexion qui a sauté les autres atterrit toujours là.' },
+					{ q: 'Quand ces règles s’appliquent-elles pour un client ?', options: ['À chaque requête HTTP', 'À chaque paquet, indépendamment', 'Une fois par minute, à la synchro de kube-proxy', 'Une fois, au début d’une nouvelle connexion'], answer: 3, why: 'Les règles nat choisissent au début de la connexion. Conntrack envoie la suite au même Pod.' }
+				]
+			},
+			{
+				title: 'Calcule A et B',
+				questions: [
+					{ q: 'Quelle part des nouvelles connexions va vers A ?', options: ['0,25', '0,33', '0,5', '1,0'], answer: 0, why: 'Chaque nouvelle connexion atteint la première règle, qui correspond avec la probabilité 0,25.' },
+					{ q: 'Quelle part des connexions atteint la règle de B ?', options: ['0,25', '0,5', '0,75', '1,0'], answer: 2, why: 'Celles que A n’a pas prises : 1 - 0,25 = 0,75.' },
+					{ q: 'Quelle part va donc vers B ?', options: ['0,33', '0,25', '0,75', '0,5'], answer: 1, why: '0,75 × 1/3 = 0,25. La règle attrape un tiers des trois quarts qui l’atteignent.' },
+					{ q: 'Quelle part atteint la règle de C ?', options: ['0,25', '0,33', '0,75', '0,5'], answer: 3, why: '0,75 ont atteint B et 0,25 sont parties vers B : il reste 0,5.' }
+				]
+			},
+			{
+				title: 'Calcule C et D',
+				questions: [
+					{ q: 'Quelle part va vers C ?', options: ['0,5', '0,25', '0,125', '0,33'], answer: 1, why: '0,75 × 2/3 × 1/2 = 0,25 : la moitié de la moitié qui atteint C.' },
+					{ q: 'Quelle part va vers D ?', options: ['0,25', '0', '0,5', '0,125'], answer: 0, why: 'D prend toutes les connexions restantes après C : les 0,25 qui restent.' },
+					{ q: 'D’où viennent les nombres 0,25, 0,333 et 0,5 ?', options: ['De la charge CPU de chaque Pod', 'De l’âge de chaque Pod', 'De `1.0/n` pour n = 4, 3, puis 2 endpoints restants', 'De poids fixés dans la spec du Service'], answer: 2, why: 'La ligne 40 passe `numEndpoints - i`, et `computeProbability` formate `1.0/n`. Chaque règle partage à parts égales entre les endpoints qui restent.' },
+					{ q: 'Avec 5 Pods prêts, quelle probabilité reçoit la première règle ?', options: ['0,25', '0,5', '0,1', '0,2'], answer: 3, why: '`1.0/5` vaut 0,2. Le schéma donne toujours à chacun des n Pods 1/n des nouvelles connexions.' }
+				]
+			},
+			{
+				title: 'Passe à 0',
+				questions: [
+					{ q: 'Sans endpoint, qu’écrit kube-proxy pour `prod/api:http` ?', options: ['Une chaîne `KUBE-SVC` sans règle', 'Une règle filter de cible `REJECT` avec le commentaire « has no endpoints »', 'Rien du tout', 'Une règle DNAT vers l’IP du nœud'], answer: 1, why: 'La branche `!hasEndpoints` n’écrit aucune chaîne nat et ajoute une règle `REJECT` dans la table filter.' },
+					{ q: 'Que renvoie `REJECT` sans option ?', options: ['Un ICMP port unreachable', 'Un RST TCP', 'Rien', 'Une réponse HTTP 503'], answer: 0, why: 'Sans `--reject-with`, le `REJECT` d’iptables répond par un ICMP port unreachable.' },
+					{ q: 'Qu’affiche `curl http://<ClusterIP>/` ?', options: ['Un timeout au bout de deux minutes environ', 'Une réponse vide du serveur', 'Une page 503 de kube-proxy', '« Connection refused », aussitôt'], answer: 3, why: 'Le noyau traduit l’ICMP port unreachable en `ECONNREFUSED` : `connect()` échoue tout de suite.' },
+					{ q: 'Que te dit cette erreur de vérifier d’abord ?', options: ['Le plugin CNI', 'Le pare-feu du nœud', 'Si le Service a encore des Pods prêts', 'Le DNS du nom du Service'], answer: 2, why: 'kube-proxy rejette exprès quand un Service n’a plus d’endpoint. Une connexion refusée vers une ClusterIP pointe là en premier.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -167,6 +205,28 @@ export default {
 			why: 'Les règles nat s’appliquent au début de la connexion. Conntrack applique la même réécriture à tous les paquets suivants de cette connexion : toutes ses requêtes arrivent au même Pod.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Lire les règles que kube-proxy écrit pour un Service, voir pourquoi `ping` échoue alors que `curl` marche, et voir le `REJECT` d’un Service sans Pod.',
+		steps: [
+			'Lance un cluster local : `minikube start -p svc-lab`.',
+			'Crée un Service à 3 Pods : `kubectl create deployment web --image=nginx:1.27 --replicas=3 && kubectl expose deployment web --port=80`. Lance un client : `kubectl run client --image=nicolaka/netshoot:v0.13 -- sleep 3600`. Attends les deux : `kubectl rollout status deployment web && kubectl wait --for=condition=Ready pod/client`.',
+			'Lis la ClusterIP avec `kubectl get svc web`. Puis `kubectl exec client -- ping -c 3 -W 1 <ClusterIP>` et `kubectl exec client -- curl -s -o /dev/null -w \'%{http_code}\\n\' http://web/`.',
+			'Lis les règles nat du nœud : `minikube -p svc-lab ssh -- sudo iptables-save -t nat | grep default/web`.',
+			'Passe à zéro avec `kubectl scale deployment web --replicas=0`, puis relance le `curl` et `minikube -p svc-lab ssh -- sudo iptables-save -t filter | grep "has no endpoints"`. Nettoie avec `minikube delete -p svc-lab`.'
+		],
+		done: [
+			'`ping` vers la ClusterIP annonce `100% packet loss`, et `curl` affiche `200`.',
+			'Le dump nat montre une règle `KUBE-SERVICES` pour la ClusterIP et le port 80, et trois règles de la chaîne `KUBE-SVC` de `default/web` qui sautent vers une chaîne `KUBE-SEP`.',
+			'Deux de ces trois sauts portent `-m statistic --mode random --probability`, et la dernière n’en a pas.',
+			'Après le passage à zéro, `curl` échoue aussitôt (code de sortie 7), et le dump filter montre une règle `REJECT` pour `default/web`.'
+		],
+		solution: [
+			'La règle `KUBE-SERVICES` vérifie `-p tcp`, la ClusterIP et `--dport 80`. L’ICMP n’a pas de port : `ping` ne correspond à rien et personne ne répond.',
+			'Les deux probabilités valent environ 1/3 et 1/2 : chacun des 3 Pods reçoit un tiers des nouvelles connexions.',
+			'L’échec immédiat, c’est le `REJECT` : un ICMP port unreachable que le noyau traduit en « Connection refused ». Une ClusterIP qui refuse, c’est « vérifie les endpoints » avant « vérifie le réseau ».'
+		]
+	},
 	recall: {
 		q: 'Pourquoi une ClusterIP ne répond-elle pas au `ping`, et comment kube-proxy choisit-il entre 3 Pods ?',
 		a: 'Les règles kube-proxy ne visent que le protocole du Service (TCP, UDP ou SCTP) et son port : l’ICMP n’est jamais réécrit vers un Pod. Pour 3 Pods, il écrit des règles de probabilité 0.3333333333, puis 0.5, puis une dernière sans condition : 1/3 des nouvelles connexions chacun.'

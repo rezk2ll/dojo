@@ -119,6 +119,44 @@ export default {
 			'The root sent the `org.` NS records with a TTL of 172800 s, so a resolver may keep them for 2 days. The `wikipedia.org.` NS records came with 3600 s, one hour.',
 			'The trace stops at the CNAME because `dig +trace` prints each server\'s reply. A recursive resolver restarts with `dyna.wikimedia.org A`, beginning at its cache. It holds the addresses of `ns0.wikimedia.org` but no NS records for the zone `wikimedia.org.`. RFC 1034 step 2 walks up the name to the closest NS records it has, those of `org.`, so it asks an `org.` server first.',
 			'The first block came from `127.0.0.53` because dig asks its configured server for the root NS list. The BIND docs: "If @server is also specified, it affects only the initial query for the root zone name servers."'
+		],
+		steps: [
+			{
+				title: 'Sort answers from referrals',
+				questions: [
+					{ q: 'What did `a.root-servers.net` send back for `en.wikipedia.org A`?', options: ['A referral: the NS records for `org.`', 'The A record of `en.wikipedia.org`', 'The CNAME to `dyna.wikimedia.org`', 'An NXDOMAIN'], answer: 0, why: 'A root server answers only from the root zone. It has the delegation for `org.`, so it points the resolver there.' },
+					{ q: 'What did `b0.org.afilias-nst.org` send back?', options: ['The CNAME for `en.wikipedia.org`', 'A referral: the NS records for `wikipedia.org.`', 'The A record of `ns0.wikimedia.org` only', 'An error, because it is not authoritative'], answer: 1, why: 'The `org.` server knows who serves `wikipedia.org.` and sends another referral, closer to the name.' },
+					{ q: 'Which server answered the question itself?', options: ['`127.0.0.53`', '`a.root-servers.net`', '`ns0.wikimedia.org`', '`b0.org.afilias-nst.org`'], answer: 2, why: 'Only the last server replied with a record for `en.wikipedia.org`. The others sent referrals.' },
+					{ q: 'Why did the first block come from `127.0.0.53`?', options: ['`127.0.0.53` is authoritative for the root zone', '`127.0.0.53` is a root server', 'dig asked it for the A record first', 'dig asks its configured server only for the list of root servers'], answer: 3, why: 'The BIND docs: "If @server is also specified, it affects only the initial query for the root zone name servers."' }
+				]
+			},
+			{
+				title: 'Name the authoritative server',
+				questions: [
+					{ q: 'Which servers are authoritative for `wikipedia.org`?', options: ['`ns0`, `ns1` and `ns2.wikimedia.org`', 'The `org.` servers', 'The root servers', '`127.0.0.53`'], answer: 0, why: 'The `org.` referral named them, and `ns0` answered from its own zone.' },
+					{ q: 'Which flag marks an authoritative reply in `dig`?', options: ['`ra`', '`aa`', '`rd`', '`qr`'], answer: 1, why: '`aa` means the answer comes from the zone itself. `qr` only marks a response.' },
+					{ q: 'Why is the `org.` server not authoritative for `wikipedia.org`?', options: ['It answered too slowly, in 16 ms', 'It does not know the name at all', 'It holds only the delegation, so it sends a referral', 'It serves IPv6 only'], answer: 2, why: 'The `org.` zone holds the NS records that delegate `wikipedia.org.`, not the records inside it.' },
+					{ q: 'The reply from `127.0.0.53` has `ra`. What does that mean?', options: ['The answer is authoritative', 'The answer was checked with DNSSEC', 'The record will be cached', 'The server offers recursion'], answer: 3, why: 'RFC 1034: "RA signals availability rather than use". A resolver is not authoritative, so it has no `aa`.' }
+				]
+			},
+			{
+				title: 'Read the TTLs',
+				questions: [
+					{ q: 'How long may a resolver keep the `org.` delegation?', options: ['172800 s, which is 2 days', '3600 s, one hour', '86400 s, one day', '138582 s'], answer: 0, why: 'The root sent the `org.` NS records with a TTL of 172800.' },
+					{ q: 'And the `wikipedia.org.` NS records?', options: ['172800 s, like `org.`', '3600 s, one hour', '86400 s, like the CNAME', '16 ms, the reply time'], answer: 1, why: 'The `org.` server sent them with 3600. Each zone sets the TTL of the records it hands out.' },
+					{ q: 'How long may a resolver keep the CNAME, with TTL 86400?', options: ['One hour', 'Two days', 'One day', '86 seconds'], answer: 2, why: '86400 s is 24 hours. The 86 in the trace is the reply time in milliseconds.' },
+					{ q: 'Why is the root NS TTL 138582, not a round number?', options: ['Root records have random TTLs', 'dig rounds every TTL down', 'It is the zone serial number', 'It came from the cache of `127.0.0.53`, which counts the TTL down'], answer: 3, why: 'A cache keeps each record for its TTL and shows the time left, like the A record that dropped from 115 to 112.' }
+				]
+			},
+			{
+				title: 'Ask the next question',
+				questions: [
+					{ q: 'What is the target of the CNAME?', options: ['`dyna.wikimedia.org`', '`ns0.wikimedia.org`', '`en.wikipedia.org`', '`wikimedia.org`'], answer: 0, why: 'The CNAME makes `en.wikipedia.org` an alias of `dyna.wikimedia.org`, and curl asked for an A record.' },
+					{ q: 'Which question does a recursive resolver ask next?', options: ['`en.wikipedia.org A` again, with RD set', '`dyna.wikimedia.org A`', '`wikimedia.org NS`, at a root server', '`ns0.wikimedia.org A`'], answer: 1, why: 'RFC 1034 step 4c: cache the CNAME, change the name to the canonical name, and start over.' },
+					{ q: 'Where does the resolver look first?', options: ['At a root server, always', 'At `ns0.wikimedia.org`, whose address it holds', 'In its own cache', 'Back at the client'], answer: 2, why: 'Unbound goes back to `INIT_REQUEST_STATE`, which starts with a cache lookup.' },
+					{ q: 'Which server does it ask first for `dyna.wikimedia.org`?', options: ['A root server, because the name changed', '`ns0.wikimedia.org`, because it holds its address', '`127.0.0.53`', 'An `org.` server: the closest NS records it has'], answer: 3, why: 'It holds the address of `ns0` but no NS records for `wikimedia.org.`. RFC 1034 step 2 walks up the name to the closest NS records in the cache, those of `org.`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,28 @@ export default {
 			why: 'RFC 1034 step 4c: cache the CNAME, change the name to the canonical name and go back to step 1. Unbound does this in its CNAME branch with `next_state(iq, INIT_REQUEST_STATE)`. The client gets the CNAME and the A record in one reply.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Walk the delegation of `en.wikipedia.org` by hand with `dig`, one server at a time, the way a recursive resolver does.',
+		steps: [
+			'Ask a root server, with recursion off: `dig +norecurse @a.root-servers.net en.wikipedia.org A`. Read the `flags` line and the AUTHORITY section. If `dig` is missing, run every step inside `docker run --rm -it nicolaka/netshoot:v0.13`.',
+			'Ask one of the `org.` servers it named: `dig +norecurse @b0.org.afilias-nst.org en.wikipedia.org A`.',
+			'Ask a server it named for `wikipedia.org.`: `dig +norecurse @ns0.wikimedia.org en.wikipedia.org A`.',
+			'Follow the CNAME the way a resolver would: `dig +norecurse @b0.org.afilias-nst.org dyna.wikimedia.org A`, then `dig +norecurse @ns0.wikimedia.org dyna.wikimedia.org A`.',
+			'Compare with your own resolver, twice, a few seconds apart: `dig en.wikipedia.org`, then `sleep 3; dig en.wikipedia.org`.'
+		],
+		done: [
+			'Steps 1 and 2 print `flags: qr` with `ANSWER: 0`, and NS records in the AUTHORITY section.',
+			'Step 3 prints `flags: qr aa` and the CNAME to `dyna.wikimedia.org`, with a TTL of 86400.',
+			'In step 4, the `org.` server refers you to the `wikimedia.org.` servers, and `ns0.wikimedia.org` answers the A record with `aa`.',
+			'In step 5, the replies carry `flags: qr rd ra`, and the A record\'s TTL is a few seconds lower in the second reply, unless it ran out in between.'
+		],
+		solution: [
+			'The root and `org.` servers hold only delegations, so they reply with referrals and no `aa`. `ns0.wikimedia.org` holds the zone and answers from it.',
+			'The CNAME target is in another zone, `wikimedia.org.`, so a second walk starts. It skips the root, because the `org.` NS records are already known.',
+			'Your resolver did this walk once and now answers from its cache, with the CNAME and the A record in one reply, counting the TTL down.'
+		]
+	},
 	recall: {
 		q: 'With an empty cache, which servers does a recursive resolver ask for `en.wikipedia.org`, and what does each one send back?',
 		a: 'A root server sends a referral to the `org.` servers. An `org.` server sends a referral to `ns0`, `ns1` and `ns2.wikimedia.org`. `ns0.wikimedia.org` answers with the CNAME to `dyna.wikimedia.org`, and the resolver restarts for that name.'

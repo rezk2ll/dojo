@@ -110,6 +110,44 @@ func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
 			'En HTTP/1.1, la seule ligne `Host: www.example.com` fait 21 octets de texte, 23 avec son CRLF, à chaque requête.',
 			'Partie 2 : TCP livre les octets dans l’ordre. Le noyau garde les segments arrivés après le trou, y compris les données des autres images, et la couche HTTP/2 n’en reçoit aucun avant la retransmission.',
 			'Les 20 images sont donc bloquées pendant ces 300 ms, alors que seule l’image 1 a perdu des données. En HTTP/1.1 avec 6 connexions, seule la connexion qui a perdu le segment serait bloquée.'
+		],
+		steps: [
+			{
+				title: 'Cherche les entrées statiques',
+				questions: [
+					{ q: 'Comment HPACK envoie-t-il `:method: GET` ?', options: ['En texte, `:method: GET`', 'En un octet, `0x82` : l’entrée statique 2', 'Avec l’index 62 de la table dynamique', 'Il l’omet, GET étant la valeur par défaut'], answer: 1, why: '`:method: GET` est l’entrée 2 de la table statique de 61 entrées, envoyée comme l’octet unique `0x82`.' },
+					{ q: 'Quelles entrées statiques couvrent `:scheme: http` et `:path: /` ?', options: ['62 et 63', '1 et 2', '6 et 4', '82 et 84'], answer: 2, why: 'Ce sont les entrées statiques 6 et 4, envoyées en `0x86` et `0x84`.' },
+					{ q: 'Pourquoi `:authority: www.example.com` prend-il 17 octets la première fois ?', options: ['La table statique n’a aucune entrée avec cette valeur', 'HPACK ne compresse jamais l’authority', 'Il est envoyé deux fois par sécurité', 'Il porte un checksum'], answer: 0, why: 'Aucune entrée statique ne contient `www.example.com` : la première requête envoie la valeur et range l’en-tête dans la table dynamique.' },
+					{ q: 'Quelle taille a la table dynamique par défaut ?', options: ['61 entrées', '16 384 octets', '100 entrées', '4 096 octets'], answer: 3, why: 'Les en-têtes déjà envoyés sur la connexion vont dans une table dynamique de 4 096 octets par défaut.' }
+				]
+			},
+			{
+				title: 'Code la répétition',
+				questions: [
+					{ q: 'Où se trouve `:authority: www.example.com` après la première requête ?', options: ['Entrée statique 1', 'Table dynamique, index 62', 'Nulle part : chaque requête repart de zéro', 'Table dynamique, index 1'], answer: 1, why: 'Les entrées dynamiques sont numérotées après les 61 statiques : la première ajoutée a l’index 62.' },
+					{ q: 'Quel octet envoie l’index 62 ?', options: ['`0x82`', '`0x62`', '`0xbe`', '`0x84`'], answer: 2, why: 'La deuxième requête envoie `:authority` en un octet, `0xbe`.' },
+					{ q: 'Combien d’octets prennent les 4 en-têtes répétés dans la deuxième requête ?', options: ['4', '20', '17', '8'], answer: 0, why: '`82 86 84 be` : un octet chacun.' },
+					{ q: 'Pourquoi l’astuce ne marche-t-elle que sur la même connexion ?', options: ['Le serveur refuse les index venus d’autres hôtes', 'Les entrées statiques changent à chaque connexion', 'Les clés TLS changent à chaque requête', 'La table dynamique contient les en-têtes déjà envoyés sur cette connexion'], answer: 3, why: 'La table dynamique se construit avec ce que cette connexion a transporté. Une nouvelle connexion part d’une table vide.' }
+				]
+			},
+			{
+				title: 'Suis le segment perdu',
+				questions: [
+					{ q: 'Combien de connexions TCP portent les 20 images ?', options: ['Une par image', 'Une', 'Six', 'Deux : une par sens'], answer: 1, why: 'Tous les streams partagent une seule connexion TCP et TLS.' },
+					{ q: 'Que sait TCP des 20 streams ?', options: ['Rien : il livre une seule suite d’octets ordonnée', 'Il garde un numéro de séquence par stream', 'Il acquitte chaque stream à part', 'Il livre chaque stream dès son arrivée'], answer: 0, why: 'TCP a une seule suite d’octets pour toute la connexion et ne connaît pas les streams.' },
+					{ q: 'Les segments après le trou portent des données des images 2 à 20. Qu’en fait le noyau ?', options: ['Il les jette pour qu’ils soient renvoyés', 'Il les remet tout de suite à HTTP/2', 'Il les garde jusqu’à ce que le trou soit comblé', 'Il les renvoie au serveur'], answer: 2, why: 'Le noyau qui reçoit garde les segments suivants et ne livre rien au-delà du trou avant la retransmission.' },
+					{ q: 'Qu’arrive-t-il aux images 2 à 20 pendant les 300 ms ?', options: ['Elles continuent de charger', 'Seule l’image 2 est bloquée', 'Elles passent sur une nouvelle connexion', 'Elles sont toutes bloquées'], answer: 3, why: 'La couche HTTP/2 ne reçoit aucun octet après le trou : chaque stream attend. RFC 9113 : "TCP head-of-line blocking is not addressed by this protocol".' }
+				]
+			},
+			{
+				title: 'Compare avec HTTP/1.1',
+				questions: [
+					{ q: 'Combien d’octets prend `Host: www.example.com` à chaque requête HTTP/1.1 ?', options: ['1', '17', '23, avec son CRLF', '4'], answer: 2, why: 'La ligne fait 21 octets de texte, 23 avec CRLF, répétés en entier à chaque fois.' },
+					{ q: 'En HTTP/1.1 avec 6 connexions, un segment se perd. Qu’est-ce qui est bloqué ?', options: ['Seulement la connexion qui l’a perdu', 'Les 6 connexions', 'Toutes les images de la page', 'Rien : HTTP/1.1 réessaie tout de suite'], answer: 0, why: 'Chaque connexion a sa propre suite d’octets TCP : les 5 autres continuent de livrer.' },
+					{ q: 'Pourquoi HTTP/1.1 a-t-il besoin de ces 6 connexions ?', options: ['TLS n’autorise qu’une requête par poignée de main', 'Une connexion porte une seule réponse à la fois', 'Les serveurs limitent chaque connexion à 6 images', 'TCP ne peut pas envoyer plus de 6 segments à la fois'], answer: 1, why: 'Le head-of-line blocking de HTTP/1.1 : les réponses partent dans l’ordre, une à la fois, alors les clients ouvrent plusieurs connexions.' },
+					{ q: 'Que gagne alors HTTP/2 sur un réseau propre ?', options: ['Des segments TCP plus gros', 'Pas de poignée de main TLS', 'Des résolutions DNS plus rapides', 'Toutes les requêtes sur une connexion, sans attente entre elles'], answer: 3, why: 'Les streams 1, 3 et 5 partagent une connexion et aucun n’attend une réponse précédente. En échange, un seul segment perdu les bloque tous.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
 			why: 'Seuls les streams ouverts ou à moitié fermés comptent dans `SETTINGS_MAX_CONCURRENT_STREAMS`. Un `RST_STREAM` fait passer le stream à fermé tout de suite, et le client peut ouvrir le suivant pendant que le serveur traite encore les requêtes annulées.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Faire tourner HTTP/2 sur ton portable, et voir ALPN choisir `h2` et trois requêtes partager une connexion en streams 1, 3 et 5.',
+		steps: [
+			'Crée un dossier et un certificat jetable : `mkdir -p ~/h2-lab && cd ~/h2-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 -subj /CN=localhost`.',
+			'Crée `h2.conf` avec une ligne chacun : `server {`, `listen 443 ssl;`, `http2 on;`, `ssl_certificate /lab/cert.pem;`, `ssl_certificate_key /lab/key.pem;`, `root /usr/share/nginx/html;`, `}`.',
+			'Lance nginx avec ce fichier : `docker run -d --rm --name h2-lab -p 127.0.0.1:8443:443 -v "$PWD":/lab -v "$PWD/h2.conf":/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine`.',
+			'Envoie trois requêtes en parallèle : `curl -sk -v --http2 --parallel -o /dev/null -o /dev/null -o /dev/null https://localhost:8443/ https://localhost:8443/index.html https://localhost:8443/50x.html 2>&1 | grep -E "ALPN|OPENED|Multiplexed"`.',
+			'Demande HTTP/1.1 à la place et affiche la version utilisée : `curl -sk -o /dev/null -w "%{http_version}\\n" --http1.1 https://localhost:8443/`.'
+		],
+		done: [
+			'L’étape 4 affiche `ALPN: curl offers h2,http/1.1` et `ALPN: server accepted h2`.',
+			'Elle montre ensuite `[HTTP/2] [1] OPENED stream`, `[3]` et `[5]`, avec `Multiplexed connection found` avant le deuxième et le troisième.',
+			'L’étape 5 affiche `1.1`.'
+		],
+		solution: [
+			'Le protocole se choisit dans la poignée de main TLS : curl liste ce qu’il parle, nginx répond `h2`. Avec `--http1.1`, curl ne propose que `http/1.1`.',
+			'Les trois requêtes sont trois streams client sur une seule connexion TCP, avec des ID impairs qui montent de 2.',
+			'`-k` saute la vérification du certificat seulement parce que ce certificat est autosigné et local. Arrête le lab avec `docker stop h2-lab`.'
+		]
+	},
 	recall: {
 		q: 'Que met HTTP/2 dans une seule connexion TCP, et que se passe-t-il quand un segment TCP se perd ?',
 		a: 'Plusieurs streams, numérotés 1, 3, 5 côté client, transportés en trames avec un en-tête de 9 octets. Un segment perdu bloque tous les streams jusqu’à sa retransmission, parce que TCP livre les octets dans l’ordre.'

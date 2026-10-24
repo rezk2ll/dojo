@@ -110,6 +110,44 @@ func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
 			'In HTTP/1.1, the same `Host: www.example.com` line alone is 21 bytes of text, 23 with its CRLF, on every request.',
 			'Part 2: TCP delivers bytes in order. The kernel keeps the segments that arrived after the gap, including data for the other images, and the HTTP/2 layer gets none of them until the retransmission arrives.',
 			'So all 20 images stall for those 300 ms, even though only image 1 lost data. Over HTTP/1.1 with 6 connections, only the connection that lost the segment would stall.'
+		],
+		steps: [
+			{
+				title: 'Look up the static entries',
+				questions: [
+					{ q: 'How does HPACK send `:method: GET`?', options: ['As the text `:method: GET`', 'As one byte, `0x82`: static entry 2', 'As index 62 in the dynamic table', 'It is left out, since GET is the default'], answer: 1, why: '`:method: GET` is entry 2 of the 61 entry static table, sent as the single byte `0x82`.' },
+					{ q: 'Which static entries cover `:scheme: http` and `:path: /`?', options: ['62 and 63', '1 and 2', '6 and 4', '82 and 84'], answer: 2, why: 'They are static entries 6 and 4, sent as `0x86` and `0x84`.' },
+					{ q: 'Why does `:authority: www.example.com` take 17 bytes the first time?', options: ['The static table has no entry with that value', 'HPACK never compresses the authority', 'It is sent twice for safety', 'It carries a checksum'], answer: 0, why: 'No static entry holds `www.example.com`, so the first request sends the value and stores the header in the dynamic table.' },
+					{ q: 'How big is the dynamic table by default?', options: ['61 entries', '16,384 bytes', '100 entries', '4,096 bytes'], answer: 3, why: 'Headers already sent on the connection go into a dynamic table of 4,096 bytes by default.' }
+				]
+			},
+			{
+				title: 'Encode the repeat',
+				questions: [
+					{ q: 'Where does `:authority: www.example.com` sit after the first request?', options: ['Static entry 1', 'Dynamic table, index 62', 'Nowhere: each request starts fresh', 'Dynamic table, index 1'], answer: 1, why: 'Dynamic entries are numbered after the 61 static ones, so the first one added is index 62.' },
+					{ q: 'Which byte sends index 62?', options: ['`0x82`', '`0x62`', '`0xbe`', '`0x84`'], answer: 2, why: 'The second request sends `:authority` as one byte, `0xbe`.' },
+					{ q: 'How many bytes do the 4 repeated headers take on the second request?', options: ['4', '20', '17', '8'], answer: 0, why: '`82 86 84 be`: one byte each.' },
+					{ q: 'Why does the trick only work on the same connection?', options: ['The server rejects indexes from other hosts', 'Static entries change on each connection', 'TLS keys change every request', 'The dynamic table holds headers already sent on that connection'], answer: 3, why: 'The dynamic table is built from what this connection has carried. A new connection starts with an empty one.' }
+				]
+			},
+			{
+				title: 'Follow the lost segment',
+				questions: [
+					{ q: 'How many TCP connections carry the 20 images?', options: ['One per image', 'One', 'Six', 'Two: one each way'], answer: 1, why: 'All the streams share one TCP and TLS connection.' },
+					{ q: 'What does TCP know about the 20 streams?', options: ['Nothing: it delivers one ordered byte sequence', 'It keeps a sequence number per stream', 'It acknowledges each stream on its own', 'It delivers each stream as it arrives'], answer: 0, why: 'TCP has one byte sequence for the whole connection and knows nothing of streams.' },
+					{ q: 'Segments after the gap carry data for images 2 to 20. What does the kernel do with them?', options: ['Drops them, so they are sent again', 'Hands them to HTTP/2 at once', 'Holds them until the gap is filled', 'Sends them back to the server'], answer: 2, why: 'The receiving kernel keeps the later segments and delivers nothing past the gap until the retransmission arrives.' },
+					{ q: 'What happens to images 2 to 20 during the 300 ms?', options: ['They keep loading', 'Only image 2 stalls', 'They move to a new connection', 'They all stall'], answer: 3, why: 'The HTTP/2 layer gets no bytes past the gap, so every stream waits. RFC 9113: "TCP head-of-line blocking is not addressed by this protocol".' }
+				]
+			},
+			{
+				title: 'Compare with HTTP/1.1',
+				questions: [
+					{ q: 'How many bytes does `Host: www.example.com` take on each HTTP/1.1 request?', options: ['1', '17', '23, with its CRLF', '4'], answer: 2, why: 'The line is 21 bytes of text, 23 with CRLF, repeated in full every time.' },
+					{ q: 'Over HTTP/1.1 with 6 connections, one segment is lost. What stalls?', options: ['Only the connection that lost it', 'All 6 connections', 'Every image on the page', 'Nothing: HTTP/1.1 retries at once'], answer: 0, why: 'Each connection has its own TCP byte sequence, so the other 5 keep delivering.' },
+					{ q: 'Why does HTTP/1.1 need those 6 connections at all?', options: ['TLS allows only one request per handshake', 'One connection carries one response at a time', 'Servers limit each connection to 6 images', 'TCP cannot send more than 6 segments at once'], answer: 1, why: 'HTTP/1.1 head-of-line blocking: responses go in order, one at a time, so clients open several connections.' },
+					{ q: 'What does HTTP/2 gain on a clean network, then?', options: ['Larger TCP segments', 'No TLS handshake', 'Faster DNS lookups', 'All requests on one connection, with no waiting between them'], answer: 3, why: 'Streams 1, 3 and 5 share one connection and none waits for an earlier response. The trade is that one lost segment stalls them all.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ func readFrameHeader(buf []byte, r io.Reader) (FrameHeader, error) {
 			why: 'Only open and half closed streams count toward `SETTINGS_MAX_CONCURRENT_STREAMS`. A `RST_STREAM` moves a stream to closed at once, so the client can open the next one right away while the server still dispatches the cancelled requests.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Run HTTP/2 on your laptop and watch ALPN pick `h2` and three requests share one connection as streams 1, 3 and 5.',
+		steps: [
+			'Make a folder and a throwaway certificate: `mkdir -p ~/h2-lab && cd ~/h2-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 -subj /CN=localhost`.',
+			'Create `h2.conf` with one line each: `server {`, `listen 443 ssl;`, `http2 on;`, `ssl_certificate /lab/cert.pem;`, `ssl_certificate_key /lab/key.pem;`, `root /usr/share/nginx/html;`, `}`.',
+			'Start nginx with it: `docker run -d --rm --name h2-lab -p 127.0.0.1:8443:443 -v "$PWD":/lab -v "$PWD/h2.conf":/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine`.',
+			'Send three requests in parallel: `curl -sk -v --http2 --parallel -o /dev/null -o /dev/null -o /dev/null https://localhost:8443/ https://localhost:8443/index.html https://localhost:8443/50x.html 2>&1 | grep -E "ALPN|OPENED|Multiplexed"`.',
+			'Ask for HTTP/1.1 instead and print the version used: `curl -sk -o /dev/null -w "%{http_version}\\n" --http1.1 https://localhost:8443/`.'
+		],
+		done: [
+			'Step 4 prints `ALPN: curl offers h2,http/1.1` and `ALPN: server accepted h2`.',
+			'It then shows `[HTTP/2] [1] OPENED stream`, `[3]` and `[5]`, with `Multiplexed connection found` before the second and third.',
+			'Step 5 prints `1.1`.'
+		],
+		solution: [
+			'The protocol is picked inside the TLS handshake: curl lists what it speaks, nginx answers `h2`. With `--http1.1`, curl offers only `http/1.1`.',
+			'The three requests are three client streams on one TCP connection, with odd IDs that go up by 2.',
+			'`-k` skips certificate checks only because this certificate is self-signed and local. Stop the lab with `docker stop h2-lab`.'
+		]
+	},
 	recall: {
 		q: 'What does HTTP/2 put inside one TCP connection, and what happens to it when one TCP segment is lost?',
 		a: 'Many streams, numbered 1, 3, 5 for the client, carried as frames with a 9 byte header. A lost segment stalls every stream until TCP retransmits it, because TCP delivers bytes in order.'

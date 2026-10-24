@@ -124,6 +124,44 @@ export default {
 			'Service B has no `IdleTimeout`, so Go uses `ReadTimeout`: "If zero, the value of ReadTimeout is used." It closes idle connections after 10 s, which is even more likely to race than A.',
 			'Service C closes after 120 s, later than the balancer\'s 60 s. The balancer always closes first, so C is safe. Its `ReadHeaderTimeout` of 5 s only limits reading the headers of each request and plays no part in the idle race.',
 			'Fix A and B by setting `IdleTimeout` above 60 s, for example `IdleTimeout: 75 * time.Second`.'
+		],
+		steps: [
+			{
+				title: 'Find each idle timeout',
+				questions: [
+					{ q: 'After how many idle seconds does Service A close a connection?', options: ['30 s', '60 s', 'Never: it has no limit', '120 s'], answer: 0, why: '`IdleTimeout: 30 * time.Second` is set directly on A.' },
+					{ q: 'Service B has no `IdleTimeout`. What does Go use instead?', options: ['No limit: idle connections stay open for good', '`ReadTimeout`, so 10 s', 'A built-in default of 60 s', '`ReadHeaderTimeout`, which B does not set'], answer: 1, why: 'The doc comment says: "If zero, the value of ReadTimeout is used." B has `ReadTimeout: 10 * time.Second`.' },
+					{ q: 'After how many idle seconds does Service C close?', options: ['5 s, from `ReadHeaderTimeout`', '60 s, the same as the balancer', '120 s', '10 s, like B'], answer: 2, why: 'C sets `IdleTimeout: 120 * time.Second` itself, so no fallback applies.' },
+					{ q: 'What does C\'s `ReadHeaderTimeout` of 5 s limit?', options: ['The idle time between two requests', 'The time to write the whole response', 'The TCP connect from the balancer', 'The time to read the headers of each request'], answer: 3, why: 'It only covers reading the request headers. It plays no part in the idle race.' }
+				]
+			},
+			{
+				title: 'Compare with the balancer',
+				questions: [
+					{ q: 'Which side must close an idle connection first?', options: ['The app, so the balancer never waits', 'The balancer, so the app\'s idle timeout must be longer', 'Either, as long as both are under 60 s', 'Neither: keep-alive must be off'], answer: 1, why: 'AWS recommends an app idle timeout "larger than the idle timeout configured for the load balancer". Then the balancer never writes to a connection the app has closed.' },
+					{ q: 'Can Service A produce the 502 race?', options: ['Yes: it closes at 30 s, and the balancer may reuse the connection until 60 s', 'No: 30 s is half of 60 s, so they never meet', 'No: Go retries the request for the balancer', 'Only when the app is under heavy load'], answer: 0, why: 'Between 30 s and 60 s of idle time, the balancer thinks the connection is usable while A has closed it.' },
+					{ q: 'Can Service B produce it?', options: ['No: `ReadTimeout` only covers reading a request', 'No: without `IdleTimeout` it never closes', 'Only for POST requests', 'Yes: it closes at 10 s, even more likely than A'], answer: 3, why: 'The fallback gives B a 10 s idle timeout. The gap up to the balancer\'s 60 s is wider than for A.' },
+					{ q: 'Can Service C produce it?', options: ['Yes: 120 s is too long', 'Yes: `ReadHeaderTimeout` closes idle connections at 5 s', 'No: the balancer closes first, at 60 s', 'Only when the balancer restarts'], answer: 2, why: 'C keeps idle connections longer than the balancer, so only the balancer ever closes them.' }
+				]
+			},
+			{
+				title: 'Picture the race',
+				questions: [
+					{ q: 'What goes wrong in the race?', options: ['The balancer writes a request on a connection the app just closed', 'The balancer opens more connections than the app accepts', 'The app takes longer than 60 s to answer', 'The health check marks the app down'], answer: 0, why: 'The app\'s FIN is still on its way when the balancer picks the idle connection and writes on it.' },
+					{ q: 'What does the client get?', options: ['A `504 Gateway Timeout` after 60 s', 'A late `200`', 'A `502 Bad Gateway`', 'A refused connection'], answer: 2, why: 'The request gets a RST or a FIN back instead of a response, and the balancer turns that into a 502.' },
+					{ q: 'Why is the app\'s log empty at that moment?', options: ['Its logging drops requests under load', 'It never parsed the request', 'It crashed and restarted', 'The request went to another instance'], answer: 1, why: 'The app had already closed the socket. The request never reached its HTTP code.' },
+					{ q: 'Why is B more likely to race than A?', options: ['It has a `ReadTimeout`, which A does not', 'Its requests are larger', 'It uses a different Go version', 'It closes at 10 s, so the risky window up to 60 s is 50 s instead of 30 s'], answer: 3, why: 'Any reuse between the app\'s close and the balancer\'s 60 s can race. The earlier the app closes, the wider that window.' }
+				]
+			},
+			{
+				title: 'Fix it',
+				questions: [
+					{ q: 'How do you fix A and B?', options: ['Set the balancer\'s idle timeout to 120 s', 'Set `ReadTimeout: 0` on both', 'Set `IdleTimeout` above 60 s, for example `75 * time.Second`', 'Add a retry in every client of the balancer'], answer: 2, why: 'An app idle timeout above the balancer\'s means only the balancer closes idle connections.' },
+					{ q: 'B now has `IdleTimeout: 75 * time.Second`. What does its `ReadTimeout` of 10 s still do?', options: ['It still limits reading each request, but no longer sets the idle time', 'It still closes idle connections at 10 s', 'It must be removed, or it overrides `IdleTimeout`', 'It becomes 75 s too'], answer: 0, why: 'The fallback only applies when `IdleTimeout` is zero. With it set, `ReadTimeout` goes back to covering the request read.' },
+					{ q: 'You add nginx between the balancer and the app. What else must you order?', options: ['Nothing: nginx removes the race', '`proxy_read_timeout` above 60 s', 'The nginx client timeout equal to the app\'s', 'nginx\'s upstream `keepalive_timeout` (60 s by default) below the app\'s'], answer: 3, why: 'nginx adds a second connection, so a second pair of idle timeouts. The side that reuses connections must close first.' },
+					{ q: 'A Go client hits the race with a `GET` on a reused connection. What does Go\'s `Transport` do?', options: ['Returns the error to your code', 'Sends the request again on a new connection', 'Waits 60 s, then retries', 'Retries on the same connection'], answer: 1, why: '`errServerClosedIdle` on a reused connection is retried, and a `GET` is replayable. A plain `POST` would not be.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,27 @@ export default {
 			why: '`shouldRetryRequest` returns false for a request that is not replayable before it reaches the `errServerClosedIdle` case. `isReplayable` accepts GET, HEAD, OPTIONS, TRACE and QUERY, or a request with an `Idempotency-Key`. On a fresh connection, `pc.isReused()` is false and the function returns false before any of these checks.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Measure when a Node.js server closes an idle keep-alive connection, raise that limit, and watch a client total timeout cut a slow call.',
+		steps: [
+			'Make a folder: `mkdir -p ~/timeout-lab && cd ~/timeout-lab`. Create `server.js` with this line: `const s = require(\'http\').createServer((q, r) => { if (q.url === \'/slow\') setTimeout(() => r.end(\'slow\\n\'), 8000); else r.end(\'ok\\n\'); }); if (process.env.KA) s.keepAliveTimeout = Number(process.env.KA); s.listen(3000, () => console.log(\'keepAliveTimeout\', s.keepAliveTimeout));`',
+			'Create `idle.js`, a client that sends one request and then sits idle: `const t = Date.now(); const c = require(\'net\').connect(3000, \'localhost\', () => c.write(\'GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\')); c.on(\'data\', () => {}); c.on(\'close\', () => { console.log(\'server closed the idle connection after\', ((Date.now() - t) / 1000).toFixed(1), \'s\'); process.exit(); }); setTimeout(() => { console.log(\'still open at 30 s\'); process.exit(); }, 30000);`',
+			'Run `node server.js` in one terminal and `node idle.js` in another.',
+			'Call the slow endpoint with and without a total timeout: `curl -sS --max-time 5 localhost:3000/slow`, then `curl -sS localhost:3000/slow -w "%{time_total}\\n"`.',
+			'Stop the server, start it with `KA=65000 node server.js`, and run `node idle.js` again.'
+		],
+		done: [
+			'With the defaults, the server prints `keepAliveTimeout 5000` and `idle.js` prints `server closed the idle connection after` about 6 s, for example `6.1 s` (about 5 s on Node older than 24.6).',
+			'`curl --max-time 5` fails with `curl: (28) Operation timed out after` about 5000 milliseconds `with 0 bytes received`, and the call without it prints `slow` after about 8 s.',
+			'With `KA=65000`, `idle.js` prints `still open at 30 s`.'
+		],
+		solution: [
+			'Node.js destroys an idle socket after `keepAliveTimeout` plus `keepAliveTimeoutBuffer`: 5 s plus 1 s. A balancer with a 60 s idle timeout would keep using that connection for 54 more seconds: the race window.',
+			'`--max-time` is a total timeout like Go\'s `Client.Timeout`: it covers the whole call, so the 8 s endpoint fails at 5 s.',
+			'65 s is above a 60 s balancer, so the balancer would always close first.'
+		]
+	},
 	recall: {
 		q: 'Which idle timeout must be longer, the load balancer\'s or the app\'s, and what happens when it is the other way round?',
 		a: 'The app\'s, for example 65 s against the balancer\'s 60 s. If the app closes first (Node.js defaults to 5 s plus a 1 s buffer), the balancer can send a request on a connection the app just closed and returns a 502.'

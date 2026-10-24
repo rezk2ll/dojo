@@ -115,6 +115,44 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 			'`redis.cache` (1 dot): `redis.cache.shop.svc.cluster.local` (NXDOMAIN), then `redis.cache.svc.cluster.local` (found). 2 queries.',
 			'`api.stripe.com` (2 dots): `.shop.svc.cluster.local`, `.svc.cluster.local`, `.cluster.local` appended, all NXDOMAIN, then `api.stripe.com` itself. 4 queries, 8 if the program also asks for AAAA. `api.stripe.com.` ends in a dot: 1 query.',
 			'`dnsConfig: { options: [ { name: ndots, value: "2" } ] }`. Now `api.stripe.com` has 2 dots, which meets `ndots:2`, so glibc tries it as written first. `redis.cache` has 1 dot and still goes through the search list.'
+		],
+		steps: [
+			{
+				title: 'Count the dots',
+				questions: [
+					{ q: 'How many dots does `redis.cache` have, and does it go through the search list with `ndots:5`?', options: ['2 dots, so it is tried as written', '1 dot, so the search list comes first', '0 dots, so only the search list is used', '1 dot, so it is tried as written first'], answer: 1, why: 'One dot is fewer than 5, so glibc appends the search domains before trying the name as written.' },
+					{ q: 'And `api.stripe.com`?', options: ['3 dots, so it is tried as written first', '2 dots, so it is tried as written first', '2 dots, so the search list comes first', '3 dots, so the search list comes first'], answer: 2, why: '`api.stripe.com` has 2 dots, still fewer than 5, so it goes through the search list too.' },
+					{ q: 'What changes for `api.stripe.com.`?', options: ['The trailing dot makes it absolute: no search list', 'The extra dot pushes it to 3, still under 5', 'glibc strips the dot and treats it like `api.stripe.com`', 'Only the last search domain is tried'], answer: 0, why: 'A name ending in a dot is an FQDN. The stub resolver sends it as is and skips the search list.' },
+					{ q: 'Which name in a Pod is tried as written first with `ndots:5`, without a trailing dot?', options: ['`redis.cache.svc.cluster`', '`api.eu.stripe.com`', '`a.b.c.d.e.example`', '`_http._tcp.my-svc.my-namespace.svc`'], answer: 2, why: '`a.b.c.d.e.example` has 5 dots, which is not fewer than 5. The others have 4 dots or fewer, so the search list comes first.' }
+				]
+			},
+			{
+				title: 'Walk the short name',
+				questions: [
+					{ q: 'What is the first A query glibc sends for `redis.cache`?', options: ['`redis.cache.shop.svc.cluster.local`', '`redis.cache.svc.cluster.local`', '`redis.cache`', '`redis.cache.cluster.local`'], answer: 0, why: 'glibc appends the search domains in the order of the `search` line, and the first is `shop.svc.cluster.local`.' },
+					{ q: 'What does the cluster DNS answer to that first query?', options: ['The Service address', '`SERVFAIL`', '`NXDOMAIN`', 'A CNAME to the cache namespace'], answer: 2, why: 'The Service lives in namespace `cache`, not `shop`, so `redis.cache.shop.svc.cluster.local` does not exist.' },
+					{ q: 'Which query finds the Service?', options: ['`redis.cache.cluster.local`, the third', '`redis.cache`, the name as written', '`redis.cache.shop.svc.cluster.local`, the first', '`redis.cache.svc.cluster.local`, the second'], answer: 3, why: 'Service names are `<service>.<namespace>.svc.<cluster domain>`, so the second search domain gives the real name.' },
+					{ q: 'How many A queries does `redis.cache` cost in all?', options: ['1', '2', '4', '8'], answer: 1, why: 'One `NXDOMAIN`, then a match. glibc stops at the first name that exists.' }
+				]
+			},
+			{
+				title: 'Walk the external name',
+				questions: [
+					{ q: 'How many of the three search domains fail for `api.stripe.com`?', options: ['All three', 'Only the first', 'The first two', 'None: the cluster DNS forwards them'], answer: 0, why: 'No `api.stripe.com.shop.svc.cluster.local` or similar name exists, so each appended domain returns `NXDOMAIN`.' },
+					{ q: 'How many A queries does `api.stripe.com` cost?', options: ['3', '1', '4', '6'], answer: 2, why: 'Three failed search domains, then the name as written: 4 queries.' },
+					{ q: 'The program asks for A and AAAA. How many queries now?', options: ['4', '5', '6', '8'], answer: 3, why: 'Each name is asked for both types, so the 4 A queries become 8 in all.' },
+					{ q: 'How many queries for `api.stripe.com.`?', options: ['4, the same as without the dot', '1', '2, one for each search domain left', '3, the search domains only'], answer: 1, why: 'The trailing dot makes it absolute, so glibc sends it once as written.' }
+				]
+			},
+			{
+				title: 'Write the dnsConfig',
+				questions: [
+					{ q: 'Which `dnsConfig` makes `api.stripe.com` one query without changing the code?', options: ['`searches: [ stripe.com ]`', '`options: [ { name: attempts, value: "1" } ]`', '`options: [ { name: ndots, value: "2" } ]`', '`options: [ { name: rotate } ]`'], answer: 2, why: 'With `ndots:2`, a name with 2 dots meets the threshold and is tried as written first.' },
+					{ q: 'With the Pod\'s default `dnsPolicy`, what happens to the other settings when you add that option?', options: ['They are wiped: you must list the search domains again', 'The Pod falls back to the node\'s `resolv.conf`', 'kubelet rejects the Pod until `dnsPolicy` is `None`', 'kubelet merges it on top, and the search list stays'], answer: 3, why: 'With any policy other than `None`, `dnsConfig.options` is merged on top of kubelet\'s defaults, so the 2 replaces the 5.' },
+					{ q: 'With `ndots:2`, what happens to `redis.cache`?', options: ['It still goes through the search list', 'It is tried as written first', 'It stops resolving', 'It needs a trailing dot'], answer: 0, why: '`redis.cache` has 1 dot, fewer than 2, so the search list still comes first and the short name keeps working.' },
+					{ q: 'What is the cost of lowering `ndots` for that Pod?', options: ['Short names stop working in the namespace', 'Names with 2 or more dots go upstream as written first', 'Every lookup now takes two extra queries', 'The Pod loses its cluster DNS server'], answer: 1, why: 'A short name like `redis.cache.svc` now goes to the upstream servers as an absolute name before the search list.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 			why: 'The name has 3 dots, fewer than 5, so every search domain is tried first. Kubelet put the node\'s search domains after the cluster ones, and the program asked for both A and AAAA for each.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Count the queries glibc sends for one name, with the Kubernetes `ndots:5` and without it.',
+		steps: [
+			'Make a folder: `mkdir -p ~/ndots-lab && cd ~/ndots-lab`. Create `db.cluster.local` with: `$ORIGIN cluster.local.`, `@ 30 IN SOA ns.cluster.local. admin.cluster.local. 1 7200 900 1209600 30`, `@ 30 IN NS ns.cluster.local.`, `ns 30 IN A 127.0.0.1`, `redis.cache.svc 30 IN A 10.96.0.20`.',
+			'Create `db.pay.test` the same way with `$ORIGIN pay.test.`, its own SOA and NS lines, and `api 30 IN A 192.0.2.50`. Create `Corefile` with one line each: `cluster.local {`, `file /lab/db.cluster.local`, `log`, `}`, `pay.test {`, `file /lab/db.pay.test`, `log`, `}`.',
+			'Write a Pod-style resolver file: `printf \'nameserver 127.0.0.1\\nsearch shop.svc.cluster.local svc.cluster.local cluster.local\\noptions ndots:5\\n\' > resolv.conf`.',
+			'Start CoreDNS: `docker run -d --name coredns-lab -v "$PWD":/lab coredns/coredns:1.11.3 -conf /lab/Corefile`. Then resolve a name from a container that shares its network: `docker run --rm --network container:coredns-lab -v "$PWD/resolv.conf":/etc/resolv.conf:ro debian:12-slim getent ahostsv4 api.pay.test`.',
+			'Read the queries with `docker logs coredns-lab 2>&1 | grep "A IN"`. Repeat with `redis.cache` and `api.pay.test.`, then change `ndots:5` to `ndots:2` in `resolv.conf` and resolve `api.pay.test` again.'
+		],
+		done: [
+			'With `ndots:5`, `api.pay.test` shows 4 queries in the log: 3 `NXDOMAIN` with a search domain appended, then `api.pay.test.` with `NOERROR`.',
+			'`redis.cache` shows 2 queries and resolves to `10.96.0.20`. `api.pay.test.` adds exactly one query.',
+			'With `ndots:2`, `api.pay.test` adds exactly one query.'
+		],
+		solution: [
+			'`api.pay.test` has 2 dots, fewer than 5, so glibc tries `.shop.svc.cluster.local`, `.svc.cluster.local` and `.cluster.local` before the name itself.',
+			'`getent ahostsv4` asks only for A records. A program that asks for AAAA too doubles every count.',
+			'Clean up with `docker rm -f coredns-lab`.'
+		]
+	},
 	recall: {
 		q: 'With the Kubernetes default `ndots:5`, how many A queries does glibc send to resolve `api.github.com`, and what is the smallest change in the app that makes it one?',
 		a: '4: the three cluster search domains appended in turn, all `NXDOMAIN`, then the name itself. Writing it as `api.github.com.` with a trailing dot makes it one query.'

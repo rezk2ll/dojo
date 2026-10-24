@@ -115,6 +115,44 @@ export default {
 			'The server goes DOWN after check 8, the third failure in a row: the counter drops from 2 to 1, which is below `rise`, so line 14 sets it to 0.',
 			'It goes UP after check 10: check 9 gives 1, check 10 gives 2, which reaches `rise`, and line 25 sets 4.',
 			'With checks every 2 s, check 8 runs about 16 s after the first one. The failures at checks 1, 3 and 4 did not remove the server, because a pass came before a third failure in a row.'
+		],
+		steps: [
+			{
+				title: 'Set up the counter',
+				questions: [
+					{ q: 'With `rise 2` and `fall 3`, what is the highest value of `health`?', options: ['4, which is `rise + fall - 1`', '3, the value of `fall`', '2, the value of `rise`', '5, which is `rise + fall`'], answer: 0, why: 'Line 25 caps the counter at `rise + fall - 1`. With the defaults that is 4.' },
+					{ q: 'In counter terms, when is the server UP?', options: ['Only when `health` is 4', 'When `health >= rise`, so 2 or more', 'When `health` is above 0', 'When `health >= fall`, so 3 or more'], answer: 1, why: 'The log line shows UP while `health >= rise`, and DOWN below that.' },
+					{ q: 'What does a failed check do to the counter?', options: ['It drops it to 0 at once', 'It takes off the value of `fall`', 'It takes off one, and drops it to 0 if that goes below `rise`', 'Nothing while the server is UP'], answer: 2, why: 'Line 12 takes off one. Lines 13 and 14 set 0 once the counter is below `rise`.' },
+					{ q: 'What does a passed check do?', options: ['It sets 4 at once', 'It adds the value of `rise`', 'Nothing while the server is DOWN', 'It adds one, and jumps to 4 once it reaches `rise`'], answer: 3, why: 'Line 22 adds one. Lines 24 and 25 jump to `rise + fall - 1` once the counter reaches `rise`.' }
+				]
+			},
+			{
+				title: 'Trace checks 1 to 5',
+				questions: [
+					{ q: 'The counter starts at 4. Check 1 fails. What is it now?', options: ['4', '3', '2', '0'], answer: 1, why: 'One off: 3. That is still at least `rise`, so the server stays UP.' },
+					{ q: 'Check 2 passes. What is the counter?', options: ['4', '3', '2', '5'], answer: 0, why: '3 plus one is 4, which is at least `rise`, so line 25 sets 4. It cannot go above 4.' },
+					{ q: 'Checks 3 and 4 fail. What is the counter?', options: ['0, so the server is DOWN', '1, so the server is DOWN', '2, so the server is still UP', '3, so the server is still UP'], answer: 2, why: '4, then 3, then 2. Two failures from 4 stop at `rise`, so the server stays in the pool.' },
+					{ q: 'Check 5 passes. What is the counter?', options: ['3', '5', '2', '4'], answer: 3, why: '2 plus one is 3, at least `rise`, so line 25 refills it to 4.' }
+				]
+			},
+			{
+				title: 'Find the DOWN',
+				questions: [
+					{ q: 'Checks 6 and 7 fail. What is the counter?', options: ['2', '0', '1', '3'], answer: 0, why: '4, then 3, then 2: the same as after checks 3 and 4.' },
+					{ q: 'Check 8 fails too. What happens to the counter?', options: ['It goes to 1, and the server stays UP', 'It stays at 2, the floor for an UP server', 'It goes to 1, below `rise`, so line 14 sets it to 0', 'It goes to 0 only after one more failure'], answer: 2, why: '2 minus one is 1, which is below `rise`. Line 14 drops it to 0.' },
+					{ q: 'So after which check is the server marked DOWN?', options: ['Check 6', 'Check 7', 'Check 10', 'Check 8'], answer: 3, why: 'Check 8 is the third failure in a row, the first time the counter drops below 2.' },
+					{ q: 'Why did the failures at checks 1, 3 and 4 not remove the server?', options: ['HAProxy ignores failures in its first 10 s', 'A pass came before a third failure in a row', 'Only HTTP checks count, and those were TCP', 'The `fall` count resets every minute'], answer: 1, why: 'Each pass while UP refills the counter to 4, so only 3 failures in a row can bring it below `rise`.' }
+				]
+			},
+			{
+				title: 'Find the UP',
+				questions: [
+					{ q: 'The counter is 0. Check 9 passes. What is it?', options: ['0, no change while DOWN', '1, still DOWN', '2, now UP', '4, now UP'], answer: 1, why: 'One added: 1, still below `rise`.' },
+					{ q: 'Check 10 passes. What is it?', options: ['2, still DOWN', '3, now UP', '1, still DOWN', '2, then line 25 sets 4: UP'], answer: 3, why: '1 plus one is 2, which reaches `rise`. Line 25 jumps to 4 and the server is UP.' },
+					{ q: 'How many passes does a DOWN server need to come back?', options: ['`rise`: 2 passes in a row', '`fall`: 3 passes in a row', 'A single pass', '4 passes, one per counter step'], answer: 0, why: 'From 0, two passes reach `rise`. That is what `rise 2` means.' },
+					{ q: 'What did this counter do during the Healthchecks.io incident, with some checks lost?', options: ['It caused a single long outage', 'It marked all backends DOWN with a 503', 'It caused flapping: backends crossing both thresholds again and again', 'Nothing: rise and fall filter out all loss'], answer: 2, why: 'With some checks passing and some failing, a server keeps reaching 0 and then 4. HAProxy reported backends "flipping between healthy / unhealthy states".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -152,6 +190,27 @@ export default {
 			why: 'Below the panic threshold, 50% by default, Envoy disregards health status and balances across all hosts. This keeps a burst of failures from sending the whole load to one host and taking it down too.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run HAProxy with HTTP health checks over two servers, make one sick, and time how long it takes to go DOWN and come back UP.',
+		steps: [
+			'Write the config: `mkdir -p ~/hc-lab && cd ~/hc-lab`, then `printf \'global\\n  log stdout format raw local0\\ndefaults\\n  log global\\n  mode http\\n  timeout connect 1s\\n  timeout client 30s\\n  timeout server 30s\\nfrontend fe\\n  bind :8404\\n  default_backend be\\nbackend be\\n  option httpchk GET /health\\n  server web1 127.0.0.1:9001 check\\n  server web2 127.0.0.1:9002 check\\n\' > haproxy.cfg`.',
+			'Start two servers whose `/health` you can flip between 200 and 500 with `/toggle`, then HAProxy in the same network: `docker run -d --rm --name hc-web -p 8404:8404 node:24-alpine node -e "for (const [p, n] of [[9001, \'web1\'], [9002, \'web2\']]) { let ok = true; require(\'http\').createServer((q, r) => { if (q.url === \'/toggle\') ok = !ok; r.statusCode = q.url === \'/health\' && !ok ? 500 : 200; r.end(n + (ok ? \' healthy\' : \' sick\') + \'\\n\'); }).listen(p); }"`, then `docker run -d --rm --name hc --network container:hc-web -v "$PWD/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0`.',
+			'Check both serve: `curl -s "localhost:8404/[1-4]"`. Make web2 sick and note the time: `date -u +%T; docker exec hc-web wget -qO- http://127.0.0.1:9002/toggle`. Wait 10 s, then run `docker logs -t hc` and `curl -s "localhost:8404/[1-4]"`.',
+			'Heal web2 with the same `toggle` command, wait 10 s, and read `docker logs -t hc` again.',
+			'Make both sick: toggle web1 and web2, wait 10 s, then `curl -si localhost:8404/ | head -1`. Clean up with `docker rm -f hc hc-web`.'
+		],
+		done: [
+			'`docker logs -t hc` shows `Server be/web2 is DOWN, reason: Layer7 wrong status, code: 500` about 6 s after the toggle, and the 4 requests then all print `web1 healthy`.',
+			'After the heal, the log shows `Server be/web2 is UP, reason: Layer7 check passed, code: 200` about 4 s after the toggle.',
+			'With both sick, curl prints `HTTP/1.1 503 Service Unavailable`, and the log shows `backend \'be\' has no server available!`.'
+		],
+		solution: [
+			'`check` uses the defaults `inter 2s`, `fall 3`, `rise 2`. Three failed checks one 2 s apart take about 6 s. Two passed checks bring the server back, so the UP comes sooner than the DOWN.',
+			'Until the third failure, HAProxy keeps sending requests to web2. Here it still answers them, since only `/health` fails. A crashed server would fail those requests too.',
+			'With no server UP, HAProxy answers 503 itself. A health URL that tested a shared dependency would cause that same 503 for every request.'
+		]
+	},
 	recall: {
 		q: 'With HAProxy\'s default `rise` and `fall`, how many consecutive failed checks mark a server down, and how many passed checks bring it back?',
 		a: '`fall 3`: 3 failed checks in a row, one every 2000 ms, mark it DOWN. `rise 2`: 2 passed checks in a row mark it UP. The counter runs from 0 to 4 in `check.c`.'

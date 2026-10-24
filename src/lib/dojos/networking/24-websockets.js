@@ -105,6 +105,44 @@ export default {
 			'In `http`: `map $http_upgrade $connection_upgrade { default upgrade; \'\' close; }`. In the server: `location /socket/ { proxy_pass http://app:8080; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade; }`. `proxy_http_version 1.1` is needed before nginx 1.29.7.',
 			'Pings: have the server send a ping frame every 30 s, half the 60 s timeout. Each ping is data from the backend, so nginx resets its timer. In the nginx 1.27.5 test, 30 s pings kept the socket open past 130 s.',
 			'Timeout: `proxy_read_timeout 3600s;` in that location keeps idle sockets for an hour. It also lets a stuck HTTP request in `/socket/` wait an hour, and it changes nothing in any other proxy on the path.'
+		],
+		steps: [
+			{
+				title: 'Read the symptom',
+				questions: [
+					{ q: 'Users drop after exactly one minute without messages. Which nginx setting matches?', options: ['`proxy_read_timeout`, 60 s by default', '`proxy_connect_timeout`, which limits the handshake', 'TCP keepalive in the kernel', 'An idle limit built into the browser'], answer: 0, why: 'The default `proxy_read_timeout` is 60 s, and in a tunnel it closes a connection where the backend sends nothing for that long.' },
+					{ q: 'What does that timer count?', options: ['The total lifetime of the socket', 'The time between two reads from the backend', 'The time between two messages from the browser', 'The time since the `101` reply'], answer: 1, why: 'nginx arms the timer each time it waits for backend data, and deletes it when data is ready.' },
+					{ q: 'Which close code will the browser report?', options: ['1000, a normal close', '1001, going away', '1006, closed without a Close frame', '1011, an error on the server'], answer: 2, why: 'nginx closes the TCP connections and nobody sends a Close frame. RFC 6455 reserves 1006 for that.' },
+					{ q: 'The backend sends one message every 90 s. Does that stop the drop?', options: ['Yes: any backend data resets the timer', 'Yes, as long as the messages are pings', 'No: nginx drops backend frames after 60 s', 'No: 60 s pass without backend data before each message'], answer: 3, why: 'The timer fires after 60 s with no data from the backend. A message every 90 s comes 30 s too late.' }
+				]
+			},
+			{
+				title: 'Pass the upgrade',
+				questions: [
+					{ q: 'Why does a `location` with only `proxy_pass` break the handshake?', options: ['`Upgrade` and `Connection` are hop-by-hop, so nginx does not forward them', 'nginx refuses any `GET` on `/socket/`', 'The backend expects a `CONNECT` request', 'nginx strips `Sec-WebSocket-Key`'], answer: 0, why: 'In the test, the backend got `connection: close` and no `upgrade`, answered `200`, and the client failed at once.' },
+					{ q: 'Which two lines forward the upgrade?', options: ['`proxy_pass_header Upgrade;` and `proxy_buffering off;`', '`add_header Upgrade websocket;` and `add_header Connection upgrade;`', '`proxy_set_header Upgrade $http_upgrade;` and `proxy_set_header Connection $connection_upgrade;`', '`proxy_set_header Host $host;` and `proxy_set_header Origin $http_origin;`'], answer: 2, why: '`proxy_set_header` sets request headers sent to the backend. `add_header` only touches the response to the browser.' },
+					{ q: 'What does `map $http_upgrade $connection_upgrade { default upgrade; \'\' close; }` do?', options: ['It blocks every request without an `Upgrade` header', 'It sets `Connection: upgrade` when the client asked for one, and `close` otherwise', 'It rewrites `http://` URLs to `ws://`', 'It caches the backend\'s `101` reply'], answer: 1, why: 'The map gives `upgrade` when `$http_upgrade` has a value, and `close` when it is empty, so plain requests keep the old behavior.' },
+					{ q: 'Which line do the docs require before nginx 1.29.7?', options: ['`proxy_buffering off;`', '`keepalive 16;`', '`http2 on;`', '`proxy_http_version 1.1;`'], answer: 3, why: 'The upgrade handshake is HTTP/1.1, and before 1.29.7 nginx needs this line to talk HTTP/1.1 to the backend.' }
+				]
+			},
+			{
+				title: 'Choose the fix',
+				questions: [
+					{ q: 'You pick server pings. Which interval?', options: ['Every 60 s, the same as the timeout', 'Every 120 s, to save bandwidth', 'Every 30 s, half the 60 s timeout', 'Once, right after the `101`'], answer: 2, why: 'A ping every 30 s always lands before the 60 s timer fires. At 60 s it races the timer.' },
+					{ q: 'Why does a server ping reset nginx\'s timer?', options: ['It is data from the backend, which is what the timer waits for', 'nginx reads ping frames and extends the timeout', 'A ping reopens the TCP connection', 'Only the browser\'s pong resets it'], answer: 0, why: 'nginx only copies bytes. Any frame from the backend, a ping included, clears the timer.' },
+					{ q: 'What does `proxy_read_timeout 3600s;` in `/socket/` cost?', options: ['Every location in the server now waits an hour', 'A stuck HTTP request in `/socket/` can also wait an hour', 'Pings stop working in that location', 'Nothing: it only applies to WebSockets'], answer: 1, why: 'The setting applies to every request in that `location`, not only to upgraded ones.' },
+					{ q: 'Which fix also helps with other proxies on the path?', options: ['A longer `proxy_read_timeout`, since nginx forwards it', 'Both help the same way', 'Neither: each proxy needs its own config', 'Server pings, since every hop sees the data'], answer: 3, why: 'A timeout set in nginx changes nothing in any other proxy. A ping is real traffic that crosses every hop.' }
+				]
+			},
+			{
+				title: 'Check the result',
+				questions: [
+					{ q: 'Which status code tells you the upgrade went through nginx?', options: ['`200 OK`', '`101 Switching Protocols`', '`426 Upgrade Required`', '`204 No Content`'], answer: 1, why: 'A `101` turns the connection into a WebSocket, and nginx switches to tunnel mode.' },
+					{ q: 'What does the browser send back for each server ping?', options: ['A Close frame', 'A ping, opcode `0x9`', 'Nothing at all', 'A pong, opcode `0xA`'], answer: 3, why: 'RFC 6455: the other side "MUST send a Pong frame in response". The test client did so for each ping.' },
+					{ q: 'With 30 s pings in the nginx 1.27.5 test, how long did the socket stay open?', options: ['Past 130 s, still open', 'Exactly 60.1 s, same as before', 'Exactly 90 s, three pings', 'It closed at once with code 1006'], answer: 0, why: 'Each ping reset the timer, so the 60 s limit never fired.' },
+					{ q: 'A user still sees code 1006 one day. What can the client conclude from the code alone?', options: ['nginx\'s timeout fired, for sure', 'The server sent a Close frame', 'Nothing specific: a proxy timeout and a network failure both give 1006, so it reconnects', 'The browser closed the socket on purpose'], answer: 2, why: 'A drop by a proxy timeout gives the same code as a network failure. The client must reconnect either way.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -142,6 +180,27 @@ export default {
 			why: 'The nginx timer counts time between two reads from the backend. A ping every 30 s is backend data, so the timer is reset before 60 s pass. The nginx docs suggest exactly this: "periodically send WebSocket ping frames to reset the timeout".'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Put nginx in front of a silent WebSocket backend, watch the read timeout cut the socket, then keep it open with server pings.',
+		steps: [
+			'Set up the backend: `mkdir -p ~/ws-lab/conf && cd ~/ws-lab && npm init -y && npm install ws@8.18.0`. Create `server.js` with this line: `const { WebSocketServer } = require(\'ws\'); const wss = new WebSocketServer({ port: 9001 }); wss.on(\'connection\', (ws) => { console.log(\'client connected\'); if (process.env.PING) setInterval(() => ws.ping(), 5000); });`',
+			'Create `conf/default.conf` with this line. The timeout is 10 s instead of 60 s so you wait less, and `/plain/` has no upgrade headers: `map $http_upgrade $connection_upgrade { default upgrade; \'\' close; } server { listen 8080; location /socket/ { proxy_pass http://127.0.0.1:9001; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade; proxy_read_timeout 10s; } location /plain/ { proxy_pass http://127.0.0.1:9001; } }`',
+			'Start both. nginx shares the backend\'s network, so `127.0.0.1:9001` reaches it: `docker run -d --rm --name ws-backend -p 8080:8080 -v "$PWD:/app" -w /app node:24-alpine node server.js`, then `docker run -d --rm --name ws-proxy --network container:ws-backend -v "$PWD/conf:/etc/nginx/conf.d:ro" nginx:1.27-alpine`.',
+			'Create `client.js` (Node 22 or newer has `WebSocket` built in): `const t = Date.now(); const ws = new WebSocket(process.argv[2]); ws.onopen = () => console.log(\'open\'); ws.onclose = (e) => { console.log(\'closed after\', ((Date.now() - t) / 1000).toFixed(1), \'s, code\', e.code); process.exit(); }; setTimeout(() => { console.log(\'still open at 25 s\'); process.exit(); }, 25000);`. Run `node client.js ws://localhost:8080/plain/`, then `node client.js ws://localhost:8080/socket/`, then `docker logs ws-proxy`.',
+			'Turn on pings: `docker rm -f ws-proxy ws-backend`, run the two `docker run` commands again with `-e PING=1` added to the backend one, and run `node client.js ws://localhost:8080/socket/` again. Clean up with `docker rm -f ws-proxy ws-backend`.'
+		],
+		done: [
+			'`/plain/` prints `closed after 0.1 s, code 1006`, and the nginx log shows `"GET /plain/ HTTP/1.1" 426`.',
+			'`/socket/` prints `open`, then `closed after 10.0 s, code 1006`, and the nginx log shows `"GET /socket/ HTTP/1.1" 101`.',
+			'With `PING=1`, `/socket/` prints `open`, then `still open at 25 s`.'
+		],
+		solution: [
+			'Without the two `proxy_set_header` lines, the backend gets no `Upgrade` header and refuses with `426`. No `101` comes back, so the handshake fails at once.',
+			'On `/socket/` the backend sends nothing. After `proxy_read_timeout`, here 10 s, nginx closes both connections without a Close frame: code 1006.',
+			'A ping every 5 s is backend data, so nginx resets its timer before 10 s pass. In production, the same rule gives a ping every 30 s for the default 60 s.'
+		]
+	},
 	recall: {
 		q: 'A WebSocket behind nginx drops after exactly 60 s of silence with code 1006. Which setting is it, and what are the two fixes?',
 		a: '`proxy_read_timeout`, 60s by default. Either raise it in the WebSocket `location`, or have the server send a ping frame (opcode `0x9`) more often than every 60 s, for example every 30 s.'

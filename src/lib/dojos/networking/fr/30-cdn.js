@@ -122,6 +122,44 @@ sub vcl_beresp_hitmiss {
 			'(b) Pas en cache. La ligne 9 voit l’en-tête `Cookie` et la ligne 11 renvoie `pass` : Varnish ne regarde même pas dans le cache.',
 			'(c) Pas en cache. La ligne 25 voit `Set-Cookie` et appelle `vcl_beresp_hitmiss`, qui marque l’objet non cachable : chaque requête pour `/news` part au backend.',
 			'(d) Un miss. `req.url` vaut `/pricing?utm_source=mail`, une clé différente de `/pricing` : Varnish va chercher et stocke une deuxième copie de la même page. Retire les paramètres de suivi de `req.url` dans `vcl_recv` pour partager une seule entrée.'
+		],
+		steps: [
+			{
+				title: 'Examine la requête (a)',
+				questions: [
+					{ q: 'Une règle côté requête (lignes 1 à 13) envoie-t-elle (a) en `pass` ?', options: ['Oui, ligne 4, car tout GET part en `pass`', 'Non : elle n’a ni en-tête `Authorization` ni en-tête `Cookie`', 'Oui, ligne 11, car la réponse a un `max-age`', 'Non, mais la ligne 25 l’envoie en `pass` plus tard'], answer: 1, why: 'Les lignes 2 et 9 ne visent que les requêtes avec `Authorization` ou `Cookie`. (a) n’a ni l’un ni l’autre, donc Varnish la cherche dans le cache.' },
+					{ q: 'Quelle est la clé de cache de (a) ?', options: ['`/pricing` plus l’IP du serveur', '`/pricing` seulement', '`/pricing` plus l’en-tête `Host`', 'Tous les en-têtes de la requête'], answer: 2, why: 'Les lignes 16 et 18 hachent `req.url` puis `Host`. L’IP du serveur ne sert que sans `Host`.' },
+					{ q: 'Le côté réponse marque-t-il l’objet non cachable ?', options: ['Non : pas de `Set-Cookie`, et `max-age=300` n’a ni `no-cache`, ni `no-store`, ni `private`', 'Oui : tout en-tête `Cache-Control` le rend non cachable', 'Oui : il n’y a pas d’en-tête `Surrogate-Control`', 'Seulement si le TTL est sous 600 s'], answer: 0, why: 'Les lignes 24 à 36 n’appellent `vcl_beresp_hitmiss` que pour `Set-Cookie` ou l’une de ces trois valeurs.' },
+					{ q: 'Combien de temps (a) reste-t-elle en cache ?', options: ['60 s', '3600 s', 'Jusqu’à une purge, sans TTL', '300 s, d’après `max-age`'], answer: 3, why: 'Sans `Surrogate-Control`, le TTL vient de `Cache-Control: max-age=300`.' }
+				]
+			},
+			{
+				title: 'Examine la requête (b)',
+				questions: [
+					{ q: 'Quelle ligne attrape (b) ?', options: ['La ligne 25, `beresp.http.Set-Cookie`', 'La ligne 16, `hash_data(req.url)`', 'La ligne 9, `req.http.Cookie`', 'La ligne 31, le test sur `Cache-Control`'], answer: 2, why: 'La requête porte `Cookie: session=81f2`, donc la ligne 9 correspond.' },
+					{ q: 'Que fait `return (pass)` à la ligne 11 ?', options: ['Il met la page en cache sous l’URL plus le cookie', 'Il va chercher au backend sans jamais regarder dans le cache', 'Il sert une copie périmée', 'Il répond 403'], answer: 1, why: 'Une requête en `pass` part au backend. Varnish ne la cherche pas et ne stocke pas la réponse.' },
+					{ q: 'Pourquoi le VCL intégré fait-il ça ?', options: ['Une page obtenue avec un cookie peut appartenir à un seul utilisateur', 'Les cookies rendent les réponses trop grosses à stocker', 'Varnish ne sait pas lire les cookies', 'Les cookies changent l’en-tête `Host`'], answer: 0, why: 'Le commentaire de la ligne 10 dit « Risky to cache by default. » La clé par défaut ne contient pas le cookie, donc l’utilisateur suivant aurait la même page.' },
+					{ q: 'Ton VCL ajoute `sub vcl_req_cookie { return; }`, et la page de compte n’a pas de `Cache-Control: private`. Que devient (b) ?', options: ['La ligne 11 l’envoie quand même en `pass`', 'Varnish ajoute le cookie à la clé', 'Le backend refuse la requête', 'Elle est mise en cache et servie au visiteur suivant'], answer: 3, why: 'La sub vide rend la main avant que la ligne 9 tourne. Rien côté réponse ne l’arrête, donc elle est stockée sous l’URL et le `Host` seulement.' }
+				]
+			},
+			{
+				title: 'Examine la requête (c)',
+				questions: [
+					{ q: 'Le côté requête envoie-t-il (c) en `pass` ?', options: ['Non : la requête n’a ni `Cookie` ni `Authorization`', 'Oui, ligne 9, car la réponse pose un cookie', 'Oui, ligne 2, car `/news` est dynamique', 'Oui, car `max-age=60` est court'], answer: 0, why: 'Les règles de requête ne lisent que les en-têtes de la requête. Le cookie de (c) arrive plus tard, dans la réponse.' },
+					{ q: 'Quelle ligne marque la réponse ?', options: ['La ligne 31, à cause de `max-age=60`', 'La ligne 9, à cause de `Set-Cookie`', 'La ligne 25, à cause de `Set-Cookie`', 'La ligne 16, à cause de l’URL'], answer: 2, why: 'La ligne 25 teste `beresp.http.Set-Cookie` sur la réponse du backend et appelle `vcl_beresp_hitmiss`.' },
+					{ q: 'Que fait `vcl_beresp_hitmiss` ?', options: ['Il stocke la page pendant 60 s', 'Il pose `param.uncacheable_ttl` et marque l’objet non cachable', 'Il retire `Set-Cookie` et met la page en cache', 'Il envoie la page au shield'], answer: 1, why: 'Les lignes 39 et 40 mettent le TTL à `param.uncacheable_ttl` et posent `beresp.uncacheable = true`.' },
+					{ q: 'Que fait donc chaque requête pour `/news` ?', options: ['Elle obtient un hit après la première', 'Elle obtient un hit pendant 60 s', 'Elle reçoit un 503', 'Elle part au backend'], answer: 3, why: 'Un objet non cachable n’est jamais servi depuis le cache, donc chaque requête pour `/news` atteint le backend.' }
+				]
+			},
+			{
+				title: 'Examine la requête (d)',
+				questions: [
+					{ q: 'Que vaut `req.url` pour (d) ?', options: ['`/pricing`', '`/pricing?utm_source=mail`', '`utm_source=mail`', '`/pricing` plus l’en-tête `Host`'], answer: 1, why: '`req.url` contient le chemin et la query.' },
+					{ q: '(d) est-elle un hit sur l’objet stocké par (a) ?', options: ['Oui, la query est ignorée', 'Oui, car le `Host` est le même', 'Non : la clé inclut la query, donc c’est une autre clé', 'Non, car (a) a déjà expiré'], answer: 2, why: 'La ligne 16 hache tout `req.url`. Une query différente donne une clé différente.' },
+					{ q: 'Que stocke Varnish après (d) ?', options: ['Une deuxième copie de la même page', 'Rien, car la page est déjà en cache', 'Une redirection vers `/pricing`', 'Une copie qui remplace la première'], answer: 0, why: 'Le miss part au backend, et la réponse est stockée sous sa propre clé, à côté de la copie de `/pricing`.' },
+					{ q: 'Comment faire partager une seule entrée à (a) et (d) ?', options: ['Envoyer `Vary: utm_source`', 'Purger `/pricing`', 'Baisser `max-age`', 'Retirer les paramètres de suivi de `req.url` dans `vcl_recv`'], answer: 3, why: 'Avec `utm_source` retiré avant le hachage, les deux requêtes hachent `/pricing` plus `Host`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -159,6 +197,28 @@ sub vcl_beresp_hitmiss {
 			why: 'Avec un shield, chaque POP transmet ses miss à un seul shield POP. Le premier miss fait venir l’image de l’origine jusqu’au shield, et les 59 autres POP la reçoivent du shield. Sans shield, chacun des 60 POP interrogerait l’origine.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire tourner Varnish avec son VCL intégré devant une petite origine, rejouer les quatre requêtes de À toi, puis couper la règle des cookies et voir la page d’un utilisateur arriver chez un autre.',
+		steps: [
+			'Écris un VCL avec seulement un backend, pour que le VCL intégré fasse le reste : `mkdir -p ~/cdn-lab && cd ~/cdn-lab`, puis `printf \'vcl 4.1;\\nbackend default { .host = "127.0.0.1"; .port = "9001"; }\\n\' > default.vcl`.',
+			'Démarre une origine qui numérote chaque requête qu’elle construit, puis Varnish dans le même réseau : `docker run -d --rm --name cdn-origin -p 8095:80 node:24-alpine node -e "let n = 0; require(\'http\').createServer((q, r) => { n++; if (q.url.startsWith(\'/pricing\')) r.setHeader(\'Cache-Control\', \'max-age=300\'); if (q.url === \'/news\') { r.setHeader(\'Cache-Control\', \'max-age=60\'); r.setHeader(\'Set-Cookie\', \'ab=B\'); } r.end(\'page \' + q.url + \' built at request \' + n + \' for \' + (q.headers.cookie || \'nobody\') + \'\\n\'); }).listen(9001)"`, puis `docker run -d --rm --name cdn --network container:cdn-origin -v "$PWD/default.vcl:/etc/varnish/default.vcl:ro" varnish:7.6`.',
+			'Envoie (a) deux fois : `curl -s -D - localhost:8095/pricing | grep -E "X-Varnish|built"`. Puis (b) avec deux utilisateurs : `curl -s -H "Cookie: session=81f2" localhost:8095/account` et la même avec `session=a9c4`. Puis (c) deux fois : `curl -s localhost:8095/news`. Puis (d) : `curl -s "localhost:8095/pricing?utm_source=mail"`.',
+			'Coupe la règle des cookies : `printf \'sub vcl_req_cookie { return; }\\n\' >> default.vcl`, puis `docker rm -f cdn` et relance la même commande `docker run` de Varnish.',
+			'Demande `/account` en tant que `session=81f2`, puis en tant que `session=a9c4`. Nettoie avec `docker rm -f cdn cdn-origin`.'
+		],
+		done: [
+			'Le second `/pricing` montre `X-Varnish` avec deux nombres et le même `built at request 1` : un hit.',
+			'Les deux appels à `/account` et les deux à `/news` montrent chacun un nouveau numéro de requête : aucun n’est en cache.',
+			'`/pricing?utm_source=mail` montre un nouveau numéro de requête : il a raté la copie de `/pricing`.',
+			'Après le changement, les deux appels à `/account` affichent `built at request 7 for session=81f2` (ton numéro peut différer) : le second utilisateur reçoit la page du premier.'
+		],
+		solution: [
+			'Varnish met l’ID de la requête en cours dans `X-Varnish`, et sur un hit il ajoute l’ID de la requête qui a stocké l’objet.',
+			'`/account` part en `pass` à cause de son en-tête `Cookie`, et `/news` est marqué non cachable par son `Set-Cookie`. `/pricing?utm_source=mail` est une autre clé, car la clé inclut la query.',
+			'La `vcl_req_cookie` vide saute le test du cookie. L’origine n’envoie pas de `Cache-Control: private`, donc la page est stockée sous l’URL et le `Host` seulement : c’est ainsi que les pages de compte de Steam ont fuité.'
+		]
+	},
 	recall: {
 		q: 'Quelle est la clé de cache par défaut de Fastly et de Varnish, et que fait le VCL intégré de Varnish d’une requête qui porte un en-tête `Cookie` ?',
 		a: 'L’URL (chemin et query) plus l’en-tête `Host`. Varnish envoie une requête avec `Cookie` ou `Authorization` en `pass` : elle part au backend et n’est jamais mise en cache.'

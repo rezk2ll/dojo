@@ -110,6 +110,44 @@ export default {
 			'Default, case (b): all 3 sites announce `med 1000`. The route stays, and queries keep arriving at sites whose check fails. The address stays reachable, and answers depend on whether the daemon can still serve anything.',
 			'With `--withdraw-on-down`, case (a): site 2 withdraws `192.0.2.53/32` and routers move its users to sites 1 and 3, whatever their neighbour AS.',
 			'With `--withdraw-on-down`, case (b): all 3 sites withdraw and `192.0.2.53` has no route at all, the same failure Facebook had in October 2021. Resolvers time out and answer SERVFAIL.'
+		],
+		steps: [
+			{
+				title: 'Read the defaults',
+				questions: [
+					{ q: 'Without `--withdraw-on-down`, what does a site send when its check fails?', options: ['A withdrawal of `192.0.2.53/32`', 'Nothing until the check passes again', 'The same announcement, with `med 1000`', 'An announcement with a longer AS_PATH'], answer: 2, why: 'Lines 6 to 10 keep the action at `announce`. Only the MED changes, from the up metric to the down metric.' },
+					{ q: 'What MED does a healthy site announce by default?', options: ['100', '0', '1000', '3'], answer: 0, why: 'The defaults are `--up-metric 100` and `--down-metric 1000`.' },
+					{ q: 'How many failed checks before a site counts as down?', options: ['1', '5', '10', '3'], answer: 3, why: 'Line 2 sets `--fall` to 3 by default, and lines 24 to 28 count up to it.' },
+					{ q: 'Without the flag, when is the route withdrawn at all?', options: ['After 3 failed checks', 'When the healthcheck process exits', 'When the MED reaches 1000', 'Never'], answer: 1, why: 'Line 7 withdraws only with `--withdraw-on-down` or in state `EXIT`, when the process stops.' }
+				]
+			},
+			{
+				title: 'Case (a), defaults',
+				questions: [
+					{ q: 'The daemon dies on site 2. What does site 2 announce after 3 failed checks?', options: ['A withdrawal', '`med 1000`', '`med 100`', 'Nothing new'], answer: 1, why: 'The check fails, the state goes DOWN, and the route is announced again with the down metric.' },
+					{ q: 'What do sites 1 and 3 announce?', options: ['`med 100`, as before', '`med 1000`', 'A withdrawal', 'A route to site 2'], answer: 0, why: 'Their checks still pass, so nothing changes for them.' },
+					{ q: 'Which routers move site 2\'s users to sites 1 or 3?', options: ['Every router on the Internet', 'Only routers inside site 2', 'Only routers with no route to site 2', 'Routers that compare MED, between routes from the same neighbouring AS'], answer: 3, why: 'RFC 4271 compares MED only between routes learned from the same neighbouring AS.' },
+					{ q: 'Can some queries still reach site 2?', options: ['No, a MED of 1000 blocks it', 'No, the route is gone', 'Yes, where routers do not compare its MED against sites 1 and 3', 'Only queries over TCP'], answer: 2, why: 'A router that only learns site 2 through a different neighbour AS than the others never compares their MEDs, so it can keep picking site 2.' }
+				]
+			},
+			{
+				title: 'Case (b), defaults',
+				questions: [
+					{ q: 'The shared database is down, so every check fails. What do the 3 sites announce?', options: ['`med 1000` from all 3', 'Nothing, they all withdraw', '`med 100` from all 3', '`med 1000` from site 1 only'], answer: 0, why: 'Each site turns DOWN and keeps announcing, with the down metric.' },
+					{ q: 'Is `192.0.2.53` still reachable?', options: ['No, it has no route', 'Only from one site', 'Yes, the route stays', 'Only for cached answers'], answer: 2, why: 'Every site still announces it, so routers still have a path.' },
+					{ q: 'Where do queries go?', options: ['Nowhere: they are dropped', 'To sites whose check fails', 'To a backup address', 'Back to the client'], answer: 1, why: 'All three announce the same worse MED, so routers keep picking a site, and every site is failing its check.' },
+					{ q: 'What do clients get back?', options: ['Always SERVFAIL', 'Always a timeout', 'Always a correct answer', 'Whatever the daemon can still serve without the database'], answer: 3, why: 'The address stays reachable. What comes back depends on the daemon, not on BGP.' }
+				]
+			},
+			{
+				title: 'Add `--withdraw-on-down`',
+				questions: [
+					{ q: 'Case (a): what does site 2 send now?', options: ['`med 1000`', 'A withdrawal of `192.0.2.53/32`', '`med 100`', 'A KEEPALIVE only'], answer: 1, why: 'With the flag, line 8 picks `withdraw` for any state other than UP.' },
+					{ q: 'Which routers move site 2\'s users away?', options: ['All of them, whatever their neighbour AS', 'Only those that compare MED', 'None until the Hold Time expires', 'Only routers in the same AS'], answer: 0, why: 'A withdrawal removes the route itself. No MED comparison is needed.' },
+					{ q: 'Case (b): what is left of `192.0.2.53` on the Internet?', options: ['One route, from the last site to fail', 'Three routes with `med 1000`', 'No route at all', 'A route to the database'], answer: 2, why: 'All three sites withdraw, so no router has a path to the address.' },
+					{ q: 'Which real outage does case (b) repeat?', options: ['A route leak, as in RFC 7908', 'An expired TLS certificate', 'A BGP Hold Time expiry', 'Facebook, October 2021: every site withdrew and resolvers answered SERVFAIL'], answer: 3, why: 'Facebook\'s DNS servers withdrew their own routes when they lost the data centers. With every site cut off at once, nothing was left.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,28 @@ export default {
 			why: 'Without `--withdraw-on-down`, a DOWN state still announces the route, only with the down metric of 1000 instead of 100. Line 7 withdraws only with that flag or in state `EXIT`, when the process stops.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Run ExaBGP\'s healthcheck on its own and watch the exact lines it would send to BGP when a service goes down, with and without `--withdraw-on-down`.',
+		steps: [
+			'Make a sandbox: `mkdir bgp-lab && cd bgp-lab && python3 -m venv venv && venv/bin/pip install exabgp==4.2.25`.',
+			'Create the "service is up" marker: `touch up`.',
+			'Start the healthcheck with a 1 second interval and no IP setup: `venv/bin/python -m exabgp healthcheck --no-ip-setup --ip 192.0.2.53/32 --cmd "test -f up" -i 1`. Watch a few lines.',
+			'In a second terminal in the same folder, break the service with `rm up`. Watch about 5 more lines, then stop the healthcheck with Ctrl-C.',
+			'Run `touch up` and start step 3 again with `--withdraw-on-down` added. Break the service with `rm up`, bring it back with `touch up`, then stop with Ctrl-C.'
+		],
+		done: [
+			'The first run prints `neighbor * announce route 192.0.2.53/32 next-hop self med 100` while `up` exists.',
+			'After `rm up`, it prints the same line with `med 1000`, never a `withdraw`.',
+			'When you stop it, it prints one `withdraw route 192.0.2.53/32` line.',
+			'With `--withdraw-on-down`, `rm up` leads to `withdraw` lines, and `touch up` brings back `announce ... med 100`.'
+		],
+		solution: [
+			'These lines are what ExaBGP reads on stdout and turns into BGP UPDATE messages for its peers. No peer is needed to see the decision.',
+			'The withdraw on Ctrl-C is the `EXIT` state on line 7: stopping the process removes the route, even without the flag.',
+			'After `rm up`, the output pauses for about 3 seconds before the change: no line is printed while the state is falling, and it takes 3 failed checks, the default `--fall`. Now picture every site losing `up` at once with the flag set: that is the Facebook outage.'
+		]
+	},
 	recall: {
 		q: 'What did Facebook\'s DNS servers do on 4 October 2021 when they lost the backbone, and what did resolvers see?',
 		a: 'They withdrew their BGP announcements for the DNS prefixes, such as 129.134.30.0/23, at every site. With no route left, resolvers like 1.1.1.1 returned SERVFAIL from about 15:50 to 21:20 UTC.'

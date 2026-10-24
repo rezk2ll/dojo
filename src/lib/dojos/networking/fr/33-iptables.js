@@ -132,6 +132,44 @@ export default {
 			'`psql` depuis 203.0.113.9 : la règle sur la source ne correspond pas, la suivante si. L’hôte envoie un RST, et `psql` échoue aussitôt avec « Connection refused ».',
 			'`curl` vers le port 8080 : aucune règle ne correspond, la politique `drop` s’applique. Le SYN reste sans réponse, le client le renvoie, et avec les réglages par défaut `connect()` échoue après 131 secondes.',
 			'`ping` depuis 10.1.2.3 : aucune règle n’accepte les ICMP echo request, la politique les jette. `ping` n’affiche aucune réponse et annonce 100 % de perte, alors que l’hôte tourne.'
+		],
+		steps: [
+			{
+				title: 'Lis la chaîne',
+				questions: [
+					{ q: 'Dans quel ordre cette chaîne vérifie-t-elle ses règles ?', options: ['La règle la plus précise d’abord', 'Toutes les règles, et la dernière qui correspond gagne', 'De haut en bas, et le premier verdict l’emporte', 'Les accept d’abord, puis les reject'], answer: 2, why: 'Les règles s’évaluent de haut en bas. Le premier `accept`, `drop` ou `reject` termine la chaîne pour ce paquet.' },
+					{ q: 'Quand `policy drop` s’applique-t-elle ?', options: ['À un paquet qu’aucune règle n’attrape', 'À chaque paquet, avant les règles', 'Seulement aux paquets hors de 10.0.0.0/8', 'Seulement aux paquets ICMP'], answer: 0, why: 'La politique est le verdict d’un paquet qui arrive au bout de la chaîne sans verdict.' },
+					{ q: 'À quoi sert `ct state established,related accept` ?', options: ['Elle laisse entrer chaque nouveau SYN', 'Elle accepte les paquets suivants d’une connexion déjà admise', 'Elle n’accepte que le trafic loopback', 'Elle journalise les connexions avant les autres règles'], answer: 1, why: 'Le suivi de connexion connaît la session. Une fois le premier paquet accepté, la suite de la session correspond à cette règle.' },
+					{ q: 'Que renvoie `reject with tcp reset` ?', options: ['Rien du tout', 'Un ICMP port unreachable', 'Un SYN-ACK, puis un FIN', 'Un RST TCP, puis il jette le paquet'], answer: 3, why: 'Reject renvoie une erreur puis jette le paquet. Avec `tcp reset`, l’erreur est un RST TCP.' }
+				]
+			},
+			{
+				title: 'Suis `psql` depuis 10.1.2.3',
+				questions: [
+					{ q: 'Quelle règle attrape le premier SYN vers le port 5432 ?', options: ['`ip saddr 10.0.0.0/8 tcp dport 5432 accept`', '`tcp dport 5432 reject with tcp reset`', '`ct state established,related accept`', 'Aucune : la politique le jette'], answer: 0, why: '10.1.2.3 est dans 10.0.0.0/8, et cette règle est au-dessus du reject : elle l’emporte.' },
+					{ q: 'Pourquoi la règle de reject ne voit-elle jamais ce SYN ?', options: ['Les reject ne s’appliquent qu’à UDP', 'L’accept au-dessus a déjà terminé la chaîne', 'Elle tourne sur un autre hook', 'La politique passe avant elle'], answer: 1, why: 'Le premier verdict l’emporte. Une fois le SYN accepté, aucune règle suivante ne tourne pour lui.' },
+					{ q: 'Quelle règle laisse passer la suite de la session ?', options: ['`tcp dport 22 accept`', '`iifname "lo" accept`', '`ct state established,related accept`', 'La ligne `policy drop`'], answer: 2, why: 'Après le handshake, conntrack marque la session comme établie, et la première règle l’accepte.' },
+					{ q: 'Que voit l’utilisateur ?', options: ['« Connection refused »', 'Une attente, puis un timeout', 'Un message ICMP unreachable', 'La connexion à la base s’établit'], answer: 3, why: 'La connexion est acceptée : `psql` atteint la base et se connecte.' }
+				]
+			},
+			{
+				title: 'Suis `psql` depuis 203.0.113.9',
+				questions: [
+					{ q: 'Quelle règle attrape le SYN ?', options: ['`ip saddr 10.0.0.0/8 tcp dport 5432 accept`', '`tcp dport 5432 reject with tcp reset`', '`ct state established,related accept`', 'Aucune : la politique le jette'], answer: 1, why: 'La source est hors de 10.0.0.0/8 : la règle d’accept ne correspond pas. La règle suivante sur le port 5432, si.' },
+					{ q: 'Que renvoie l’hôte ?', options: ['Un RST TCP', 'Rien', 'Un ICMP echo reply', 'Un SYN-ACK'], answer: 0, why: '`reject with tcp reset` répond au SYN par un RST.' },
+					{ q: 'En combien de temps `psql` échoue-t-il ?', options: ['Après 131 secondes', 'Après son propre timeout de connexion', 'Aussitôt, en un aller-retour', 'Jamais : il réessaie sans fin'], answer: 2, why: 'Le noyau transforme un RST reçu en `SYN_SENT` en `ECONNREFUSED` : `connect()` échoue tout de suite.' },
+					{ q: 'Quel message l’utilisateur lit-il ?', options: ['« Connection timed out »', '« No route to host »', '« Host is down »', '« Connection refused »'], answer: 3, why: '`ECONNREFUSED` est l’erreur que le client affiche sous la forme « Connection refused ».' }
+				]
+			},
+			{
+				title: 'Suis `curl` vers 8080 et `ping`',
+				questions: [
+					{ q: 'Quelle règle attrape le SYN de `curl` vers le port 8080 ?', options: ['`tcp dport 5432 reject with tcp reset`', 'Aucune, donc `policy drop` s’applique', '`tcp dport 22 accept`', '`ct state established,related accept`'], answer: 1, why: 'Aucune règle ne parle du port 8080. Le paquet arrive au bout de la chaîne et reçoit la politique.' },
+					{ q: 'Que voit le client `curl` ?', options: ['Aucune réponse : il renvoie le SYN et échoue après 131 s par défaut', '« Connection refused » aussitôt', 'Une page HTTP 403', 'Un ICMP port unreachable après un essai'], answer: 0, why: 'Un SYN jeté ne reçoit pas de réponse. Avec la valeur par défaut de `tcp_syn_retries`, 6, le noyau abandonne après 131 secondes.' },
+					{ q: 'Que devient `ping` depuis 10.1.2.3 ?', options: ['Il marche : 10.0.0.0/8 est de confiance', 'Il reçoit un ICMP port unreachable', 'Il annonce 100 % de perte', 'Il reçoit un RST TCP'], answer: 2, why: 'La règle sur 10.0.0.0/8 ne couvre que le port TCP 5432. Aucune règle n’accepte les ICMP echo request : la politique les jette.' },
+					{ q: 'L’hôte tourne. À quoi `ping` le fait-il ressembler ?', options: ['À un hôte qui refuse les connexions', 'À un hôte au réseau lent', 'À un hôte derrière un load balancer', 'À un hôte mort ou à une route perdue'], answer: 3, why: 'Un drop ne renvoie rien. Vu du client, rien n’indique qu’une règle de pare-feu a matché.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,28 @@ export default {
 			why: 'Dans nftables, accept termine la chaîne de base courante et le paquet passe à la suivante sur le même hook. La chaîne de Docker tourne après la tienne, et son drop arrête l’évaluation de tout le ruleset.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Charger le ruleset de l’exercice dans un conteneur, puis voir accept, reject et drop depuis trois clients.',
+		steps: [
+			'Crée un réseau : `docker network create --subnet 10.98.0.0/24 fwlab`.',
+			'Lance la « base de données » avec deux ports en écoute : `docker run -d --name fw-db --network fwlab --ip 10.98.0.5 --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sh -c \'python3 -m http.server 5432 & python3 -m http.server 8080\'`.',
+			'Charge le ruleset, avec 10.98.0.10 comme seule source de confiance : `docker exec fw-db nft \'add table inet host { chain input { type filter hook input priority filter; policy drop; ct state established,related accept; iifname "lo" accept; ip saddr 10.98.0.10 tcp dport 5432 accept; tcp dport 5432 reject with tcp reset; }; }\'`.',
+			'Depuis l’adresse de confiance : `docker run --rm --network fwlab --ip 10.98.0.10 nicolaka/netshoot:v0.13 curl -sS -o /dev/null -w \'%{http_code}\\n\' http://10.98.0.5:5432/`.',
+			'Depuis une adresse hors confiance, lance le même `curl` avec `--ip 10.98.0.20`. Puis, toujours depuis 10.98.0.20, essaie le port 8080 en ajoutant `--connect-timeout 5`. Enfin, depuis 10.98.0.10 : `ping -c 3 -W 1 10.98.0.5`. Nettoie avec `docker rm -f fw-db && docker network rm fwlab`.'
+		],
+		done: [
+			'Depuis 10.98.0.10, le port 5432 affiche `200`.',
+			'Depuis 10.98.0.20, le port 5432 échoue aussitôt : `curl: (7) Failed to connect ... after 0 ms`.',
+			'Depuis 10.98.0.20, le port 8080 n’échoue qu’au bout du timeout de 5 s : `curl: (28) ... Timeout was reached`.',
+			'`ping` annonce `100% packet loss`, alors que le conteneur tourne.'
+		],
+		solution: [
+			'`docker exec fw-db nft list table inet host` réaffiche la chaîne, une règle par ligne, dans l’ordre où elles s’évaluent.',
+			'Le code 7 après 0 ms, c’est le RST de `reject with tcp reset`. Le code 28 après 5 s, c’est le SYN jeté : sans `--connect-timeout`, le noyau réessaierait jusqu’à 131 s.',
+			'Pour voir la différence basculer, lance `docker exec fw-db nft delete table inet host`, puis refais l’étape 3 avec `tcp dport 5432 drop` comme dernière règle. Le port 5432 depuis 10.98.0.20, avec `--connect-timeout 5`, finit lui aussi en `curl: (28)`.'
+		]
+	},
 	recall: {
 		q: 'Un client se connecte à un port TCP filtré. Que voit-il quand la règle est `drop`, et quand elle est `reject with tcp reset` ?',
 		a: 'Avec drop, rien ne revient : le noyau renvoie le SYN 6 fois et abandonne après 131 secondes. Avec tcp reset, un RST arrive en SYN_SENT et `connect()` échoue aussitôt avec ECONNREFUSED, « Connection refused ».'

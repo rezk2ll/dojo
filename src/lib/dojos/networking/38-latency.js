@@ -120,6 +120,44 @@ export default {
 			'TLS: 680.3 minus 338.5 = 342 ms, one round trip. That fits TLS 1.3, which `curl -v` confirmed.',
 			'First byte: 1054.8 minus 680.4 = 374 ms. One round trip for the request is 339 ms, so the server took about 35 ms.',
 			'Download: 1054.808 minus 1054.753 = 0.055 ms. 3 round trips of 339 ms make up 1,017 ms of the 1,055, so 96% of the request is spent waiting on the path. A closer server, or a reused connection that skips TCP and TLS, would save the most.'
+		],
+		steps: [
+			{
+				title: 'Know the timers',
+				questions: [
+					{ q: 'What does each `curl -w` timer measure?', options: ['The length of its own phase only', 'The time since the previous timer', 'Time from the start until that step', 'The server\'s processing time'], answer: 2, why: 'curl records each timer as the time since the request started. So each value includes all the steps before it.' },
+					{ q: 'How do you get the length of one phase?', options: ['Subtract the timer before it', 'Read the timer as it is', 'Divide by the RTT', 'Subtract it from `total`'], answer: 0, why: 'A phase is the difference between two timers, such as `time_connect - time_namelookup` for the TCP handshake.' },
+					{ q: 'Which timer marks the end of the TLS handshake?', options: ['`connect`', '`pretransfer`', '`starttransfer`', '`appconnect`'], answer: 3, why: '`time_appconnect` is when the TLS handshake was done. `connect` is the TCP handshake.' },
+					{ q: 'What does `starttransfer` include?', options: ['Only the server\'s work', 'Everything up to the first byte', 'Only the download of the body', 'Only DNS and TCP'], answer: 1, why: 'It is the time until the first byte of the response arrived, counted from the start.' }
+				]
+			},
+			{
+				title: 'Split DNS and TCP',
+				questions: [
+					{ q: 'How long did DNS take?', options: ['339 ms', '0.7 ms', '7 ms', '338 ms'], answer: 1, why: '`namelookup=0.000699` is 0.7 ms.' },
+					{ q: 'Why is it that short?', options: ['The answer came from a cache', 'The host has no DNS name', 'DNS runs after TCP', 'curl skips DNS for HTTPS'], answer: 0, why: 'Under 1 ms is too fast for any network round trip. The chapter saw the same thing in a later run against ftp.jaist.ac.jp.' },
+					{ q: 'How long did the TCP handshake take?', options: ['338.5 ms, the `connect` value', '680 ms', '338 ms, `connect` minus `namelookup`', '0.7 ms'], answer: 2, why: '338.539 minus 0.699 is about 338 ms.' },
+					{ q: 'How many round trips of 339 ms is that?', options: ['Half of one', 'Two', 'Three', 'One'], answer: 3, why: 'SYN out, SYN-ACK back: one round trip, and nothing else.' }
+				]
+			},
+			{
+				title: 'Split TLS and the first byte',
+				questions: [
+					{ q: 'How long did TLS take?', options: ['342 ms', '680 ms', '374 ms', '35 ms'], answer: 0, why: '680.307 minus 338.539 is about 342 ms.' },
+					{ q: 'Why is one round trip for TLS plausible here?', options: ['TLS always takes one round trip', 'It fits TLS 1.3, which `curl -v` confirmed', 'The certificate was cached', 'TLS runs at the same time as TCP'], answer: 1, why: 'On this host the TLS 1.3 phase took one round trip. On ftp.jaist.ac.jp the same phase took about two.' },
+					{ q: 'Which subtraction gives the request phase?', options: ['`appconnect - connect`', '`total - starttransfer`', '`starttransfer - pretransfer`: 374 ms', '`starttransfer - connect`'], answer: 2, why: '1054.753 minus 680.390 is about 374 ms, from the request ready to the first byte.' },
+					{ q: 'How much of that is the server\'s own work?', options: ['All 374 ms', 'None: it is all network', 'About 339 ms', 'About 35 ms'], answer: 3, why: 'One round trip carries the request and the answer: 339 ms. The 35 ms left is the server.' }
+				]
+			},
+			{
+				title: 'Say where the time goes',
+				questions: [
+					{ q: 'How long did the body take to download?', options: ['About 0.055 ms', 'About 55 ms', 'About 374 ms', 'About 1 s'], answer: 0, why: '`total` minus `starttransfer` is 1054.808 minus 1054.753: 0.055 ms.' },
+					{ q: 'How many round trips are in the request, and how long are they together?', options: ['2, about 680 ms', '3, about 1,017 ms', '4, about 1,356 ms', '1, about 339 ms'], answer: 1, why: 'TCP, TLS and the request each cost one round trip of 339 ms.' },
+					{ q: 'What share of the 1.05 s is spent waiting on the path?', options: ['About 35%', 'About 50%', 'About 96%', 'About 3%'], answer: 2, why: '1,017 ms of 1,055 ms is about 96%. The server and DNS are the small part.' },
+					{ q: 'What would save the most time?', options: ['A faster server CPU', 'A bigger DNS cache', 'A smaller home page', 'Fewer or shorter round trips'], answer: 3, why: 'The cost is round trips. Fewer of them, or shorter ones, is the only big win.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -157,6 +195,28 @@ export default {
 			why: 'The time from the request to the first byte includes one round trip for the request and answer. 270 minus 256 leaves about 14 ms of server work, so the rest of the 1.3 s is DNS, TCP and TLS round trips.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Add a known delay between two containers, then read it back in the `curl -w` timers as round trips.',
+		steps: [
+			'Create a network, a server and a client: `docker network create latlab`, `docker run -d --name lat-srv --network latlab nicolaka/netshoot:v0.13 python3 -m http.server 8080` and `docker run -d --name lat-cli --network latlab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sleep 3600`.',
+			'Time a request with no delay: `docker exec lat-cli curl -s -o /dev/null -w \'dns=%{time_namelookup} connect=%{time_connect} appconnect=%{time_appconnect} pretransfer=%{time_pretransfer} starttransfer=%{time_starttransfer} total=%{time_total}\\n\' http://lat-srv:8080/`.',
+			'Add 100 ms to every packet the client sends: `docker exec lat-cli tc qdisc add dev eth0 root netem delay 100ms`. Check it with `docker exec lat-cli ping -c 3 lat-srv`, then run the same `curl` again.',
+			'Add TLS on the server: `docker exec lat-srv sh -c \'cd /tmp && openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -subj /CN=lat-srv -days 1\'`, then `docker exec -d lat-srv sh -c \'cd /tmp && openssl s_server -accept 8443 -cert c.pem -key k.pem -www\'`.',
+			'Run the same `curl` with `-k` against `https://lat-srv:8443/`, then once more with `--tls-max 1.2` added. Clean up with `docker rm -f lat-srv lat-cli && docker network rm latlab`.'
+		],
+		done: [
+			'Without delay, every timer stays under about 20 ms.',
+			'With the delay, `ping` shows about 100 ms, `connect` minus `dns` is about 100 ms, and `starttransfer` minus `pretransfer` is about 100 ms.',
+			'Over HTTPS with TLS 1.3, `appconnect` minus `connect` is about 100 ms: one round trip.',
+			'With `--tls-max 1.2`, the same phase is about 200 ms: two round trips.'
+		],
+		solution: [
+			'`netem` delays packets leaving the client\'s `eth0`, so each request and answer pair costs one extra 100 ms. That is a fake RTT you can read back in each phase.',
+			'DNS stays fast: Docker\'s resolver for the container answers on 127.0.0.11, a loopback address, so the query never leaves through the delayed `eth0`.',
+			'The TLS 1.2 run costs one round trip more than TLS 1.3. On a 339 ms path like the task\'s, that is a third of a second per new connection.'
+		]
+	},
 	recall: {
 		q: 'Which `curl -w` timers mark the end of DNS, TCP, TLS and the first byte, and how do you get the length of one phase?',
 		a: '`time_namelookup`, `time_connect`, `time_appconnect` and `time_starttransfer`. Each counts from the start, so subtract the previous timer: `time_connect - time_namelookup` is the TCP handshake.'

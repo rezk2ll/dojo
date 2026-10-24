@@ -103,6 +103,44 @@ export default {
 			'IP : `45`, donc 20 octets d’en-tête. La longueur totale `003c` vaut 60. Le TTL `34` vaut 52. Le protocole `06` est TCP. La source `6814 1a88` est 104.20.26.136, la destination `ac11 0005` est 172.17.0.5.',
 			'TCP : port source `0050`, soit 80, et port de destination `b286`, soit 45702. `a0` donne un data offset de 10 mots, 40 octets. 20 + 40 = 60 : ce paquet ne porte aucune donnée.',
 			'L’octet de flags `12` vaut SYN plus ACK : c’est le SYN-ACK du serveur. Le numéro d’acquittement `8da6 9128` vaut 2376503592, un de plus que le premier numéro de séquence du client, 2376503591.'
+		],
+		steps: [
+			{
+				title: 'Retire l’en-tête Ethernet',
+				questions: [
+					{ q: 'Quels octets du dump forment l’en-tête Ethernet ?', options: ['Les 14 premiers, jusqu’à `0800` compris', 'Les 20 premiers, jusqu’à `3406`', 'Les 6 premiers, `069c f20c df7a`', 'Les 32 premiers, jusqu’à `0005`'], answer: 0, why: 'Un en-tête Ethernet fait 14 octets : la MAC de destination, la MAC source, puis un type sur 2 octets.' },
+					{ q: 'Quelle MAC est la destination de cette trame ?', options: ['`ca:20:8c:72:3c:8c`, la passerelle', '`06:9c:f2:0c:df:7a`, le conteneur', '`ff:ff:ff:ff:ff:ff`, un broadcast', '`08:00:45:00:00:3c`, lue au-delà du type'], answer: 1, why: 'La MAC de destination vient en premier. Ce paquet revient du serveur, donc la trame est adressée au conteneur.' },
+					{ q: 'Qu’annonce le type `0800` au destinataire ?', options: ['La trame fait 2048 octets', 'Un message ARP suit', 'Un paquet IPv4 suit', 'Le paquet va vers le port 2048'], answer: 2, why: 'Le champ type dit ce qui suit l’en-tête Ethernet, et `0x0800` désigne IPv4.' },
+					{ q: 'Où commence l’en-tête IP ?', options: ['Au premier octet, `06`', 'À `3406`, le TTL et le protocole', 'À `6814`, l’adresse source', 'Au `45` juste après `0800`'], answer: 3, why: 'Les 14 octets d’Ethernet viennent d’abord, donc l’en-tête IP commence à l’octet suivant, `45`.' }
+				]
+			},
+			{
+				title: 'Lis l’en-tête IP',
+				questions: [
+					{ q: 'Le premier octet IP vaut `45`. Combien mesure l’en-tête IP ?', options: ['45 octets', '5 octets', '20 octets', '40 octets'], answer: 2, why: 'Le 4 est la version. Le 5 est l’IHL, compté en mots de 32 bits : 5 × 4 = 20 octets, un en-tête sans options.' },
+					{ q: 'L’octet de TTL vaut `34`. Quel est le TTL ?', options: ['52', '34', '64', '6'], answer: 0, why: '`0x34` vaut 3 × 16 + 4 = 52. Les routeurs du chemin l’ont baissé d’au moins 1 chacun. Le `06` à côté est le protocole.' },
+					{ q: 'L’octet de protocole vaut `06`. Que trouve-t-on après l’en-tête IP ?', options: ['Un datagramme UDP', 'Un segment TCP', 'Un autre en-tête IP', 'Une trame Ethernet'], answer: 1, why: 'Le protocole 6 désigne TCP. UDP serait 17.' },
+					{ q: 'Quelles sont les adresses source et destination ?', options: ['De 172.17.0.5 vers 104.20.26.136', 'De 172.17.0.1 vers 172.17.0.5', 'De 104.20.26.136 vers 172.17.0.1', 'De 104.20.26.136 vers 172.17.0.5'], answer: 3, why: 'La source vient d’abord : `6814 1a88` se lit 104.20.26.136. Puis `ac11 0005` vaut 172.17.0.5. La réponse va du serveur vers le conteneur.' }
+				]
+			},
+			{
+				title: 'Lis l’en-tête TCP',
+				questions: [
+					{ q: 'Où commence l’en-tête TCP ?', options: ['Juste après `0800`', 'À `da7f`, après la longueur totale', 'À `0050`, 20 octets après le `45`', 'À `a012`, les deux derniers octets'], answer: 2, why: 'L’en-tête IP fait 20 octets, donc TCP commence juste après l’adresse de destination, par le port source.' },
+					{ q: 'Quels sont les deux ports ?', options: ['Source 80, destination 45702', 'Source 45702, destination 80', 'Source 80, destination 80', 'Source 20480, destination 34482'], answer: 0, why: '`0050` vaut 80 et `b286` vaut 45702. Le serveur répond depuis le port 80 vers le port utilisé par curl.' },
+					{ q: 'L’octet 12 de l’en-tête TCP vaut `a0`. Combien mesure l’en-tête TCP ?', options: ['10 octets', '160 octets', '20 octets', '40 octets'], answer: 3, why: 'Le data offset est dans les 4 bits hauts, `a`, soit 10. Il compte des mots de 32 bits : 10 × 4 = 40 octets.' },
+					{ q: 'La longueur totale IP `003c` vaut 60. Ce paquet porte-t-il des données ?', options: ['Oui : 60 octets de HTTP', 'Oui : les 20 octets après l’en-tête TCP', 'Non : 20 octets d’IP et 40 de TCP font les 60', 'Impossible à dire sans la longueur Ethernet'], answer: 2, why: 'La longueur totale couvre l’en-tête IP et tout ce qui suit. 20 + 40 = 60 ne laisse rien pour des données.' }
+				]
+			},
+			{
+				title: 'Nomme le paquet',
+				questions: [
+					{ q: 'L’octet de flags TCP vaut `12`. Quels flags sont allumés ?', options: ['PSH et ACK', 'SYN et ACK', 'FIN et ACK', 'RST et ACK'], answer: 1, why: '`0x12` vaut `0x10`, ACK, plus `0x02`, SYN. Le `18` du paquet `GET` valait ACK plus PSH.' },
+					{ q: 'Quel paquet de la connexion est-ce ?', options: ['Le SYN-ACK du serveur, le deuxième paquet du handshake', 'La requête `GET` du client', 'Les premiers octets de la réponse HTTP', 'Un simple ACK en fin de connexion'], answer: 0, why: 'Seule la réponse du serveur à un SYN porte à la fois SYN et ACK, et elle n’a pas de données.' },
+					{ q: 'Le numéro d’acquittement `8da6 9128` vaut 2376503592. Qu’est-ce qu’il t’apprend ?', options: ['Le serveur a reçu 2376503592 octets', 'C’est le premier numéro de séquence du serveur', 'Le premier numéro de séquence du client était 2376503591', 'Le client peut envoyer 2376503592 octets'], answer: 2, why: 'Le SYN-ACK acquitte le premier numéro de séquence du client plus un.' },
+					{ q: 'L’en-tête TCP fait ici 40 octets, pas 20. Qu’y a-t-il dans les 20 autres ?', options: ['Des options TCP après la partie fixe de 20 octets', 'Le début de la réponse HTTP', 'Une seconde copie des adresses IP', 'Du remplissage jusqu’à la taille minimale de trame'], answer: 0, why: 'Un en-tête TCP fait au moins 20 octets, et les options suivent, comme les 12 octets d’options d’horodatage du paquet `GET`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -140,6 +178,28 @@ export default {
 			why: 'Les 4 bits bas forment l’IHL, la longueur de l’en-tête en mots de 32 bits. 5 est le minimum, un en-tête sans options. La limite de sauts, c’est le TTL, un autre octet.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Capturer ton propre handshake et décoder le SYN-ACK à la main, comme dans l’exercice.',
+		steps: [
+			'Lance un serveur web sur son propre réseau Docker : `docker network create netlab && docker run -d --name web --network netlab nginx:1.27-alpine`.',
+			'Ouvre un shell qui a `tcpdump` et `curl`, sur le même réseau : `docker run --rm -it --network netlab nicolaka/netshoot:v0.13`.',
+			'Dedans, capture les deux premiers paquets d’une requête : `tcpdump -i eth0 -n -e -XX -c 2 "tcp port 80" & sleep 1; curl -s -o /dev/null http://web/`.',
+			'Cache la ligne décodée du deuxième paquet et décode son hexa à la main : les deux MAC, le type, la longueur de l’en-tête IP, le TTL, le protocole et les adresses, les ports, la longueur de l’en-tête TCP et les flags. Compare ensuite avec la ligne décodée.',
+			'Nettoie : `exit`, puis `docker rm -f web && docker network rm netlab`.'
+		],
+		done: [
+			'Le deuxième paquet affiche `Flags [S.]`, et ton octet de flags vaut `12`.',
+			'Ton octet de TTL vaut `40`, soit 64.',
+			'Ton numéro d’acquittement vaut le `seq` du premier paquet plus 1.'
+		],
+		solution: [
+			'Octets 0 à 13 : la MAC de destination (ton conteneur shell), la MAC source (le conteneur `web`), puis `0800` pour IPv4.',
+			'`4500` : version 4, un en-tête de 20 octets. `003c` : 60 octets au total. `4006` : TTL 64, protocole 6, TCP. Les 8 octets suivants sont les deux adresses, un octet par nombre. Lors d’un essai, `c0a8 f002` se lisait 192.168.240.2.',
+			'TCP commence par `0050`, le port source 80, puis ton port client. L’octet 12 de TCP vaut `a0`, donc l’en-tête fait 40 octets et 20 + 40 = 60 ne laisse aucune donnée. L’octet 13 vaut `12` : SYN plus ACK.',
+			'Le paquet de l’exercice avait un TTL de 52, parce que des routeurs d’internet l’ont baissé. Deux conteneurs sur un même réseau Docker n’ont aucun routeur entre eux, donc le TTL reste à 64.'
+		]
+	},
 	recall: {
 		q: 'Dans la trame de 141 octets qui portait le `GET` de curl, combien d’octets prend chaque couche ?',
 		a: 'Ethernet 14, IP 20, TCP 32 (20 plus 12 octets d’options d’horodatage) et HTTP 75.'

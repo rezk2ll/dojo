@@ -133,6 +133,44 @@ failure:
 			'2 et 3 : le serveur n’a pas répondu. Le SYN est parti, et les renvois gardent le même numéro de séquence parce que ce sont des copies d’un seul SYN. Vérifie un pare-feu qui jette le port 81, un security group, ou si la machine est éteinte.',
 			'`curl --connect-timeout 3 http://10.78.0.10:81/` a abandonné au bout de 3002 ms avec `curl: (28) Connection timed out after 3002 milliseconds`, au lieu de 135 secondes.',
 			'La limite du noyau est `net.ipv4.tcp_syn_retries`. Le noyau la lit par espace de noms réseau (`net->ipv4.sysctl_tcp_syn_retries`) : la baisser change toutes les connexions de cet espace. Un délai sur l’appel ne change que cet appel.'
+		],
+		steps: [
+			{
+				title: 'Lis la sortie 1',
+				questions: [
+					{ q: '`Connection refused` : qu’est-ce qui est revenu au client ?', options: ['Un RST de la machine serveur', 'Rien du tout', 'Un SYN-ACK que le client a rejeté', 'Une erreur d’un routeur du chemin'], answer: 0, why: 'Un refus est un paquet. En SYN-SENT, un RST reçu fait échouer `connect()` avec `ECONNREFUSED`.' },
+					{ q: 'La machine serveur a-t-elle donc répondu ?', options: ['Non : refusé veut dire que la machine est éteinte', 'Oui : la machine est active et joignable', 'Non : seul un pare-feu a répondu', 'Impossible à dire avec cette ligne'], answer: 1, why: 'Quelque chose à cette adresse a envoyé le RST, donc la machine tourne et le chemin jusqu’à elle marche.' },
+					{ q: 'Pourquoi a-t-elle envoyé un RST ?', options: ['Un pare-feu jette le port 82', 'Le serveur est surchargé', 'Aucun programme n’écoute sur le port 82', 'Le client a envoyé un mauvais numéro de séquence'], answer: 2, why: 'Une machine répond à un SYN par un RST quand aucune socket n’écoute sur ce port. Un pare-feu qui jette n’enverrait rien.' },
+					{ q: 'Que vérifies-tu ensuite ?', options: ['Les règles de pare-feu du port 82', 'La route du client vers le serveur', 'Si le serveur est allumé', 'Le service, avec `ss -tlnp` sur le serveur'], answer: 3, why: 'La machine répond, donc regarde le programme : tourne-t-il, et sur quel port et quelle adresse écoute-t-il ?' }
+				]
+			},
+			{
+				title: 'Lis les sorties 2 et 3',
+				questions: [
+					{ q: '`ss -tan` affiche `SYN-SENT` pendant plusieurs secondes. Qu’est-ce que ça veut dire ?', options: ['Le SYN est parti et aucun SYN-ACK n’est revenu', 'La poignée de main est finie et le client attend des données', 'Le serveur a fermé la connexion', 'Le client n’a encore rien envoyé'], answer: 0, why: 'SYN-SENT est l’état entre l’envoi du SYN et la réception du SYN-ACK. Il ne bouge plus jusqu’à un SYN-ACK, un RST ou le timeout final.' },
+					{ q: 'tcpdump montre sept SYN depuis le port 53158 avec le même `seq`. Que sont-ils ?', options: ['Sept tentatives séparées lancées par curl', 'Des copies d’un seul SYN : le premier et 6 renvois', 'Sept connexions depuis sept ports', 'Le serveur qui renvoie le SYN'], answer: 1, why: 'Un renvoi est le même SYN envoyé à nouveau, donc le port source et le numéro de séquence ne changent pas.' },
+					{ q: 'La machine serveur a-t-elle répondu dans les cas 2 et 3 ?', options: ['Oui, par un RST à chaque fois', 'Oui, mais son SYN-ACK est arrivé trop tard', 'Non : rien n’est revenu', 'Oui, par un SYN-ACK que le client a ignoré'], answer: 2, why: 'Toute réponse ferait sortir de SYN-SENT : un SYN-ACK ouvre la connexion et un RST la refuse.' },
+					{ q: 'Que vérifies-tu ensuite ?', options: ['Si un programme écoute sur le port 81', 'Le nom DNS du serveur', 'Les sockets TIME_WAIT du client', 'Un pare-feu qui jette le port 81, un security group, ou si la machine est éteinte'], answer: 3, why: 'Quelque chose a avalé le SYN sans rien dire. Dans ce chapitre, c’était une règle DROP sur le serveur.' }
+				]
+			},
+			{
+				title: 'Limite l’attente',
+				questions: [
+					{ q: 'Sans option, combien de temps curl a-t-il attendu sur le port 81 dans l’essai du chapitre ?', options: ['3 secondes', '15 minutes', 'Jusqu’à un Ctrl-C', 'Environ 135 secondes'], answer: 3, why: 'Le noyau a envoyé 1 SYN et 6 renvois, puis a échoué avec `ETIMEDOUT` au bout de 135262 ms.' },
+					{ q: 'Quelle option de `curl` abandonne la connexion au bout de 3 secondes ?', options: ['`--retry 3`', '`--connect-timeout 3`', '`--keepalive-time 3`', '`--limit-rate 3`'], answer: 1, why: '`--connect-timeout` borne le temps que curl attend pour ouvrir la connexion.' },
+					{ q: 'Qu’affiche curl quand cette limite tombe ?', options: ['`curl: (28) Connection timed out after 3002 milliseconds`', '`Connection refused`', '`Network unreachable`', '`Could not resolve host`'], answer: 0, why: 'Dans cette session, il a abandonné au bout de 3002 ms avec l’erreur 28, au lieu de 135 secondes.' },
+					{ q: 'Pourquoi le noyau a-t-il renvoyé le SYN 6 fois de lui-même ?', options: ['curl a demandé 6 essais', 'Le pare-feu autorisait 6 essais', '`net.ipv4.tcp_syn_retries` vaut 6 par défaut', '`tcp_retries2` vaut 6'], answer: 2, why: '`tcp_syn_retries` fixe combien de fois un SYN sans réponse est renvoyé. `tcp_retries2` concerne les données d’une connexion ouverte.' }
+				]
+			},
+			{
+				title: 'Choisis où poser la limite',
+				questions: [
+					{ q: 'À quel niveau le noyau lit-il `tcp_syn_retries` ?', options: ['Par espace de noms réseau', 'Par processus', 'Par socket', 'Par adresse de destination'], answer: 0, why: 'Le code lit `net->ipv4.sysctl_tcp_syn_retries`, une valeur par espace de noms réseau.' },
+					{ q: 'Si tu la baisses, qu’est-ce qui change ?', options: ['Seulement l’appel curl', 'Toutes les connexions de cet espace de noms', 'Seulement les connexions vers le port 81', 'Seulement les connexions déjà en échec'], answer: 1, why: 'Une seule valeur couvre toutes les connexions de l’espace de noms, y compris celles qui ont besoin d’un connect patient.' },
+					{ q: 'Pourquoi préférer `--connect-timeout` sur l’appel ?', options: ['Il fait arriver le SYN au serveur', 'Il retire la règle de pare-feu', 'Il ne change que cet appel', 'Il ne marche qu’en root'], answer: 2, why: 'Un délai sur l’appel pose la limite là où il en faut une et laisse le reste de la machine tranquille.' },
+					{ q: 'Une règle DROP sur le serveur bloque le port 81. Qu’est-ce qui fait marcher l’appel ?', options: ['Baisser `tcp_syn_retries` à 1', 'Lancer un second programme sur le port 81', 'Relancer curl en boucle', 'Autoriser le port 81 dans cette règle ou ce security group'], answer: 3, why: 'Le délai rend seulement l’échec rapide. Le SYN n’atteint le service qu’une fois que la règle le laisse passer.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,30 @@ failure:
 			why: '`tcp_v4_connect` passe en SYN-SENT avant le départ du premier SYN, et l’état ne bouge plus jusqu’à un SYN-ACK, un RST ou le timeout final. Les renvois répètent le même SYN.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Reproduire sur ton portable les trois cas de l’exercice : un port ouvert, un port fermé et un port jeté.',
+		steps: [
+			'Crée un réseau et un serveur qui répond sur le port 80, n’a rien sur le 82 et jette le 81 : `docker network create tcplab && docker run -d --name srv --network tcplab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sh -c "iptables -A INPUT -p tcp --dport 81 -j DROP && python3 -m http.server 80"`.',
+			'Ouvre un shell client sur le même réseau : `docker run --rm -it --network tcplab nicolaka/netshoot:v0.13`.',
+			'Dedans, essaie le port ouvert et le port fermé : `curl -s -o /dev/null -w "%{http_code}\\n" http://srv/`, puis `curl -sv http://srv:82/ 2>&1 | grep -i refused`.',
+			'Observe le port jeté : `timeout 5 tcpdump -l -i eth0 -n "tcp port 81" & sleep 1; curl -s --connect-timeout 3 http://srv:81/; echo "curl exit $?"`. Attends que tcpdump s’arrête.',
+			'Regarde la socket pendant qu’elle attend : `curl -s --connect-timeout 3 http://srv:81/ & sleep 1; ss -tan | grep :81`.',
+			'Tape `exit`. Sur ton portable, regarde ce qui écoute sur le serveur avec `docker exec srv ss -tlnp`, puis nettoie : `docker rm -f srv && docker network rm tcplab`.'
+		],
+		done: [
+			'Le port 80 affiche `200`.',
+			'Le port 82 affiche tout de suite `connect to ... port 82 ... failed: Connection refused`.',
+			'tcpdump montre trois lignes `Flags [S]` vers le port 81 avec le même `seq`, à environ 1 s d’écart, et curl sort avec `28`.',
+			'`ss -tan` montre la socket vers le port 81 en `SYN-SENT`.',
+			'`ss -tlnp` sur le serveur liste `python3` sur le port 80 et rien sur le 81 ni le 82.'
+		],
+		solution: [
+			'Port 82 : le noyau du serveur répond au SYN par un RST, car aucune socket n’écoute là. La machine tourne.',
+			'Port 81 : la règle DROP jette chaque SYN et rien ne revient. Le noyau renvoie le même SYN après environ 1 et 2 secondes, et `--connect-timeout 3` arrête curl bien avant la fin des 6 renvois par défaut.',
+			'Le code de sortie 28 est l’erreur de timeout de curl, le même `(28)` que dans l’exercice. L’autre ligne, sur 127.0.0.11 dans `ss -tlnp`, est le serveur DNS de Docker.'
+		]
+	},
 	recall: {
 		q: 'Que reçoit le client quand un port est fermé, et quand un pare-feu jette le SYN ?',
 		a: 'Un port fermé renvoie un RST, donc `connect()` échoue tout de suite avec `Connection refused`. Un SYN jeté ne reçoit rien : le client le renvoie 6 fois et échoue sur un timeout, au bout de 135 secondes dans cet essai.'

@@ -126,6 +126,44 @@ export default {
 			'`0001`: hardware type 1, Ethernet. `0800`: protocol IPv4. `06` and `04`: a MAC is 6 bytes, an IPv4 address 4. `0001`: opcode 1, a request. A reply has `0002`.',
 			'Sender MAC `c2:01:a7:66:6b:1b`, sender IP `0a4d 001e` = 10.77.0.30. Target MAC all zeros, because C does not know it. Target IP `0a4d 000a` = 10.77.0.10.',
 			'14 + 28 = 42 bytes, the `length 42` that tcpdump prints for every ARP frame on this network.'
+		],
+		steps: [
+			{
+				title: 'Read the Ethernet header',
+				questions: [
+					{ q: 'The destination MAC is `ffff ffff ffff`. What does that mean?', options: ['Broadcast: every host on the link receives the frame', 'The target is unknown and gets filled in later', 'The frame goes to the default gateway', 'The capture lost those bytes'], answer: 0, why: '`ff:ff:ff:ff:ff:ff` is the broadcast address. C does not know who owns the IP, so it asks everyone.' },
+					{ q: 'Which MAC is the source?', options: ['`ff:ff:ff:ff:ff:ff`', '`c2:01:a7:66:6b:1b`, C\'s own MAC', '`08:06:00:01:08:00`', 'The MAC of 10.77.0.10'], answer: 1, why: 'The source MAC follows the destination: the six bytes `c201 a766 6b1b`, the interface of C.' },
+					{ q: 'The type is `0806`. What follows?', options: ['An IPv4 packet', 'A frame of 2054 bytes', 'An ARP message', 'A TCP segment'], answer: 2, why: '`0x0806` is the type for ARP. IPv4 would be `0x0800`.' },
+					{ q: 'Where do the 28 bytes of ARP start?', options: ['At the first `ffff`', 'At `0800` on the second line', 'At the first `0a4d`', 'At the `0001` right after `0806`'], answer: 3, why: 'The Ethernet header ends with the 2-byte type, so ARP begins on byte 14.' }
+				]
+			},
+			{
+				title: 'Decode the fixed fields',
+				questions: [
+					{ q: 'The first ARP field is `0001`. What is it?', options: ['Hardware type 1, Ethernet', 'Opcode 1, a request', 'Protocol IPv4', 'ARP version 1'], answer: 0, why: 'RFC 826 starts with the hardware type, and 1 means Ethernet. The opcode comes later and happens to be `0001` too.' },
+					{ q: 'Next comes `0800`. What does it say?', options: ['The Ethernet type, repeated', 'The address being looked up is IPv4', '2048 bytes of ARP follow', 'The reply must go to port 2048'], answer: 1, why: 'The protocol type uses the same value as the Ethernet type for IPv4: C is resolving an IPv4 address.' },
+					{ q: 'Then `06` and `04`. What are they?', options: ['6 addresses follow, 4 of them IPv4', 'ARP version 6.4', 'A MAC is 6 bytes and an IPv4 address is 4', 'Six retries, four seconds apart'], answer: 2, why: 'They are the hardware and protocol address lengths, so the receiver knows where each address ends.' },
+					{ q: 'The opcode is `0001`. What kind of message is this?', options: ['A reply', 'A gratuitous announcement', 'The first retry of a request', 'A request'], answer: 3, why: 'Opcode 1 is a request and 2 is a reply.' }
+				]
+			},
+			{
+				title: 'Decode the four addresses',
+				questions: [
+					{ q: 'What is the sender MAC?', options: ['`c2:01:a7:66:6b:1b`', '`ff:ff:ff:ff:ff:ff`', '`00:00:00:00:00:00`', '`0a:4d:00:1e:00:00`'], answer: 0, why: 'It repeats the Ethernet source: C puts its own MAC inside the request.' },
+					{ q: 'The sender IP is `0a4d 001e`. Which address is it?', options: ['10.77.0.10', '10.77.0.30', '10.77.0.1', '10.77.1.30'], answer: 1, why: '`0a` is 10, `4d` is 77, `00` is 0 and `1e` is 30: C\'s own address.' },
+					{ q: 'Why is the target MAC all zeros?', options: ['Zeros are another way to write broadcast', 'The target host is down', 'The capture cut those bytes', 'C does not know it yet: that is what it asks for'], answer: 3, why: 'The request carries the IP it looks for and leaves the MAC empty. The reply fills it in.' },
+					{ q: 'The target IP is `0a4d 000a`. Which address is it?', options: ['10.77.0.30', '10.77.0.0', '10.77.0.10', '10.77.0.255'], answer: 2, why: '`0a` is 10 in the last byte: C is looking for 10.77.0.10.' }
+				]
+			},
+			{
+				title: 'Check the size and the answer',
+				questions: [
+					{ q: 'How long is the whole frame?', options: ['28 bytes, all of it ARP', '64 bytes, padded', '42 bytes: 14 of Ethernet and 28 of ARP', '48 bytes: 20 of IP and 28 of ARP'], answer: 2, why: 'ARP sits right after Ethernet, with no IP header. tcpdump prints `length 42`.' },
+					{ q: 'Who answers this request, and to which MAC?', options: ['A, to C\'s MAC only', 'A, to the broadcast address', 'Every host on the network', 'The gateway, on A\'s behalf'], answer: 0, why: 'A sees its own address in the target field and replies to the sender MAC from the request.' },
+					{ q: 'Which opcode does the reply carry?', options: ['`0001`', '`0002`', '`0806`', '`0800`'], answer: 1, why: 'A reply has opcode 2.' },
+					{ q: 'B also holds 10.77.0.10 and its reply arrives first. What does C keep?', options: ['A\'s MAC, because A had the address first', 'Both MACs, and it alternates between them', 'Nothing: the entry goes to `FAILED`', 'B\'s MAC, so its frames for 10.77.0.10 go to B'], answer: 3, why: 'Linux keeps the first reply, and a second one within `LOCKTIME` cannot override it. ARP has no field that proves who owns the IP.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,30 @@ export default {
 			why: '`arp_process` sets `override` only after `LOCKTIME` (1 second by default) has passed since the last update. The comment says: "If several different ARP replies follows back-to-back, use the FIRST one."'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Capture a real ARP exchange, decode it by hand, then create a duplicate address and watch who wins.',
+		steps: [
+			'Create a network and three containers that may change their own addresses: `docker network create --subnet 10.77.0.0/24 arplab`, then `for n in a b c; do docker run -d --name arp-$n --network arplab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sleep infinity; done`.',
+			'Check the addresses with `for n in a b c; do docker exec arp-$n ip -br addr show eth0; done`. The steps below assume A got 10.77.0.2 and C got 10.77.0.4; use yours if they differ.',
+			'From C, empty the neighbour table, capture the ARP between C and A, and ping A: `docker exec arp-c sh -c "ip neigh flush all; tcpdump -i eth0 -n -e -XX -c 2 arp host 10.77.0.2 and arp host 10.77.0.4 & sleep 1; ping -c1 10.77.0.2 >/dev/null; wait; ip neigh"`.',
+			'Decode the 28 bytes of ARP in the request by hand, as in the task, then decode the reply the same way.',
+			'Give B the same address as A, and ask again: `docker exec arp-b ip addr add 10.77.0.2/24 dev eth0`, then `docker exec arp-c sh -c "ip neigh flush all; timeout 3 tcpdump -i eth0 -n arp host 10.77.0.2 and arp host 10.77.0.4 & sleep 1; ping -c1 -W1 10.77.0.2 >/dev/null; wait; ip neigh"`.',
+			'Run the conflict check from the hook: `docker exec arp-c arping -D -c 2 -I eth0 10.77.0.2; echo $?`. Then clean up: `docker rm -f arp-a arp-b arp-c && docker network rm arplab`.'
+		],
+		done: [
+			'The request is 42 bytes long, has opcode `0001` and a target MAC of all zeros. The reply has opcode `0002`.',
+			'After step 5, tcpdump shows one `who-has` line and two `is-at` lines with two different MACs.',
+			'`ip neigh` on C holds the MAC from the first `is-at` line.',
+			'`arping -D` exits with `1`.'
+		],
+		solution: [
+			'Request: `0001 0800 0604 0001`, then C\'s MAC and `0a4d 0004` (10.77.0.4), six zero bytes, then `0a4d 0002` (10.77.0.2).',
+			'Reply: the same layout with opcode `0002`, A\'s MAC and IP as the sender, and C\'s MAC and IP as the target. It goes to C\'s MAC, not to the broadcast address.',
+			'With two owners, both kernels answer, and C keeps the first reply, because a second one within `LOCKTIME` cannot override it. Which container answers first can change from run to run.',
+			'`arping -D` sends its probe from 0.0.0.0, and exits with 1 because a host answered: the address is already in use.'
+		]
+	},
 	recall: {
 		q: 'How does a host find the MAC for 10.77.0.10 on its own network, and where does it keep the answer?',
 		a: 'It broadcasts an ARP request to `ff:ff:ff:ff:ff:ff`, the owner replies with its MAC, and the kernel stores it in the neighbour table shown by `ip neigh`, first as `REACHABLE`, later `STALE`.'

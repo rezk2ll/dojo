@@ -104,6 +104,44 @@ func (p Prefix) Contains(ip Addr) bool {
 			'`10.20.17.4` is outside: the third byte 17 is above 15. It belongs to the next `/20`, 10.20.16.0/20.',
 			'Four parts need 2 more bits, so four `/22`: 10.20.0.0/22, 10.20.4.0/22, 10.20.8.0/22 and 10.20.12.0/22, with 1024 addresses each.',
 			'AWS reserves 5 addresses per subnet (the first four and the last), so each `/22` leaves 1024 - 5 = 1019 for nodes.'
+		],
+		steps: [
+			{
+				title: 'Count the addresses',
+				questions: [
+					{ q: 'How many host bits does a `/20` leave?', options: ['20', '8', '12', '16'], answer: 2, why: 'An IPv4 address has 32 bits, and 32 - 20 = 12 are left to number the hosts.' },
+					{ q: 'How many addresses does `10.20.0.0/20` hold?', options: ['1024', '4096', '2048', '65,536'], answer: 1, why: 'With 12 host bits, the prefix holds 2^12 = 4096 addresses.' },
+					{ q: 'In the third byte, how do `/20` blocks move?', options: ['In steps of 16: 0, 16, 32 and so on', 'In steps of 20: 0, 20, 40 and so on', 'In steps of 4: 0, 4, 8 and so on', 'In steps of 8: 0, 8, 16 and so on'], answer: 0, why: 'The network takes the top 4 bits of the third byte. The low 4 bits count 0 to 15, so a new block starts every 16.' },
+					{ q: 'What is the last address of `10.20.0.0/20`?', options: ['10.20.0.255', '10.20.20.255', '10.20.255.255', '10.20.15.255'], answer: 3, why: 'The third byte runs from 0 to 15 inside this block, and the last address has every host bit at 1.' }
+				]
+			},
+			{
+				title: 'Test 10.20.17.4',
+				questions: [
+					{ q: 'Is `10.20.17.4` inside `10.20.0.0/20`?', options: ['Yes: it starts with 10.20', 'No: its third byte, 17, is above 15', 'Yes: the block covers all of 10.20', 'No: it is not a private address'], answer: 1, why: 'The block ends at 10.20.15.255. Matching the first two bytes is not enough when the prefix reaches into the third.' },
+					{ q: 'Which `/20` holds `10.20.17.4`?', options: ['10.20.17.0/20', '10.20.0.0/20', '10.20.16.0/20', '10.20.32.0/20'], answer: 2, why: '`/20` blocks start at multiples of 16 in the third byte, and 17 falls between 16 and 31.' },
+					{ q: 'A node at `10.20.0.5/20` sends a packet to `10.20.17.4`. Where does it go?', options: ['To the node\'s gateway, because the address is outside its `/20`', 'Straight out of `eth0`, because the first two bytes match', 'Nowhere: the kernel refuses it', 'Straight out, because both addresses are private'], answer: 0, why: 'The kernel sends a packet outside its own prefix to the gateway. Only the node\'s own prefix decides this.' },
+					{ q: 'Under RFC 1918, is `10.20.17.4` private?', options: ['No: only 192.168 addresses are private', 'No: 10.20 belongs to AWS', 'Yes: every address AWS hands out is private', 'Yes: it is inside `10/8`'], answer: 3, why: 'RFC 1918 sets aside `10/8`, `172.16/12` and `192.168/16`. Anything that starts with 10 is in the first one.' }
+				]
+			},
+			{
+				title: 'Split it into four',
+				questions: [
+					{ q: 'How many more network bits do four equal parts need?', options: ['1', '4', '2', '3'], answer: 2, why: '2 bits give 2^2 = 4 combinations, one per part.' },
+					{ q: 'What prefix length does each part get?', options: ['`/24`', '`/22`', '`/18`', '`/21`'], answer: 1, why: '20 + 2 = 22. A longer prefix means a smaller block, so `/18` goes the wrong way.' },
+					{ q: 'How many addresses does each part hold?', options: ['1024', '512', '256', '2048'], answer: 0, why: 'A `/22` leaves 32 - 22 = 10 host bits, and 2^10 = 1024. Four of them make the 4096.' },
+					{ q: 'Which list is the four subnets?', options: ['10.20.0.0/22, 10.20.1.0/22, 10.20.2.0/22, 10.20.3.0/22', '10.20.0.0/22, 10.20.16.0/22, 10.20.32.0/22, 10.20.48.0/22', '10.20.0.0/22, 10.20.64.0/22, 10.20.128.0/22, 10.20.192.0/22', '10.20.0.0/22, 10.20.4.0/22, 10.20.8.0/22, 10.20.12.0/22'], answer: 3, why: 'Each `/22` spans 4 values of the third byte, so the starts move by 4 and the last one ends at 10.20.15.255.' }
+				]
+			},
+			{
+				title: 'Apply the AWS reservation',
+				questions: [
+					{ q: 'How many addresses does AWS keep in each subnet?', options: ['1, the network address', '2, the first and the last', '5, the first four and the last', '4, the first four'], answer: 2, why: 'The AWS docs: "The first four IP addresses and the last IP address in each subnet CIDR block are not available for your use".' },
+					{ q: 'How many addresses are left for nodes in each `/22`?', options: ['1024', '1019', '1022', '1020'], answer: 1, why: '1024 - 5 = 1019.' },
+					{ q: 'How many node addresses do the four subnets give in total?', options: ['4076', '4096', '4091', '4080'], answer: 0, why: '4 × 1019 = 4076.' },
+					{ q: 'Why does the split cost addresses compared with one big subnet?', options: ['A `/22` cannot use its own network address', 'Kubernetes keeps one address per zone', 'Subnets must leave a gap between them', 'Each subnet loses 5 reserved addresses of its own'], answer: 3, why: 'The reservation applies per subnet: one `/20` loses 5, four `/22` lose 20.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -131,6 +169,27 @@ func (p Prefix) Contains(ip Addr) bool {
 			why: 'With `/24`, the first 3 bytes name the network, and 192.168.2 is not 192.168.1. The kernel sends packets outside its own prefix to the gateway. The RFC 1918 block plays no part in this choice, only the host\'s own `/24` does.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Check the task\'s subnet math with Python, then watch the kernel use a prefix to choose between direct delivery and the gateway.',
+		steps: [
+			'Count and split the block: `python3 -c \'import ipaddress as ip; n = ip.ip_network("10.20.0.0/20"); print(n.num_addresses, n[-1], ip.ip_address("10.20.17.4") in n); [print(s, s.num_addresses - 5) for s in n.subnets(new_prefix=22)]\'`.',
+			'Start a container with no network and the right to configure one: `docker run --rm -it --network none --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Inside it, give an interface a node address from the block, and a gateway: `ip link add eth0 type bridge && ip link set eth0 up && ip addr add 10.20.0.5/20 dev eth0 && ip route add default via 10.20.0.1`.',
+			'Ask the kernel about both sides of the edge: `ip route get 10.20.15.200`, then `ip route get 10.20.17.4`.',
+			'Give the same address a prefix that is too short: `ip addr del 10.20.0.5/20 dev eth0 && ip addr add 10.20.0.5/12 dev eth0`, then run `ip route get 10.20.17.4` again. Type `exit` to leave.'
+		],
+		done: [
+			'Python prints `4096 10.20.15.255 False`, then four `/22` lines that each end in `1019`.',
+			'`ip route get 10.20.15.200` shows `dev eth0` with no `via`.',
+			'`ip route get 10.20.17.4` shows `via 10.20.0.1` with the `/20`, and no `via` with the `/12`.'
+		],
+		solution: [
+			'`num_addresses` is 2^12. `n[-1]` is the address with every host bit at 1. `in` runs the same prefix test as Go\'s `Prefix.Contains`.',
+			'`subnets(new_prefix=22)` adds the 2 bits, and `- 5` applies the AWS reservation.',
+			'With the `/20`, 10.20.17.4 is outside the node\'s network, so the packet goes to the gateway. With the `/12`, it looks local, and the kernel would try to reach it straight on `eth0`: the mistake from the last step of the diagram.'
+		]
+	},
 	recall: {
 		q: 'How many addresses are in a `/28`, and how many can an AWS instance use?',
 		a: '16, from 4 host bits. AWS keeps the first four and the last one, so 11 are usable.'

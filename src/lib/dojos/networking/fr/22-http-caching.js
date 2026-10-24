@@ -136,6 +136,44 @@ ngx_http_upstream_process_cache_control(ngx_http_request_t *r,
 			'Du 14 octobre 18:01:21 au 16 octobre 23:54:57, il y a 53 h 53 min 36 s, soit 194016 secondes. 10 % font environ 19402 secondes : la réponse reste fraîche environ 5 h 23 min. Un 200 est « heuristically cacheable » selon RFC 9110, donc l’heuristique s’applique.',
 			'Ensuite, le cache envoie `GET /en/docs/` avec `If-None-Match: "6acfc371-36ae"`. Pendant la capture, le serveur a répondu `HTTP/1.1 304 Not Modified` avec le même `ETag` et sans corps : le cache réutilise ses 13998 octets et remet l’âge à zéro.',
 			'Si l’équipe publie une correction juste après le stockage, les lecteurs derrière ce cache peuvent voir l’ancienne page jusqu’à 5 h 23 min. Un `Cache-Control: max-age=300` envoyé par l’origine limiterait ça à 5 minutes.'
+		],
+		steps: [
+			{
+				title: 'Lis les en-têtes',
+				questions: [
+					{ q: 'Quels en-têtes donneraient à cette réponse une durée de vie explicite ?', options: ['`Cache-Control` ou `Expires`, et aucun n’est là', '`ETag`, qui contient la durée en hexadécimal', '`Content-Length`, lu comme un nombre de secondes', '`Date`, qui marque l’expiration de la copie'], answer: 0, why: 'Une durée de vie explicite vient de `Cache-Control` ou d’`Expires`. Cette réponse n’a ni l’un ni l’autre, le cache doit donc recourir à une heuristique.' },
+					{ q: 'Sans durée de vie explicite, un cache partagé peut-il réutiliser ce 200 ?', options: ['Non : sans `Cache-Control`, rien ne peut être stocké', 'Oui : un 200 est « heuristically cacheable », donc une heuristique s’applique', 'Seulement si le client a demandé avec `Cache-Control: max-age`', 'Seul le navigateur le peut, jamais un cache partagé'], answer: 1, why: 'RFC 9110 classe le 200 comme cacheable par heuristique. RFC 9111 laisse alors le cache choisir une durée lui-même.' },
+					{ q: 'Quels deux en-têtes l’heuristique des 10 % utilise-t-elle ?', options: ['`ETag` et `Content-Length`', '`Date` et `ETag`', '`Last-Modified` et `Date`', '`Content-Length` et `Last-Modified`'], answer: 2, why: 'L’heuristique prend 10 % du temps écoulé depuis `Last-Modified`, compté jusqu’à `Date`, le moment où la réponse a été produite.' },
+					{ q: 'À quoi sert `ETag: "6acfc371-36ae"` ?', options: ['C’est la clé de cache que nginx utilise pour cette URL', 'C’est une somme de contrôle que le navigateur vérifie avant l’affichage', 'C’est le nombre de secondes pendant lesquelles la page reste fraîche', 'C’est un validateur que le cache renvoie pour savoir si sa copie est à jour'], answer: 3, why: 'Un ETag est une chaîne opaque. Le cache la renvoie dans `If-None-Match`, et l’origine la compare à la sienne.' }
+				]
+			},
+			{
+				title: 'Calcule la durée de vie',
+				questions: [
+					{ q: 'Combien de temps s’est écoulé entre `Last-Modified` et `Date` ?', options: ['53 h 53 min 36 s, soit 194016 secondes', '48 h pile, soit 172800 secondes', '5 h 23 min, soit environ 19402 secondes', '54 h, soit 194400 secondes'], answer: 0, why: 'Du 14 octobre 18:01:21 au 16 octobre 23:54:57, il y a deux jours, 5 h 53 min 36 s : 194016 secondes.' },
+					{ q: 'Combien font 10 % de cette durée ?', options: ['Environ 1940 secondes, 32 minutes', 'Environ 19402 secondes, 5 h 23 min', 'Environ 194016 secondes, deux jours', 'Environ 600 secondes, 10 minutes'], answer: 1, why: '194016 / 10 font environ 19402 secondes, un peu plus de 5 h 23 min.' },
+					{ q: 'Le cache a stocké la copie à l’heure de `Date`. Jusqu’à quand environ peut-il la réutiliser sans demander ?', options: ['Jusqu’au 16 octobre 23:59:57, cinq minutes plus tard', 'Jusqu’au 18 octobre 18:01, quatre jours après `Last-Modified`', 'Tant que l’ETag ne change pas', 'Jusqu’au 17 octobre vers 05:18, 5 h 23 min plus tard'], answer: 3, why: 'La copie est fraîche tant que son âge reste sous la durée de vie : 23:54:57 plus environ 5 h 23 min.' },
+					{ q: 'Les 10 % sont-ils une règle fixe ?', options: ['Oui : RFC 9111 impose exactement 10 % pour toute réponse', 'Non : RFC 9111 autorise une heuristique et qualifie 10 % de « typical »', 'Oui : tous les navigateurs et CDN utilisent 10 %', 'Non : l’origine fixe le pourcentage dans l’`ETag`'], answer: 1, why: 'RFC 9111 autorise une durée de vie heuristique et donne 10 % du temps depuis `Last-Modified` comme valeur typique.' }
+				]
+			},
+			{
+				title: 'Revalide',
+				questions: [
+					{ q: 'Après environ 5 h 23 min, la copie est périmée. Qu’envoie le cache ?', options: ['`GET /en/docs/` avec `If-None-Match: "6acfc371-36ae"`', '`HEAD /en/docs/` avec `Cache-Control: no-cache`', 'Rien : il sert la copie périmée jusqu’à son éviction', '`GET /en/docs/` avec `ETag` placé en en-tête de requête'], answer: 0, why: 'Une copie périmée qui a un validateur se vérifie par une requête conditionnelle. Le validateur voyage dans `If-None-Match`.' },
+					{ q: 'La page n’a pas changé. Que répond l’origine ?', options: ['`200 OK` avec les 13998 octets complets', '`304 Not Modified` avec le même `ETag` et sans corps', '`412 Precondition Failed` sans corps', '`204 No Content` avec un nouvel `ETag`'], answer: 1, why: 'Pendant la capture, le serveur a répondu `HTTP/1.1 304 Not Modified`, même `ETag`, sans corps.' },
+					{ q: 'Que fait le cache de ce 304 ?', options: ['Il jette sa copie et récupère la page à nouveau', 'Il transmet le corps vide du 304 à l’utilisateur', 'Il réutilise ses 13998 octets stockés et remet l’âge à zéro', 'Il garde la copie, mais la marque périmée pour de bon'], answer: 2, why: 'Un 304 dit que la copie stockée est encore à jour : le cache la sert de nouveau et son âge repart de zéro.' },
+					{ q: 'Qu’économise la revalidation par rapport à un téléchargement complet ?', options: ['Le corps : seuls les en-têtes circulent', 'La connexion TCP : aucun paquet n’est envoyé', 'Rien : l’origine envoie le corps quand même', 'La résolution DNS, et rien d’autre'], answer: 0, why: 'Le 304 ne contient que des en-têtes. La page de 13998 octets ne retraverse pas le réseau.' }
+				]
+			},
+			{
+				title: 'Pèse le risque',
+				questions: [
+					{ q: 'L’équipe publie une correction juste après le stockage. Combien de temps les lecteurs derrière ce cache peuvent-ils voir l’ancienne page ?', options: ['Jusqu’à 10 minutes', 'Pas du tout : l’ETag change tout de suite', 'Jusqu’à 5 h 23 min', 'Jusqu’à 53 h, tout le temps depuis `Last-Modified`'], answer: 2, why: 'Le cache ne demande rien à l’origine avant la fin de la durée heuristique. Un nouvel ETag à l’origine n’est vu qu’à la revalidation.' },
+					{ q: 'Quel en-tête envoyé par l’origine limiterait ça à 5 minutes ?', options: ['`Cache-Control: private`', '`ETag: "300"`', '`Last-Modified` fixé à il y a cinq minutes', '`Cache-Control: max-age=300`'], answer: 3, why: 'Un `max-age` explicite remplace l’heuristique. 300 secondes font 5 minutes.' },
+					{ q: 'Quelqu’un propose `Cache-Control: private` sur la page de docs. Qu’est-ce que ça ferait ?', options: ['Baisser l’heuristique de 10 % à 1 %', 'Empêcher tout cache partagé de stocker une page publique', 'Forcer le cache à revalider toutes les 5 minutes', 'Rien : les caches partagés ignorent `private`'], answer: 1, why: '`private` veut dire qu’un cache partagé ne doit pas stocker la réponse. C’est juste pour `/account`, et du gâchis pour une page de docs publique.' },
+					{ q: 'Dans nginx, quelle directive fait revalider une copie périmée avec `If-None-Match` au lieu d’un téléchargement complet ?', options: ['`proxy_ignore_headers Cache-Control`', '`proxy_cache_key $request_uri`', '`proxy_cache_revalidate on`', '`proxy_no_cache`'], answer: 2, why: 'Avec `proxy_cache_revalidate on`, nginx envoie une requête conditionnelle et sert son corps stocké sur un 304.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ ngx_http_upstream_process_cache_control(ngx_http_request_t *r,
 			why: 'Le cache renvoie le validateur stocké dans `If-None-Match`. L’origine le compare à l’`ETag` courant et répond `304 Not Modified`, qui selon RFC 9110 n’a pas de contenu, et le cache sert le corps qu’il a gardé.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Placer un cache nginx devant une petite origine et observer un miss, un hit, une revalidation, une page `private` jamais stockée, et l’erreur de Steam.',
+		steps: [
+			'Crée deux pages : `mkdir -p ~/cache-lab/site ~/cache-lab/conf && cd ~/cache-lab`, puis `echo "<h1>docs</h1>" > site/docs.html` et `echo "<h1>account of user A</h1>" > site/account.html`.',
+			'Crée `conf/default.conf` avec cette seule ligne. Le port 8081 est l’origine, le port 8080 le cache partagé : `proxy_cache_path /tmp/cache keys_zone=lab:1m; server { listen 8081; root /site; location = /docs.html { add_header Cache-Control "max-age=10"; } location = /account.html { add_header Cache-Control "private"; } } server { listen 8080; location / { proxy_pass http://127.0.0.1:8081; proxy_cache lab; proxy_cache_revalidate on; add_header X-Cache $upstream_cache_status; } }`',
+			'Démarre-le : `docker run -d --rm --name cache-lab -p 8080:8080 -p 8081:8081 -v "$PWD/conf:/etc/nginx/conf.d:ro" -v "$PWD/site:/site:ro" nginx:1.27-alpine`.',
+			'Demande la page de docs au cache deux fois, attends 10 secondes, redemande : `curl -sI localhost:8080/docs.html | grep -iE "x-cache|cache-control|etag"`. Puis interroge l’origine directement avec l’ETag vu : `curl -sI -H \'If-None-Match: "<etag>"\' localhost:8081/docs.html`.',
+			'Demande `/account.html` deux fois via le cache. Ajoute ensuite `proxy_ignore_headers Cache-Control; proxy_cache_valid 200 1m;` après `proxy_cache_revalidate on;`, lance `docker exec cache-lab nginx -s reload`, et redemande `/account.html` deux fois. Nettoie avec `docker rm -f cache-lab`.'
+		],
+		done: [
+			'La page de docs affiche `X-Cache: MISS`, puis `X-Cache: HIT`, puis `X-Cache: REVALIDATED` après les 10 secondes.',
+			'La requête directe avec `If-None-Match` renvoie `HTTP/1.1 304 Not Modified`.',
+			'`/account.html` affiche `X-Cache: MISS` les deux fois avec la première config, puis `MISS` et `HIT` après le rechargement.'
+		],
+		solution: [
+			'`max-age=10` garde la copie fraîche 10 secondes, donc la deuxième requête n’atteint jamais l’origine. Ensuite, `proxy_cache_revalidate on` envoie `If-None-Match`, l’origine répond 304, et nginx affiche `REVALIDATED`.',
+			'`Cache-Control: private` active `no_cache` dans nginx : la page de compte n’est jamais stockée.',
+			'`proxy_ignore_headers Cache-Control` fait ignorer cet en-tête à nginx, et `proxy_cache_valid` lui donne une durée de vie. La page construite pour l’utilisateur A part maintenant du cache vers n’importe qui : le même genre de règle a fait fuiter des pages Steam en 2015.'
+		]
+	},
 	recall: {
 		q: 'Quelle directive `Cache-Control` garde une page personnelle hors d’un CDN ou d’un cache nginx tout en laissant le navigateur la garder, et que s’est-il passé chez Steam sans elle en décembre 2015 ?',
 		a: '`Cache-Control: private` : les caches partagés ne doivent pas stocker la réponse. Le 25 décembre 2015, une règle de cache a mis en cache des pages d’utilisateurs connectés, et les pages d’environ 34k utilisateurs ont pu être vues par d’autres.'

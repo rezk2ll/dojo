@@ -127,6 +127,44 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 			'cwnd en octets : 51 × 1388 = 70 788. Le récepteur annonce 229 376 octets. La plus petite valeur gouverne : c’est cwnd qui limite cet upload.',
 			'Débit : 70 788 × 8 = 566 304 bits par aller-retour, divisés par 0,004781 s, donnent 118,4 Mbit/s. Cela correspond à `send 118448860bps`.',
 			'0,3 s plus tard, la même connexion affichait `cwnd:61 ssthresh:41` : en évitement de congestion, cwnd continue de grandir lentement.'
+		],
+		steps: [
+			{
+				title: 'Lis les champs',
+				questions: [
+					{ q: 'Que compte `cwnd:51` ?', options: ['51 segments que l’émetteur peut avoir sans ACK', '51 Ko de données en vol', '51 ACK reçus jusqu’ici', '51 ms d’aller-retour'], answer: 0, why: 'Sous Linux, cwnd se compte en segments. C’est la limite propre à l’émetteur sur les données non acquittées.' },
+					{ q: 'Qu’est-ce que `snd_wnd:229376` ?', options: ['La cwnd de l’émetteur, en octets', 'La fenêtre de réception annoncée par le pair, en octets', 'Les octets envoyés depuis le départ', 'Le tampon d’envoi de curl'], answer: 1, why: '`snd_wnd` est la fenêtre de réception annoncée par le pair, déjà ramenée en octets. C’est le côté rwnd de la comparaison.' },
+					{ q: 'Pourquoi as-tu besoin de `mss:1388` ?', options: ['C’est le RTO, en millisecondes', 'C’est le facteur de window scaling', 'Il convertit cwnd de segments en octets', 'C’est le nombre de segments par seconde'], answer: 2, why: 'cwnd compte des segments et la fenêtre de réception des octets. Multiplier par la taille de segment permet de les comparer.' },
+					{ q: 'Que te donne `rtt:4.781/0.586` ?', options: ['Un RTO de 4,781 s', '4,781 retransmissions par seconde', 'Un upload qui a duré 4,781 s', 'Un aller-retour lissé de 4,781 ms, avec une variation de 0,586 ms'], answer: 3, why: '`ss` affiche l’aller-retour lissé et sa variation en millisecondes. Le RTO est le champ séparé `rto:205`.' }
+				]
+			},
+			{
+				title: 'Dis si c’est du slow start',
+				questions: [
+					{ q: 'cwnd vaut 51 et ssthresh 35. Dans quelle phase est l’émetteur ?', options: ['En slow start, car cwnd grandit encore', 'En évitement de congestion, car cwnd est au-dessus de ssthresh', 'En slow start, car ssthresh est sous 64', 'En reprise après un timeout, avec cwnd revenue à 1'], answer: 1, why: 'Le slow start ne tourne que tant que cwnd < ssthresh. cwnd grandit dans les deux phases, juste plus lentement en évitement de congestion.' },
+					{ q: 'Que t’apprend `bytes_retrans:2776` ?', options: ['Deux segments de 1388 octets ont été renvoyés : une perte a eu lieu', 'Rien n’a encore été perdu', 'Le récepteur a refusé 2776 octets', 'L’upload a envoyé 2776 octets jusqu’ici'], answer: 0, why: '2776 vaut 2 × 1388. Des octets ont été retransmis, donc l’émetteur a détecté une perte.' },
+					{ q: 'Qu’est-ce qui a fixé ssthresh à 35 ?', options: ['La fenêtre initiale de 10 segments', 'La fenêtre de réception du pair', 'La perte que montre `bytes_retrans`', 'Le RTO de 205 ms'], answer: 2, why: 'Une perte fixe ssthresh à environ la moitié de cwnd, ce qui termine le slow start. `bytes_retrans` montre que cette perte a eu lieu.' },
+					{ q: '0,3 s plus tard, la ligne affiche `cwnd:61 ssthresh:41`. Que s’est-il passé ?', options: ['L’émetteur est revenu en slow start', 'Une autre perte a divisé cwnd par deux', 'La fenêtre de réception a rétréci', 'cwnd a continué de grandir lentement en évitement de congestion'], answer: 3, why: 'cwnd est passée de 51 à 61 et reste au-dessus de ssthresh, donc l’émetteur est toujours en évitement de congestion.' }
+				]
+			},
+			{
+				title: 'Trouve la limite',
+				questions: [
+					{ q: 'Combien d’octets cwnd laisse-t-elle en vol ?', options: ['51 × 1388 = 70 788 octets', '51 × 1460 = 74 460 octets', '35 × 1388 = 48 580 octets', '51 × 8 = 408 octets'], answer: 0, why: 'Prends le `mss` de cette connexion, 1388, pas le 1460 habituel.' },
+					{ q: 'Quel nombre est le plus petit ?', options: ['La fenêtre de réception, 229 376 octets', 'cwnd, 70 788 octets', 'Ils sont égaux', 'ssthresh en octets'], answer: 1, why: '70 788 fait moins du tiers de 229 376.' },
+					{ q: 'Quelle valeur gouverne les données en vol ?', options: ['La fenêtre de réception seule', 'La plus grande de cwnd et de la fenêtre de réception', 'La plus petite de cwnd et de la fenêtre de réception', 'cwnd plus la fenêtre de réception'], answer: 2, why: 'La RFC 5681 : "The minimum of cwnd and rwnd governs data transmission."' },
+					{ q: 'Qu’est-ce qui limite donc cet upload ?', options: ['Le tampon du récepteur', 'Le facteur de window scaling', 'Le RTO', 'cwnd, l’estimation par l’émetteur de ce que le chemin supporte'], answer: 3, why: 'Le récepteur pourrait en prendre trois fois plus. L’émetteur se retient à cause de sa propre fenêtre de congestion.' }
+				]
+			},
+			{
+				title: 'Vérifie le chiffre send',
+				questions: [
+					{ q: 'Comment `ss` calcule-t-il `send` ?', options: ['cwnd × mss × 8 / rtt', 'snd_wnd × 8 / rtt', 'cwnd / rtt', 'mss × 8 / rto'], answer: 0, why: 'Une fenêtre d’octets par aller-retour, fois 8 pour avoir des bits.' },
+					{ q: 'Combien de bits partent par aller-retour ?', options: ['70 788', '566 304', '229 376', '1 835 008'], answer: 1, why: '70 788 octets × 8 = 566 304 bits.' },
+					{ q: 'Par quel rtt divises-tu ?', options: ['4,781 s', '0,205 s', '0,004781 s', '0,000586 s'], answer: 2, why: '4,781 ms font 0,004781 s. Le 205 est le RTO et le 0,586 la variation.' },
+					{ q: 'Qu’obtiens-tu ?', options: ['Environ 566 Mbit/s', 'Environ 11,8 Mbit/s', 'Environ 1,18 Gbit/s', 'Environ 118,4 Mbit/s, ce qui correspond à `send 118448860bps`'], answer: 3, why: '566 304 / 0,004781 donne environ 118,4 millions de bits par seconde.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -164,6 +202,28 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 			why: 'Avec `tcp_slow_start_after_idle = 1`, `tcp_cwnd_restart` divise cwnd par deux pour chaque RTO d’inactivité, jusqu’à la fenêtre initiale. Deux secondes de silence permettent 9 divisions, ce qui ramène une cwnd allant jusqu’à 5 120 à 10.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir le slow start coûter des allers-retours sur un lien rapide : ajouter 100 ms d’aller-retour au loopback et chronométrer un petit et un gros téléchargement.',
+		steps: [
+			'Lance un conteneur qui a le droit de changer son propre réseau : `docker run --rm -it --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Dedans, fais ressembler le loopback à un vrai chemin, avec des paquets de 1500 octets et 50 ms dans chaque sens : `ip link set lo mtu 1500 && tc qdisc add dev lo root netem delay 50ms`. Vérifie avec `ping -c2 127.0.0.1`.',
+			'Sers un fichier de 10 Ko et un de 175 Ko : `cd /tmp && head -c 10000 /dev/zero > small && head -c 175000 /dev/zero > big && python3 -m http.server 8000 >/dev/null 2>&1 &`.',
+			'Chronomètre les deux, chacun sur une connexion neuve : `for f in small big; do curl -s -o /dev/null -w "$f connect=%{time_connect} first_byte=%{time_starttransfer} total=%{time_total}\\n" http://127.0.0.1:8000/$f; done`.',
+			'Monte la fenêtre initiale vers 127.0.0.1 de 10 à 40 segments, puis relance la boucle de l’étape 4 : `ip route change local 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 initcwnd 40`. Tape `exit` pour sortir.'
+		],
+		done: [
+			'`ping` affiche environ 100 ms par aller-retour.',
+			'`small` finit vers 0,2 s : un aller-retour pour la poignée de main, un pour la requête et toute la réponse.',
+			'`big` finit vers 0,5 s, alors que le loopback déplace bien plus que 175 Ko en 0,3 s.',
+			'Avec `initcwnd 40`, `big` finit vers 0,4 s.'
+		],
+		solution: [
+			'Le fichier de 175 Ko fait environ 120 segments, l’exemple de la RFC 6928. Le premier envoi n’en porte que 10, puis 20, puis 40, puis 80, un envoi par aller-retour.',
+			'`big` passe 3 allers-retours de plus que `small` après le premier octet. La vitesse du lien ne joue aucun rôle : chaque envoi attend les ACK du précédent.',
+			'Une fenêtre initiale plus grande met plus de segments dans le premier envoi et fait gagner un aller-retour. La valeur par défaut de 10 est `TCP_INIT_CWND`.'
+		]
+	},
 	recall: {
 		q: 'Qu’est-ce qui fixe la quantité de données non acquittées qu’un émetteur TCP peut avoir en vol, et que fait cwnd en slow start ?',
 		a: 'Le plus petit de cwnd et de la fenêtre de réception. En slow start, cwnd part de 10 segments sous Linux et gagne un segment par segment acquitté : elle double à chaque aller-retour jusqu’à ssthresh ou une perte.'

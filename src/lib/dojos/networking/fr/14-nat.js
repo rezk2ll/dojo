@@ -110,6 +110,44 @@ __nf_conntrack_alloc(struct net *net,
 			'(2) TCP : 5 000 x 120 = 600 000. UDP : 3 000 x 30 = 90 000. Total 690 000 entrées, 88 % de la limite.',
 			'(3) TCP : 7 000 x 120 = 840 000, plus 90 000 pour UDP, soit 930 000, au-dessus de 786 432. Le noyau jette le premier paquet des nouveaux flux et écrit `nf_conntrack: table full, dropping packet`. Les connexions déjà ouvertes continuent de marcher.',
 			'(4) 24 x 60 000 = 1 440 000, mais le code de ce commit plafonne la valeur calculée à 1 048 576. Cela couvre les 930 000. En 2018 le code n’avait pas de plafond : la personne qui a ouvert l’issue a obtenu 1 440 000.'
+		],
+		steps: [
+			{
+				title: 'Trouve la limite',
+				questions: [
+					{ q: 'Quel est le `MaxPerCore` par défaut de kube-proxy ?', options: ['32 768', '16 384', '131 072', '262 144'], answer: 0, why: 'La valeur par défaut est 32 x 1024 = 32 768 entrées par cœur.' },
+					{ q: 'Quel `nf_conntrack_max` kube-proxy pose-t-il sur le nœud de 24 cœurs ?', options: ['131 072', '262 144', '786 432', '1 048 576'], answer: 2, why: '24 x 32 768 = 786 432, le même nombre que dans le log de kube-proxy de l’issue #71261.' },
+					{ q: 'Le plancher `Min` change-t-il ce résultat ?', options: ['Oui, il le monte à 1 048 576', 'Non, 786 432 est au-dessus du plancher de 131 072', 'Oui, il le plafonne à 131 072', 'Non, `Min` ne vaut que pour UDP'], answer: 1, why: '`Min` (131 072 par défaut) est un plancher. La valeur calculée est déjà au-dessus.' },
+					{ q: 'Que fait kube-proxy de la table de hachage ?', options: ['Il lui donne la taille de la limite d’entrées', 'Il la laisse à la valeur par défaut du noyau', 'Il la double à 1 572 864', 'Il la monte au quart de la limite si elle est plus petite'], answer: 3, why: 'kube-proxy monte la table de hachage à `max / 4`, ici 196 608 seaux, si elle est plus petite.' }
+				]
+			},
+			{
+				title: 'Compte les entrées en régime établi',
+				questions: [
+					{ q: 'Combien de temps reste par défaut l’entrée d’une connexion TCP fermée ?', options: ['Quelques millisecondes', '30 secondes', '120 secondes, en TIME_WAIT', 'Jusqu’à ce que la table soit pleine'], answer: 2, why: 'Les entrées survivent au dernier paquet. Un flux TCP fermé reste 120 secondes en TIME_WAIT.' },
+					{ q: 'Combien d’entrées TCP 5 000 nouvelles connexions par seconde gardent-elles dans la table ?', options: ['600 000', '5 000', '150 000', '60 000'], answer: 0, why: 'Entrées = nouveaux flux par seconde fois les secondes où chacune reste : 5 000 x 120 = 600 000.' },
+					{ q: 'Combien d’entrées UDP 3 000 requêtes DNS par seconde gardent-elles ?', options: ['3 000', '90 000', '360 000', '6 000'], answer: 1, why: 'Chaque requête est son propre flux, gardé 30 secondes : 3 000 x 30 = 90 000.' },
+					{ q: 'Quelle part de la limite est utilisée ?', options: ['Environ 50 %', 'Environ 77 %', 'Environ 100 %', 'Environ 88 %'], answer: 3, why: '600 000 + 90 000 = 690 000 sur 786 432, environ 88 %.' }
+				]
+			},
+			{
+				title: 'Fais monter le trafic',
+				questions: [
+					{ q: 'À 7 000 connexions TCP par seconde, combien d’entrées au total ?', options: ['790 000', '930 000', '840 000', '1 048 576'], answer: 1, why: '7 000 x 120 = 840 000 pour TCP, plus 90 000 pour UDP : 930 000.' },
+					{ q: 'Que fait le noyau du premier paquet d’un nouveau flux quand le compte dépasse la limite ?', options: ['Il le met en attente jusqu’à l’expiration d’une entrée', 'Il l’envoie sans NAT', 'Il tente `early_drop`, puis jette le paquet si rien ne se libère', 'Il évince l’entrée assured la plus ancienne'], answer: 2, why: '`__nf_conntrack_alloc` appelle `early_drop`. Si aucune entrée ne peut partir, il écrit "table full" et jette le paquet.' },
+					{ q: 'Le health check HTTP d’un Pod ouvre une nouvelle connexion à chaque fois. À quoi t’attends-tu ?', options: ['Il passe toujours, les health checks évitent conntrack', 'Il échoue, et le kubelet redémarre le Pod', 'Il ralentit mais n’échoue jamais', 'Il bascule en UDP'], answer: 1, why: 'Chaque check est un nouveau flux : son premier paquet peut être jeté. C’est ce que décrit l’issue #71261 : des Pods qui redémarrent souvent.' },
+					{ q: 'Quel trafic marche encore quand la table est pleine ?', options: ['Les paquets des flux déjà dans la table', 'Chaque nouvelle connexion TCP', 'Chaque nouvelle requête DNS', 'Rien sur le nœud'], answer: 0, why: 'La vérification ne tourne que pour le premier paquet d’un flux. Les flux connus retrouvent leur entrée existante.' }
+				]
+			},
+			{
+				title: 'Monte la limite',
+				questions: [
+					{ q: 'Avec `maxPerCore: 60000`, quelle est la valeur calculée avant tout plafond ?', options: ['1 048 576', '786 432', '1 440 000', '60 000'], answer: 2, why: '24 x 60 000 = 1 440 000.' },
+					{ q: 'Quelle limite pose le kube-proxy actuel ?', options: ['1 440 000', '1 048 576', '131 072', '786 432'], answer: 1, why: '`getConntrackMax` plafonne la valeur calculée à 1 048 576.' },
+					{ q: 'Est-ce assez pour 930 000 entrées ?', options: ['Oui, avec de la marge', 'Non, il manque 100 000', 'Seulement si UDP s’arrête', 'Seulement après un redémarrage du nœud'], answer: 0, why: '1 048 576 est au-dessus de 930 000.' },
+					{ q: 'Pourquoi la personne de l’issue a-t-elle obtenu 1 440 000 en 2018 ?', options: ['Elle l’a posé à la main avec sysctl', 'Le noyau l’a doublé au démarrage', 'Son nœud avait plus de cœurs', 'Le code n’avait pas encore de plafond'], answer: 3, why: 'Le plafond à 1 048 576 est venu plus tard. En 2018, kube-proxy prenait la valeur calculée telle quelle.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ __nf_conntrack_alloc(struct net *net,
 			why: '`getConntrackMax` multiplie `MaxPerCore`, 32 x 1024 par défaut, par le nombre de CPU, avec `Min` (131 072) comme plancher. 786 432 / 32 768 = 24, l’hypothèse du mainteneur dans l’issue #71261.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Monter une fausse ClusterIP avec une seule règle DNAT, puis voir les entrées conntrack s’empiler après la fermeture des connexions.',
+		steps: [
+			'Ouvre un shell dans son propre namespace réseau, pour ne rien toucher aux règles de ton hôte : `docker run -it --rm --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Dedans, lance un backend : `python3 -m http.server 8080 >/dev/null 2>&1 &`.',
+			'Ajoute la règle du « Service » : `iptables -t nat -A OUTPUT -p tcp -d 10.96.0.10 --dport 80 -j DNAT --to-destination $(hostname -i):8080`.',
+			'Appelle une fois la fausse ClusterIP et lis la table : `curl -s -o /dev/null -w "%{http_code}\\n" http://10.96.0.10/`, puis `conntrack -L`.',
+			'Ouvre 50 connexions courtes et compte les entrées : `for i in $(seq 50); do curl -s -o /dev/null http://10.96.0.10/; done; conntrack -C`. Lance `conntrack -L | head -3` plusieurs fois pendant les deux minutes suivantes, et lis la limite avec `cat /proc/sys/net/netfilter/nf_conntrack_max`.'
+		],
+		done: [
+			'`curl` affiche `200`, alors que rien n’écoute sur `10.96.0.10`.',
+			'`conntrack -L` montre une ligne avec deux tuples : `dst=10.96.0.10 dport=80`, puis un tuple de réponse avec `sport=8080`.',
+			'Après la boucle, `conntrack -C` affiche environ 51 alors que toutes les connexions sont fermées, et les entrées montrent `TIME_WAIT` avec un minuteur qui décompte depuis 120.'
+		],
+		solution: [
+			'Le premier paquet a touché la règle DNAT et conntrack a gardé les deux tuples. La réponse du port 8080 a correspondu au tuple de réponse et a été réécrite vers `10.96.0.10:80`, sans repasser par les règles.',
+			'Chaque flux TCP fermé garde son entrée 120 secondes. 50 connexions en quelques secondes gardent environ 50 entrées pendant deux minutes : le même calcul de régime établi que dans l’exercice, à plus petite échelle.',
+			'Écrire dans `nf_conntrack_max` depuis le conteneur échoue avec "Read-only file system" : Docker monte `/proc/sys` en lecture seule. Tape `exit` pour supprimer le conteneur et ses règles.'
+		]
+	},
 	recall: {
 		q: 'Que fait le noyau du premier paquet d’un nouveau flux quand `nf_conntrack_count` a atteint `nf_conntrack_max` ?',
 		a: 'Il tente `early_drop` : libérer une entrée non assured parmi 8 seaux de hachage voisins. Quand aucune entrée ne peut partir, il jette le paquet et écrit `nf_conntrack: table full, dropping packet`.'

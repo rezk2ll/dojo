@@ -99,6 +99,44 @@ export default {
 			'1.5 s is 1,500,000,000 ns: 10 digits, too many. In microseconds it is 1,500,000, so the header is `1500000u`.',
 			'10 minutes is 600,000,000,000 ns, then 600,000,000 µs (9 digits), both too many. In milliseconds it is 600,000: `600000m`.',
 			'In practice `time.Until` on line 13 returns a little less than the round value, and `div` rounds the last unit up. A real header for 1.5 s is a few microseconds under `1500000u`.'
+		],
+		steps: [
+			{
+				title: 'Learn the rule',
+				questions: [
+					{ q: 'In which order does `EncodeDuration` try the units?', options: ['`H`, `M`, `S`, `m`, `u`, `n`: largest first', '`n`, `u`, `m`, `S`, `M`, `H`: smallest first', '`S` first, then smaller units', 'Whichever unit gives the shortest number'], answer: 1, why: 'It picks the smallest unit whose value fits. Starting from nanoseconds keeps as much precision as the header allows.' },
+					{ q: 'What is the largest value that fits?', options: ['99,999,999, 8 digits', '999,999,999, 9 digits', '2,147,483,647, the 32-bit limit', '65,535, like a port'], answer: 0, why: 'The value must fit in 8 digits, so at most 99,999,999.' },
+					{ q: 'What do `m` and `M` stand for?', options: ['Both mean milliseconds', '`m` is minutes, `M` is milliseconds', '`m` is milliseconds, `M` is minutes', '`m` is microseconds, `M` is milliseconds'], answer: 2, why: 'The list goes `n`, `u`, `m`, `S`, `M`, `H`: lower case `m` sits between micro and seconds, upper case `M` between seconds and hours.' },
+					{ q: 'Where does the time left come from on the client?', options: ['A fixed default of 30 s in grpc-go', 'The server\'s own timeout setting', 'The `:path` header of the call', '`time.Until` on the context deadline'], answer: 3, why: 'Line 10 reads the deadline from the Go `context`, line 13 turns it into the time left, line 17 sends it.' }
+				]
+			},
+			{
+				title: 'Encode 50 ms',
+				questions: [
+					{ q: 'How many nanoseconds is 50 ms?', options: ['50,000', '50,000,000', '5,000,000', '500,000,000'], answer: 1, why: 'One millisecond is 1,000,000 ns, so 50 ms is 50,000,000 ns.' },
+					{ q: 'Does 50,000,000 fit in 8 digits?', options: ['Yes, it has exactly 8 digits', 'No, it has 9 digits', 'No, it is over 99,999,999', 'Only after rounding up'], answer: 0, why: '50,000,000 has 8 digits and is below 99,999,999, so nanoseconds work.' },
+					{ q: 'What header does the client send?', options: ['`grpc-timeout: 50m`', '`grpc-timeout: 50000u`', '`grpc-timeout: 50000000n`', '`grpc-timeout: 0.05S`'], answer: 2, why: 'The smallest unit that fits wins, and `n` already fits. `50m` is the same time but not what the encoder picks.' },
+					{ q: 'Why not `0.05S`?', options: ['Seconds are not a valid unit', 'The value must be a whole number', 'It would be too many digits', 'The server only reads `n`'], answer: 1, why: 'The header holds an integer and a unit. Fractions are handled by moving to a smaller unit.' }
+				]
+			},
+			{
+				title: 'Encode 1.5 s',
+				questions: [
+					{ q: 'How many nanoseconds is 1.5 s?', options: ['15,000,000', '150,000,000', '1,500,000', '1,500,000,000'], answer: 3, why: 'One second is 1,000,000,000 ns, so 1.5 s is 1,500,000,000 ns.' },
+					{ q: 'Does that fit in 8 digits?', options: ['No, it has 10 digits', 'Yes, just under the limit', 'No, it has 9 digits', 'Yes, once the comma is dropped'], answer: 0, why: '1,500,000,000 has 10 digits, more than 8, so the encoder tries the next unit.' },
+					{ q: 'In microseconds, what is 1.5 s?', options: ['1,500', '150,000', '1,500,000', '15,000,000'], answer: 2, why: 'One second is 1,000,000 µs, so 1.5 s is 1,500,000 µs: 7 digits, it fits.' },
+					{ q: 'What header does the client send?', options: ['`grpc-timeout: 1500m`', '`grpc-timeout: 1500000u`', '`grpc-timeout: 1500000000n`', '`grpc-timeout: 2S`'], answer: 1, why: '`u` is the smallest unit whose value fits in 8 digits. `1500m` fits too, but it is a larger unit.' }
+				]
+			},
+			{
+				title: 'Encode 10 minutes',
+				questions: [
+					{ q: 'How many microseconds is 10 minutes?', options: ['600,000', '60,000,000', '6,000,000,000', '600,000,000'], answer: 3, why: '600 s × 1,000,000 µs is 600,000,000 µs: 9 digits, one too many.' },
+					{ q: 'So which unit fits first?', options: ['Milliseconds: 600,000', 'Seconds: 600', 'Minutes: 10', 'Microseconds, rounded down'], answer: 0, why: '600,000 ms has 6 digits. It is the smallest unit after `u`, so it wins.' },
+					{ q: 'What header does the client send?', options: ['`grpc-timeout: 10M`', '`grpc-timeout: 600S`', '`grpc-timeout: 600000m`', '`grpc-timeout: 600000000u`'], answer: 2, why: '`10M` and `600S` mean the same time, but the encoder stops at the smallest unit that fits.' },
+					{ q: 'A real client calls `context.WithTimeout` with 1.5 s and sends a value a little under `1500000u`. Why?', options: ['The server subtracts network latency', '`time.Until` runs a moment after the deadline was set', 'HPACK compresses the number', 'The encoder always rounds down'], answer: 1, why: 'Some time passes between creating the context and line 13, so `time.Until` returns a little less than the round value.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -136,6 +174,30 @@ export default {
 			why: 'Without a context deadline, line 10 sends no `grpc-timeout`, and the server assumes an infinite timeout. gRPC sets no deadline by default, so the call waits until something else breaks the connection.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Watch one gRPC channel carry every call over a single connection, and watch a client deadline reach the server and cancel the call.',
+		steps: [
+			'Set up a Go module: `mkdir grpc-lab && cd grpc-lab && go mod init grpclab && go get google.golang.org/grpc@v1.66.0`.',
+			'In `main.go`, write a server mode that listens on `127.0.0.1:50051` and registers a `grpc_health_v1` Health server. Its `Check` prints `peer.FromContext(ctx)` and the time left on `ctx.Deadline()`, then waits 1 s or until `ctx.Done()`.',
+			'In the same file, write a client mode: one `grpc.NewClient("127.0.0.1:50051", ...)`, then 3 `Check` calls, each under `context.WithTimeout` with the duration given on the command line.',
+			'Build and start the server: `go mod tidy && go build -o lab . && ./lab server &`.',
+			'Run the client twice: `./lab 2s`, then `./lab 500ms`. Read what the server printed, then stop it with `kill %1`.'
+		],
+		done: [
+			'`./lab 2s` prints three calls with `error: <nil>`.',
+			'The server prints the same client address and port for all three calls of one run.',
+			'The server sees about `2s` left on each call of the first run, so the deadline crossed the wire.',
+			'`./lab 500ms` prints `code = DeadlineExceeded` three times, and the server prints that each context ended.'
+		],
+		solution: [
+			'Imports: `google.golang.org/grpc`, `.../grpc/credentials/insecure`, `.../grpc/health/grpc_health_v1` and `.../grpc/peer`. Embed `grpc_health_v1.UnimplementedHealthServer` in your server type.',
+			'Handler: `p, _ := peer.FromContext(ctx); dl, ok := ctx.Deadline(); fmt.Println(p.Addr, ok, time.Until(dl))`, then `select { case <-time.After(time.Second): return &grpc_health_v1.HealthCheckResponse{}, nil; case <-ctx.Done(): fmt.Println(ctx.Err()); return nil, ctx.Err() }`.',
+			'Client: `conn, _ := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))`, then in a loop `ctx, cancel := context.WithTimeout(context.Background(), d)`, call `Check`, print `fmt.Println("error:", err)`, then `cancel()`.',
+			'One port per run is one TCP connection: each call is a new stream on it. Behind a layer 4 balancer, all three calls would land on the same backend.',
+			'The `select` on `ctx.Done()` is the server code stopping its own work. Without it, the handler would keep running after the client gave up.'
+		]
+	},
 	recall: {
 		q: 'Why does a normal Kubernetes Service send all calls of a gRPC client to one Pod?',
 		a: 'kube-proxy picks a Pod once per TCP connection, and gRPC sends every call as a stream on one long-lived HTTP/2 connection. Request-level balancing (`round_robin` in the client, or an HTTP/2 proxy) spreads the calls.'

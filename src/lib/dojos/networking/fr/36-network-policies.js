@@ -124,6 +124,44 @@ export default {
 			'`web-to-api` : `podSelector: { matchLabels: { app: web } }`, `policyTypes: [Egress]`, egress `to: [{ podSelector: { matchLabels: { app: api } } }]`, port TCP 8080.',
 			'`api-from-web` : `podSelector: { matchLabels: { app: api } }`, `policyTypes: [Ingress]`, ingress `from: [{ podSelector: { matchLabels: { app: web } } }]`, port TCP 8080.',
 			'Trois objets. La connexion demande l’egress sur `web` et l’ingress sur `api`, parce que deny-all a isolé les deux pods dans les deux sens. Les réponses n’ont besoin d’aucune règle.'
+		],
+		steps: [
+			{
+				title: 'Compte les ouvertures',
+				questions: [
+					{ q: 'Après `default-deny-all`, quels pods de `shop` sont isolés ?', options: ['Seulement les pods sans label', 'Tous les pods, en ingress et en egress', 'Tous les pods, en ingress seulement', 'Seulement `web` et `api`'], answer: 1, why: '`podSelector: {}` sélectionne tous les pods du namespace, et les deux directions sont listées sans règle.' },
+					{ q: 'Pour que `web` joigne `api` sur 8080, que faut-il autoriser ?', options: ['L’ingress sur `api` seulement', 'L’egress sur `web` seulement', 'L’egress sur `web` et l’ingress sur `api`', 'Une policy sur le Service `api`'], answer: 2, why: 'Les deux bouts sont isolés. La policy d’egress de la source et la policy d’ingress de la destination doivent toutes les deux autoriser la connexion.' },
+					{ q: 'Dans quelle direction la requête DNS demande-t-elle une ouverture ?', options: ['En egress depuis les pods clients', 'En ingress sur les pods clients', 'En ingress sur CoreDNS dans `shop`', 'Aucune : le DNS passe toujours'], answer: 0, why: 'Le client envoie la requête vers l’extérieur. Deny-all a bloqué cet egress, et la doc prévient qu’il bloque aussi le DNS.' },
+					{ q: 'Quels protocoles le DNS demande-t-il sur le port 53 ?', options: ['UDP seulement', 'TCP seulement', 'ICMP et UDP', 'UDP et TCP'], answer: 3, why: 'Les requêtes partent en UDP. La RFC 7766 dit qu’un client qui reçoit une réponse UDP tronquée doit réessayer en TCP.' }
+				]
+			},
+			{
+				title: 'Ouvre le DNS',
+				questions: [
+					{ q: 'Dans la réponse, quels pods `allow-dns` sélectionne-t-elle ?', options: ['Seulement `app=web`', 'Tous les pods de `shop`, avec `podSelector: {}`', 'Les pods CoreDNS', 'Tous les pods du cluster'], answer: 1, why: 'Un `podSelector: {}` dans la spec prend tous les pods du namespace de la policy : tout `shop` peut résoudre des noms.' },
+					{ q: 'Quels `policyTypes` liste-t-elle ?', options: ['`[Egress]`', '`[Ingress]`', '`[Ingress, Egress]`', 'Aucun : le type se déduit de `to`'], answer: 0, why: 'Elle n’ouvre que la requête sortante. L’ingress de `shop` reste tel que deny-all l’a laissé.' },
+					{ q: 'L’entrée `to` contient à la fois un `namespaceSelector` et un `podSelector`. Qu’est-ce que ça veut dire ?', options: ['Un seul des deux suffit', 'Le sélecteur de namespace est ignoré', 'Seul le premier sélecteur compte', 'Les deux doivent correspondre'], answer: 3, why: 'Les sélecteurs d’un même élément `to` doivent tous correspondre. Deux éléments séparés accepteraient l’un ou l’autre.' },
+					{ q: 'Quel label désigne le namespace `kube-system` ?', options: ['`k8s-app: kube-dns`', '`name: kube-system`', '`kubernetes.io/metadata.name: kube-system`', '`app: coredns`'], answer: 2, why: 'La réponse et le schéma utilisent le label `kubernetes.io/metadata.name` pour le namespace, et `k8s-app: kube-dns` pour les pods.' }
+				]
+			},
+			{
+				title: 'Ouvre `web` vers `api`',
+				questions: [
+					{ q: 'Quels pods `web-to-api` sélectionne-t-elle ?', options: ['`app: api`', '`app: web`', 'Tous les pods de `shop`', 'Les pods CoreDNS'], answer: 1, why: 'Elle ouvre de l’egress : elle sélectionne les pods source, `app=web`, et liste `app=api` dans `to`.' },
+					{ q: 'Quels pods `api-from-web` sélectionne-t-elle ?', options: ['`app: api`', '`app: web`', 'Tous les pods de `shop`', 'Aucun pod : elle sélectionne le Service'], answer: 0, why: 'Elle ouvre de l’ingress : elle sélectionne les pods destination, `app=api`, et liste `app=web` dans `from`.' },
+					{ q: 'Quel port les deux règles nomment-elles ?', options: ['UDP 53', 'TCP 6379', 'TCP 80', 'TCP 8080'], answer: 3, why: 'L’énoncé dit que `web` appelle `api` en TCP 8080.' },
+					{ q: 'Pourquoi pas une seule policy pour les deux côtés ?', options: ['Une policy ne peut pas lister de ports', 'Une policy ne peut pas sélectionner par label', 'Les deux côtés visent d’autres pods', 'Deux policies vont plus vite'], answer: 2, why: 'Une policy s’applique aux pods que choisit le `podSelector` de sa spec. Les deux directions portent sur deux ensembles de pods différents.' }
+				]
+			},
+			{
+				title: 'Vérifie l’ensemble',
+				questions: [
+					{ q: 'Combien d’objets NetworkPolicy la réponse ajoute-t-elle ?', options: ['Trois', 'Deux', 'Un', 'Quatre'], answer: 0, why: '`allow-dns`, `web-to-api` et `api-from-web`. Chacune ouvre un passage sur un ensemble de pods.' },
+					{ q: 'Les réponses de `api` vers `web` ont-elles besoin d’une règle ?', options: ['Oui, une règle d’egress sur `api`', 'Oui, une règle d’ingress sur `web`', 'Seulement pour UDP', 'Non, les réponses sont autorisées implicitement'], answer: 3, why: 'La doc dit que le trafic de réponse d’une connexion autorisée est implicitement autorisé.' },
+					{ q: 'L’ordre dans lequel tu appliques les trois policies compte-t-il ?', options: ['Oui, la dernière l’emporte', 'Oui, deny-all doit passer en dernier', 'Non, l’ensemble autorisé est une union', 'Seulement dans un même namespace'], answer: 2, why: 'Une policy ne fait qu’ajouter des connexions permises : leur ordre ne change jamais le résultat.' },
+					{ q: 'Le cluster tourne avec flannel seul. Que changent les trois policies ?', options: ['Seule la policy DNS marche', 'Rien : flannel ne les applique pas', 'Tout, après un redémarrage de kube-proxy', 'Elles bloquent tout le trafic'], answer: 1, why: 'L’API server stocke les objets, et seul un network plugin qui applique les policies les traduit en filtrage.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,29 @@ export default {
 			why: 'L’API server stocke l’objet, et seul le network plugin le traduit en filtrage sur les nœuds. Un plugin comme flannel, utilisé seul, n’applique pas les policies, donc l’objet n’a aucun effet.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Casser le DNS avec une policy deny-all sur un vrai cluster, puis ouvrir exactement les trois passages que demande l’exercice.',
+		steps: [
+			'Lance un cluster dont le network plugin applique les policies : `minikube start -p netpol-lab --cni=calico`.',
+			'Crée le namespace et les pods : `kubectl create namespace shop`, `kubectl -n shop create deployment api --image=nginx:1.27`, `kubectl -n shop expose deployment api --port=80`, puis `kubectl -n shop run web --image=nicolaka/netshoot:v0.13 --labels=app=web -- sleep 3600`. Attends-les : `kubectl -n shop wait --for=condition=Ready pod --all --timeout=180s`.',
+			'Vérifie que le chemin marche : `kubectl -n shop exec web -- curl -s -o /dev/null -w \'%{http_code}\\n\' --max-time 20 http://api/`.',
+			'Applique deny-all : `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"default-deny-all","namespace":"shop"},"spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}\' | kubectl apply -f -`, et relance le même `curl`.',
+			'Écris `allow-dns`, `web-to-api` et `api-from-web` d’après l’exercice, avec le port TCP 80 au lieu de 8080, applique-les, et relance le `curl`. Nettoie avec `minikube delete -p netpol-lab`.'
+		],
+		done: [
+			'Avant toute policy, `curl` affiche `200`.',
+			'Après deny-all, `curl` n’affiche pas `200` : il échoue sur le nom `api` ou atteint la limite de 20 s.',
+			'Après les trois policies, `curl` affiche de nouveau `200`.',
+			'`kubectl -n shop delete networkpolicy api-from-web` refait échouer le `curl`, alors que le DNS marche toujours.'
+		],
+		solution: [
+			'`allow-dns` : `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-dns","namespace":"shop"},"spec":{"podSelector":{},"policyTypes":["Egress"],"egress":[{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}]}}`',
+			'`web-to-api` : `"podSelector":{"matchLabels":{"app":"web"}}`, `"policyTypes":["Egress"]`, `"egress":[{"to":[{"podSelector":{"matchLabels":{"app":"api"}}}],"ports":[{"protocol":"TCP","port":80}]}]`.',
+			'`api-from-web` : `"podSelector":{"matchLabels":{"app":"api"}}`, `"policyTypes":["Ingress"]`, `"ingress":[{"from":[{"podSelector":{"matchLabels":{"app":"web"}}}],"ports":[{"protocol":"TCP","port":80}]}]`.',
+			'La dernière vérification, c’est la leçon : l’egress sur `web` ne suffit pas. Le côté ingress sur `api` doit aussi être d’accord.'
+		]
+	},
 	recall: {
 		q: 'Qu’accepte un pod dans un namespace sans NetworkPolicy, et qu’est-ce qui doit autoriser une connexion du pod A vers le pod B une fois les deux isolés ?',
 		a: 'Sans policy, toutes les connexions entrantes et sortantes passent. Une fois isolés, une règle d’egress sur A et une règle d’ingress sur B doivent l’autoriser, et le network plugin (Calico, Cilium) doit les appliquer.'

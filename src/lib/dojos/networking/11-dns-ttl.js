@@ -108,6 +108,44 @@ const (
 			'RFC 2308: min(3600, 86400) = 3600 seconds. CoreDNS caps negative answers at `maxNTTL`, 30 minutes. CoreDNS keeps the `NXDOMAIN` from 09:58 to 10:28, so the script sees the record at 10:28, 28 minutes after you created it.',
 			'For the move: lower the TTL from 86400 to 300 today before 14:00, at least 24 hours ahead. Resolvers that cached the record just before you lowered it keep it 86400 seconds, so their copies are gone by 14:00 tomorrow.',
 			'At 14:00 change the address. Every cached copy now has at most 300 seconds left, so clients reach the new server by 14:05. Raise the TTL back to 86400 once the new server is stable.'
+		],
+		steps: [
+			{
+				title: 'Read the SOA',
+				questions: [
+					{ q: 'In `shop.example. 3600 IN SOA ns1 admin 2026101701 7200 900 1209600 86400`, which field is the SOA record\'s own TTL?', options: ['2026101701', '7200', '3600', '86400'], answer: 2, why: 'The TTL comes right after the owner name, as in every record. `2026101701` is the serial.' },
+					{ q: 'Which field is MINIMUM?', options: ['The last one, 86400', 'The first number after the names, 2026101701', 'The third number, 900', 'The fourth number, 1209600'], answer: 0, why: 'MINIMUM is the last number in the SOA. Since RFC 2308 it caps how long a negative answer may be cached.' },
+					{ q: 'What does RFC 2308 set as the TTL of this `NXDOMAIN`?', options: ['86400, the MINIMUM field', '3600, the smaller of TTL and MINIMUM', '900, the retry field', '7200, the refresh field'], answer: 1, why: 'The negative TTL is the smaller of the SOA\'s TTL and its MINIMUM field: min(3600, 86400) = 3600.' },
+					{ q: 'What are the refresh, retry and expire fields for?', options: ['They cap positive answers in resolver caches', 'They set how long clients wait for a reply', 'They tell secondary servers how to copy the zone', 'They replace MINIMUM when it is missing'], answer: 2, why: 'Refresh, retry and expire tell secondary servers how to keep their copy of the zone. They play no part in negative caching.' }
+				]
+			},
+			{
+				title: 'Apply the CoreDNS cap',
+				questions: [
+					{ q: 'How long does CoreDNS keep a negative answer at most with the default `cache` settings?', options: ['1 hour, `MaximumDefaultTTL`', '5 seconds, like a `SERVFAIL`', '24 hours, like the `.com` DS record', '30 minutes, `maxNTTL`'], answer: 3, why: '`maxNTTL` is half of `MaximumDefaultTTL`, which is 1 hour, so negative answers stay 30 minutes at most.' },
+					{ q: 'The SOA allows 3600 seconds and CoreDNS caps at 1800. How long is the `NXDOMAIN` kept?', options: ['3600 seconds', '1800 seconds', '5400 seconds', '86400 seconds'], answer: 1, why: 'Line 2 of `computeTTL` clamps the TTL under the ceiling, so 3600 becomes 1800.' },
+					{ q: 'The `NXDOMAIN` was cached at 09:58. When does the script first see the A record?', options: ['10:00, when you create it', '10:05, after the record\'s TTL of 300', '10:28, when the negative copy expires', '10:58, after the SOA TTL of 3600'], answer: 2, why: 'CoreDNS answers from its negative cache until 09:58 plus 30 minutes, so the first fresh lookup is at 10:28.' },
+					{ q: 'Why does the TTL of 300 on the new A record not help here?', options: ['CoreDNS ignores TTLs below 1800', 'The record has to reach every secondary first', 'TTLs only apply to records over 3600 seconds', 'The cache holds the old "no such name" answer, not the record'], answer: 3, why: 'What is cached is the `NXDOMAIN` with its own TTL. The new record\'s TTL counts only once a resolver fetches it.' }
+				]
+			},
+			{
+				title: 'Plan the TTL change',
+				questions: [
+					{ q: 'The move is tomorrow at 14:00 and the TTL is 86400. What do you change first?', options: ['Lower the TTL to 300, at least 24 hours before', 'Change the address now, so caches have time', 'Raise the TTL, so caches keep the record longer', 'Ask resolver operators to flush at 14:00'], answer: 0, why: 'RFC 1034: if a change can be anticipated, reduce the TTL before it. Copies cached with 86400 live a day, so lower it a full day ahead.' },
+					{ q: 'A resolver cached the record one second before you lowered the TTL. How long does it keep that copy?', options: ['300 seconds, the new TTL', '86400 seconds, the TTL it was given', 'Until the zone serial changes', '1800 seconds, the CoreDNS cap'], answer: 1, why: 'You cannot shorten a TTL that resolvers already hold. That copy lives its full 86400 seconds.' },
+					{ q: 'You lower the TTL today at 15:00 instead of before 14:00. What happens at 14:00 tomorrow?', options: ['Nothing changes: 300 seconds is short anyway', 'The zone refuses the change until 15:00', 'Copies cached just before 15:00 today still hold the old address', 'Every resolver flushes at midnight'], answer: 2, why: 'A copy taken at 14:59 today keeps the 86400 TTL until 14:59 tomorrow, past the move.' },
+					{ q: 'Why not keep the TTL at 300 forever?', options: ['A TTL of 300 breaks negative caching', 'RFC 1035 forbids TTLs under one hour', 'Short TTLs make resolvers ignore the record', 'Long TTLs let resolvers answer from cache without asking'], answer: 3, why: 'RFC 1034 says TTLs "should be on the order of days for the typical host". A long TTL saves queries to the authoritative server.' }
+				]
+			},
+			{
+				title: 'Do the move',
+				questions: [
+					{ q: 'At 14:00 tomorrow you change the address. How long can a client still get the old one?', options: ['Up to 300 seconds', 'Up to 86400 seconds', 'Up to 1800 seconds', 'Not at all'], answer: 0, why: 'Every cached copy now has at most 300 seconds left, so clients reach the new server by 14:05.' },
+					{ q: 'Why keep the old server running until about 14:05?', options: ['Secondary servers need it to copy the zone', 'Some clients still hold the old address for up to 300 s', 'The new server needs it to warm its cache', 'CoreDNS checks the old address before the new one'], answer: 1, why: 'Until the last 300 second copy expires, some clients still connect to the old address.' },
+					{ q: 'When do you raise the TTL back to 86400?', options: ['At 14:00, together with the address', 'Never: once lowered, it must stay low', 'Once the new server is stable', 'Before the move, to protect the old address'], answer: 2, why: 'Raise it after the change, once you know you will not need to move back quickly.' },
+					{ q: 'A colleague changes the address with the TTL still at 86400. What is the worst case?', options: ['Five minutes of mixed answers', 'Thirty minutes, the CoreDNS cap', 'One minute, the time to reload the zone', 'Some users see the old address for a full day'], answer: 3, why: 'With a TTL of 86400, a copy cached just before the change lives 24 hours.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -140,6 +178,27 @@ const (
 			why: 'The DS record lives in the parent zone, and `.com` gives it a TTL of 86400 that the domain owner cannot change. Resolvers that had fetched it kept validating slack.com until the copy expired or their operator flushed it.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Watch a CoreDNS cache keep an `NXDOMAIN` after the record exists.',
+		steps: [
+			'Make a folder: `mkdir -p ~/dns-lab && cd ~/dns-lab`. Create `db.shop.example` with these lines: `$ORIGIN shop.example.`, `@ 120 IN SOA ns1.shop.example. admin.shop.example. 1 7200 900 1209600 120`, `@ 300 IN NS ns1.shop.example.`, `ns1 300 IN A 127.0.0.1`, `www 300 IN A 192.0.2.10`.',
+			'Create `Corefile` with one line each: `shop.example:1053 {`, `file /lab/db.shop.example {`, `reload 5s`, `}`, `}`, `.:53 {`, `cache`, `forward . 127.0.0.1:1053`, `}`. The first block is the authoritative server, the second a caching resolver in front of it.',
+			'Start it: `docker run -d --rm --name dnslab -p 127.0.0.1:8053:53/udp -p 127.0.0.1:8054:1053/udp -v "$PWD":/lab coredns/coredns:1.11.3 -conf /lab/Corefile`. Port 8053 is the cache, 8054 the authoritative server.',
+			'Query the cache twice a few seconds apart: `dig @127.0.0.1 -p 8053 www.shop.example +noall +answer`. Watch the TTL go down.',
+			'Ask for a name that does not exist yet: `dig @127.0.0.1 -p 8053 api.shop.example +noall +comments +authority`. Then edit `db.shop.example`: change the serial from `1` to `2` and add `api 300 IN A 192.0.2.20`. Wait 10 seconds and query both ports again.'
+		],
+		done: [
+			'The second `www` query shows a TTL lower than 300.',
+			'`dig @127.0.0.1 -p 8054 api.shop.example +short` prints `192.0.2.20`, while the same query on port 8053 still says `NXDOMAIN` with a counting SOA TTL.',
+			'About two minutes after the first `api` query, port 8053 returns `192.0.2.20` too.'
+		],
+		solution: [
+			'The authoritative server has the record as soon as it reloads the zone. The cache does not ask again until its negative copy expires.',
+			'That copy lives the TTL of the SOA in the authority section, here 120 seconds. With `3600` there, CoreDNS would cap it at 1800.',
+			'Stop the lab with `docker stop dnslab`.'
+		]
+	},
 	recall: {
 		q: 'What decides how long a resolver caches an `NXDOMAIN`, and how long does CoreDNS keep one at most by default?',
 		a: 'The SOA record in the authority section: the smaller of its TTL and its MINIMUM field (RFC 2308). CoreDNS caps negative answers at 30 minutes, half of its 1 hour default maximum.'

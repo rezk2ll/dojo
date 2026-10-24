@@ -119,6 +119,44 @@ export default {
 			'(1) L’adresse montre 6 groupes, donc `::` en vaut 2 : `2001:0db8:0000:0000:0008:0800:200c:417a`. La RFC 4291 donne le même exemple, `2001:DB8:0:0:8:800:200C:417A`.',
 			'(2) `proto ra` veut dire que la route a été apprise par une Router Advertisement. La RFC 4861 impose au routeur de l’envoyer depuis son adresse link-local : l’hôte connaît donc la passerelle sous une adresse `fe80::`, valable sur ce lien seulement. Les adresses globales `dynamic` viennent de SLAAC : le préfixe annoncé plus l’identifiant d’interface de 64 bits de l’hôte.',
 			'(3) curl : 200 ms + 5 ms = environ 205 ms, comme mesuré. Un client avec un délai de 300 ms : environ 305 ms. Sans Happy Eyeballs, la connexion attend le timeout du SYN : environ 131 secondes avec `tcp_syn_retries` par défaut.'
+		],
+		steps: [
+			{
+				title: 'Développe l’adresse',
+				questions: [
+					{ q: 'Combien de groupes montre `2001:db8::8:800:200c:417a` ?', options: ['8', '6', '5', '4'], answer: 1, why: '`2001`, `db8`, puis `8`, `800`, `200c`, `417a` : six groupes autour du `::`.' },
+					{ q: 'Combien de groupes à zéro `::` remplace-t-il ici ?', options: ['2', '1', '3', '6'], answer: 0, why: 'Une adresse a huit groupes : `::` comble les deux qui manquent.' },
+					{ q: 'Quelle est la forme complète ?', options: ['`2001:db8:0:8:800:200c:417a:0`', '`2001:db8:0:0:0:8:800:200c:417a`', '`2001:0:0:db8:8:800:200c:417a`', '`2001:db8:0:0:8:800:200c:417a`'], answer: 3, why: 'Les deux groupes à zéro vont à la place du `::`, entre `db8` et `8`. Cela fait huit groupes.' },
+					{ q: 'Pourquoi `2001:db8::8::417a` n’est-elle pas une adresse valide ?', options: ['`::` ne peut apparaître qu’une fois', 'Un groupe ne peut pas avoir un seul chiffre', 'Une adresse ne peut pas commencer par `2001`', 'Elle a trop de groupes'], answer: 0, why: 'Avec deux `::`, personne ne saurait combien de zéros chacun cache. La RFC 4291 n’en autorise qu’un.' }
+				]
+			},
+			{
+				title: 'Lis la route par défaut',
+				questions: [
+					{ q: 'Que veut dire `proto ra` dans la route ?', options: ['Un serveur DHCPv6 a posé la route', 'Quelqu’un l’a ajoutée avec `ip route add`', 'Elle a été apprise par une Router Advertisement', 'Elle pointe vers un VPN d’accès distant'], answer: 2, why: '`proto ra` marque les routes apprises par Router Advertisement : c’est ainsi qu’un hôte SLAAC reçoit sa route par défaut.' },
+					{ q: 'Pourquoi la passerelle est-elle une adresse `fe80::` ?', options: ['Le routeur n’a pas d’adresse globale', 'La RFC 4861 impose d’envoyer les annonces depuis l’adresse link-local', 'L’hôte cache la vraie adresse du routeur', 'Les adresses link-local se routent plus vite'], answer: 1, why: 'Le routeur doit envoyer ses annonces depuis son adresse link-local : c’est donc l’adresse que l’hôte retient comme prochain saut.' },
+					{ q: 'Un prochain saut en `fe80::` suffit-il pour joindre Internet ?', options: ['Non : une passerelle doit avoir une adresse globale', 'Seulement pour le trafic dans `fe80::/10`', 'Seulement si DHCPv6 tourne aussi', 'Oui : le prochain saut doit juste être joignable sur le lien'], answer: 3, why: 'L’hôte ne fait que remettre les paquets au routeur sur le lien local. Le routeur les transmet ensuite avec ses propres adresses.' },
+					{ q: 'Pourquoi la route nomme-t-elle `dev wlp194s0` ?', options: ['Une adresse link-local n’est valable que sur un lien', 'La route ne sert qu’aux clients Wi-Fi', 'Le noyau choisit l’interface la plus rapide', 'Les routes IPv6 nomment toujours une interface pour les logs'], answer: 0, why: 'Des adresses `fe80::` existent sur chaque lien : l’interface dit à quel lien celle-ci appartient.' }
+				]
+			},
+			{
+				title: 'Explique les adresses globales',
+				questions: [
+					{ q: 'D’où viennent les adresses globales `dynamic` ?', options: ['Un serveur DHCP les a louées', 'De SLAAC : le préfixe annoncé plus l’identifiant d’interface de l’hôte', 'Le FAI les a posées à la main', 'Ce sont des adresses link-local avec un nouveau préfixe'], answer: 1, why: 'Avec SLAAC, le routeur annonce un préfixe et l’hôte y ajoute son identifiant d’interface de 64 bits, sans serveur DHCP.' },
+					{ q: 'Combien de bits l’hôte ajoute-t-il au préfixe ?', options: ['32', '48', '64', '128'], answer: 2, why: 'SLAAC utilise un identifiant d’interface de 64 bits.' },
+					{ q: 'Quelle adresse chaque interface IPv6 a-t-elle, même sans routeur ?', options: ['Une adresse globale SLAAC', 'Une adresse dans `2001:db8::/32`', 'Une adresse IPv4 mappée', 'Une adresse link-local dans `fe80::/10`'], answer: 3, why: 'La RFC 4291 impose à chaque interface IPv6 d’avoir une adresse link-local.' },
+					{ q: 'La route et les adresses viennent d’une même source. Laquelle ?', options: ['Les annonces du routeur', 'Le résolveur DNS', 'Les valeurs par défaut du noyau', 'Le serveur DHCPv6 du FAI'], answer: 0, why: 'Une Router Advertisement porte l’adresse link-local du routeur et le préfixe : l’une donne la route, l’autre les adresses.' }
+				]
+			},
+			{
+				title: 'Chronomètre le repli',
+				questions: [
+					{ q: 'Que fait curl quand IPv6 n’est pas connecté après 200 ms ?', options: ['Il ferme IPv6 et lance IPv4', 'Il lance IPv4 en parallèle et garde IPv6 ouvert', 'Il renvoie un SYN en IPv6', 'Il abandonne et signale un timeout'], answer: 1, why: 'La socket IPv6 reste ouverte et peut encore gagner. curl lance une tentative IPv4 à côté.' },
+					{ q: 'IPv4 se connecte en 5 ms. Combien de temps met curl avec sa valeur par défaut ?', options: ['Environ 5 ms', 'Environ 200 ms', 'Environ 205 ms', 'Environ 305 ms'], answer: 2, why: '200 ms d’attente sur IPv6, puis 5 ms pour IPv4 : environ 205 ms, comme mesuré.' },
+					{ q: 'Combien pour un client avec un délai de 300 ms, comme Firefox ou Chrome ?', options: ['Environ 305 ms', 'Environ 300 ms', 'Environ 205 ms', 'Environ 600 ms'], answer: 0, why: '300 ms de délai plus les 5 ms de la connexion IPv4.' },
+					{ q: 'Et pour un client qui essaie une adresse à la fois ?', options: ['Environ 5 ms, il choisit IPv4', 'Environ 1 seconde', 'Environ 30 secondes', 'Environ 131 secondes'], answer: 3, why: 'Il attend que le noyau abandonne le SYN : environ 131 secondes avec `tcp_syn_retries` à 6 par défaut.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -151,6 +189,27 @@ export default {
 			why: 'La RFC 4861 impose que les Router Advertisements partent de l’adresse link-local du routeur, et le prochain saut n’a besoin d’être joignable que sur le lien. `proto ra` marque les routes apprises ainsi : c’est comme ça que les hôtes en SLAAC obtiennent leur route par défaut.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Casser exprès le chemin IPv6 et chronométrer le repli Happy Eyeballs de curl.',
+		steps: [
+			'Ouvre un shell jetable avec IPv6 activé et son propre namespace réseau : `docker run -it --rm --cap-add NET_ADMIN --sysctl net.ipv6.conf.all.disable_ipv6=0 nicolaka/netshoot:v0.13`.',
+			'Dedans, lance un serveur web en IPv4 seulement : `python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &`.',
+			'Fais de `2001:db8::/32` un trou noir silencieux : `ip link add dummy0 type dummy && ip link set dummy0 up && ip -6 addr add 2001:db8:ffff::2/64 dev dummy0 && ip -6 route add 2001:db8::/32 dev dummy0`.',
+			'Donne les deux adresses à curl, IPv6 d’abord, et chronomètre la connexion : `curl -s -o /dev/null -w "%{time_connect} %{remote_ip}\\n" --resolve demo.test:8000:[2001:db8::1],127.0.0.1 http://demo.test:8000/`.',
+			'Relance avec `--happy-eyeballs-timeout-ms 1000`, puis avec `-4`, puis avec `-6 --connect-timeout 5`.'
+		],
+		done: [
+			'Le premier essai affiche environ `0.200` et `127.0.0.1`.',
+			'Avec `--happy-eyeballs-timeout-ms 1000`, il affiche environ `1.00`, et avec `-4` presque `0.000`.',
+			'Avec `-6 --connect-timeout 5`, curl échoue après environ 5000 ms avec "Timeout was reached".'
+		],
+		solution: [
+			'Le SYN vers `2001:db8::1` part sur `dummy0` et rien ne répond jamais, comme le chemin cassé de l’accroche. curl attend son délai de 200 ms, puis lance IPv4 à côté, et IPv4 gagne.',
+			'Avec `-6`, il n’y a rien vers quoi se replier : seul le timeout met fin à l’attente. Sans `--connect-timeout`, les nouveaux essais de SYN du noyau prendraient environ 131 secondes.',
+			'Tape `exit` : l’interface dummy et sa route disparaissent avec le conteneur.'
+		]
+	},
 	recall: {
 		q: 'Avec un chemin IPv6 cassé, combien de temps ont mis curl et un client qui essaie une adresse à la fois pour se connecter dans ce chapitre, et d’où vient l’écart ?',
 		a: 'curl : 0,205 s, parce qu’il lance IPv4 après son délai Happy Eyeballs de 200 ms. Le client séquentiel : 135,7 s, parce qu’il attend le timeout du SYN dans le noyau (environ 131 s avec `tcp_syn_retries` à 6).'

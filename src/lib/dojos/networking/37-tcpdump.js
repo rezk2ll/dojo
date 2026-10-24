@@ -132,6 +132,44 @@ export default {
 			'At 23:54:15.111 the client sends the 37 byte request, `seq 1:38`. The server never ACKs it, and the same `seq 1:38` goes out 6 more times. These are retransmissions.',
 			'The gaps grow: 208, 208, 408, 864, 1665 and 3263 ms. The client waits about twice as long before each new try, after the first two.',
 			'The server is silent, with no `[R]` at all. In this capture, an iptables rule added on the server after the handshake dropped every packet to port 8080. A closed port would have answered with a reset.'
+		],
+		steps: [
+			{
+				title: 'Read the handshake',
+				questions: [
+					{ q: 'What are the first 3 lines?', options: ['Three tries of the same SYN', 'A reset and two retries', 'A TCP handshake: `[S]`, `[S.]`, `[.]`', 'The request and its reply'], answer: 2, why: 'A SYN, a SYN with an ACK, then a bare ACK. That is how every TCP connection opens.' },
+					{ q: 'Why does the server send `ack 1934350539`?', options: ['It is the client\'s `seq` plus one', 'It is a random number', 'It is the server\'s own `seq`', 'It counts the bytes received'], answer: 0, why: 'A SYN consumes one sequence number, so the server acknowledges 1934350538 + 1.' },
+					{ q: 'Why does the third line show `ack 1` and not a big number?', options: ['The server reset the counter', 'Only one byte was received', 'The capture lost packets', 'tcpdump prints relative numbers'], answer: 3, why: 'Without `-S`, tcpdump subtracts the initial numbers it recorded, so the first byte each way is `1`.' },
+					{ q: 'So did the connection open?', options: ['No, the server never answered', 'Yes, all three handshake packets are there', 'Only half: the server is waiting', 'No, `[.]` means the client gave up'], answer: 1, why: 'The three packets fit within 83 microseconds at 23:54:12. The connection is open.' }
+				]
+			},
+			{
+				title: 'Find the request',
+				questions: [
+					{ q: 'When does the client send its request?', options: ['At 23:54:12.111254, with the ACK', 'At 23:54:15.111383, in the first `[P.]`', 'At 23:54:21.727700, the last line', 'Never: no line says HTTP'], answer: 1, why: 'The first `[P.]` line carries `HTTP: GET / HTTP/1.1`, three seconds after the handshake.' },
+					{ q: 'What does `seq 1:38, length 37` mean?', options: ['38 bytes, numbered 1 to 38', '37 packets in a row', 'Bytes 1 to 37, end excluded', 'Packet 1 of 38'], answer: 2, why: 'tcpdump prints `seq first:last`, where last is "up to but not including". 38 - 1 = 37 bytes.' },
+					{ q: 'Is there any line from 192.168.128.2 after 23:54:12?', options: ['No, none', 'Yes, an ACK for `seq 1:38`', 'Yes, a reset', 'Yes, the HTTP reply'], answer: 0, why: 'After the SYN-ACK, every line goes from the client to the server. Nothing comes back.' },
+					{ q: 'What does a missing ACK for the request tell you?', options: ['The server got it and is slow to reply', 'The client sent it to the wrong port', 'The bytes or their ACK got lost', 'The request was too large'], answer: 2, why: 'A server that received the bytes would ACK them, even before replying. No ACK means the packets were lost on the way, one way or the other.' }
+				]
+			},
+			{
+				title: 'Spot the retransmissions',
+				questions: [
+					{ q: 'How do you spot a retransmission in tcpdump?', options: ['tcpdump prints `retransmit` on the line', 'The same sender sends the same `seq` range again', 'The flags change to `[R]`', 'The length doubles'], answer: 1, why: 'Nothing in `print-tcp.c` compares packets, so tcpdump never labels one. You spot the repeated range yourself.' },
+					{ q: 'How many times is `seq 1:38` sent again after the first try?', options: ['3', '7', '1', '6'], answer: 3, why: 'There are 7 lines with `seq 1:38`: the first send, then 6 retransmissions.' },
+					{ q: 'What are the gaps between the tries?', options: ['208, 208, 408, 864, 1665 and 3263 ms', '1 s each', '200 ms each', '1, 1, 1, 1, 1 and 2 s'], answer: 0, why: 'Subtract each timestamp from the next. 1, 1, 1, 1, 1, 2 s is the SYN retry pattern, not this one.' },
+					{ q: 'What does the growth of the gaps show?', options: ['The network gets slower', 'The server is sending more data', 'The client doubles its wait each try', 'tcpdump is falling behind'], answer: 2, why: 'After the first two, each gap is about double the one before. That is the client backing off while it waits for an ACK.' }
+				]
+			},
+			{
+				title: 'Refusing or silent?',
+				questions: [
+					{ q: 'Is there any `[R]` in the capture?', options: ['Yes, after the last retry', 'No, none at all', 'Yes, in the handshake', 'Only from the client'], answer: 1, why: 'No line carries an `R` flag. The server never sent a reset.' },
+					{ q: 'What would a refused connection look like?', options: ['A `[R.]` from the server right after the packet', 'The same retries with longer gaps', 'A `[F.]` from the client', 'A `win 0` from the client'], answer: 0, why: 'A host with no listener answers a SYN with a reset at once, like the `[R.]` from port 8081 in the diagram.' },
+					{ q: 'So is the server refusing or silent?', options: ['Refusing: it closed the port', 'Refusing: the window is full', 'Neither: the client is broken', 'Silent: packets to 8080 get no answer'], answer: 3, why: 'Silence plus retransmissions points at a drop. In this capture, an iptables rule added after the handshake dropped every packet to 8080.' },
+					{ q: 'The handshake worked, then nothing came back during more than 6 s of retries. Which cause fits both facts?', options: ['A port with no listener', 'A client with the wrong server address', 'A drop that started after the handshake', 'A server that answers only SYNs on any port'], answer: 2, why: 'A closed port or a wrong address would have broken the handshake too. In this capture, an iptables rule added on the server after the handshake dropped every packet to 8080.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,27 @@ export default {
 			why: 'RFC 7323 has the sender right-shift its real window by the agreed shift count. tcpdump prints the raw 16 bit field, so 63 << 10 = 64,512 bytes. The window in the SYN itself is never scaled, which is why it showed 64240.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Capture a working connection, a refused one and a dropped one between two containers, then read each in tcpdump.',
+		steps: [
+			'Create a network and two containers: `docker network create tcpdlab`, `docker run -d --name tcpd-srv --network tcpdlab --cap-add NET_ADMIN nicolaka/netshoot:v0.13 python3 -m http.server 8080` and `docker run -d --name tcpd-cli --network tcpdlab nicolaka/netshoot:v0.13 sleep 3600`.',
+			'Start a capture on the client: `docker exec -d tcpd-cli tcpdump -i eth0 -nn -w /tmp/c.pcap "tcp port 8080 or tcp port 8081"`.',
+			'Make two calls: `docker exec tcpd-cli curl -s -o /dev/null -w \'%{http_code}\\n\' http://tcpd-srv:8080/`, then `docker exec tcpd-cli curl -sS http://tcpd-srv:8081/`.',
+			'Drop port 8080 on the server and call again: `docker exec tcpd-srv iptables -A INPUT -p tcp --dport 8080 -j DROP`, then `docker exec tcpd-cli curl -sS --connect-timeout 8 http://tcpd-srv:8080/`.',
+			'Stop and read: `docker exec tcpd-cli pkill tcpdump`, then `docker exec tcpd-cli tcpdump -nn -r /tmp/c.pcap`. Clean up with `docker rm -f tcpd-srv tcpd-cli && docker network rm tcpdlab`.'
+		],
+		done: [
+			'The first call prints `200`, and the capture shows `[S]`, `[S.]`, `[.]`, then `[P.]` lines and `[F.]` on both sides.',
+			'The 8081 call fails with `curl: (7)`, and the capture shows `[S]` then `[R.], seq 0` from the server.',
+			'The dropped call fails with `curl: (28)` after 8 s, and the capture shows the same `[S]` with the same `seq` several times, with no answer.'
+		],
+		solution: [
+			'In the first connection, check the arithmetic: the server\'s `ack` in `[S.]` is the client SYN `seq` plus one, and the next client line prints `ack 1`.',
+			'The `[R.]` comes back in well under a millisecond: that is the server kernel saying nothing listens on 8081.',
+			'The repeated SYNs are retransmissions you spot by eye. The gaps follow your kernel\'s `tcp_syn_linear_timeouts` and `tcp_syn_retries` settings. On a Linux host, `sysctl net.ipv4.tcp_syn_linear_timeouts` prints the first; older kernels do not have it.'
+		]
+	},
 	recall: {
 		q: 'In tcpdump, what does a refused connection look like, and what does a dropped SYN look like on Linux defaults?',
 		a: 'Refused: the server answers the SYN at once with `Flags [R.]`. Dropped: the same `Flags [S]` with the same `seq` repeats with gaps of 1, 1, 1, 1, 1, then 2 seconds, and nothing comes back.'

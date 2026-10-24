@@ -130,6 +130,44 @@ export default {
 			'HTTP cache (chapter 22): RFC 9111 calls a response fresh while its freshness lifetime is greater than its age. 14400 minus 11173 leaves 3227 seconds, about 54 minutes, before a browser cache must revalidate this copy.',
 			'Alt-Svc (chapter 19): RFC 7838 says `ma` counts seconds "since the response was generated". The client may try HTTP/3 on UDP port 443 for the next 86400 seconds, one day.',
 			'Certificate (chapter 21): from Oct 17 00:10 to Dec 25 22:13 is 69 days and 22 hours. The certificate was issued on Sep 26, so its whole lifetime is about 90 days.'
+		],
+		steps: [
+			{
+				title: 'Work out the DNS TTL',
+				questions: [
+					{ q: 'The stub shows TTL 122 on the A records. How much longer may it keep them?', options: ['300 seconds', '178 seconds', '122 seconds', 'Until the next reboot'], answer: 2, why: 'A cache returns a record with the TTL it has left. 122 is what remains.' },
+					{ q: 'Why does `dig +trace` show 300 for the same records?', options: ['It asks the authoritative server, which gives the full TTL', 'The trace doubles every TTL', 'The two servers disagree', 'The trace uses IPv6'], answer: 0, why: 'mitch.ns.cloudflare.com hands out the record fresh, with its full lifetime of 300 seconds.' },
+					{ q: 'How long had a cache held the records?', options: ['122 seconds', '300 seconds', '422 seconds', '178 seconds'], answer: 3, why: '300 minus 122 is 178 seconds since the cache got the answer.' },
+					{ q: 'What happens when the 122 seconds run out?', options: ['The stub keeps the old answer forever', 'The stub asks again and gets a fresh TTL of 300', 'curl stops resolving example.org', 'The TTL goes negative'], answer: 1, why: 'Once the TTL is spent the cache must ask again. This belongs to chapter 11.' }
+				]
+			},
+			{
+				title: 'Work out the HTTP cache',
+				questions: [
+					{ q: 'What does `age: 11173` say?', options: ['The copy will expire in 11173 seconds', 'The server took 11173 ms', 'The copy has been in a cache for 11173 seconds', 'The page has 11173 bytes'], answer: 2, why: 'Cloudflare sets `Age` on cached responses: how old this stored copy is.' },
+					{ q: 'When is a response fresh, according to RFC 9111?', options: ['While its freshness lifetime is greater than its age', 'While `cf-cache-status` is `HIT`', 'Until the DNS TTL runs out', 'Until the next request'], answer: 0, why: 'Freshness compares the lifetime, here `max-age=14400`, with the age.' },
+					{ q: 'How long until a browser cache must revalidate this copy?', options: ['14400 seconds', '11173 seconds', 'About 4 hours', '3227 seconds, about 54 minutes'], answer: 3, why: '14400 minus 11173 is 3227 seconds.' },
+					{ q: 'Which chapter does this value belong to?', options: ['Chapter 11, DNS', 'Chapter 22, HTTP caching', 'Chapter 21, certificates', 'Chapter 19, HTTP/3'], answer: 1, why: '`cache-control` and `age` are HTTP cache headers, chapter 22.' }
+				]
+			},
+			{
+				title: 'Work out the Alt-Svc',
+				questions: [
+					{ q: 'What does `alt-svc: h3=":443"` offer?', options: ['A second TLS certificate', 'A redirect to port 443', 'HTTP/3 on UDP port 443', 'HTTP/2 on TCP port 443'], answer: 2, why: '`h3` is HTTP/3, which runs over QUIC on UDP.' },
+					{ q: 'From when does `ma=86400` count?', options: ['From the moment the response was generated', 'From the first request of the day', 'From when the certificate was issued', 'From when the DNS answer was cached'], answer: 0, why: 'RFC 7838 says `ma` counts seconds "since the response was generated".' },
+					{ q: 'How long is 86400 seconds?', options: ['One hour', 'One week', '90 days', 'One day'], answer: 3, why: '86400 is 24 × 3600.' },
+					{ q: 'Which chapter covers this header?', options: ['Chapter 22', 'Chapter 19', 'Chapter 11', 'Chapter 38'], answer: 1, why: '`h3` in Alt-Svc offers HTTP/3, and chapter 19 is the HTTP/3 chapter. The diagram step for this header names it first.' }
+				]
+			},
+			{
+				title: 'Work out the certificate',
+				questions: [
+					{ q: 'The run was on Oct 17 at 00:10 UTC, and the certificate expires on Dec 25 at 22:13 GMT. How long is left?', options: ['69 days and 22 hours', '90 days', '68 days and 2 hours', '2 months exactly'], answer: 0, why: 'October has 14 more days after the 17th, November 30, December 25: 69 days, plus 22 hours from 00:10 to 22:13.' },
+					{ q: 'The certificate was issued on Sep 26. What is its whole lifetime?', options: ['About one year', 'About 30 days', 'About 90 days', 'About 69 days'], answer: 2, why: 'From Sep 26 to Dec 25 is about 90 days. The 69 days are only what was left.' },
+					{ q: 'Which line of `curl -v` tells you the chain was checked?', options: ['`ALPN: server accepted h2`', '`cf-cache-status: HIT`', '`Connection #0 ... left intact`', '`SSL certificate verify ok.`'], answer: 3, why: 'curl prints that line once the certificate chain is verified.' },
+					{ q: 'Which of the four values runs out first?', options: ['The certificate', 'The DNS TTL, in 122 seconds', 'The HTTP cache copy', 'The Alt-Svc entry'], answer: 1, why: '122 seconds, then 3227 seconds, then one day, then about 70 days.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -167,6 +205,29 @@ export default {
 			why: '`HIT` means the resource was found in Cloudflare\'s cache, and Cloudflare sets `Age` on cached responses. curl never talked to example.org\'s own server.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Repeat the chapter\'s run against example.org from your own machine and work out the four lifetimes from your numbers.',
+		steps: [
+			'Time and trace one request: `curl -sv -o /dev/null -w \'dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} start=%{time_starttransfer} total=%{time_total}\\n\' https://example.org/`.',
+			'In the output, find the address curl connected to, the TLS version, the ALPN result, the certificate `expire date`, and the `age`, `cache-control`, `cf-cache-status` and `alt-svc` headers.',
+			'Ask your stub resolver: `dig example.org A +noall +answer`. Note the TTL.',
+			'Ask from the root down: `dig +trace example.org`. Note the TTL in the answer from the Cloudflare name server.',
+			'Run the `curl` again a minute later and compare `dns=` and `age`.'
+		],
+		done: [
+			'You have the four phases of your run in milliseconds: DNS, TCP, TLS and first byte.',
+			'You have the TTL from the stub and the TTL of 300 from the trace, and the gap between them.',
+			'You have `max-age` minus `age` in seconds, and the days left on the certificate.',
+			'On the second `curl`, `age` has grown by about the time you waited, unless the edge fetched a fresh copy in between.'
+		],
+		solution: [
+			'Each phase is one timer minus the one before it, as in chapter 38. A `dns=` under a millisecond means a cache answered.',
+			'Stub TTL below 300: a cache has held the record for 300 minus that TTL seconds.',
+			'If `cf-cache-status` is `HIT`, your bytes came from the Cloudflare data center named at the end of `cf-ray`, not from example.org\'s own server.',
+			'If `curl` shows an IPv4 address, your network has no working IPv6 route, or IPv6 did not connect within the 200 ms Happy Eyeballs delay.'
+		]
+	},
 	recall: {
 		q: 'Name the steps of `curl https://example.org/` in this run, in order, with the chapter and the time each took.',
 		a: 'DNS from the stub cache in 0.8 ms (09, 11). TCP over IPv6 to an anycast Cloudflare address in 5.7 ms (05, 15, 39). TLS 1.3 with ALPN `h2` in 16.9 ms (20, 21). One HTTP/2 GET answered from the edge cache in 12.2 ms (18, 22, 30).'

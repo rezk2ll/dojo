@@ -115,6 +115,44 @@ export default {
 			'Le serveur passe DOWN après le test 8, le troisième échec d’affilée : le compteur descend de 2 à 1, sous `rise`, et la ligne 14 le met à 0.',
 			'Il repasse UP après le test 10 : le test 9 donne 1, le test 10 donne 2, qui atteint `rise`, et la ligne 25 met 4.',
 			'Avec un test toutes les 2 s, le test 8 tourne environ 16 s après le premier. Les échecs des tests 1, 3 et 4 n’ont pas retiré le serveur, car un succès est arrivé avant un troisième échec d’affilée.'
+		],
+		steps: [
+			{
+				title: 'Prépare le compteur',
+				questions: [
+					{ q: 'Avec `rise 2` et `fall 3`, quelle est la valeur maximale de `health` ?', options: ['4, soit `rise + fall - 1`', '3, la valeur de `fall`', '2, la valeur de `rise`', '5, soit `rise + fall`'], answer: 0, why: 'La ligne 25 plafonne le compteur à `rise + fall - 1`. Avec les valeurs par défaut, ça fait 4.' },
+					{ q: 'En termes de compteur, quand le serveur est-il UP ?', options: ['Seulement quand `health` vaut 4', 'Quand `health >= rise`, donc 2 ou plus', 'Quand `health` est au-dessus de 0', 'Quand `health >= fall`, donc 3 ou plus'], answer: 1, why: 'La ligne de log affiche UP tant que `health >= rise`, et DOWN en dessous.' },
+					{ q: 'Que fait un test échoué au compteur ?', options: ['Il le met à 0 tout de suite', 'Il retire la valeur de `fall`', 'Il retire un, et le met à 0 s’il passe sous `rise`', 'Rien tant que le serveur est UP'], answer: 2, why: 'La ligne 12 retire un. Les lignes 13 et 14 mettent 0 dès que le compteur est sous `rise`.' },
+					{ q: 'Que fait un test réussi ?', options: ['Il met 4 tout de suite', 'Il ajoute la valeur de `rise`', 'Rien tant que le serveur est DOWN', 'Il ajoute un, et saute à 4 dès qu’il atteint `rise`'], answer: 3, why: 'La ligne 22 ajoute un. Les lignes 24 et 25 sautent à `rise + fall - 1` dès que le compteur atteint `rise`.' }
+				]
+			},
+			{
+				title: 'Déroule les tests 1 à 5',
+				questions: [
+					{ q: 'Le compteur part de 4. Le test 1 échoue. Combien vaut-il ?', options: ['4', '3', '2', '0'], answer: 1, why: 'Un de moins : 3. C’est toujours au moins `rise`, donc le serveur reste UP.' },
+					{ q: 'Le test 2 réussit. Combien vaut le compteur ?', options: ['4', '3', '2', '5'], answer: 0, why: '3 plus un font 4, au moins `rise`, donc la ligne 25 met 4. Il ne peut pas dépasser 4.' },
+					{ q: 'Les tests 3 et 4 échouent. Combien vaut le compteur ?', options: ['0, donc le serveur est DOWN', '1, donc le serveur est DOWN', '2, donc le serveur est toujours UP', '3, donc le serveur est toujours UP'], answer: 2, why: '4, puis 3, puis 2. Deux échecs depuis 4 s’arrêtent à `rise` : le serveur reste dans le pool.' },
+					{ q: 'Le test 5 réussit. Combien vaut le compteur ?', options: ['3', '5', '2', '4'], answer: 3, why: '2 plus un font 3, au moins `rise`, donc la ligne 25 le remet à 4.' }
+				]
+			},
+			{
+				title: 'Trouve le DOWN',
+				questions: [
+					{ q: 'Les tests 6 et 7 échouent. Combien vaut le compteur ?', options: ['2', '0', '1', '3'], answer: 0, why: '4, puis 3, puis 2 : comme après les tests 3 et 4.' },
+					{ q: 'Le test 8 échoue aussi. Que devient le compteur ?', options: ['Il passe à 1, et le serveur reste UP', 'Il reste à 2, le plancher d’un serveur UP', 'Il passe à 1, sous `rise`, donc la ligne 14 le met à 0', 'Il ne passe à 0 qu’après un échec de plus'], answer: 2, why: '2 moins un font 1, sous `rise`. La ligne 14 le met à 0.' },
+					{ q: 'Après quel test le serveur est-il donc marqué DOWN ?', options: ['Le test 6', 'Le test 7', 'Le test 10', 'Le test 8'], answer: 3, why: 'Le test 8 est le troisième échec d’affilée, la première fois que le compteur passe sous 2.' },
+					{ q: 'Pourquoi les échecs des tests 1, 3 et 4 n’ont-ils pas retiré le serveur ?', options: ['HAProxy ignore les échecs de ses 10 premières secondes', 'Un succès est arrivé avant un troisième échec d’affilée', 'Seuls les tests HTTP comptent, et c’étaient des tests TCP', 'Le compte de `fall` repart à zéro chaque minute'], answer: 1, why: 'Chaque succès pendant que le serveur est UP remet le compteur à 4 : seuls 3 échecs d’affilée peuvent le faire passer sous `rise`.' }
+				]
+			},
+			{
+				title: 'Trouve le UP',
+				questions: [
+					{ q: 'Le compteur vaut 0. Le test 9 réussit. Combien vaut-il ?', options: ['0, aucun changement tant que DOWN', '1, toujours DOWN', '2, maintenant UP', '4, maintenant UP'], answer: 1, why: 'Un de plus : 1, toujours sous `rise`.' },
+					{ q: 'Le test 10 réussit. Combien vaut-il ?', options: ['2, toujours DOWN', '3, maintenant UP', '1, toujours DOWN', '2, puis la ligne 25 met 4 : UP'], answer: 3, why: '1 plus un font 2, qui atteint `rise`. La ligne 25 saute à 4 et le serveur est UP.' },
+					{ q: 'Combien de succès faut-il à un serveur DOWN pour revenir ?', options: ['`rise` : 2 succès d’affilée', '`fall` : 3 succès d’affilée', 'Un seul succès', '4 succès, un par cran du compteur'], answer: 0, why: 'Depuis 0, deux succès atteignent `rise`. C’est le sens de `rise 2`.' },
+					{ q: 'Qu’a fait ce compteur pendant l’incident de Healthchecks.io, avec des tests perdus ?', options: ['Il a causé une seule longue panne', 'Il a marqué tous les backends DOWN avec un 503', 'Il a causé du flapping : des backends qui franchissent les deux seuils encore et encore', 'Rien : rise et fall filtrent toutes les pertes'], answer: 2, why: 'Avec des tests qui passent et d’autres qui échouent, un serveur retombe à 0 puis remonte à 4. HAProxy signalait des backends « flipping between healthy / unhealthy states ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -152,6 +190,27 @@ export default {
 			why: 'Sous le seuil de panique, 50 % par défaut, Envoy ignore l’état de santé et répartit sur tous les hôtes. Cela évite qu’une série de pannes envoie toute la charge sur un seul hôte et le fasse tomber à son tour.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Faire tourner HAProxy avec des health checks HTTP sur deux serveurs, en rendre un malade, et chronométrer son passage DOWN puis son retour UP.',
+		steps: [
+			'Écris la config : `mkdir -p ~/hc-lab && cd ~/hc-lab`, puis `printf \'global\\n  log stdout format raw local0\\ndefaults\\n  log global\\n  mode http\\n  timeout connect 1s\\n  timeout client 30s\\n  timeout server 30s\\nfrontend fe\\n  bind :8404\\n  default_backend be\\nbackend be\\n  option httpchk GET /health\\n  server web1 127.0.0.1:9001 check\\n  server web2 127.0.0.1:9002 check\\n\' > haproxy.cfg`.',
+			'Démarre deux serveurs dont tu peux basculer le `/health` entre 200 et 500 avec `/toggle`, puis HAProxy dans le même réseau : `docker run -d --rm --name hc-web -p 8404:8404 node:24-alpine node -e "for (const [p, n] of [[9001, \'web1\'], [9002, \'web2\']]) { let ok = true; require(\'http\').createServer((q, r) => { if (q.url === \'/toggle\') ok = !ok; r.statusCode = q.url === \'/health\' && !ok ? 500 : 200; r.end(n + (ok ? \' healthy\' : \' sick\') + \'\\n\'); }).listen(p); }"`, puis `docker run -d --rm --name hc --network container:hc-web -v "$PWD/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0`.',
+			'Vérifie que les deux servent : `curl -s "localhost:8404/[1-4]"`. Rends web2 malade en notant l’heure : `date -u +%T; docker exec hc-web wget -qO- http://127.0.0.1:9002/toggle`. Attends 10 s, puis lance `docker logs -t hc` et `curl -s "localhost:8404/[1-4]"`.',
+			'Soigne web2 avec la même commande `toggle`, attends 10 s, et relis `docker logs -t hc`.',
+			'Rends les deux malades : bascule web1 et web2, attends 10 s, puis `curl -si localhost:8404/ | head -1`. Nettoie avec `docker rm -f hc hc-web`.'
+		],
+		done: [
+			'`docker logs -t hc` montre `Server be/web2 is DOWN, reason: Layer7 wrong status, code: 500` environ 6 s après la bascule, et les 4 requêtes affichent alors toutes `web1 healthy`.',
+			'Après la guérison, le log montre `Server be/web2 is UP, reason: Layer7 check passed, code: 200` environ 4 s après la bascule.',
+			'Avec les deux malades, curl affiche `HTTP/1.1 503 Service Unavailable`, et le log montre `backend \'be\' has no server available!`.'
+		],
+		solution: [
+			'`check` prend les valeurs par défaut `inter 2s`, `fall 3`, `rise 2`. Trois tests échoués espacés de 2 s prennent environ 6 s. Deux tests réussis font revenir le serveur, donc le UP arrive plus vite que le DOWN.',
+			'Jusqu’au troisième échec, HAProxy continue d’envoyer des requêtes à web2. Ici il y répond encore, car seul `/health` échoue. Un serveur planté ferait aussi échouer ces requêtes.',
+			'Sans aucun serveur UP, HAProxy répond lui-même 503. Une URL de santé qui testerait une dépendance partagée provoquerait ce même 503 pour toutes les requêtes.'
+		]
+	},
 	recall: {
 		q: 'Avec les `rise` et `fall` par défaut de HAProxy, combien de tests ratés d’affilée marquent un serveur DOWN, et combien de succès le ramènent ?',
 		a: '`fall 3` : 3 tests ratés d’affilée, un toutes les 2000 ms, le marquent DOWN. `rise 2` : 2 succès d’affilée le marquent UP. Le compteur va de 0 à 4 dans `check.c`.'

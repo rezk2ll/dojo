@@ -99,6 +99,44 @@ export default {
 			'1,5 s font 1 500 000 000 ns : 10 chiffres, c’est trop. En microsecondes, on a 1 500 000, donc l’en-tête est `1500000u`.',
 			'10 minutes font 600 000 000 000 ns, puis 600 000 000 µs (9 chiffres) : trop dans les deux cas. En millisecondes, on a 600 000 : `600000m`.',
 			'En pratique, `time.Until` ligne 13 renvoie un peu moins que la valeur ronde, et `div` arrondit la dernière unité vers le haut. Un vrai en-tête pour 1,5 s vaut quelques microsecondes de moins que `1500000u`.'
+		],
+		steps: [
+			{
+				title: 'Apprends la règle',
+				questions: [
+					{ q: 'Dans quel ordre `EncodeDuration` essaie-t-il les unités ?', options: ['`H`, `M`, `S`, `m`, `u`, `n` : la plus grande d’abord', '`n`, `u`, `m`, `S`, `M`, `H` : la plus petite d’abord', '`S` d’abord, puis les unités plus petites', 'L’unité qui donne le nombre le plus court'], answer: 1, why: 'Il prend la plus petite unité dont la valeur tient. Partir des nanosecondes garde toute la précision que l’en-tête permet.' },
+					{ q: 'Quelle est la plus grande valeur qui tient ?', options: ['99 999 999, 8 chiffres', '999 999 999, 9 chiffres', '2 147 483 647, la limite sur 32 bits', '65 535, comme un port'], answer: 0, why: 'La valeur doit tenir sur 8 chiffres, donc 99 999 999 au plus.' },
+					{ q: 'Que signifient `m` et `M` ?', options: ['Les deux veulent dire millisecondes', '`m` pour minutes, `M` pour millisecondes', '`m` pour millisecondes, `M` pour minutes', '`m` pour microsecondes, `M` pour millisecondes'], answer: 2, why: 'La liste est `n`, `u`, `m`, `S`, `M`, `H` : le `m` minuscule se place entre micro et secondes, le `M` majuscule entre secondes et heures.' },
+					{ q: 'D’où vient le temps restant côté client ?', options: ['D’un défaut fixe de 30 s dans grpc-go', 'Du réglage de timeout du serveur', 'De l’en-tête `:path` de l’appel', 'De `time.Until` sur la deadline du contexte'], answer: 3, why: 'La ligne 10 lit la deadline dans le `context` Go, la ligne 13 la convertit en temps restant, la ligne 17 l’envoie.' }
+				]
+			},
+			{
+				title: 'Encode 50 ms',
+				questions: [
+					{ q: 'Combien de nanosecondes font 50 ms ?', options: ['50 000', '50 000 000', '5 000 000', '500 000 000'], answer: 1, why: 'Une milliseconde vaut 1 000 000 ns, donc 50 ms font 50 000 000 ns.' },
+					{ q: '50 000 000 tient-il sur 8 chiffres ?', options: ['Oui, il a exactement 8 chiffres', 'Non, il a 9 chiffres', 'Non, il dépasse 99 999 999', 'Seulement après arrondi vers le haut'], answer: 0, why: '50 000 000 a 8 chiffres et reste sous 99 999 999 : les nanosecondes conviennent.' },
+					{ q: 'Quel en-tête le client envoie-t-il ?', options: ['`grpc-timeout: 50m`', '`grpc-timeout: 50000u`', '`grpc-timeout: 50000000n`', '`grpc-timeout: 0.05S`'], answer: 2, why: 'La plus petite unité qui tient gagne, et `n` tient déjà. `50m` représente la même durée, mais ce n’est pas ce que l’encodeur choisit.' },
+					{ q: 'Pourquoi pas `0.05S` ?', options: ['Les secondes ne sont pas une unité valide', 'La valeur doit être un nombre entier', 'Cela ferait trop de chiffres', 'Le serveur ne lit que `n`'], answer: 1, why: 'L’en-tête contient un entier et une unité. Pour une fraction, on passe à une unité plus petite.' }
+				]
+			},
+			{
+				title: 'Encode 1,5 s',
+				questions: [
+					{ q: 'Combien de nanosecondes font 1,5 s ?', options: ['15 000 000', '150 000 000', '1 500 000', '1 500 000 000'], answer: 3, why: 'Une seconde vaut 1 000 000 000 ns, donc 1,5 s font 1 500 000 000 ns.' },
+					{ q: 'Cela tient-il sur 8 chiffres ?', options: ['Non, il y a 10 chiffres', 'Oui, juste sous la limite', 'Non, il y a 9 chiffres', 'Oui, une fois les espaces retirés'], answer: 0, why: '1 500 000 000 a 10 chiffres, plus que 8 : l’encodeur essaie l’unité suivante.' },
+					{ q: 'En microsecondes, combien font 1,5 s ?', options: ['1 500', '150 000', '1 500 000', '15 000 000'], answer: 2, why: 'Une seconde vaut 1 000 000 µs, donc 1,5 s font 1 500 000 µs : 7 chiffres, ça tient.' },
+					{ q: 'Quel en-tête le client envoie-t-il ?', options: ['`grpc-timeout: 1500m`', '`grpc-timeout: 1500000u`', '`grpc-timeout: 1500000000n`', '`grpc-timeout: 2S`'], answer: 1, why: '`u` est la plus petite unité dont la valeur tient sur 8 chiffres. `1500m` tient aussi, mais c’est une unité plus grande.' }
+				]
+			},
+			{
+				title: 'Encode 10 minutes',
+				questions: [
+					{ q: 'Combien de microsecondes font 10 minutes ?', options: ['600 000', '60 000 000', '6 000 000 000', '600 000 000'], answer: 3, why: '600 s × 1 000 000 µs font 600 000 000 µs : 9 chiffres, un de trop.' },
+					{ q: 'Quelle unité tient en premier, alors ?', options: ['Les millisecondes : 600 000', 'Les secondes : 600', 'Les minutes : 10', 'Les microsecondes, arrondies vers le bas'], answer: 0, why: '600 000 ms tiennent sur 6 chiffres. C’est la plus petite unité après `u`, elle gagne.' },
+					{ q: 'Quel en-tête le client envoie-t-il ?', options: ['`grpc-timeout: 10M`', '`grpc-timeout: 600S`', '`grpc-timeout: 600000m`', '`grpc-timeout: 600000000u`'], answer: 2, why: '`10M` et `600S` représentent la même durée, mais l’encodeur s’arrête à la plus petite unité qui tient.' },
+					{ q: 'Un vrai client appelle `context.WithTimeout` avec 1,5 s et envoie une valeur un peu sous `1500000u`. Pourquoi ?', options: ['Le serveur retire la latence réseau', '`time.Until` s’exécute un instant après la création de la deadline', 'HPACK compresse le nombre', 'L’encodeur arrondit toujours vers le bas'], answer: 1, why: 'Un peu de temps passe entre la création du contexte et la ligne 13 : `time.Until` renvoie un peu moins que la valeur ronde.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -136,6 +174,30 @@ export default {
 			why: 'Sans deadline dans le contexte, la ligne 10 n’envoie pas de `grpc-timeout`, et le serveur suppose un timeout infini. gRPC ne fixe aucune deadline par défaut : l’appel attend jusqu’à ce que la connexion casse pour une autre raison.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Voir un channel gRPC porter tous ses appels sur une seule connexion, et voir une deadline client arriver au serveur puis annuler l’appel.',
+		steps: [
+			'Prépare un module Go : `mkdir grpc-lab && cd grpc-lab && go mod init grpclab && go get google.golang.org/grpc@v1.66.0`.',
+			'Dans `main.go`, écris un mode serveur qui écoute sur `127.0.0.1:50051` et enregistre un serveur Health `grpc_health_v1`. Son `Check` affiche `peer.FromContext(ctx)` et le temps restant sur `ctx.Deadline()`, puis attend 1 s ou `ctx.Done()`.',
+			'Dans le même fichier, écris un mode client : un seul `grpc.NewClient("127.0.0.1:50051", ...)`, puis 3 appels `Check`, chacun sous `context.WithTimeout` avec la durée passée en ligne de commande.',
+			'Compile et lance le serveur : `go mod tidy && go build -o lab . && ./lab server &`.',
+			'Lance le client deux fois : `./lab 2s`, puis `./lab 500ms`. Lis ce que le serveur a affiché, puis arrête-le avec `kill %1`.'
+		],
+		done: [
+			'`./lab 2s` affiche trois appels avec `error: <nil>`.',
+			'Le serveur affiche la même adresse et le même port client pour les trois appels d’un même lancement.',
+			'Le serveur voit environ `2s` restantes sur chaque appel du premier lancement : la deadline a bien traversé le réseau.',
+			'`./lab 500ms` affiche trois fois `code = DeadlineExceeded`, et le serveur affiche que chaque contexte s’est terminé.'
+		],
+		solution: [
+			'Imports : `google.golang.org/grpc`, `.../grpc/credentials/insecure`, `.../grpc/health/grpc_health_v1` et `.../grpc/peer`. Intègre `grpc_health_v1.UnimplementedHealthServer` dans ton type serveur.',
+			'Handler : `p, _ := peer.FromContext(ctx); dl, ok := ctx.Deadline(); fmt.Println(p.Addr, ok, time.Until(dl))`, puis `select { case <-time.After(time.Second): return &grpc_health_v1.HealthCheckResponse{}, nil; case <-ctx.Done(): fmt.Println(ctx.Err()); return nil, ctx.Err() }`.',
+			'Client : `conn, _ := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))`, puis dans une boucle `ctx, cancel := context.WithTimeout(context.Background(), d)`, l’appel `Check`, l’affichage `fmt.Println("error:", err)`, puis `cancel()`.',
+			'Un seul port par lancement, c’est une seule connexion TCP : chaque appel est un nouveau stream dessus. Derrière un load balancer de couche 4, les trois appels arriveraient sur le même backend.',
+			'Le `select` sur `ctx.Done()`, c’est le code serveur qui arrête son propre travail. Sans lui, le handler continuerait après l’abandon du client.'
+		]
+	},
 	recall: {
 		q: 'Pourquoi un Service Kubernetes normal envoie-t-il tous les appels d’un client gRPC au même Pod ?',
 		a: 'kube-proxy choisit un Pod une fois par connexion TCP, et gRPC envoie chaque appel comme un stream sur une seule connexion HTTP/2 durable. La répartition par requête (`round_robin` dans le client, ou un proxy HTTP/2) répartit les appels.'

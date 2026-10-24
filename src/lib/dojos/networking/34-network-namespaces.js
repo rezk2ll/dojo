@@ -121,6 +121,44 @@ export default {
 			'`eth0@if559` and `iflink` 559 say the peer has index 559 in another namespace. On the host, index 559 is `vetha14c4f7`, and its own `@if2` points back at index 2, the container `eth0`.',
 			'`master docker0` on the host end says the pair is attached to the `docker0` bridge, whose address is 172.17.0.1/16.',
 			'The container route `default via 172.17.0.1` sends traffic for the host to `docker0`. PostgreSQL must listen on 172.17.0.1 (or on all addresses) and accept 172.17.0.0/16, and the app connects to 172.17.0.1:5432.'
+		],
+		steps: [
+			{
+				title: 'Read the container side',
+				questions: [
+					{ q: 'In `2: eth0@if559`, what is `2`?', options: ['The index of `eth0` in the container namespace', 'The number of addresses on `eth0`', 'The index of the peer on the host', 'The VLAN of the device'], answer: 0, why: 'The number before the colon is the device index in its own namespace.' },
+					{ q: 'What does `@if559` tell you?', options: ['`eth0` has 559 packets queued', 'The peer device has index 559 in another namespace', '`eth0` is the 559th container on the host', 'The bridge has index 559'], answer: 1, why: 'In `name@ifN`, N is the index of the peer device in the other namespace.' },
+					{ q: 'What does `cat /sys/class/net/eth0/iflink` printing `559` add?', options: ['It shows the MTU of the link', 'It shows how many hops away the host is', 'It confirms the same peer index, 559', 'It shows the container PID'], answer: 2, why: '`iflink` holds the index of the linked device. It matches the `@if559` that `ip link` prints.' },
+					{ q: 'What is `inet 172.17.0.6/16`?', options: ['The host address on `docker0`', 'The address of the host end of the pair', 'The default gateway', 'The container address on the bridge network'], answer: 3, why: 'It is the address of `eth0` inside the container namespace. The gateway comes from the route line.' }
+				]
+			},
+			{
+				title: 'Find the host end',
+				questions: [
+					{ q: 'Which host device is the other end of `eth0`?', options: ['`docker0`', '`vetha14c4f7`', 'The host `eth0`', '`lo` on the host'], answer: 1, why: 'On the host, index 559 is `vetha14c4f7`, the index the container side pointed to.' },
+					{ q: 'In `vetha14c4f7@if2`, what does `@if2` point at?', options: ['The container `eth0`, index 2', 'The second bridge on the host', 'The second container started', 'Interface 2 on the host'], answer: 0, why: 'Each end names the index of its peer. Index 2 is `eth0` in the container namespace.' },
+					{ q: 'A packet leaves the container on `eth0`. Where does it appear?', options: ['On `docker0` directly, with no device in between', 'On the host `eth0`', 'At once on `vetha14c4f7`', 'Nowhere until a route is added on the host'], answer: 2, why: 'veth(4): packets sent on one device of the pair are immediately received on the other.' },
+					{ q: 'You run `ip link set vetha14c4f7 down` on the host. What happens to `eth0`?', options: ['Nothing, it is in another namespace', 'It is deleted', 'It loses its address', 'Its link goes down'], answer: 3, why: 'When either device of a veth pair is down, the link state of the pair is down.' }
+				]
+			},
+			{
+				title: 'Find the bridge',
+				questions: [
+					{ q: 'Which part of the host line names the bridge?', options: ['`master docker0`', '`qdisc noqueue`', '`mtu 1500`', '`<BROADCAST,MULTICAST,UP,LOWER_UP>`'], answer: 0, why: '`master docker0` says the host end is attached to the `docker0` bridge.' },
+					{ q: 'What is the address of `docker0`?', options: ['172.17.0.6/16', '127.0.0.1', '172.17.0.1/16', '172.17.0.0/16'], answer: 2, why: 'The bridge has 172.17.0.1/16. 172.17.0.6 is the container, and 172.17.0.0/16 is the network.' },
+					{ q: 'What does `default via 172.17.0.1 dev eth0` do?', options: ['It makes 172.17.0.1 the container address', 'It sends traffic for other networks to the bridge address', 'It forwards host traffic into the container', 'It publishes port 5432'], answer: 1, why: 'Any packet with no more specific route leaves `eth0` toward 172.17.0.1, the bridge, and enters the host from there.' },
+					{ q: 'Another container also has its host end on `docker0`. Can the two reach each other?', options: ['No, each namespace is fully cut off', 'Only through the host `eth0`', 'Only with a published port', 'Yes, on 172.17.0.0/16 through the bridge'], answer: 3, why: 'A bridge acts as one switch. Every container with a host end on `docker0` shares 172.17.0.0/16.' }
+				]
+			},
+			{
+				title: 'Reach PostgreSQL on the host',
+				questions: [
+					{ q: 'Why does `localhost:5432` fail inside the container?', options: ['`localhost` is the container\'s own `lo`, with nothing on 5432', 'Docker blocks port 5432 by default', 'DNS does not resolve `localhost` in containers', 'PostgreSQL rejects connections from containers'], answer: 0, why: 'Each namespace has its own loopback and its own ports. The kernel in the container answers with an RST.' },
+					{ q: 'Which address should the app connect to?', options: ['172.17.0.6:5432', '172.17.0.1:5432', '127.0.0.1:5432', '0.0.0.0:5432'], answer: 1, why: '172.17.0.1 is the host on the bridge, reachable through the container default route.' },
+					{ q: 'What must PostgreSQL listen on?', options: ['127.0.0.1 only', '172.17.0.6', '172.17.0.1, or all addresses', 'The `vetha14c4f7` index'], answer: 2, why: 'A server on 127.0.0.1 is reachable only from the host loopback. It must listen on an address the container can route to.' },
+					{ q: 'Which client network must PostgreSQL accept?', options: ['127.0.0.0/8', 'Only 172.17.0.1', 'The host public network', '172.17.0.0/16'], answer: 3, why: 'The container connects from 172.17.0.6, inside 172.17.0.0/16. Any other container on the bridge would too.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ export default {
 			why: '`ip netns list` displays the named namespaces in `/var/run/netns`. Docker records each container namespace elsewhere, for example `/var/run/docker/netns/727b28c428b4` in `docker inspect` output.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Follow a container\'s `eth0` to its veth peer and the bridge, then see why `localhost` is the wrong address for a host service.',
+		steps: [
+			'Start a container: `docker run -d --name ns-lab alpine:3.20 sleep 3600`. This needs Docker on Linux: on macOS the host side lives in Docker\'s VM.',
+			'Look inside: `docker exec ns-lab ip link`, `docker exec ns-lab ip route` and `docker exec ns-lab cat /sys/class/net/eth0/iflink`.',
+			'Find the peer on the host: `ip -o link | grep "^$(docker exec ns-lab cat /sys/class/net/eth0/iflink):"`.',
+			'Start a web server on the host loopback: `python3 -m http.server 8099 --bind 127.0.0.1 &`, then `docker exec ns-lab wget -qO- -T 3 http://localhost:8099/`. Stop it with `kill %1`.',
+			'Start it again on the bridge address (`ip -4 addr show docker0` prints it, 172.17.0.1 by default): `python3 -m http.server 8099 --bind 172.17.0.1 & sleep 1`, then `docker exec ns-lab wget -qO- -T 3 http://172.17.0.1:8099/`. Clean up with `kill %1 && docker rm -f ns-lab`.'
+		],
+		done: [
+			'Inside, `ip link` shows `eth0@ifN` and `iflink` prints the same N.',
+			'On the host, device N is a `veth...@if2` line with `master docker0`.',
+			'`wget` to `localhost:8099` fails with `Connection refused`.',
+			'`wget` to `172.17.0.1:8099` prints an HTML directory listing.'
+		],
+		solution: [
+			'`ip route` inside shows `default via 172.17.0.1 dev eth0`: the bridge address is the container\'s way to the host.',
+			'The refusal comes from the container\'s own `lo`: nothing listens on 8099 in its namespace, so its kernel answers the SYN with an RST.',
+			'If the second `wget` times out instead, a host firewall on the input hook drops traffic from `docker0`. That is chapter 33 again.'
+		]
+	},
 	recall: {
 		q: 'How does a container\'s `eth0` reach the host\'s `docker0` bridge?',
 		a: 'Through a veth pair. One end is `eth0` in the container namespace, the peer (here `vetha14c4f7`, index 559) sits in the host namespace with `master docker0`. A packet sent on one end arrives at once on the other.'

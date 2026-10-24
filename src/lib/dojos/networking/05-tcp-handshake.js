@@ -138,17 +138,17 @@ failure:
 			{
 				title: 'Read output 1',
 				questions: [
-					{ q: '`Connection refused`: what came back to the client?', options: ['An RST from the server machine', 'Nothing at all', 'A SYN-ACK that the client rejected', 'An error from a router on the way'], answer: 0, why: 'A refusal is a packet. In SYN-SENT, an incoming RST makes the kernel fail `connect()` with `ECONNREFUSED`.' },
+					{ q: 'Output 1 reads `from 10.78.0.20 port 46574`. Who chose port 46574?', options: ['The client\'s kernel, during `connect()`', 'The server, in its reply', 'curl, from its config file', 'The firewall in front of port 82'], answer: 0, why: 'The kernel picks a free local port when `connect()` runs, before the SYN leaves. The server only answers to it.' },
 					{ q: 'So did the server machine reply?', options: ['No: refused means the host is down', 'Yes: the machine is up and reachable', 'No: only a firewall answered', 'You cannot tell from this line'], answer: 1, why: 'Something at that address sent the RST, so the machine is up and the path to it works.' },
-					{ q: 'Why did it send an RST?', options: ['A firewall drops port 82', 'The server is overloaded', 'No program listens on port 82', 'The client sent a wrong sequence number'], answer: 2, why: 'A host answers a SYN with an RST when no socket listens on that port. A dropping firewall would send nothing.' },
+					{ q: 'Which state was the client socket in when the RST arrived?', options: ['ESTABLISHED', 'LISTEN', 'SYN-SENT', 'TIME_WAIT'], answer: 2, why: 'The client had sent its SYN and was waiting for the SYN-ACK. An RST in SYN-SENT makes the kernel fail `connect()` with `ECONNREFUSED`.' },
 					{ q: 'What do you check next?', options: ['The firewall rules for port 82', 'The route from the client to the server', 'Whether the server is powered on', 'The service, with `ss -tlnp` on the server'], answer: 3, why: 'The machine answers, so look at the program: is it running, and on which port and address does it listen?' }
 				]
 			},
 			{
 				title: 'Read outputs 2 and 3',
 				questions: [
-					{ q: '`ss -tan` shows `SYN-SENT` for several seconds. What does that mean?', options: ['The SYN left and no SYN-ACK came back', 'The handshake ended and the client waits for data', 'The server closed the connection', 'The client has not sent anything yet'], answer: 0, why: 'SYN-SENT is the state between sending the SYN and getting the SYN-ACK. It stays there until a SYN-ACK, an RST or the final timeout.' },
-					{ q: 'tcpdump shows seven SYNs from port 53158 with the same `seq`. What are they?', options: ['Seven separate attempts made by curl', 'Copies of one SYN: the first one and 6 retries', 'Seven connections from seven ports', 'The server sending the SYN back'], answer: 1, why: 'A retry is the same SYN sent again, so the source port and the sequence number do not change.' },
+					{ q: 'Output 2 shows source port 57886 and output 3 shows 53158. What does that tell you?', options: ['They are two separate attempts, each with its own source port', 'The kernel changes the source port on each retry', 'The server rewrote the port in its reply', 'Port 53158 is the server\'s reply port'], answer: 0, why: 'The kernel picks a source port once, in `connect()`, and keeps it for every retry of that SYN. Two ports mean two `connect()` calls.' },
+					{ q: 'All seven SYNs in output 3 carry `seq 2848897320`. Why does the number not change?', options: ['The server asked for that number', 'A retry sends the same SYN again, with the first sequence number chosen once', 'curl uses a fixed sequence number', 'tcpdump prints only the first sequence number'], answer: 1, why: 'The client picks its first sequence number when it opens the connection. Each retry is a copy of that SYN, so the port and the number stay the same.' },
 					{ q: 'Did the server machine reply in cases 2 and 3?', options: ['Yes, with an RST each time', 'Yes, but its SYN-ACK came too late', 'No: nothing came back', 'Yes, with a SYN-ACK that the client ignored'], answer: 2, why: 'Any reply would end SYN-SENT: a SYN-ACK opens the connection and an RST refuses it.' },
 					{ q: 'What do you check next?', options: ['Whether a program listens on port 81', 'The DNS name of the server', 'The client\'s TIME_WAIT sockets', 'A firewall that drops port 81, a security group, or whether the host is down'], answer: 3, why: 'Something swallowed the SYN without a word. In this chapter it was a DROP rule on the server.' }
 				]
@@ -156,7 +156,7 @@ failure:
 			{
 				title: 'Cap the wait',
 				questions: [
-					{ q: 'With no option, how long did curl wait on port 81 in this chapter\'s run?', options: ['3 seconds', '15 minutes', 'Until you press Ctrl-C', 'About 135 seconds'], answer: 3, why: 'The kernel sent 1 SYN and 6 retries, then failed with `ETIMEDOUT` after 135262 ms.' },
+					{ q: 'With no option, which error does the kernel return to curl when it gives up on port 81?', options: ['`ECONNREFUSED`', '`EHOSTUNREACH`', '`EADDRNOTAVAIL`', '`ETIMEDOUT`'], answer: 3, why: 'No reply ever ended SYN-SENT, so once the retries run out the kernel fails `connect()` with `ETIMEDOUT`. curl prints it as `Operation timed out`.' },
 					{ q: 'Which `curl` option gives up on the connection after 3 seconds?', options: ['`--retry 3`', '`--connect-timeout 3`', '`--keepalive-time 3`', '`--limit-rate 3`'], answer: 1, why: '`--connect-timeout` bounds the time curl waits for the connection to open.' },
 					{ q: 'What does curl print when that limit hits?', options: ['`curl: (28) Connection timed out after 3002 milliseconds`', '`Connection refused`', '`Network unreachable`', '`Could not resolve host`'], answer: 0, why: 'In this session it gave up after 3002 ms with error 28, instead of 135 seconds.' },
 					{ q: 'Why did the kernel send the SYN 6 more times on its own?', options: ['curl asked for 6 retries', 'The firewall allowed 6 tries', '`net.ipv4.tcp_syn_retries` defaults to 6', '`tcp_retries2` is set to 6'], answer: 2, why: '`tcp_syn_retries` is the number of times an unanswered SYN is sent again. `tcp_retries2` is for data on an open connection.' }

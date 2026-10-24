@@ -115,7 +115,7 @@ export default {
 			{
 				title: 'Lis les défauts',
 				questions: [
-					{ q: 'Sans `--withdraw-on-down`, qu’envoie un site quand son check échoue ?', options: ['Un retrait de `192.0.2.53/32`', 'Rien tant que le check ne repasse pas', 'La même annonce, avec `med 1000`', 'Une annonce avec un AS_PATH plus long'], answer: 2, why: 'Les lignes 6 à 10 laissent l’action à `announce`. Seul le MED change, de la métrique UP à la métrique DOWN.' },
+					{ q: 'Le démon DNS d’un site cesse de répondre. Au bout de combien de temps environ le healthcheck marque-t-il le site DOWN ?', options: ['Aussitôt, au premier check raté', '90 secondes, le Hold Time BGP', 'Environ 2 à 7 secondes, plus la durée de chaque `dig`', '3 minutes'], answer: 2, why: 'Les checks tournent toutes les 5 secondes, puis chaque seconde dès que l’état commence à tomber, et 3 doivent échouer. Chaque `dig` peut ajouter jusqu’à sa seconde de `+time`.' },
 					{ q: 'Quel MED annonce un site sain par défaut ?', options: ['100', '0', '1000', '3'], answer: 0, why: 'Les défauts sont `--up-metric 100` et `--down-metric 1000`.' },
 					{ q: 'Combien de checks ratés avant qu’un site compte comme DOWN ?', options: ['1', '5', '10', '3'], answer: 3, why: 'La ligne 2 fixe `--fall` à 3 par défaut, et les lignes 24 à 28 comptent jusque-là.' },
 					{ q: 'Sans l’option, quand la route est-elle retirée ?', options: ['Après 3 checks ratés', 'Quand le processus healthcheck s’arrête', 'Quand le MED atteint 1000', 'Jamais'], answer: 1, why: 'La ligne 7 ne retire qu’avec `--withdraw-on-down` ou dans l’état `EXIT`, à l’arrêt du processus.' }
@@ -133,8 +133,8 @@ export default {
 			{
 				title: 'Cas (b), par défaut',
 				questions: [
-					{ q: 'La base partagée est en panne, donc chaque check échoue. Qu’annoncent les 3 sites ?', options: ['`med 1000` depuis les 3', 'Rien, ils retirent tous', '`med 100` depuis les 3', '`med 1000` depuis le site 1 seulement'], answer: 0, why: 'Chaque site passe DOWN et continue d’annoncer, avec la métrique DOWN.' },
-					{ q: '`192.0.2.53` est-elle encore joignable ?', options: ['Non, elle n’a plus de route', 'Seulement depuis un site', 'Oui, la route reste', 'Seulement pour les réponses en cache'], answer: 2, why: 'Chaque site l’annonce encore : les routeurs ont toujours un chemin.' },
+					{ q: 'Chaque site porte maintenant la même métrique DOWN. Quel site un routeur choisit-il pour `192.0.2.53` ?', options: ['Le même qu’avant la panne : des MED égaux ne changent rien', 'Aucun, puisque aucun site n’est sain', 'Toujours le site 1, le premier tombé', 'Un site différent à chaque requête'], answer: 0, why: 'Le MED ne compte que s’il diffère. Avec 1000 partout, le routeur retombe sur le même choix qu’avant, par exemple l’AS_PATH le plus court.' },
+					{ q: 'La base revient. Quand chaque site repasse-t-il à `med 100` ?', options: ['Aussitôt, au premier check réussi', 'Au redémarrage de la session BGP', 'Après 3 checks réussis d’affilée, la valeur par défaut de `--rise`', 'Seulement au redémarrage du processus healthcheck'], answer: 2, why: 'La ligne 1 fixe `--rise` à 3 : le service doit réussir 3 checks avant de compter comme UP et d’être réannoncé avec la métrique UP.' },
 					{ q: 'Où vont les requêtes ?', options: ['Nulle part : elles sont jetées', 'Vers des sites dont le check échoue', 'Vers une adresse de secours', 'Retour au client'], answer: 1, why: 'Les trois annoncent le même MED dégradé : les routeurs choisissent encore un site, et chaque site rate son check.' },
 					{ q: 'Que reçoivent les clients ?', options: ['Toujours SERVFAIL', 'Toujours un timeout', 'Toujours une bonne réponse', 'Ce que le démon sait encore servir sans la base'], answer: 3, why: 'L’adresse reste joignable. Ce qui revient dépend du démon, pas de BGP.' }
 				]
@@ -145,7 +145,7 @@ export default {
 					{ q: 'Cas (a) : qu’envoie le site 2 maintenant ?', options: ['`med 1000`', 'Un retrait de `192.0.2.53/32`', '`med 100`', 'Seulement un KEEPALIVE'], answer: 1, why: 'Avec l’option, la ligne 8 choisit `withdraw` pour tout état autre que UP.' },
 					{ q: 'Quels routeurs détournent les utilisateurs du site 2 ?', options: ['Tous, quel que soit leur AS voisin', 'Seulement ceux qui comparent le MED', 'Aucun avant l’expiration du Hold Time', 'Seulement les routeurs du même AS'], answer: 0, why: 'Un retrait supprime la route elle-même. Aucune comparaison de MED n’est nécessaire.' },
 					{ q: 'Cas (b) : que reste-t-il de `192.0.2.53` sur Internet ?', options: ['Une route, celle du dernier site tombé', 'Trois routes avec `med 1000`', 'Aucune route', 'Une route vers la base'], answer: 2, why: 'Les trois sites retirent la route : aucun routeur n’a plus de chemin vers l’adresse.' },
-					{ q: 'Quelle vraie panne le cas (b) reproduit-il ?', options: ['Une route leak, comme dans la RFC 7908', 'Un certificat TLS expiré', 'L’expiration d’un Hold Time BGP', 'Facebook, octobre 2021 : chaque site a retiré ses routes et les résolveurs ont répondu SERVFAIL'], answer: 3, why: 'Les serveurs DNS de Facebook ont retiré leurs propres routes en perdant les data centers. Tous les sites coupés d’un coup, il ne restait rien.' }
+					{ q: 'Avec l’option, le check du site 2 oscille entre succès et échec toutes les quelques secondes. Contre quoi la RFC 4786 met-elle en garde ?', options: ['Rien : BGP ignore les oscillations courtes', 'Le MED monte à 1000 et y reste', 'Le Hold Time de chaque pair expire', 'Des cycles rapides d’annonce et de retrait posent problème : la route a besoin d’un délai avant de revenir'], answer: 3, why: 'RFC 4786 : « rapid advertisement/withdrawal oscillations can cause operational problems ». Chaque oscillation propage un nouvel UPDATE à tous les pairs.' }
 				]
 			}
 		]

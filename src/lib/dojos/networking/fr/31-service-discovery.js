@@ -138,8 +138,8 @@ func (addrs byPriorityWeight) sort() {
 			{
 				title: 'Lis les quatre champs',
 				questions: [
-					{ q: 'Dans `10 60 8080 a.example.com.`, que vaut `10` ?', options: ['Le poids', 'La priorité', 'Le TTL en secondes', 'Le type d’enregistrement'], answer: 1, why: 'Une réponse SRV contient une priorité, un poids, un port et une cible, dans cet ordre. Le premier nombre est la priorité.' },
-					{ q: 'Sur la même ligne, que vaut `60` ?', options: ['La priorité', 'Le port du health check', 'Le poids', 'La part du trafic en pourcentage'], answer: 2, why: 'Le deuxième nombre est le poids. Il ne devient une part qu’une fois divisé par le poids total de son groupe de priorité.' },
+					{ q: 'Dans le nom demandé `_api._tcp.example.com`, quelle partie désigne le protocole de transport ?', options: ['`_api`', '`_tcp`', '`example.com`', '`_api._tcp`'], answer: 1, why: 'Un enregistrement SRV se nomme `_service._proto.name`. `_api` est le service, `_tcp` le protocole et `example.com` le domaine.' },
+					{ q: '`b` et `c` ont tous deux le poids 20. Qu’est-ce que cela dit d’eux ?', options: ['Ils ne sont essayés qu’après l’échec de `a`', 'Ils servent de secours à `d`', 'Ils reçoivent la même part des premières tentatives dans leur groupe', 'Ils sont essayés dans l’ordre de la réponse'], answer: 2, why: 'Le poids fixe la part au sein d’un groupe de priorité. Deux enregistrements de même poids dans le même groupe gagnent le tirage aussi souvent l’un que l’autre.' },
 					{ q: 'Que vaut `8080` ?', options: ['Le port auquel le client se connecte', 'Le port du serveur DNS', 'Le poids de l’enregistrement', 'Le TTL de la réponse'], answer: 0, why: 'Le troisième champ est le port. C’est justement ce qu’une simple requête A ne donne pas.' },
 					{ q: 'Que désigne `a.example.com.` ?', options: ['Le nom que le client a demandé', 'La zone DNS qui contient l’enregistrement', 'Le nom du service avec son protocole', 'L’hôte cible auquel le client se connecte'], answer: 3, why: 'Le dernier champ est le nom de l’hôte cible. Le nom demandé était `_api._tcp.example.com`.' }
 				]
@@ -158,7 +158,7 @@ func (addrs byPriorityWeight) sort() {
 				questions: [
 					{ q: 'Après le tri par poids, quelles sont les sommes cumulées du groupe de priorité 10 ?', options: ['20 (`b`), 40 (`c`), 100 (`a`)', '60 (`a`), 80 (`b`), 100 (`c`)', '20 (`b`), 20 (`c`), 60 (`a`)', '100 (`a`), 40 (`c`), 20 (`b`)'], answer: 0, why: 'Le tri place le plus petit poids en premier : `b` et `c` à 20, puis `a` à 60. En les additionnant, on obtient 20, 40 et 100.' },
 					{ q: 'Pour quelles valeurs de `n` `a` gagne-t-il le premier tirage ?', options: ['De 0 à 59', 'De 40 à 99', 'De 60 à 99', 'De 40 à 100'], answer: 1, why: '`a` est choisi quand sa somme cumulée, 100, est la première à dépasser `n`. C’est le cas dès que `n` vaut 40 ou plus.' },
-					{ q: 'Quelle part des premières tentatives va donc vers `a` ?', options: ['33 %, une sur trois', '50 %', '60 %', '75 %'], answer: 2, why: 'De 40 à 99, cela fait 60 valeurs sur 100. La part vaut le poids divisé par le poids total du groupe.' },
+					{ q: '`a` gagne le premier tirage, et la ligne 31 retire ses 60 de `sum`. Quelle part des deuxièmes choix va vers `b` ?', options: ['20 %', '40 %', '50 %', '0 %, `d` vient en deuxième'], answer: 2, why: 'Le deuxième tirage ne porte plus que sur `b` et `c`, avec `sum` = 40. `b` gagne quand `n` vaut de 0 à 19 : 20 valeurs sur 40.' },
 					{ q: 'Quelle part va vers `b` ?', options: ['40 %', '0 %, il passe après `a`', '33 %', '20 %'], answer: 3, why: '`b` gagne quand `n` vaut de 0 à 19 : 20 tirages sur 100. `c` reçoit les mêmes 20 %.' }
 				]
 			},

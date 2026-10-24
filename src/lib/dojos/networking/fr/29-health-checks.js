@@ -120,7 +120,7 @@ export default {
 			{
 				title: 'Prépare le compteur',
 				questions: [
-					{ q: 'Avec `rise 2` et `fall 3`, quelle est la valeur maximale de `health` ?', options: ['4, soit `rise + fall - 1`', '3, la valeur de `fall`', '2, la valeur de `rise`', '5, soit `rise + fall`'], answer: 0, why: 'La ligne 25 plafonne le compteur à `rise + fall - 1`. Avec les valeurs par défaut, ça fait 4.' },
+					{ q: 'Si la ligne du serveur disait `rise 3 fall 3`, quelle serait la valeur maximale de `health` ?', options: ['5, soit `rise + fall - 1`', '6, soit `rise + fall`', '4, comme avec les valeurs par défaut', '3, la valeur de `fall`'], answer: 0, why: 'La ligne 25 plafonne le compteur à `rise + fall - 1` : 3 + 3 - 1 = 5. Avec les valeurs par défaut de cette tâche, c’est 4.' },
 					{ q: 'En termes de compteur, quand le serveur est-il UP ?', options: ['Seulement quand `health` vaut 4', 'Quand `health >= rise`, donc 2 ou plus', 'Quand `health` est au-dessus de 0', 'Quand `health >= fall`, donc 3 ou plus'], answer: 1, why: 'La ligne de log affiche UP tant que `health >= rise`, et DOWN en dessous.' },
 					{ q: 'Que fait un test échoué au compteur ?', options: ['Il le met à 0 tout de suite', 'Il retire la valeur de `fall`', 'Il retire un, et le met à 0 s’il passe sous `rise`', 'Rien tant que le serveur est UP'], answer: 2, why: 'La ligne 12 retire un. Les lignes 13 et 14 mettent 0 dès que le compteur est sous `rise`.' },
 					{ q: 'Que fait un test réussi ?', options: ['Il met 4 tout de suite', 'Il ajoute la valeur de `rise`', 'Rien tant que le serveur est DOWN', 'Il ajoute un, et saute à 4 dès qu’il atteint `rise`'], answer: 3, why: 'La ligne 22 ajoute un. Les lignes 24 et 25 sautent à `rise + fall - 1` dès que le compteur atteint `rise`.' }
@@ -149,7 +149,7 @@ export default {
 				questions: [
 					{ q: 'Le compteur vaut 0. Le test 9 réussit. Combien vaut-il ?', options: ['0, aucun changement tant que DOWN', '1, toujours DOWN', '2, maintenant UP', '4, maintenant UP'], answer: 1, why: 'Un de plus : 1, toujours sous `rise`.' },
 					{ q: 'Le test 10 réussit. Combien vaut-il ?', options: ['2, toujours DOWN', '3, maintenant UP', '1, toujours DOWN', '2, puis la ligne 25 met 4 : UP'], answer: 3, why: '1 plus un font 2, qui atteint `rise`. La ligne 25 saute à 4 et le serveur est UP.' },
-					{ q: 'Combien de succès faut-il à un serveur DOWN pour revenir ?', options: ['`rise` : 2 succès d’affilée', '`fall` : 3 succès d’affilée', 'Un seul succès', '4 succès, un par cran du compteur'], answer: 0, why: 'Depuis 0, deux succès atteignent `rise`. C’est le sens de `rise 2`.' },
+					{ q: 'Avec `inter 2s`, combien de temps environ après le test 8 le serveur est-il de nouveau UP ?', options: ['Environ 4 s, deux tests plus tard', 'Environ 2 s, au test 9', 'Environ 6 s, trois tests plus tard', 'Tout de suite, au test 8'], answer: 0, why: 'Les tests 9 et 10 tournent à 2 s d’intervalle après le test 8, et le test 10 le remet UP : 2 × 2 s = 4 s.' },
 					{ q: 'Qu’a fait ce compteur pendant l’incident de Healthchecks.io, avec des tests perdus ?', options: ['Il a causé une seule longue panne', 'Il a marqué tous les backends DOWN avec un 503', 'Il a causé du flapping : des backends qui franchissent les deux seuils encore et encore', 'Rien : rise et fall filtrent toutes les pertes'], answer: 2, why: 'Avec des tests qui passent et d’autres qui échouent, un serveur retombe à 0 puis remonte à 4. HAProxy signalait des backends « flipping between healthy / unhealthy states ».' }
 				]
 			}

@@ -108,7 +108,7 @@ export default {
 			{
 				title: 'Peel off the Ethernet header',
 				questions: [
-					{ q: 'Which bytes of the dump are the Ethernet header?', options: ['The first 14 bytes, up to and including `0800`', 'The first 20 bytes, up to `3406`', 'The first 6 bytes, `069c f20c df7a`', 'The first 32 bytes, up to `0005`'], answer: 0, why: 'An Ethernet header is 14 bytes: the destination MAC, the source MAC, then a 2-byte type.' },
+					{ q: 'The IP total length `003c` is 60. Which `length` does `tcpdump -e` print for this frame?', options: ['74: 14 bytes of Ethernet plus the 60 of IP', '60: the IP total length', '141: the length of the GET frame', '40: the TCP header alone'], answer: 0, why: 'The IP total length leaves out the Ethernet header in front of it. `tcpdump -e` counts the whole frame: 14 + 60 = 74.' },
 					{ q: 'Which MAC is the destination of this frame?', options: ['`ca:20:8c:72:3c:8c`, the gateway', '`06:9c:f2:0c:df:7a`, the container', '`ff:ff:ff:ff:ff:ff`, a broadcast', '`08:00:45:00:00:3c`, read past the type'], answer: 1, why: 'The destination MAC comes first. This packet comes back from the server, so the frame is addressed to the container.' },
 					{ q: 'What does the type `0800` tell the receiver?', options: ['The frame is 2048 bytes long', 'An ARP message follows', 'An IPv4 packet follows', 'The packet goes to port 2048'], answer: 2, why: 'The type field says what comes after the Ethernet header, and `0x0800` means IPv4.' },
 					{ q: 'Where does the IP header start?', options: ['At the first byte, `06`', 'At `3406`, the TTL and protocol', 'At `6814`, the source address', 'At the `45` right after `0800`'], answer: 3, why: 'The 14 bytes of Ethernet come first, so the IP header begins on the next byte, `45`.' }
@@ -117,7 +117,7 @@ export default {
 			{
 				title: 'Read the IP header',
 				questions: [
-					{ q: 'The first IP byte is `45`. How long is the IP header?', options: ['45 bytes', '5 bytes', '20 bytes', '40 bytes'], answer: 2, why: 'The 4 is the version. The 5 is the IHL, counted in 32-bit words: 5 × 4 = 20 bytes, a header with no options.' },
+					{ q: 'Counting the `45` as byte 0, which byte of the IP header is the TTL?', options: ['Byte 1, `00`', 'Byte 4, `da`', 'Byte 8, `34`', 'Byte 12, `68`'], answer: 2, why: 'After `45` come 1 byte of TOS, 2 of total length, 2 of ID and 2 of flags and fragment offset, as in `struct iphdr`. So the TTL is byte 8, and the protocol `06` is byte 9.' },
 					{ q: 'The TTL byte is `34`. What is the TTL?', options: ['52', '34', '64', '6'], answer: 0, why: '`0x34` is 3 × 16 + 4 = 52. Routers on the way each lowered it by at least 1. The `06` next to it is the protocol.' },
 					{ q: 'The protocol byte is `06`. What follows the IP header?', options: ['A UDP datagram', 'A TCP segment', 'Another IP header', 'An Ethernet frame'], answer: 1, why: 'Protocol 6 means TCP. UDP would be 17.' },
 					{ q: 'What are the source and destination addresses?', options: ['From 172.17.0.5 to 104.20.26.136', 'From 172.17.0.1 to 172.17.0.5', 'From 104.20.26.136 to 172.17.0.1', 'From 104.20.26.136 to 172.17.0.5'], answer: 3, why: 'The source comes first: `6814 1a88` reads 104.20.26.136. Then `ac11 0005` is 172.17.0.5. The reply travels from the server to the container.' }

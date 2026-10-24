@@ -129,17 +129,17 @@ export default {
 				questions: [
 					{ q: 'Which error is `Cannot assign requested address`?', options: ['`EADDRNOTAVAIL`: no free source port for this destination', '`ECONNREFUSED`: Redis sent an RST', '`ETIMEDOUT`: Redis did not answer', '`ENETUNREACH`: no route to Redis'], answer: 0, why: 'When the port search finds no free 4-tuple, `connect()` returns `EADDRNOTAVAIL`.' },
 					{ q: '`ss -s` shows `timewait 28190`. What does that tell you?', options: ['Redis has 28,190 clients', 'Almost every port of the 28,232 in the range is held in TIME_WAIT', 'The job leaks connections it never closes', 'The kernel closes sockets too slowly'], answer: 1, why: '28,190 is close to the whole range. Those sockets are closed, but each keeps its 4-tuple for 60 s.' },
-					{ q: 'Which side holds those TIME_WAIT sockets?', options: ['Redis, because it is the server', 'Both sides, 60 seconds each', 'The job, because it closes each connection first', 'Neither: TIME_WAIT is only on loopback'], answer: 2, why: 'TIME_WAIT belongs to the side that closes actively. The job closes after each command.' },
+					{ q: 'What do the 4-tuples of those 28,190 sockets have in common?', options: ['They all share one source port', 'Each one goes to a different Redis host', 'Only the source port differs: all go to `10.0.0.12:6379`', 'Only the destination port differs'], answer: 2, why: 'The job talks to one Redis, so the source IP, destination IP and destination port are fixed. Each connection needs its own source port, which is why the range runs out.' },
 					{ q: 'Is Redis down?', options: ['Yes: the error means it refused the job', 'Yes: TIME_WAIT means Redis stopped answering', 'You cannot tell anything about Redis', 'Not from this error: the job\'s own kernel fails `connect()` before a SYN leaves'], answer: 3, why: 'The kernel picks the source port before it sends the SYN. With no port left, nothing reaches Redis.' }
 				]
 			},
 			{
 				title: 'Compute the limit',
 				questions: [
-					{ q: 'How many ports are in `32768 60999`?', options: ['28,232', '28,231', '32,768', '60,999'], answer: 0, why: '60999 − 32768 + 1 = 28,232. Both ends of the range count.' },
-					{ q: 'How long does Linux keep a socket in TIME_WAIT?', options: ['2 minutes, one MSL', '4 minutes, 2 × MSL', '60 seconds', '1 second'], answer: 2, why: 'RFC 9293 asks for 2 × MSL, but Linux uses a fixed 60 s, `TCP_TIMEWAIT_LEN`.' },
-					{ q: 'What rate of new connections to `10.0.0.12:6379` can the job sustain?', options: ['About 28,232 per second', 'About 470 per second', 'About 235 per second', 'About 1,075 per second'], answer: 1, why: '28,232 ports / 60 s ≈ 470. Past that, the job runs out of ports.' },
-					{ q: 'Does the same limit stop a connection to a second Redis at `10.0.0.13:6379`?', options: ['Yes: every port is taken', 'Only if `tcp_tw_reuse` is 0', 'Yes, until `tcp_tw_reuse_delay` passes', 'No: another destination IP gives new 4-tuples'], answer: 3, why: 'A port is in TIME_WAIT only toward the destination it talked to. The destination IP is part of the 4-tuple.' }
+					{ q: 'With `timewait 28190`, how many source ports are still free toward Redis?', options: ['42', '28,190', '0', '470'], answer: 0, why: 'The range holds 60999 − 32768 + 1 = 28,232 ports, and 28,190 are held. 28,232 − 28,190 leaves 42, gone in a fraction of a second.' },
+					{ q: 'If the job opened only 100 connections per second, how many sockets would sit in TIME_WAIT?', options: ['100', '28,232', 'About 6,000', 'About 1,700'], answer: 2, why: 'Each closed socket stays 60 s, so 100 per second × 60 s keeps about 6,000 in TIME_WAIT, well inside the range.' },
+					{ q: 'The job now needs 1,000 commands per second, one connection each, starting with no socket in TIME_WAIT. How long until the ports run out?', options: ['About 60 seconds', 'About 1 second', 'Never', 'About 28 seconds'], answer: 3, why: '28,232 ports at 1,000 per second are used up after about 28 s, long before the first ones leave TIME_WAIT at 60 s.' },
+					{ q: 'The job is split across two client hosts, each sending half the commands. What rate can the pair sustain to `10.0.0.12:6379`?', options: ['About 470 per second, the same as one host', 'About 235 per second', 'About 940 per second', 'About 28,232 per second'], answer: 2, why: 'Each host has its own source IP, so its own 28,232 ports toward Redis. Two hosts give about 2 × 470.' }
 				]
 			},
 			{
@@ -148,7 +148,7 @@ export default {
 					{ q: 'Which fix removes the cause?', options: ['Reuse connections with a connection pool', 'Open more connections in parallel', 'Retry each failed command', 'Close each connection faster'], answer: 0, why: 'The job uses one port per command. A pool sends many commands on each socket.' },
 					{ q: 'Why does a pool help so much?', options: ['Pooled connections skip TIME_WAIT', 'Many commands share one socket, so the job needs only a few ports', 'A pool talks to Redis over loopback', 'Redis closes pooled connections first'], answer: 1, why: 'A keep-alive connection uses one 4-tuple for thousands of requests.' },
 					{ q: 'With a pool, which sockets still go to TIME_WAIT?', options: ['None, ever', 'One per command, as before', 'Only the connections the pool finally closes', 'Only the first connection'], answer: 2, why: 'TIME_WAIT follows each close. A pool closes rarely.' },
-					{ q: 'The job passed a load test against `127.0.0.1`. Why did that test miss the problem?', options: ['Loopback has its own 65,535 ports', 'Loopback connections never enter TIME_WAIT', 'Test machines have a wider port range', 'The default `tcp_tw_reuse = 2` reuses loopback 4-tuples after 1 second'], answer: 3, why: 'In `tcp_twsk_unique`, a value of 2 allows reuse only when an address is loopback.' }
+					{ q: 'Someone proposes to retry each command that fails with `EADDRNOTAVAIL` instead. What happens?', options: ['It fixes it: ports free up within a second', 'Retries go over loopback and skip TIME_WAIT', 'Redis rejects repeated commands', 'Retries only succeed as ports leave TIME_WAIT, so the job still tops out near 470 per second'], answer: 3, why: 'A retry needs a free source port like any new connection. Ports come back only after their 60 s, so retries add delay without raising the rate.' }
 				]
 			},
 			{

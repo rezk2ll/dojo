@@ -125,10 +125,10 @@ export default {
 			{
 				title: 'Know the timers',
 				questions: [
-					{ q: 'What does each `curl -w` timer measure?', options: ['The length of its own phase only', 'The time since the previous timer', 'Time from the start until that step', 'The server\'s processing time'], answer: 2, why: 'curl records each timer as the time since the request started. So each value includes all the steps before it.' },
-					{ q: 'How do you get the length of one phase?', options: ['Subtract the timer before it', 'Read the timer as it is', 'Divide by the RTT', 'Subtract it from `total`'], answer: 0, why: 'A phase is the difference between two timers, such as `time_connect - time_namelookup` for the TCP handshake.' },
-					{ q: 'Which timer marks the end of the TLS handshake?', options: ['`connect`', '`pretransfer`', '`starttransfer`', '`appconnect`'], answer: 3, why: '`time_appconnect` is when the TLS handshake was done. `connect` is the TCP handshake.' },
-					{ q: 'What does `starttransfer` include?', options: ['Only the server\'s work', 'Everything up to the first byte', 'Only the download of the body', 'Only DNS and TCP'], answer: 1, why: 'It is the time until the first byte of the response arrived, counted from the start.' }
+					{ q: 'If the mirror answered with a redirect and you ran `curl -L`, what would `connect` show?', options: ['Only the connect of the last request', 'Only the connect of the first request', 'The sum over every request in the chain', 'Nothing: redirects reset the timers'], answer: 2, why: 'Line 40 adds with `+=`. With `-L`, each timer sums the values of every request, and `%{time_redirect}` reports the redirect steps on their own.' },
+					{ q: 'Which values in this output are less than 0.1 ms apart?', options: ['`appconnect` and `pretransfer`, and `starttransfer` and `total`', '`namelookup` and `connect`', '`connect` and `appconnect`', '`pretransfer` and `starttransfer`'], answer: 0, why: '0.680390 minus 0.680307 is 0.08 ms, and 1.054808 minus 1.054753 is 0.055 ms. Nothing happened on the network between those pairs.' },
+					{ q: '`ping` gives 339 ms. What does comparing a phase with it tell you?', options: ['How fast the server CPU is', 'Whether the DNS answer was cached', 'Whether the certificate is valid', 'Whether the phase is distance, whole round trips, or work on top of them'], answer: 3, why: 'A phase that matches a whole number of RTTs is only travel. Anything left over is time spent at one end.' },
+					{ q: 'Whose clock and which moment do these numbers describe?', options: ['The server\'s, averaged over its last requests', 'curl\'s on the client, for this one run', 'The resolver\'s, for the DNS part only', 'An average of many runs from the same host'], answer: 1, why: 'curl measures from one client at one moment. The chapter saw DNS take 274 ms in one run and under 1 ms in the next.' }
 				]
 			},
 			{
@@ -136,7 +136,7 @@ export default {
 				questions: [
 					{ q: 'How long did DNS take?', options: ['339 ms', '0.7 ms', '7 ms', '338 ms'], answer: 1, why: '`namelookup=0.000699` is 0.7 ms.' },
 					{ q: 'Why is it that short?', options: ['The answer came from a cache', 'The host has no DNS name', 'DNS runs after TCP', 'curl skips DNS for HTTPS'], answer: 0, why: 'Under 1 ms is too fast for any network round trip. The chapter saw the same thing in a later run against ftp.jaist.ac.jp.' },
-					{ q: 'How long did the TCP handshake take?', options: ['338.5 ms, the `connect` value', '680 ms', '338 ms, `connect` minus `namelookup`', '0.7 ms'], answer: 2, why: '338.539 minus 0.699 is about 338 ms.' },
+					{ q: 'Here `connect=0.338539` read as it is almost equals the TCP handshake. Why?', options: ['`connect` never includes DNS', 'The handshake ran at the same time as DNS', 'DNS took only 0.7 ms, so subtracting it barely changes the value', '`ping` already removed DNS'], answer: 2, why: '`connect` counts from the start, DNS included. 338.539 minus 0.699 is still about 338 ms. With the 274 ms uncached lookup of ftp.jaist.ac.jp, the raw value would be far off.' },
 					{ q: 'How many round trips of 339 ms is that?', options: ['Half of one', 'Two', 'Three', 'One'], answer: 3, why: 'SYN out, SYN-ACK back: one round trip, and nothing else.' }
 				]
 			},

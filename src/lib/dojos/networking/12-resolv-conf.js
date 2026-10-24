@@ -122,7 +122,7 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 				questions: [
 					{ q: 'How many dots does `redis.cache` have, and does it go through the search list with `ndots:5`?', options: ['2 dots, so it is tried as written', '1 dot, so the search list comes first', '0 dots, so only the search list is used', '1 dot, so it is tried as written first'], answer: 1, why: 'One dot is fewer than 5, so glibc appends the search domains before trying the name as written.' },
 					{ q: 'And `api.stripe.com`?', options: ['3 dots, so it is tried as written first', '2 dots, so it is tried as written first', '2 dots, so the search list comes first', '3 dots, so the search list comes first'], answer: 2, why: '`api.stripe.com` has 2 dots, still fewer than 5, so it goes through the search list too.' },
-					{ q: 'What changes for `api.stripe.com.`?', options: ['The trailing dot makes it absolute: no search list', 'The extra dot pushes it to 3, still under 5', 'glibc strips the dot and treats it like `api.stripe.com`', 'Only the last search domain is tried'], answer: 0, why: 'A name ending in a dot is an FQDN. The stub resolver sends it as is and skips the search list.' },
+					{ q: 'Outside Kubernetes, glibc\'s own default is `ndots:1`. What would it do with `redis.cache` there?', options: ['Try it as written first, since 1 dot is not fewer than 1', 'Still go through the search list first', 'Never try it as written', 'Refuse it, since short names need `ndots:5`'], answer: 0, why: 'A name goes through the search list first only when it has fewer dots than `ndots`. With 1 dot and `ndots:1`, glibc sends `redis.cache` as written before the search list.' },
 					{ q: 'Which name in a Pod is tried as written first with `ndots:5`, without a trailing dot?', options: ['`redis.cache.svc.cluster`', '`api.eu.stripe.com`', '`a.b.c.d.e.example`', '`_http._tcp.my-svc.my-namespace.svc`'], answer: 2, why: '`a.b.c.d.e.example` has 5 dots, which is not fewer than 5. The others have 4 dots or fewer, so the search list comes first.' }
 				]
 			},
@@ -139,9 +139,9 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 				title: 'Walk the external name',
 				questions: [
 					{ q: 'How many of the three search domains fail for `api.stripe.com`?', options: ['All three', 'Only the first', 'The first two', 'None: the cluster DNS forwards them'], answer: 0, why: 'No `api.stripe.com.shop.svc.cluster.local` or similar name exists, so each appended domain returns `NXDOMAIN`.' },
-					{ q: 'How many A queries does `api.stripe.com` cost?', options: ['3', '1', '4', '6'], answer: 2, why: 'Three failed search domains, then the name as written: 4 queries.' },
+					{ q: 'Which query for `api.stripe.com` finally returns its address?', options: ['`api.stripe.com.shop.svc.cluster.local`, the first', '`api.stripe.com.cluster.local`, the third', '`api.stripe.com` as written, the fourth', 'None: the search list hides the name'], answer: 2, why: 'With the search list used up, glibc sends the name as written. That fourth query is the one the upstream servers answer.' },
 					{ q: 'The program asks for A and AAAA. How many queries now?', options: ['4', '5', '6', '8'], answer: 3, why: 'Each name is asked for both types, so the 4 A queries become 8 in all.' },
-					{ q: 'How many queries for `api.stripe.com.`?', options: ['4, the same as without the dot', '1', '2, one for each search domain left', '3, the search domains only'], answer: 1, why: 'The trailing dot makes it absolute, so glibc sends it once as written.' }
+					{ q: 'The same program asks for A and AAAA of `api.stripe.com.`. How many queries?', options: ['8, the same as without the dot', '2: one A and one AAAA, with no search list', '1: the dot merges both types', '6, the search names only'], answer: 1, why: 'The trailing dot skips the search list, but each record type is still its own query: one A and one AAAA.' }
 				]
 			},
 			{

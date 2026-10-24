@@ -115,8 +115,8 @@ __nf_conntrack_alloc(struct net *net,
 			{
 				title: 'Find the limit',
 				questions: [
-					{ q: 'What is kube-proxy\'s default `MaxPerCore`?', options: ['32,768', '16,384', '131,072', '262,144'], answer: 0, why: 'The default is 32 x 1024 = 32,768 entries per core.' },
-					{ q: 'What `nf_conntrack_max` does kube-proxy set on the 24 core node?', options: ['131,072', '262,144', '786,432', '1,048,576'], answer: 2, why: '24 x 32,768 = 786,432, the same number as in the kube-proxy log of issue #71261.' },
+					{ q: 'The same kube-proxy also runs on a 2 core node. What `nf_conntrack_max` does it set there?', options: ['131,072, the `Min` floor', '65,536', '32,768', '262,144'], answer: 0, why: '2 x 32,768 = 65,536 is below the `Min` floor, so `getConntrackMax` returns 131,072.' },
+					{ q: 'The 24 core node gets 786,432. With TCP alone, each closed connection kept 120 s, how many new connections per second fill that?', options: ['About 786', 'About 26,200', 'About 6,550', 'About 65,500'], answer: 2, why: 'Entries = new flows per second times 120 s, so 786,432 / 120 is about 6,550 per second. The 7,000 of part (3) is above it even before UDP.' },
 					{ q: 'Does the `Min` floor change that result?', options: ['Yes, it raises it to 1,048,576', 'No, 786,432 is above the 131,072 floor', 'Yes, it caps it at 131,072', 'No, `Min` only applies to UDP'], answer: 1, why: '`Min` (131,072 by default) is a floor. The scaled value is already above it.' },
 					{ q: 'What does kube-proxy do with the hash size?', options: ['Sets it to the entry limit', 'Leaves it to the kernel default', 'Doubles it to 1,572,864', 'Raises it to a quarter of the limit if smaller'], answer: 3, why: 'kube-proxy raises the hash size to `max / 4`, here 196,608, if it is smaller.' }
 				]
@@ -134,9 +134,9 @@ __nf_conntrack_alloc(struct net *net,
 				title: 'Grow the traffic',
 				questions: [
 					{ q: 'At 7,000 TCP connections per second, how many entries in all?', options: ['790,000', '930,000', '840,000', '1,048,576'], answer: 1, why: '7,000 x 120 = 840,000 for TCP, plus 90,000 for UDP: 930,000.' },
-					{ q: 'What does the kernel do with the first packet of a new flow once the count passes the limit?', options: ['Queues it until an entry expires', 'Sends it without NAT', 'Tries `early_drop`, then drops the packet if nothing frees', 'Evicts the oldest assured entry'], answer: 2, why: '`__nf_conntrack_alloc` calls `early_drop`. If no entry can be freed, it logs "table full" and drops the packet.' },
+					{ q: 'Which of this node\'s entries can `early_drop` free to make room?', options: ['The closed TCP connections in TIME_WAIT', 'Any entry, oldest first', 'The one-shot DNS flows, which are never assured', 'None: `early_drop` frees TCP entries only'], answer: 2, why: '`early_drop` frees only entries not marked assured. The TCP connections reached ESTABLISHED, so they are assured. A one-shot DNS query never is.' },
 					{ q: 'A Pod\'s HTTP health check opens a new connection each time. What do you expect?', options: ['It keeps passing, since health checks skip conntrack', 'It fails, and the kubelet restarts the Pod', 'It gets slower but never fails', 'It switches to UDP'], answer: 1, why: 'Each check is a new flow, so its first packet can be dropped. That is what issue #71261 reported: Pods restarting often.' },
-					{ q: 'Which traffic still works while the table is full?', options: ['Packets of flows already in the table', 'Every new TCP connection', 'Every new DNS query', 'Nothing on the node'], answer: 0, why: 'The check runs only for the first packet of a flow. Known flows match their existing entry.' }
+					{ q: 'Why does a full table also break the Pods\' DNS lookups?', options: ['Each query is its own flow, so its first packet needs a new entry', 'UDP packets bypass conntrack', 'DNS moves to TCP when the table is full', 'The kernel drops all UDP before any TCP'], answer: 0, why: 'Every DNS query here is a new UDP flow. Its first packet goes through the full-table check, and can be dropped like a new TCP connection.' }
 				]
 			},
 			{

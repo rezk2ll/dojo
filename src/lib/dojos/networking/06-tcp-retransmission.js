@@ -125,7 +125,7 @@ export default {
 					{ q: 'What is (2 << 8) − 1?', options: ['255', '511', '256', '1023'], answer: 1, why: '`2 << 8` shifts 2 left by 8 bits: 512. Minus 1 gives 511.' },
 					{ q: 'And 511 × 0.2 s?', options: ['102.2 s', '51.1 s', '204.6 s', '924.6 s'], answer: 0, why: '511 × 0.2 = 102.2. The connection gives up after at least 102.2 s.' },
 					{ q: 'Does 8 meet the RFC 1122 advice?', options: ['No: RFC 1122 asks for 15 minutes', 'No: it asks for at least 200 seconds', 'RFC 1122 says nothing about this timeout', 'Yes: the docs say at least 100 seconds means a value of at least 8'], answer: 3, why: 'The ip-sysctl docs: "RFC 1122 recommends at least 100 seconds for the timeout, which corresponds to a value of at least 8."' },
-					{ q: 'How does that compare with the default of 15?', options: ['The same, because the cap is 120 s', 'Longer, because fewer retries wait more each', 'About 102 s instead of 924.6 s', 'About 15 s instead of 924.6 s'], answer: 2, why: 'With 15 the model adds six retries at the 120 s cap. With 8 the RTO never gets there.' }
+					{ q: 'The team wants API calls to a dead host to fail within 30 s. Does `tcp_retries2 = 8` give that?', options: ['Yes: 8 retries take well under 30 s', 'Yes, because the RTO cap is 120 s', 'No: 102.2 s is still over three times 30 s', 'Only if `SO_KEEPALIVE` is also set'], answer: 2, why: 'The model gives 102.2 s for 8. A 30 s target needs a smaller value, like the 5 computed next, or `TCP_USER_TIMEOUT` on the socket.' }
 				]
 			},
 			{
@@ -143,7 +143,7 @@ export default {
 					{ q: 'Which connections does `tcp_retries2 = 8` change?', options: ['Every connection on the host', 'Only the API client sockets', 'Only connections to port 443', 'Only the `SYN` retries'], answer: 0, why: 'A sysctl sets the limit for the whole host, not for one program.' },
 					{ q: 'Which socket option sets the limit for one socket?', options: ['`SO_KEEPALIVE`', '`TCP_USER_TIMEOUT`', '`tcp_syn_retries`', '`SO_REUSEADDR`'], answer: 1, why: '`TCP_USER_TIMEOUT` is the longest time sent data may stay unacknowledged before the kernel closes that connection with `ETIMEDOUT`.' },
 					{ q: 'In which unit do you give `TCP_USER_TIMEOUT`?', options: ['Seconds', 'Retries', 'Milliseconds', 'RTOs'], answer: 2, why: 'It is in milliseconds, so 30 seconds is `30000`.' },
-					{ q: 'An API connection sits idle, and the peer dies. Does either limit end it?', options: ['Yes, both fire once the limit passes', 'Yes, but only `tcp_retries2`', 'Yes, after `tcp_rto_max_ms`', 'No: with nothing in flight, no retransmission timer runs'], answer: 3, why: 'The kernel learns of the failure only when one side sends something. An idle socket to a dead peer stays in `ESTAB`.' }
+					{ q: 'An API socket has `TCP_USER_TIMEOUT` set to 30000, and its peer dies mid-request. When does the call fail?', options: ['After 102.2 s, as `tcp_retries2 = 8` says', 'At the first doubled RTO that ends past 30 s', 'Never, because the option needs `SO_KEEPALIVE`', 'About 30 s after the data went unacknowledged, with `ETIMEDOUT`'], answer: 3, why: '`tcp_clamp_rto_to_user_timeout` shortens the last timer, so the socket fails at the 30 s limit and not at the next doubled RTO. The host-wide `tcp_retries2` does not decide for that socket.' }
 				]
 			}
 		]

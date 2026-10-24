@@ -152,7 +152,7 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 				questions: [
 					{ q: 'How many bytes does cwnd allow in flight?', options: ['51 × 1388 = 70,788 bytes', '51 × 1460 = 74,460 bytes', '35 × 1388 = 48,580 bytes', '51 × 8 = 408 bytes'], answer: 0, why: 'Use the connection\'s own `mss`, 1388, not the common 1460.' },
 					{ q: 'Which number is smaller?', options: ['The receive window, 229,376 bytes', 'cwnd, 70,788 bytes', 'They are equal', 'ssthresh in bytes'], answer: 1, why: '70,788 is less than a third of 229,376.' },
-					{ q: 'Which value governs the data in flight?', options: ['Only the receive window', 'The larger of cwnd and the receive window', 'The smaller of cwnd and the receive window', 'cwnd plus the receive window'], answer: 2, why: 'RFC 5681: "The minimum of cwnd and rwnd governs data transmission."' },
+					{ q: 'How far must cwnd grow before the receive window becomes the limit?', options: ['51 segments', '35 segments', 'About 166 segments', 'About 229 segments'], answer: 2, why: '229,376 / 1388 is about 165.3. From about 166 segments, cwnd in bytes passes the receive window, which then sets the amount in flight.' },
 					{ q: 'So what limits this upload?', options: ['The receiver\'s buffer', 'The window scale factor', 'The RTO', 'cwnd, the sender\'s estimate of what the path carries'], answer: 3, why: 'The receiver could take three times more. The sender holds back because of its own congestion window.' }
 				]
 			},

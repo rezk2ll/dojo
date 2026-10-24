@@ -103,7 +103,7 @@ export default {
 			{
 				title: 'Lis l’offre (a)',
 				questions: [
-					{ q: 'Que désigne `h3` dans `alt-svc: h3=":443"` ?', options: ['HTTP/2 sur TLS', 'HTTP/3, sur QUIC en UDP', 'Un troisième serveur pour le même site', 'HTTP/1.1 avec trois connexions'], answer: 1, why: '`h3` est le jeton ALPN de HTTP/3, qui tourne sur QUIC en UDP.' },
+					{ q: 'Le navigateur suit l’offre (a). Quel jeton ALPN porte son ClientHello QUIC ?', options: ['`h2`', '`h3`', '`http/1.1`', '`quic`'], answer: 1, why: 'L’offre nomme le protocole par son jeton ALPN, et le ClientHello du paquet Initial demande ce même jeton, `h3`.' },
 					{ q: 'Quel port le navigateur essaie-t-il ?', options: ['TCP 443', 'UDP 80', 'UDP 443', 'TCP 8443'], answer: 2, why: '`":443"` sans hôte veut dire le même hôte sur le port 443, et HTTP/3 passe par UDP.' },
 					{ q: 'Combien de temps le navigateur peut-il garder l’offre ?', options: ['86 400 secondes, 24 heures', '443 secondes', 'Jusqu’à la fermeture de l’onglet', 'Une seule requête'], answer: 0, why: '`ma=86400` est le nombre de secondes pendant lequel l’offre reste fraîche.' },
 					{ q: 'Qu’est-ce qui a apporté cette offre au navigateur ?', options: ['Une réponse DNS', 'Un paquet Initial QUIC', 'Un ServerHello TLS', 'Une réponse HTTP sur TCP'], answer: 3, why: 'Dans l’accroche, `alt-svc` revient sur un `HTTP/2 200` en TCP port 443. Le navigateur peut s’en servir pour sa connexion suivante.' }
@@ -133,7 +133,7 @@ export default {
 					{ q: 'Le pare-feu du bureau jette l’UDP sortant. Qu’arrive-t-il à la tentative QUIC vers (a) ?', options: ['Elle ne reçoit aucune réponse', 'Elle reçoit un HTTP 403', 'Le pare-feu la bascule en TCP', 'Elle se connecte plus lentement'], answer: 0, why: 'QUIC tourne sur UDP : le paquet Initial est jeté et rien ne revient.' },
 					{ q: 'Que dit la RFC 9114 au client de faire ensuite ?', options: ['Réessayer QUIC jusqu’à ce que ça marche', 'Tenter les versions de HTTP sur TCP', 'Afficher une page d’erreur', 'Descendre la taille des paquets sous 1200 octets'], answer: 1, why: '"Clients SHOULD attempt to use TCP-based versions of HTTP" quand QUIC ne se connecte pas.' },
 					{ q: 'Que voient les utilisateurs sur le site (a) ?', options: ['Une page cassée', 'Un avertissement de certificat', 'Les pages se chargent en HTTP/2, après le délai de la tentative ratée', 'Les pages se chargent quand même en HTTP/3'], answer: 2, why: 'Le repli garde le site en marche. Le seul coût est le temps passé sur la tentative QUIC ratée.' },
-					{ q: 'Baisser la taille des paquets ferait-il passer QUIC sur un chemin qui ne porte que des datagrammes de 1000 octets ?', options: ['Oui, QUIC s’adapte à toute taille', 'Oui, avec le 0-RTT', 'Seulement sur le port 443', 'Non : QUIC est interdit sous 1200 octets'], answer: 3, why: 'RFC 9000 : "QUIC MUST NOT be used if the network path cannot support a maximum datagram size of at least 1200 bytes".' }
+					{ q: 'Un autre bureau ne bloque que le port UDP 443. Lequel des trois sites le navigateur peut-il encore utiliser en HTTP/3 ?', options: ['Le site (a)', 'Le site (c)', 'Aucun', 'Le site (b)'], answer: 3, why: 'L’offre (b) pointe vers UDP 50781, que ce pare-feu laisse passer. (a) propose UDP 443, et un essai direct sur (c) utiliserait le port de l’URL, 443.' }
 				]
 			}
 		]

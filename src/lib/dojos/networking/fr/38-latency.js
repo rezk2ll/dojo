@@ -125,10 +125,10 @@ export default {
 			{
 				title: 'Connais les timers',
 				questions: [
-					{ q: 'Que mesure chaque timer de `curl -w` ?', options: ['La durée de sa propre phase seulement', 'Le temps depuis le timer précédent', 'Le temps du départ à cette étape', 'Le temps de traitement du serveur'], answer: 2, why: 'curl note chaque timer comme le temps écoulé depuis le début de la requête. Chaque valeur contient donc toutes les étapes d’avant.' },
-					{ q: 'Comment obtiens-tu la durée d’une phase ?', options: ['Soustrais le timer d’avant', 'Lis le timer tel quel', 'Divise par le RTT', 'Soustrais-le de `total`'], answer: 0, why: 'Une phase est l’écart entre deux timers, comme `time_connect - time_namelookup` pour la poignée de main TCP.' },
-					{ q: 'Quel timer marque la fin de la poignée de main TLS ?', options: ['`connect`', '`pretransfer`', '`starttransfer`', '`appconnect`'], answer: 3, why: '`time_appconnect` marque la fin de la poignée de main TLS. `connect`, c’est la poignée de main TCP.' },
-					{ q: 'Que contient `starttransfer` ?', options: ['Seulement le travail du serveur', 'Tout jusqu’au premier octet', 'Seulement le téléchargement du corps', 'Seulement DNS et TCP'], answer: 1, why: 'C’est le temps jusqu’à l’arrivée du premier octet de la réponse, compté depuis le départ.' }
+					{ q: 'Si le miroir répondait par une redirection et que tu lançais `curl -L`, qu’afficherait `connect` ?', options: ['Seulement la connexion de la dernière requête', 'Seulement la connexion de la première requête', 'La somme sur toutes les requêtes de la chaîne', 'Rien : une redirection remet les timers à zéro'], answer: 2, why: 'La ligne 40 ajoute avec `+=`. Avec `-L`, chaque timer additionne les valeurs de toutes les requêtes, et `%{time_redirect}` donne à part les étapes de redirection.' },
+					{ q: 'Quelles valeurs de cette sortie sont à moins de 0,1 ms l’une de l’autre ?', options: ['`appconnect` et `pretransfer`, puis `starttransfer` et `total`', '`namelookup` et `connect`', '`connect` et `appconnect`', '`pretransfer` et `starttransfer`'], answer: 0, why: '0,680390 moins 0,680307 font 0,08 ms, et 1,054808 moins 1,054753 font 0,055 ms. Rien ne s’est passé sur le réseau entre ces paires.' },
+					{ q: '`ping` donne 339 ms. Que t’apprend la comparaison d’une phase avec cette valeur ?', options: ['La vitesse du CPU du serveur', 'Si la réponse DNS venait d’un cache', 'Si le certificat est valide', 'Si la phase est de la distance, des allers-retours entiers, ou du travail en plus'], answer: 3, why: 'Une phase qui vaut un nombre entier de RTT n’est que du trajet. Ce qui reste est du temps passé à un bout.' },
+					{ q: 'Quelle horloge et quel moment ces chiffres décrivent-ils ?', options: ['Ceux du serveur, en moyenne sur ses dernières requêtes', 'Ceux de curl côté client, pour ce seul lancement', 'Ceux du résolveur, pour la partie DNS seulement', 'Une moyenne de plusieurs lancements depuis la même machine'], answer: 1, why: 'curl mesure depuis un client, à un moment donné. Le chapitre a vu le DNS prendre 274 ms lors d’un lancement et moins de 1 ms au suivant.' }
 				]
 			},
 			{
@@ -136,7 +136,7 @@ export default {
 				questions: [
 					{ q: 'Combien de temps a pris le DNS ?', options: ['339 ms', '0,7 ms', '7 ms', '338 ms'], answer: 1, why: '`namelookup=0.000699`, c’est 0,7 ms.' },
 					{ q: 'Pourquoi si peu ?', options: ['La réponse venait d’un cache', 'La machine n’a pas de nom DNS', 'Le DNS passe après TCP', 'curl saute le DNS en HTTPS'], answer: 0, why: 'Moins de 1 ms, c’est trop rapide pour un aller-retour réseau. Le chapitre a vu la même chose lors d’un second lancement vers ftp.jaist.ac.jp.' },
-					{ q: 'Combien de temps a pris la poignée de main TCP ?', options: ['338,5 ms, la valeur de `connect`', '680 ms', '338 ms, `connect` moins `namelookup`', '0,7 ms'], answer: 2, why: '338,539 moins 0,699 font environ 338 ms.' },
+					{ q: 'Ici, `connect=0.338539` lu tel quel vaut presque la poignée de main TCP. Pourquoi ?', options: ['`connect` n’inclut jamais le DNS', 'La poignée de main a tourné en même temps que le DNS', 'Le DNS n’a pris que 0,7 ms : le soustraire change à peine la valeur', '`ping` a déjà retiré le DNS'], answer: 2, why: '`connect` compte depuis le départ, DNS compris. 338,539 moins 0,699 font encore environ 338 ms. Avec la résolution de 274 ms sans cache vers ftp.jaist.ac.jp, la valeur brute serait très loin.' },
 					{ q: 'Combien d’allers-retours de 339 ms cela fait-il ?', options: ['La moitié d’un', 'Deux', 'Trois', 'Un'], answer: 3, why: 'Le SYN part, le SYN-ACK revient : un aller-retour, et rien d’autre.' }
 				]
 			},

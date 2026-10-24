@@ -152,7 +152,7 @@ __bpf_kfunc u32 tcp_reno_ssthresh(struct sock *sk)
 				questions: [
 					{ q: 'Combien d’octets cwnd laisse-t-elle en vol ?', options: ['51 × 1388 = 70 788 octets', '51 × 1460 = 74 460 octets', '35 × 1388 = 48 580 octets', '51 × 8 = 408 octets'], answer: 0, why: 'Prends le `mss` de cette connexion, 1388, pas le 1460 habituel.' },
 					{ q: 'Quel nombre est le plus petit ?', options: ['La fenêtre de réception, 229 376 octets', 'cwnd, 70 788 octets', 'Ils sont égaux', 'ssthresh en octets'], answer: 1, why: '70 788 fait moins du tiers de 229 376.' },
-					{ q: 'Quelle valeur gouverne les données en vol ?', options: ['La fenêtre de réception seule', 'La plus grande de cwnd et de la fenêtre de réception', 'La plus petite de cwnd et de la fenêtre de réception', 'cwnd plus la fenêtre de réception'], answer: 2, why: 'La RFC 5681 : "The minimum of cwnd and rwnd governs data transmission."' },
+					{ q: 'Jusqu’où cwnd doit-elle grandir pour que la fenêtre de réception devienne la limite ?', options: ['51 segments', '35 segments', 'Environ 166 segments', 'Environ 229 segments'], answer: 2, why: '229 376 / 1388 donne environ 165,3. À partir d’environ 166 segments, cwnd en octets dépasse la fenêtre de réception, qui fixe alors la quantité en vol.' },
 					{ q: 'Qu’est-ce qui limite donc cet upload ?', options: ['Le tampon du récepteur', 'Le facteur de window scaling', 'Le RTO', 'cwnd, l’estimation par l’émetteur de ce que le chemin supporte'], answer: 3, why: 'Le récepteur pourrait en prendre trois fois plus. L’émetteur se retient à cause de sa propre fenêtre de congestion.' }
 				]
 			},

@@ -137,10 +137,10 @@ func hostnameInSNI(name string) string {
 			{
 				title: 'Read run B',
 				questions: [
-					{ q: 'What did `-noservername` change in the ClientHello?', options: ['It dropped TLS 1.3 from the list', 'It left out the `server_name` extension', 'It removed the key share', 'It sent the name in clear text twice'], answer: 1, why: 'Run B sends no SNI, so the server does not learn which host the client wants.' },
-					{ q: 'What is alert 40?', options: ['`handshake_failure`', '`bad_certificate`', '`unrecognized_name`', '`decode_error`'], answer: 0, why: 'RFC 8446 defines `handshake_failure` as "unable to negotiate an acceptable set of security parameters".' },
+					{ q: 'Run B printed `sslv3 alert handshake failure`. Who sent that alert?', options: ['openssl itself, before sending anything', 'example.org, in answer to the ClientHello', 'A firewall on the path', 'The certificate authority'], answer: 1, why: 'The ClientHello went out, and example.org answered it with alert 40. openssl only prints the alert it received.' },
+					{ q: 'Run B printed no `Verification` line. Why?', options: ['The server sent no certificate before the alert', 'The certificate had expired', 'openssl skips verification on TLS 1.3', 'The trust store was empty'], answer: 0, why: 'The alert came right after the ClientHello. The server never reached the encrypted flight that carries the certificate, so there was nothing to verify.' },
 					{ q: 'Why does `New, (NONE), Cipher is (NONE)` appear?', options: ['The server chose a null cipher', 'TLS 1.3 hides the cipher name', 'The client refused the cipher', 'No cipher was ever chosen'], answer: 3, why: 'The handshake stopped at the alert, before any parameters were agreed.' },
-					{ q: 'Why does this server fail without SNI?', options: ['It only speaks TLS 1.2', 'It refuses IPv4 clients', 'It picks the certificate by name, and has none to offer', 'The client\'s key share was too short'], answer: 2, why: 'One IP serves many sites. With no name in the ClientHello, the server has no certificate to choose.' }
+					{ q: 'A health check must probe example.org by its IP address and still pass. What should it do?', options: ['Switch to TLS 1.2', 'Retry until the server picks a certificate', 'Send `example.org` as SNI, as `curl --resolve` does', 'Skip certificate verification'], answer: 2, why: 'The server needs the host name in the ClientHello. `--resolve` keeps the IP for the connection and the name for SNI.' }
 				]
 			},
 			{
@@ -148,7 +148,7 @@ func hostnameInSNI(name string) string {
 				questions: [
 					{ q: 'The round trip is 40 ms. When can the ClientHello leave?', options: ['At 0 ms, with the SYN', 'At 40 ms, after the SYN-ACK', 'At 80 ms', 'At 20 ms, halfway through the TCP handshake'], answer: 1, why: 'TCP needs one round trip before the ClientHello can go.' },
 					{ q: 'When does the server flight with Finished arrive?', options: ['At 80 ms', 'At 40 ms', 'At 120 ms', 'At 60 ms'], answer: 0, why: 'One more round trip after the ClientHello: 40 + 40 = 80 ms.' },
-					{ q: 'Why can the `GET` leave at 80 ms with the client Finished?', options: ['TLS 1.3 sends requests in clear text', 'The server already acknowledged the request', 'The ClientHello carried a key share, so keys exist after the ServerHello', 'The TCP handshake carries the request'], answer: 2, why: 'Both sides computed the secret from the key shares, so the client can encrypt its request right away.' },
+					{ q: 'At 80 ms the client sends its Finished. What leaves right behind it?', options: ['A second ClientHello', 'The client\'s certificate', 'The encrypted `GET` request', 'Nothing until another round trip'], answer: 2, why: 'The client sends its Finished and its first request in the same flight, so the `GET` leaves at 80 ms too.' },
 					{ q: 'When can the first byte of the response arrive?', options: ['At 80 ms', 'At 160 ms', 'At 40 ms', 'At 120 ms'], answer: 3, why: 'The request leaves at 80 ms and the answer needs one more round trip: 120 ms at the earliest.' }
 				]
 			},

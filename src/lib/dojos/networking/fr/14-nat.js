@@ -115,8 +115,8 @@ __nf_conntrack_alloc(struct net *net,
 			{
 				title: 'Trouve la limite',
 				questions: [
-					{ q: 'Quel est le `MaxPerCore` par défaut de kube-proxy ?', options: ['32 768', '16 384', '131 072', '262 144'], answer: 0, why: 'La valeur par défaut est 32 x 1024 = 32 768 entrées par cœur.' },
-					{ q: 'Quel `nf_conntrack_max` kube-proxy pose-t-il sur le nœud de 24 cœurs ?', options: ['131 072', '262 144', '786 432', '1 048 576'], answer: 2, why: '24 x 32 768 = 786 432, le même nombre que dans le log de kube-proxy de l’issue #71261.' },
+					{ q: 'Le même kube-proxy tourne aussi sur un nœud de 2 cœurs. Quel `nf_conntrack_max` y pose-t-il ?', options: ['131 072, le plancher `Min`', '65 536', '32 768', '262 144'], answer: 0, why: '2 x 32 768 = 65 536 est sous le plancher `Min` : `getConntrackMax` renvoie 131 072.' },
+					{ q: 'Le nœud de 24 cœurs obtient 786 432. Avec TCP seul, chaque connexion fermée gardée 120 s, combien de nouvelles connexions par seconde le remplissent ?', options: ['Environ 786', 'Environ 26 200', 'Environ 6 550', 'Environ 65 500'], answer: 2, why: 'Entrées = nouveaux flux par seconde fois 120 s : 786 432 / 120 donne environ 6 550 par seconde. Les 7 000 de la partie (3) le dépassent avant même UDP.' },
 					{ q: 'Le plancher `Min` change-t-il ce résultat ?', options: ['Oui, il le monte à 1 048 576', 'Non, 786 432 est au-dessus du plancher de 131 072', 'Oui, il le plafonne à 131 072', 'Non, `Min` ne vaut que pour UDP'], answer: 1, why: '`Min` (131 072 par défaut) est un plancher. La valeur calculée est déjà au-dessus.' },
 					{ q: 'Que fait kube-proxy de la table de hachage ?', options: ['Il lui donne la taille de la limite d’entrées', 'Il la laisse à la valeur par défaut du noyau', 'Il la double à 1 572 864', 'Il la monte au quart de la limite si elle est plus petite'], answer: 3, why: 'kube-proxy monte la table de hachage à `max / 4`, ici 196 608 seaux, si elle est plus petite.' }
 				]
@@ -134,9 +134,9 @@ __nf_conntrack_alloc(struct net *net,
 				title: 'Fais monter le trafic',
 				questions: [
 					{ q: 'À 7 000 connexions TCP par seconde, combien d’entrées au total ?', options: ['790 000', '930 000', '840 000', '1 048 576'], answer: 1, why: '7 000 x 120 = 840 000 pour TCP, plus 90 000 pour UDP : 930 000.' },
-					{ q: 'Que fait le noyau du premier paquet d’un nouveau flux quand le compte dépasse la limite ?', options: ['Il le met en attente jusqu’à l’expiration d’une entrée', 'Il l’envoie sans NAT', 'Il tente `early_drop`, puis jette le paquet si rien ne se libère', 'Il évince l’entrée assured la plus ancienne'], answer: 2, why: '`__nf_conntrack_alloc` appelle `early_drop`. Si aucune entrée ne peut partir, il écrit "table full" et jette le paquet.' },
+					{ q: 'Quelles entrées de ce nœud `early_drop` peut-il libérer pour faire de la place ?', options: ['Les connexions TCP fermées en TIME_WAIT', 'N’importe laquelle, la plus ancienne d’abord', 'Les flux DNS d’une seule requête, jamais assured', 'Aucune : `early_drop` ne libère que des entrées TCP'], answer: 2, why: '`early_drop` ne libère que des entrées non marquées assured. Les connexions TCP sont passées par ESTABLISHED, donc assured. Une requête DNS isolée ne l’est jamais.' },
 					{ q: 'Le health check HTTP d’un Pod ouvre une nouvelle connexion à chaque fois. À quoi t’attends-tu ?', options: ['Il passe toujours, les health checks évitent conntrack', 'Il échoue, et le kubelet redémarre le Pod', 'Il ralentit mais n’échoue jamais', 'Il bascule en UDP'], answer: 1, why: 'Chaque check est un nouveau flux : son premier paquet peut être jeté. C’est ce que décrit l’issue #71261 : des Pods qui redémarrent souvent.' },
-					{ q: 'Quel trafic marche encore quand la table est pleine ?', options: ['Les paquets des flux déjà dans la table', 'Chaque nouvelle connexion TCP', 'Chaque nouvelle requête DNS', 'Rien sur le nœud'], answer: 0, why: 'La vérification ne tourne que pour le premier paquet d’un flux. Les flux connus retrouvent leur entrée existante.' }
+					{ q: 'Pourquoi une table pleine casse-t-elle aussi les résolutions DNS des Pods ?', options: ['Chaque requête est son propre flux : son premier paquet a besoin d’une nouvelle entrée', 'Les paquets UDP contournent conntrack', 'DNS passe en TCP quand la table est pleine', 'Le noyau jette tout l’UDP avant le TCP'], answer: 0, why: 'Ici, chaque requête DNS est un nouveau flux UDP. Son premier paquet passe par la vérification de table pleine et peut être jeté comme une nouvelle connexion TCP.' }
 				]
 			},
 			{

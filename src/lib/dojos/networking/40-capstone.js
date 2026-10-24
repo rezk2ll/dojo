@@ -136,8 +136,8 @@ export default {
 				title: 'Work out the DNS TTL',
 				questions: [
 					{ q: 'The stub shows TTL 122 on the A records. How much longer may it keep them?', options: ['300 seconds', '178 seconds', '122 seconds', 'Until the next reboot'], answer: 2, why: 'A cache returns a record with the TTL it has left. 122 is what remains.' },
-					{ q: 'Why does `dig +trace` show 300 for the same records?', options: ['It asks the authoritative server, which gives the full TTL', 'The trace doubles every TTL', 'The two servers disagree', 'The trace uses IPv6'], answer: 0, why: 'mitch.ns.cloudflare.com hands out the record fresh, with its full lifetime of 300 seconds.' },
-					{ q: 'How long had a cache held the records?', options: ['122 seconds', '300 seconds', '422 seconds', '178 seconds'], answer: 3, why: '300 minus 122 is 178 seconds since the cache got the answer.' },
+					{ q: 'Which servers did `dig +trace` ask, in order, to reach the A records?', options: ['m.root-servers.net, b0.org.afilias-nst.org, then mitch.ns.cloudflare.com', '127.0.0.53, then mitch.ns.cloudflare.com', 'mitch.ns.cloudflare.com, then b0.org.afilias-nst.org', 'Only 127.0.0.53, from its cache'], answer: 0, why: 'A trace follows the referrals from the root down, without the stub\'s cache: root, then the `org.` servers, then the zone\'s own server.' },
+					{ q: 'You run `dig example.org` through the stub again 30 seconds later. Which TTL does it show?', options: ['122', '300', '152', 'About 92'], answer: 3, why: 'The cached copy keeps counting down. 122 minus 30 leaves about 92 seconds.' },
 					{ q: 'What happens when the 122 seconds run out?', options: ['The stub keeps the old answer forever', 'The stub asks again and gets a fresh TTL of 300', 'curl stops resolving example.org', 'The TTL goes negative'], answer: 1, why: 'Once the TTL is spent the cache must ask again. This belongs to chapter 11.' }
 				]
 			},

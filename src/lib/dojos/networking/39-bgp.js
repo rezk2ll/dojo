@@ -115,7 +115,7 @@ export default {
 			{
 				title: 'Read the defaults',
 				questions: [
-					{ q: 'Without `--withdraw-on-down`, what does a site send when its check fails?', options: ['A withdrawal of `192.0.2.53/32`', 'Nothing until the check passes again', 'The same announcement, with `med 1000`', 'An announcement with a longer AS_PATH'], answer: 2, why: 'Lines 6 to 10 keep the action at `announce`. Only the MED changes, from the up metric to the down metric.' },
+					{ q: 'The DNS daemon on a site stops answering. About how long until the healthcheck marks the site down?', options: ['At once, on the first failed check', '90 seconds, the BGP Hold Time', 'About 2 to 7 seconds, plus the time each `dig` takes', '3 minutes'], answer: 2, why: 'Checks run every 5 seconds, then every second once the state starts falling, and 3 must fail. Each `dig` here can add up to its 1 second `+time`.' },
 					{ q: 'What MED does a healthy site announce by default?', options: ['100', '0', '1000', '3'], answer: 0, why: 'The defaults are `--up-metric 100` and `--down-metric 1000`.' },
 					{ q: 'How many failed checks before a site counts as down?', options: ['1', '5', '10', '3'], answer: 3, why: 'Line 2 sets `--fall` to 3 by default, and lines 24 to 28 count up to it.' },
 					{ q: 'Without the flag, when is the route withdrawn at all?', options: ['After 3 failed checks', 'When the healthcheck process exits', 'When the MED reaches 1000', 'Never'], answer: 1, why: 'Line 7 withdraws only with `--withdraw-on-down` or in state `EXIT`, when the process stops.' }
@@ -133,8 +133,8 @@ export default {
 			{
 				title: 'Case (b), defaults',
 				questions: [
-					{ q: 'The shared database is down, so every check fails. What do the 3 sites announce?', options: ['`med 1000` from all 3', 'Nothing, they all withdraw', '`med 100` from all 3', '`med 1000` from site 1 only'], answer: 0, why: 'Each site turns DOWN and keeps announcing, with the down metric.' },
-					{ q: 'Is `192.0.2.53` still reachable?', options: ['No, it has no route', 'Only from one site', 'Yes, the route stays', 'Only for cached answers'], answer: 2, why: 'Every site still announces it, so routers still have a path.' },
+					{ q: 'Every site now carries the same down metric. Which site does a router pick for `192.0.2.53`?', options: ['The same one as before the outage: equal MEDs change nothing', 'None, because no site is healthy', 'Always site 1, the first to fail', 'A different site for each query'], answer: 0, why: 'MED only matters when it differs. With 1000 everywhere, the router falls back on the same choice as before, such as the shorter AS_PATH.' },
+					{ q: 'The database comes back. When does each site return to `med 100`?', options: ['At once, on the first passing check', 'When the BGP session restarts', 'After 3 passing checks in a row, the `--rise` default', 'Only when the healthcheck process restarts'], answer: 2, why: 'Line 1 sets `--rise` to 3: the service must pass 3 checks before it counts as up and is announced with the up metric again.' },
 					{ q: 'Where do queries go?', options: ['Nowhere: they are dropped', 'To sites whose check fails', 'To a backup address', 'Back to the client'], answer: 1, why: 'All three announce the same worse MED, so routers keep picking a site, and every site is failing its check.' },
 					{ q: 'What do clients get back?', options: ['Always SERVFAIL', 'Always a timeout', 'Always a correct answer', 'Whatever the daemon can still serve without the database'], answer: 3, why: 'The address stays reachable. What comes back depends on the daemon, not on BGP.' }
 				]
@@ -145,7 +145,7 @@ export default {
 					{ q: 'Case (a): what does site 2 send now?', options: ['`med 1000`', 'A withdrawal of `192.0.2.53/32`', '`med 100`', 'A KEEPALIVE only'], answer: 1, why: 'With the flag, line 8 picks `withdraw` for any state other than UP.' },
 					{ q: 'Which routers move site 2\'s users away?', options: ['All of them, whatever their neighbour AS', 'Only those that compare MED', 'None until the Hold Time expires', 'Only routers in the same AS'], answer: 0, why: 'A withdrawal removes the route itself. No MED comparison is needed.' },
 					{ q: 'Case (b): what is left of `192.0.2.53` on the Internet?', options: ['One route, from the last site to fail', 'Three routes with `med 1000`', 'No route at all', 'A route to the database'], answer: 2, why: 'All three sites withdraw, so no router has a path to the address.' },
-					{ q: 'Which real outage does case (b) repeat?', options: ['A route leak, as in RFC 7908', 'An expired TLS certificate', 'A BGP Hold Time expiry', 'Facebook, October 2021: every site withdrew and resolvers answered SERVFAIL'], answer: 3, why: 'Facebook\'s DNS servers withdrew their own routes when they lost the data centers. With every site cut off at once, nothing was left.' }
+					{ q: 'With the flag, the check on site 2 flaps between pass and fail every few seconds. What does RFC 4786 warn about?', options: ['Nothing: BGP ignores short flaps', 'The MED climbs to 1000 and stays there', 'The Hold Time of every peer expires', 'Rapid announce and withdraw cycles cause problems, so the route needs a delay before it comes back'], answer: 3, why: 'RFC 4786: "rapid advertisement/withdrawal oscillations can cause operational problems". Each flap spreads a new UPDATE to every peer.' }
 				]
 			}
 		]

@@ -130,8 +130,8 @@ export default {
 				title: 'Count the holes',
 				questions: [
 					{ q: 'After `default-deny-all`, which pods in `shop` are isolated?', options: ['Only pods with no labels', 'Every pod, for ingress and egress', 'Every pod, for ingress only', 'Only `web` and `api`'], answer: 1, why: '`podSelector: {}` selects every pod in the namespace, and both directions are listed with no rules.' },
-					{ q: 'For `web` to reach `api` on 8080, what must be allowed?', options: ['Ingress on `api` only', 'Egress on `web` only', 'Egress on `web` and ingress on `api`', 'One policy on the `api` Service'], answer: 2, why: 'Both ends are isolated. The egress policy on the source and the ingress policy on the destination must both allow the connection.' },
-					{ q: 'In which direction is the DNS query a new hole?', options: ['Egress from the client pods', 'Ingress on the client pods', 'Ingress on CoreDNS in `shop`', 'No hole: DNS is always allowed'], answer: 0, why: 'The client sends the query out. Deny-all blocked that egress, and the docs warn it also blocks DNS.' },
+					{ q: 'You apply `allow-dns` and `web-to-api`, but not `api-from-web`. What happens to a call from `web` to `api` on 8080?', options: ['It works: egress on `web` is enough', 'It fails with "Could not resolve host"', 'It is dropped at `api`, which deny-all still isolates for ingress', 'It is rejected at once by `web`'], answer: 2, why: 'The packet leaves `web`, but `api` accepts only the ingress some policy allows, and none does yet.' },
+					{ q: 'Does CoreDNS in `kube-system` need an ingress rule for the queries from `shop`?', options: ['No: `default-deny-all` lives in `shop`, so CoreDNS is not isolated', 'Yes, an ingress rule in `kube-system`', 'Yes, an ingress rule in `shop`', 'Only for TCP 53'], answer: 0, why: 'A policy only isolates pods in its own namespace. No policy selects the CoreDNS pods, so they accept every inbound connection.' },
 					{ q: 'Which protocols does DNS need on port 53?', options: ['UDP only', 'TCP only', 'ICMP and UDP', 'UDP and TCP'], answer: 3, why: 'Queries start on UDP. RFC 7766 says a client that gets a truncated UDP answer should retry over TCP.' }
 				]
 			},
@@ -159,7 +159,7 @@ export default {
 					{ q: 'How many NetworkPolicy objects does the answer add?', options: ['Three', 'Two', 'One', 'Four'], answer: 0, why: '`allow-dns`, `web-to-api` and `api-from-web`. Each opens one hole on one set of pods.' },
 					{ q: 'Do the replies from `api` back to `web` need a rule?', options: ['Yes, an egress rule on `api`', 'Yes, an ingress rule on `web`', 'Only for UDP', 'No, replies are implicitly allowed'], answer: 3, why: 'The docs say reply traffic for an allowed connection is implicitly allowed.' },
 					{ q: 'Does the order you apply the three policies matter?', options: ['Yes, the last one wins', 'Yes, deny-all must be applied last', 'No, the allowed set is a union', 'Only within one namespace'], answer: 2, why: 'Policies only add allowed connections, so their order never changes the result.' },
-					{ q: 'The cluster runs flannel alone. What do the three policies change?', options: ['Only the DNS policy works', 'Nothing: flannel does not enforce them', 'Everything, once kube-proxy restarts', 'They block all traffic'], answer: 1, why: 'The API server stores the objects, and only a network plugin that enforces policies turns them into filter rules.' }
+					{ q: 'A new pod `app=worker` starts in `shop`. What can it do with this set?', options: ['Nothing at all', 'Resolve names, and nothing else in or out', 'Call `api` on 8080', 'Everything, until a policy names it'], answer: 1, why: '`default-deny-all` and `allow-dns` both select every pod with `podSelector: {}`. The two `web` and `api` policies do not match `app=worker`.' }
 				]
 			}
 		]

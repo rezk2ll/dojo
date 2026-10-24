@@ -136,8 +136,8 @@ export default {
 				title: 'Calcule le TTL DNS',
 				questions: [
 					{ q: 'Le stub montre un TTL de 122 sur les enregistrements A. Combien de temps peut-il encore les garder ?', options: ['300 secondes', '178 secondes', '122 secondes', 'Jusqu’au prochain redémarrage'], answer: 2, why: 'Un cache renvoie un enregistrement avec le TTL qui lui reste. 122, c’est ce qui reste.' },
-					{ q: 'Pourquoi `dig +trace` montre-t-il 300 pour les mêmes enregistrements ?', options: ['Il interroge le serveur autoritaire, qui donne le TTL complet', 'Le trace double chaque TTL', 'Les deux serveurs ne sont pas d’accord', 'Le trace passe par IPv6'], answer: 0, why: 'mitch.ns.cloudflare.com donne l’enregistrement neuf, avec toute sa durée de vie de 300 secondes.' },
-					{ q: 'Depuis combien de temps un cache gardait-il les enregistrements ?', options: ['122 secondes', '300 secondes', '422 secondes', '178 secondes'], answer: 3, why: '300 moins 122 donne 178 secondes depuis que le cache a reçu la réponse.' },
+					{ q: 'Quels serveurs `dig +trace` a-t-il interrogés, dans l’ordre, pour arriver aux enregistrements A ?', options: ['m.root-servers.net, b0.org.afilias-nst.org, puis mitch.ns.cloudflare.com', '127.0.0.53, puis mitch.ns.cloudflare.com', 'mitch.ns.cloudflare.com, puis b0.org.afilias-nst.org', 'Seulement 127.0.0.53, depuis son cache'], answer: 0, why: 'Un trace suit les referrals depuis la racine, sans le cache du stub : la racine, puis les serveurs de `org.`, puis le serveur de la zone elle-même.' },
+					{ q: 'Tu relances `dig example.org` via le stub 30 secondes plus tard. Quel TTL affiche-t-il ?', options: ['122', '300', '152', 'Environ 92'], answer: 3, why: 'La copie en cache continue de décompter. 122 moins 30 laisse environ 92 secondes.' },
 					{ q: 'Que se passe-t-il quand les 122 secondes sont écoulées ?', options: ['Le stub garde l’ancienne réponse pour toujours', 'Le stub redemande et reçoit un nouveau TTL de 300', 'curl ne résout plus example.org', 'Le TTL devient négatif'], answer: 1, why: 'Une fois le TTL épuisé, le cache doit redemander. Cela relève du chapitre 11.' }
 				]
 			},

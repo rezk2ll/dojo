@@ -124,8 +124,8 @@ docs:
 				title: 'List the aliases',
 				questions: [
 					{ q: 'Which names in this zone hold a CNAME?', options: ['`mail`, `www` and `blog`', '`@`, `www` and `blog`', '`ns1`, `mail` and `www`', 'Only `blog`'], answer: 0, why: 'Lines 7, 8 and 9 are the CNAME records. The apex `@` holds an SOA, an NS, an A and an MX.' },
-					{ q: 'What is the rule for a name that holds a CNAME?', options: ['It may hold one record of each other type', 'It may hold no other data, apart from DNSSEC records', 'It may hold other data if the TTLs match', 'It may hold TXT records only'], answer: 1, why: 'RFC 1034: "If a CNAME RR is present at a node, no other data should be present".' },
-					{ q: 'Which records does the apex always hold?', options: ['An A and an MX', 'A CNAME and an NS', 'The SOA and the NS records', 'An A and a TXT'], answer: 2, why: 'Every zone apex holds its SOA and NS records. That is why `@` can never be a CNAME.' },
+					{ q: 'Which of the three CNAMEs point outside the `example.org` zone?', options: ['Only `www`', '`mail` and `blog`', 'All three', '`www` and `blog`'], answer: 1, why: '`mx.mailhost.example.` and `example.ghost.io.` belong to other zones. `www` points at `example.org.`, the apex of this zone.' },
+					{ q: 'Which name in this zone could take a new TXT record as it stands?', options: ['`mail`', '`www`', '`ns1`', '`blog`'], answer: 2, why: '`ns1` holds only an A record, so a TXT can sit next to it. `mail`, `www` and `blog` are aliases and may hold nothing else.' },
 					{ q: 'Is line 4, `@ IN A 192.0.2.10`, a problem?', options: ['Yes: the apex must use a CNAME', 'Yes: the apex may hold only SOA and NS', 'Yes: `www` already points there', 'No: an A record at the apex is the right way to give it an address'], answer: 3, why: 'The apex can hold A records next to its SOA and NS, as `kubernetes.io` does with its two Netlify addresses.' }
 				]
 			},
@@ -151,7 +151,7 @@ docs:
 				title: 'Check www',
 				questions: [
 					{ q: 'Is `www IN CNAME example.org.` valid?', options: ['Yes: `www` holds only that CNAME', 'No: a CNAME cannot target the apex', 'No: `www` must have an A record', 'No: the target must be in another zone'], answer: 0, why: 'The rule is about what the alias holds. `www` holds nothing else.' },
-					{ q: 'What does a resolver get for `www.example.org A`?', options: ['An empty answer', 'The CNAME, plus the A record of `example.org` from line 4', 'Only the A record, with the alias hidden', 'A referral to another zone'], answer: 1, why: 'The target is in the same zone, so the server adds its A record, as it does for `www.kubernetes.io`.' },
+					{ q: 'You want `www` to follow a CDN host, `example.cdn.example.`, while the bare domain stays put. What do you change?', options: ['Line 4, into a CNAME', 'The target on line 8, to `example.cdn.example.`', 'Add an A record on `www`', 'Lines 4 and 8'], answer: 1, why: 'Only `www` moves, so only its alias changes. The apex keeps its A record on line 4, since `@` cannot hold a CNAME.' },
 					{ q: 'The address on line 4 changes. What do you edit?', options: ['Lines 4 and 8', 'Line 8 only', 'Line 4 only', 'Every CNAME in the zone'], answer: 2, why: 'A CNAME keeps one copy of the data: `www` follows its target with no edit.' },
 					{ q: 'You also want a TXT record on `www`. Can it go there?', options: ['Yes: TXT records are exempt from the CNAME rule', 'Yes, if it has the same TTL as the CNAME', 'Yes, as long as it holds a single string', 'No: `www` holds a CNAME, so it is the same mistake as `blog`'], answer: 3, why: 'A name with a CNAME may hold no other data, apart from DNSSEC records. The TXT belongs on a name with no alias.' }
 				]

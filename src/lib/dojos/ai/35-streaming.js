@@ -121,6 +121,44 @@ asyncio.run(main())`,
 			'Keep one buffer per block: on `content_block_delta` with `input_json_delta`, do `bufs[event["index"]] += event["delta"]["partial_json"]`.',
 			'On `content_block_stop` for that index, parse once: `args = json.loads(bufs[event["index"]] or "{}")`. The first delta in the docs example is an empty string, so the buffer can start empty.',
 			'With the Python SDK, the same result is `block.input` for the `tool_use` block of `await stream.get_final_message()`, already parsed.'
+		],
+		steps: [
+			{
+				title: 'Explain the crash',
+				questions: [
+					{ q: 'What is `partial_json` in an `input_json_delta`?', options: ['The full tool input, sent again each time', 'A fragment of the tool input as a string', 'A parsed Python dict of the new keys', 'The tool name and its schema'], answer: 1, why: 'The docs call the deltas "partial JSON strings": pieces of one JSON text.' },
+					{ q: 'Why does `json.loads(\'{"location":\')` raise?', options: ['`location` is not a known parameter', 'The SDK expects bytes, not a string', '`{"location":` alone is not valid JSON', 'The tool name is missing'], answer: 2, why: 'The piece stops after the key. The value and the closing brace come in later deltas.' },
+					{ q: 'When is the tool input valid JSON?', options: ['Once `content_block_stop` arrives for its block', 'At `content_block_start`, which carries `input: {}`', 'After the first non-empty delta', 'At `message_start`'], answer: 0, why: 'The input is complete only when its block closes.' },
+					{ q: 'What type does the final `tool_use.input` have?', options: ['A string', 'A list of deltas', 'A number', 'Always an object'], answer: 3, why: 'The docs say the final `tool_use.input` "is always an *object*", even though the deltas are strings.' }
+				]
+			},
+			{
+				title: 'Buffer the pieces',
+				questions: [
+					{ q: 'How many buffers do you keep?', options: ['One for the whole stream', 'One per content block, keyed by `index`', 'One per event type', 'None: you parse each delta alone'], answer: 1, why: 'A response can hold several blocks, and `index` tells you which block each delta belongs to.' },
+					{ q: 'What does the content block `index` mean?', options: ['The position of the block in the final `content` array', 'The number of deltas received so far', 'The order of the event in the stream', 'The id of the tool'], answer: 0, why: 'Index 1 is the second block of the final message, here the `tool_use` block after the text.' },
+					{ q: 'Which line fills the buffer on each `input_json_delta`?', options: ['`bufs[event["index"]] = event["delta"]["partial_json"]`', '`bufs.append(json.loads(event["delta"]["partial_json"]))`', '`bufs[event["index"]] += event["delta"]["partial_json"]`', '`bufs[event["type"]] += event["delta"]`'], answer: 2, why: 'Appending each string piece rebuilds the full JSON text of that block.' },
+					{ q: 'A `ping` event arrives between two deltas. What do you do with it?', options: ['Clear the buffers', 'Treat it as the end of the block', 'Append it to the buffer', 'Ignore it'], answer: 3, why: 'Any number of `ping` events can appear between the others. Only the deltas of a block go into its buffer.' }
+				]
+			},
+			{
+				title: 'Parse at the end',
+				questions: [
+					{ q: 'On which event do you call `json.loads`?', options: ['`content_block_stop` for that index', '`message_delta`', 'Every `content_block_delta`', '`content_block_start`'], answer: 0, why: 'It is the event that says the last piece of that block has arrived.' },
+					{ q: 'Why write `json.loads(bufs[event["index"]] or "{}")`?', options: ['To merge the input with the defaults', 'To skip tools that have no schema', 'Because `json.loads` cannot read objects', 'Because a buffer can stay empty, and `""` is not valid JSON'], answer: 3, why: 'The first delta in the docs example is an empty string, so a buffer can start empty, and `json.loads("")` raises.' },
+					{ q: 'How many times do you parse each tool input?', options: ['Once per delta', 'Once, when the block closes', 'Twice: at start and at stop', 'Once per `ping`'], answer: 1, why: 'Parsing once on the full buffer avoids the crash on fragments.' },
+					{ q: 'A `content_block_stop` arrives. How do you know which buffer to parse?', options: ['Take the last buffer you wrote to', 'Read the tool name in the event', 'Use its `index` field', 'Use its `type` field'], answer: 2, why: 'Every block event carries the `index` of its block, the same key you used to fill the buffer.' }
+				]
+			},
+			{
+				title: 'Use the SDK instead',
+				questions: [
+					{ q: 'With the Python SDK, where is the parsed input once the stream is done?', options: ['In the last `input_json` event', '`block.input` on the `tool_use` block of `await stream.get_final_message()`', '`event.partial_json` of the final delta', 'In `message_delta.usage`'], answer: 1, why: 'The final message holds the full `tool_use` block, already parsed.' },
+					{ q: 'What does `event.snapshot` hold on an SDK `input_json` event?', options: ['The input parsed so far, as a Python object', 'Only the new string piece', 'The raw SSE line', 'The tool result'], answer: 0, why: '`event.partial_json` is the new piece, and `event.snapshot` is the input accumulated and parsed so far.' },
+					{ q: 'When should the code actually run `get_weather`?', options: ['On the first `input_json` event', 'As soon as `content_block_start` names the tool', 'On each snapshot, to show live results', 'After the stream is done, from the full `tool_use` block'], answer: 3, why: 'The example loop prints the input but runs the tool only from the final message, then sends a `tool_result`.' },
+					{ q: 'An `error` event such as `overloaded_error` arrives mid-stream. What does it usually match?', options: ['An HTTP 400', 'A finished response', 'An HTTP 529', 'A `max_tokens` stop'], answer: 2, why: 'The docs say it "would normally correspond to an HTTP 529".' }
+				]
+			}
 		]
 	},
 	quiz: [

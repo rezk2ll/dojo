@@ -113,6 +113,44 @@ print(response2)`,
 			'Join the text blocks instead of taking index 0: `text = "".join(b.text for b in r.content if b.type == "text")`.',
 			'Then branch on the stop reason: `if r.stop_reason == "max_tokens": raise SummaryTooLong(r.usage.output_tokens)`, or raise `max_tokens`, or send the partial text back as an `assistant` turn followed by a user turn that asks to continue.',
 			'The stop reasons docs show that last pattern: up to 3 calls, each one with `"Please continue from where you left off."` until `stop_reason` is no longer `max_tokens`.'
+		],
+		steps: [
+			{
+				title: 'Read the bad response',
+				questions: [
+					{ q: 'Which field tells you why the model stopped?', options: ['`r.usage`', '`r.stop_reason`', '`r.role`', '`r.content[0].type`'], answer: 1, why: 'Every successful response carries a `stop_reason` that says why the model stopped.' },
+					{ q: 'For a summary cut mid-sentence, what does `r.stop_reason` show?', options: ['`"end_turn"`', '`"tool_use"`', '`"max_tokens"`', '`"refusal"`'], answer: 2, why: '`max_tokens` means the text stopped at your limit, often mid-sentence.' },
+					{ q: 'What does `r.usage.output_tokens` show for those summaries?', options: ['200, the limit in the request', 'Less than 200, since the model stopped early', '0, since the response failed', 'The length of `doc`'], answer: 0, why: 'The model used every token you allowed and stopped at `max_tokens=200`.' },
+					{ q: 'Which HTTP status do those cut summaries come back with?', options: ['400', '500', '429', '200'], answer: 3, why: 'A stop reason is part of a successful response. A failed request returns a 4xx or 5xx status instead.' }
+				]
+			},
+			{
+				title: 'Explain the cause',
+				questions: [
+					{ q: 'What does `max_tokens=200` set?', options: ['The most tokens the model may generate for this response', 'The most tokens in the input document', 'The exact length of every answer', 'The size of the context window'], answer: 0, why: 'The model can stop earlier, and it stops at `max_tokens` at the latest.' },
+					{ q: 'Why does the code not notice the cut?', options: ['The SDK hides `stop_reason`', 'The API returns an error the code ignores', 'It never checks `r.stop_reason`', 'The cut happens after the response is sent'], answer: 2, why: 'A cut answer looks like a complete one unless you read the stop reason.' },
+					{ q: 'What is `r.content`?', options: ['A single string', 'The request history', 'An array of content blocks', 'The `system` prompt echoed back'], answer: 2, why: 'The response is one `assistant` message, and its `content` is an array of blocks.' },
+					{ q: 'Why is `r.content[0].text` fragile?', options: ['Index 0 is always a `thinking` block', 'The answer may hold more than one block, not all of type `text`', '`text` is only filled when `stop_reason` is `end_turn`', 'The SDK reverses the block order'], answer: 1, why: 'A content block has a `type` such as `text`, `tool_use` or `thinking`, so the code should keep the text blocks and join them.' }
+				]
+			},
+			{
+				title: 'Join the text',
+				questions: [
+					{ q: 'Which line builds the summary from the response?', options: ['`text = r.content[-1].text`', '`text = str(r.content)`', '`text = r.content[0].text.strip()`', '`text = "".join(b.text for b in r.content if b.type == "text")`'], answer: 3, why: 'It keeps every `text` block and skips the other types.' },
+					{ q: 'Why filter on `b.type == "text"`?', options: ['Other block types have no `text` field to join', 'Text blocks come back in random order', 'The API returns duplicates of each block', 'It makes the call cheaper'], answer: 0, why: 'Blocks such as `tool_use` or `thinking` carry other fields, not the summary text.' },
+					{ q: 'After joining, is the summary safe to return?', options: ['Yes, joining fixes the cut', 'Yes, if it ends with a period', 'Not yet: check the stop reason first', 'Only if `output_tokens` is under 1024'], answer: 2, why: 'Joining fixes the index problem. The cut is still there when `stop_reason` is `max_tokens`.' },
+					{ q: 'A plain string as `content` in the request is shorthand for what?', options: ['A `system` prompt', 'One `text` block', 'An `assistant` turn', 'A list of messages'], answer: 1, why: 'The API reads a plain string as one `text` block.' }
+				]
+			},
+			{
+				title: 'Handle the cut',
+				questions: [
+					{ q: 'Which branch catches a cut summary?', options: ['`if r.stop_reason == "end_turn":`', '`if not r.content:`', '`if r.usage.input_tokens > 200:`', '`if r.stop_reason == "max_tokens":`'], answer: 3, why: 'That is the stop reason a cut answer comes back with.' },
+					{ q: 'Which is one of the fixes the answer names?', options: ['Retry the same request with a backoff', 'Raise `max_tokens`', 'Lower `max_tokens` so it fails faster', 'Drop the last sentence and return the rest'], answer: 1, why: 'A higher limit gives the summary room to finish. A retry with the same limit can hit it again.' },
+					{ q: 'How do you ask the model to continue a cut summary?', options: ['Send the partial text as an `assistant` turn, then a user turn asking to continue', 'Send the same request again, since the API remembers the cut', 'Pass the response `id` in the next call', 'Put "continue" in the `system` field'], answer: 0, why: 'The API is stateless, so your code sends the partial answer back as history, then the new user turn.' },
+					{ q: 'In the stop reasons docs, how many calls does that continue loop allow?', options: ['1', 'Up to 3', 'Up to 10', 'No limit'], answer: 1, why: 'The docs loop up to 3 calls, each one with `"Please continue from where you left off."`.' }
+				]
+			}
 		]
 	},
 	quiz: [

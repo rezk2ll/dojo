@@ -118,6 +118,44 @@ tracepoint:syscalls:sys_exit_openat2
 			'Read the lines whose `COMM` is the service. `FD` is -1 for a failed open, and `ERR` names the error, such as "No such file or directory", next to the `PATH` it tried.',
 			'A long run of failed opens on paths like `/etc/<service>/<name>.conf` shows where it searches. The tool\'s header comment says the same: opensnoop "can be useful for discovering configuration and log files, if used during application startup".',
 			'To count instead of list, `bpftrace -e \'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }\'` gives the number of system calls per process name at Ctrl-C.'
+		],
+		steps: [
+			{
+				title: 'Name what you need to see',
+				questions: [
+					{ q: 'The service ignores its config file. What do you need to see?', options: ['The CPU time of the service', 'Every file open it makes, with its error code', 'The network connections it accepts', 'The memory pages it maps'], answer: 1, why: 'A config file at the wrong path shows up as an open that fails. You need the path and the error for each open.' },
+					{ q: 'When do you have to be watching?', options: ['While the service starts', 'After it has run for an hour', 'Only after it crashes', 'During the next reboot'], answer: 0, why: 'A service reads its config at startup. The tracer must be running before you start it.' },
+					{ q: 'Which system calls can open a file?', options: ['`read`, `write` and `close`', '`stat` only', '`open`, `openat` and `openat2`', '`mmap` and `brk`'], answer: 2, why: 'opensnoop attaches to all three. With glibc 2.26 or later, the `open` wrapper calls `openat`.' },
+					{ q: 'Why attach to tracepoints rather than kprobes for this?', options: ['kprobes need a kernel rebuild', 'Tracepoints run in user space', 'kprobes cannot see file names', 'Tracepoints have a stable API across kernels'], answer: 3, why: 'The tutorial says tracepoints "are preferred over kprobes": a kprobe on an internal function may break on a new kernel.' }
+				]
+			},
+			{
+				title: 'Pick the tool',
+				questions: [
+					{ q: 'Which tool from the chapter lists each open with its error?', options: ['`opensnoop.bt`', 'The `raw_syscalls:sys_enter` count one-liner', '`strace -eaccept`', '`dd`'], answer: 0, why: 'opensnoop prints one line per open: PID, process name, file descriptor, error and path.' },
+					{ q: 'Why not the `@[comm] = count()` one-liner?', options: ['It needs a kprobe', 'It gives totals per process, not the paths', 'It only counts network calls', 'The verifier refuses it'], answer: 1, why: 'The count one-liner tells you how many system calls each process made, not which files it tried.' },
+					{ q: 'Why prefer bpftrace to strace on a busy host?', options: ['strace cannot trace `openat`', 'bpftrace needs no root', 'strace stops the process at each system call, and the cost grows with the call rate', 'strace only works inside containers'], answer: 2, why: 'strace runs the process under ptrace. Gregg\'s dd test ran 442x slower under it.' },
+					{ q: 'What keeps an eBPF tool from crashing the kernel?', options: ['It runs in a container', 'bpftrace runs it in user space', 'The kernel restarts it on error', 'The verifier refuses unsafe programs at load time'], answer: 3, why: 'The verifier simulates every path and refuses a program that could read unset registers or memory out of bounds.' }
+				]
+			},
+			{
+				title: 'Write the command',
+				questions: [
+					{ q: 'Which command shows error names instead of numbers?', options: ['`opensnoop.bt -- --errname`', '`opensnoop.bt --errno`', '`opensnoop.bt -e`', '`bpftrace --errname opensnoop`'], answer: 0, why: 'The usage line is `opensnoop.bt -- [--depth=<N>] [--errname]`. With `--errname`, it prints `strerror($errno)`.' },
+					{ q: 'In what order do you run things?', options: ['Start the service, then opensnoop', 'Start opensnoop, then the service in another terminal', 'Reboot, then start both', 'Start both in the same command'], answer: 1, why: 'The opens happen at startup, so the probes must already be attached when the service starts.' },
+					{ q: 'Which user does bpftrace usually run as?', options: ['The service\'s user', 'Any user, eBPF needs no privilege', 'root', '`nobody`'], answer: 2, why: 'bpftrace usually runs as root. Linux 5.8 added `CAP_BPF` to split that power out of `CAP_SYS_ADMIN`.' },
+					{ q: 'You press Ctrl-C. What stays loaded in the kernel?', options: ['The programs, until the next reboot', 'The maps, until you delete them', 'The verifier\'s cache', 'Nothing: the programs are unloaded when bpftrace exits'], answer: 3, why: 'bpf(2): programs are "automatically unloaded when the process exits", unless a subsystem such as `tc` keeps a reference.' }
+				]
+			},
+			{
+				title: 'Read the output',
+				questions: [
+					{ q: 'Which columns does each line have?', options: ['`TIME PID SYSCALL ARGS`', '`PID COMM FD ERR PATH`', '`USER PID CPU MEM`', '`PATH SIZE MODE`'], answer: 1, why: 'Line 14 prints PID, process name and descriptor, then the error and the path.' },
+					{ q: 'Which lines do you read first?', options: ['Those whose `COMM` is the service', 'Those with the largest `FD`', 'Those whose `PID` is 1', 'All lines in order'], answer: 0, why: 'opensnoop traces every open on the machine. `COMM` picks out the service.' },
+					{ q: 'How does a failed open look?', options: ['`FD` 0 and an empty `PATH`', '`FD` -1 and an empty `ERR`', '`FD` is the errno', '`FD` -1 and `ERR` such as "No such file or directory"'], answer: 3, why: 'A negative return is minus the errno, so opensnoop prints -1 as `FD` and names the error.' },
+					{ q: 'A run of failed opens on `/etc/<service>/<name>.conf` paths tells you what?', options: ['The disk is full', 'The service lacks `CAP_BPF`', 'Where the service searches for its config', 'The kernel blocked the opens'], answer: 2, why: 'The tool\'s header: opensnoop "can be useful for discovering configuration and log files, if used during application startup".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,28 @@ tracepoint:syscalls:sys_exit_openat2
 			why: 'A kprobe attaches to an internal kernel function. The tutorial: "the function names, arguments, return values, and roles may change". A tracepoint has a stable interface, which is why the tutorial prefers it.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Measure what strace costs a process that makes many system calls, then count and catch failed opens with bpftrace on a VM you own.',
+		steps: [
+			'Make a folder: `mkdir -p ~/ebpf-lab && cd ~/ebpf-lab`. Run Gregg\'s test: `dd if=/dev/zero of=/dev/null bs=1 count=500k` and note the time on the last line.',
+			'Run it under strace, tracing a call dd never makes: `strace -o /dev/null -eaccept dd if=/dev/zero of=/dev/null bs=1 count=500k`.',
+			'Count its calls with strace: `strace -c -o dd-count.txt dd if=/dev/zero of=/dev/null bs=1 count=500k; head -5 dd-count.txt`.',
+			'The next steps need root and bpftrace, so use a local VM. Count system calls by process name: `sudo bpftrace -e \'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }\'`, run the plain `dd` from step 1 in a second terminal, then press Ctrl-C.',
+			'Catch failed opens with their path: `sudo bpftrace -e \'tracepoint:syscalls:sys_enter_openat { @f[tid] = args.filename; } tracepoint:syscalls:sys_exit_openat /@f[tid]/ { if (args.ret < 0) { printf("%s %d %s\\n", comm, args.ret, str(@f[tid])); } delete(@f, tid); }\'`, then run `cat /etc/nope.conf` in the second terminal.'
+		],
+		done: [
+			'Step 1 copies 512000 bytes in a fraction of a second. Step 2 copies the same bytes tens to hundreds of times slower.',
+			'`dd-count.txt` shows about 512,000 `read` and 512,000 `write` calls.',
+			'At Ctrl-C, bpftrace prints a map with a line for `dd` of a million calls or more, and `dd` ran at its normal speed meanwhile.',
+			'Step 5 prints a line like `cat -2 /etc/nope.conf`: the process name, minus the errno (`ENOENT` is 2), and the path.'
+		],
+		solution: [
+			'strace stopped dd at every one of its million system calls, even though it printed none of them: the cost "is relative to the system call rate".',
+			'bpftrace\'s `count()` ran in the kernel and added to a map. Only the totals crossed to user space, when bpftrace exited and unloaded its programs.',
+			'The second script is a short opensnoop: store the path pointer by thread at entry, print it at exit if `args.ret` is negative, then delete the entry. Start it before the service you suspect, and read the lines with its name.'
+		]
+	},
 	recall: {
 		q: 'What does the kernel check before an eBPF program runs, and where does a bpftrace `count()` keep its numbers?',
 		a: 'The verifier simulates every instruction on every path and refuses unsafe programs, for example with `R0 invalid mem access \'map_value_or_null\'`. `count()` adds to a map in the kernel, and bpftrace prints it when it exits.'

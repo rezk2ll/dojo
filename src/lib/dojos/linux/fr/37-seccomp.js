@@ -137,6 +137,44 @@ export default {
 			'Profil par défaut : `io_uring_setup` renvoie -1 avec « Operation not permitted ». Aucune règle ne le nomme, l’action par défaut renvoie `EPERM` et l’appel ne s’exécute jamais.',
 			'Unconfined : il renvoie 3, un nouveau descripteur de fichier pour l’anneau. Le noyau a exécuté l’appel.',
 			'Avec `--cap-add=SYS_ADMIN`, il renvoie toujours `EPERM`. Cette capability débloque les 26 appels de la règle `CAP_SYS_ADMIN`, et `io_uring_setup` n’en fait pas partie. Seuls un profil sur mesure ou `unconfined` le laissent passer.'
+		],
+		steps: [
+			{
+				title: 'Vérifie que le filtre est actif',
+				questions: [
+					{ q: 'L’essai par défaut affiche `Seccomp: 2`. Que veut dire 2 ?', options: ['Deux profils sont empilés', 'Un filtre seccomp est actif', 'seccomp est en mode strict', 'Le filtre a déjà bloqué 2 appels'], answer: 1, why: 'proc_pid_status(5) : 2, c’est le mode filtre. `Seccomp_filters: 1` dit qu’un filtre est attaché.' },
+					{ q: 'Avec `--security-opt seccomp=unconfined`, que montrent les deux lignes ?', options: ['`Seccomp: 2`, `Seccomp_filters: 0`', '`Seccomp: 1`, `Seccomp_filters: 1`', 'Les deux lignes ont disparu', 'Les deux à 0'], answer: 3, why: 'Unconfined veut dire que Docker n’attache aucun filtre : le processus n’en a pas.' },
+					{ q: 'Quand Docker attache-t-il le profil par défaut ?', options: ['À chaque conteneur, sauf si tu passes `seccomp=unconfined`', 'Seulement aux conteneurs qui tournent en root', 'Seulement quand l’image le demande', 'Seulement sur les hôtes avec AppArmor'], answer: 0, why: 'Docker applique le profil à chaque conteneur, sauf si tu le refuses avec `--security-opt seccomp=unconfined`.' },
+					{ q: 'Un processus du conteneur forke et lance `sh`. `sh` a-t-il le filtre ?', options: ['Non, `execve` l’efface', 'Seulement si `sh` est setuid', 'Oui, les enfants le gardent et il survit à `execve`', 'Seulement jusqu’à ce que `sh` appelle `prctl`'], answer: 2, why: 'seccomp(2) : les enfants sont « constrained to the same system call filters as the parent », et les filtres sont « preserved across a call to execve(2) ».' }
+				]
+			},
+			{
+				title: 'Appelle-le sous le profil par défaut',
+				questions: [
+					{ q: 'Que renvoie `libc.syscall(425, 8, buf)` dans ce cas ?', options: ['-1 avec « Operation not permitted »', '-1 avec « Function not implemented »', '3, un descripteur de fichier', '0, sans rien mettre en place'], answer: 0, why: 'Pendant l’écriture, il renvoyait -1 et errno `EPERM` sous le profil par défaut.' },
+					{ q: 'Quelle règle du profil a produit cette erreur ?', options: ['Une règle qui nomme `io_uring_setup` avec `errnoRet` à `EPERM`', 'La règle `CAP_SYS_ADMIN`', 'La règle de `clone3`', 'Aucune : l’action par défaut, `SCMP_ACT_ERRNO` avec `EPERM`'], answer: 3, why: 'Aucune règle ne nomme `io_uring_setup`, donc l’appel tombe sur `DefaultAction: ActErrno` avec `EPERM`.' },
+					{ q: 'Le noyau a-t-il exécuté une partie de `io_uring_setup` ?', options: ['Oui, puis il a tout défait', 'Oui, mais sans les vérifications de capabilities', 'Non, le filtre répond avant que l’appel s’exécute', 'Seulement la vérification des arguments'], answer: 2, why: 'Le filtre tourne à l’entrée du noyau, avant l’appel. Une action `ERRNO` renvoie l’erreur et l’appel ne s’exécute jamais.' },
+					{ q: 'Pourquoi le profil laisse-t-il `io_uring_setup` de côté ?', options: ['Il n’existe pas sur x86-64', 'Il a été jugé dangereux : moby/moby#46762 cite « io_uring to be unsafe »', 'Il demande `CAP_SYS_ADMIN`', 'Il est trop lent dans les conteneurs'], answer: 1, why: 'Depuis moby/moby#46762 en 2023, les appels `io_uring_*` n’ont plus de règle, en citant containerd : « Security experts generally believe io_uring to be unsafe. »' }
+				]
+			},
+			{
+				title: 'Appelle-le en unconfined',
+				questions: [
+					{ q: 'Avec `seccomp=unconfined`, que renvoie le même appel ?', options: ['-1 avec `EPERM`', '3, un nouveau descripteur de fichier pour l’anneau', '-1 avec `ENOSYS`', 'Le conteneur ne démarre pas'], answer: 1, why: 'Sans filtre, le noyau a exécuté l’appel et renvoyé le descripteur du nouvel anneau.' },
+					{ q: 'Que prouve ce résultat ?', options: ['C’est le profil par défaut, pas le noyau, qui refusait l’appel', 'L’appel demande root sur l’hôte', 'Python met en cache les résultats des appels système', 'Le noyau ne gère pas io_uring'], answer: 0, why: 'Même noyau, même image, même code : seul le filtre a changé entre les deux essais.' },
+					{ q: 'Qu’ouvre encore `unconfined` ?', options: ['Seulement `io_uring_*`', 'Seulement les appels qui demandent une capability', 'Tous les appels que le profil par défaut bloque, comme `keyctl` et `kexec_load`', 'Rien, les capabilities les bloquent tous'], answer: 2, why: '`unconfined` retire tout le filtre : la quarantaine d’appels que Docker bloque revient. Les vérifications de capabilities restent, mais plus le filtre.' },
+					{ q: 'Dans Kubernetes, un pod ne pose aucun `seccompProfile` et le kubelet n’a pas `--seccomp-default`. Qu’obtient-il ?', options: ['Le profil par défaut de Docker', 'Un profil qui bloque tout', '`RuntimeDefault`', '`Unconfined`'], answer: 3, why: 'Kubernetes lance les pods en `Unconfined`, sauf si le pod demande `RuntimeDefault` ou si le kubelet tourne avec `--seccomp-default`.' }
+				]
+			},
+			{
+				title: 'Essaie CAP_SYS_ADMIN',
+				questions: [
+					{ q: 'Avec `--cap-add=SYS_ADMIN`, que renvoie `io_uring_setup` ?', options: ['3, un descripteur de fichier', '-1 avec `ENOSYS`', '-1 avec `EPERM`, comme avant', 'Le conteneur s’arrête sur `SIGSYS`'], answer: 2, why: 'L’appel n’est toujours dans aucune règle, donc l’action par défaut répond toujours `EPERM`.' },
+					{ q: 'Que change `CAP_SYS_ADMIN` dans le profil ?', options: ['Il autorise une liste de 26 appels comme `mount`, `unshare` et `setns`', 'Il passe l’action par défaut à autoriser', 'Il retire le filtre', 'Rien, le profil ignore les capabilities'], answer: 0, why: 'La règle avec `Includes: Caps: CAP_SYS_ADMIN` ajoute ces 26 appels. « The default seccomp profile will adjust to the selected capabilities ».' },
+					{ q: 'Et `clone3` avec `CAP_SYS_ADMIN` ?', options: ['Toujours `ENOSYS`', 'Autorisé : la règle `CAP_SYS_ADMIN` le nomme, et la règle `ENOSYS` exclut cette capability', 'Bloqué avec `EPERM`', 'Tué avec `SIGSYS`'], answer: 1, why: 'La règle `ENOSYS` a `Excludes: Caps: CAP_SYS_ADMIN`, et la ligne 6 cite `clone3` dans la règle autorisée.' },
+					{ q: 'Un service a vraiment besoin d’io_uring. Qu’est-ce qui laisse passer l’appel en gardant le reste du filtre ?', options: ['`--cap-add=ALL`', '`--privileged`, c’est la seule façon', 'Lancer le conteneur en root', 'Un profil sur mesure qui autorise `io_uring_setup`'], answer: 3, why: 'Seuls un profil sur mesure ou `unconfined` le laissent passer, et un profil sur mesure garde toutes les autres règles.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -174,6 +212,29 @@ export default {
 			why: 'La règle `CAP_SYS_ADMIN` autorise 26 appels comme `mount` et `unshare`. `io_uring_setup` n’est dans aucune règle, donc l’action par défaut répond toujours `EPERM`. Pendant l’écriture, il échouait de la même façon avec la capability ajoutée.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Voir le profil par défaut répondre `EPERM` et `ENOSYS`, puis écrire ton propre petit profil et le voir bloquer un appel.',
+		steps: [
+			'Vérifie le filtre : `docker run --rm alpine:3.20 grep Seccomp /proc/self/status`, puis la même chose avec `--security-opt seccomp=unconfined` avant le nom de l’image.',
+			'Garde un test qui appelle `io_uring_setup` (425) et `clone3` (435) sur x86-64 : `PY=\'import ctypes,os; libc=ctypes.CDLL(None,use_errno=True); b=ctypes.create_string_buffer(120); r=libc.syscall(425,8,b); print("io_uring_setup", r, os.strerror(ctypes.get_errno()) if r<0 else "fd"); r=libc.syscall(435,None,0); print("clone3", r, os.strerror(ctypes.get_errno()))\'`.',
+			'Lance-le de trois façons : `docker run --rm python:3.12-alpine python -c "$PY"`, puis avec `--security-opt seccomp=unconfined`, puis avec `--cap-add=SYS_ADMIN`.',
+			'Écris un profil qui autorise tout sauf `mkdir` : `mkdir -p ~/seccomp-lab && cd ~/seccomp-lab && printf \'{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["mkdir","mkdirat"],"action":"SCMP_ACT_ERRNO"}]}\\n\' > no-mkdir.json`.',
+			'Utilise-le : `docker run --rm --security-opt seccomp="$PWD/no-mkdir.json" alpine:3.20 sh -c \'mkdir /tmp/x; echo "exit $?"; touch /tmp/y && echo touch ok\'`.'
+		],
+		done: [
+			'L’étape 1 affiche `Seccomp: 2` et `Seccomp_filters: 1`, puis 0 et 0.',
+			'Profil par défaut : `io_uring_setup -1 Operation not permitted` et `clone3 -1 Function not implemented`.',
+			'Unconfined : `io_uring_setup 3 fd`, et `clone3` échoue avec `Invalid argument`, la réponse du noyau lui-même à un argument NULL.',
+			'Avec `SYS_ADMIN` : `io_uring_setup` dit toujours `Operation not permitted`, et `clone3` dit maintenant `Invalid argument`.',
+			'Ton profil : `mkdir` échoue avec `Operation not permitted`, et `touch ok` s’affiche.'
+		],
+		solution: [
+			'`EPERM` est l’action par défaut pour les appels sans règle. `ENOSYS` est le `errnoRet` de la règle de `clone3`, pour que glibc se rabatte sur `clone`.',
+			'`Invalid argument` vient du noyau lui-même : le filtre a laissé passer `clone3` et le noyau a refusé les arguments vides. Avec `SYS_ADMIN`, le profil autorise `clone3` mais n’a toujours aucune règle pour `io_uring_setup`.',
+			'Une règle `SCMP_ACT_ERRNO` sans `errnoRet` renvoie `EPERM`. `mkdir` et `mkdirat` sont nommés tous les deux, car le programme peut utiliser l’un ou l’autre. Les vrais profils font l’inverse : `SCMP_ACT_ERRNO` par défaut et une liste d’autorisations, comme celui de Docker.'
+		]
+	},
 	recall: {
 		q: 'Que renvoie le profil seccomp par défaut de Docker pour un appel système qu’il ne nomme pas, et que renvoie-t-il pour `clone3` ?',
 		a: '`EPERM` (« Operation not permitted »), l’action par défaut, sans exécuter l’appel. Pour `clone3`, il renvoie `ENOSYS` pour que glibc se rabatte sur `clone` (le correctif de moby/moby#42680, juillet 2021).'

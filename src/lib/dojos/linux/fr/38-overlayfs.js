@@ -134,6 +134,44 @@ export default {
 			'La dernière couche de A est un tar de 77 octets avec une seule entrée : `---------- 0/0 0 ... .wh.big.bin`. Le whiteout cache `big.bin` dans la vue fusionnée, et la couche de 100 MB du dessous ne change pas.',
 			'Image B : une couche de `4.1kB`, et `docker save` écrit 3 646 464 octets. Le fichier a été créé et supprimé dans la même étape, il n’a jamais atteint une couche.',
 			'Des octets aléatoires ne se compressent pas : la couche de 100 MB reste proche de 100 MB dans l’archive (100 030 702 octets ici).'
+		],
+		steps: [
+			{
+				title: 'Construis les deux images',
+				questions: [
+					{ q: 'Combien de couches l’image A ajoute-t-elle au-dessus d’`alpine:3.20` ?', options: ['Une', 'Deux, une par `RUN`', 'Trois, une par ligne', 'Aucune, les étapes `RUN` n’ajoutent pas de couche'], answer: 1, why: 'Chaque `RUN` écrit ses changements dans une nouvelle couche : A en ajoute une pour `head` et une pour `rm`.' },
+					{ q: 'Que contient la couche d’une étape `RUN` ?', options: ['Une copie complète du système de fichiers après l’étape', 'Seulement la ligne de commande lancée', 'Un tar des fichiers ajoutés ou modifiés, plus des whiteouts pour les suppressions', 'Un diff binaire de chaque bloc modifié'], answer: 2, why: 'Une couche est un ensemble de changements : les fichiers que l’étape a ajoutés ou modifiés, et une entrée `.wh.<name>` pour chaque fichier supprimé.' },
+					{ q: 'Dans l’image B, pourquoi `big.bin` n’atteint-il aucune couche ?', options: ['Il a été créé et supprimé dans la même étape', 'Le builder ignore les fichiers de plus de 50 MB', 'B compresse mieux les octets aléatoires', '`&&` lance la deuxième commande dans un nouveau conteneur'], answer: 0, why: 'La couche enregistre l’état à la fin de l’étape. À ce moment, `big.bin` a déjà disparu.' },
+					{ q: 'Les deux images partent d’`alpine:3.20`. Que partagent leurs conteneurs sur le disque ?', options: ['Rien, chaque image a sa propre copie', 'Seulement le dossier `/etc`', 'Le répertoire supérieur', 'Les répertoires inférieurs d’alpine'], answer: 3, why: 'Les conteneurs qui ont les mêmes couches partagent les mêmes répertoires inférieurs. Chacun n’a que son propre répertoire supérieur, très fin.' }
+				]
+			},
+			{
+				title: 'Compare les tailles',
+				questions: [
+					{ q: 'Qu’affiche `docker history` pour les deux étapes de A ?', options: ['`100MB` et `0B`', '`100MB` et `4.1kB`', '`4.1kB` et `4.1kB`', '`100MB` et `-100MB`'], answer: 1, why: 'La couche `head` contient le fichier de 100 MB. La couche `rm` ne contient qu’un whiteout, elle est minuscule.' },
+					{ q: '`docker save` écrit 103 678 464 octets pour A et 3 646 464 pour B. Qu’est-ce qui explique l’écart ?', options: ['L’archive de A contient le cache de build', 'B a été compressé et pas A', 'A porte toujours la couche de 100 MB, B ne l’a jamais eue', 'A a une image de base plus grosse'], answer: 2, why: 'L’étape de suppression n’a retiré aucun octet de la couche du dessous. Seul B a gardé le fichier hors de toute couche.' },
+					{ q: 'Pourquoi la couche de 100 MB reste-t-elle proche de 100 MB dans l’archive ?', options: ['Des octets aléatoires ne se compressent pas', '`docker save` ajoute le cache de build à chaque couche', 'Le whiteout la double', 'Docker remplit les couches jusqu’à une taille fixe'], answer: 0, why: 'Le fichier vient de `/dev/urandom`. Sans rien à compresser, la couche reste vers 100 030 702 octets.' },
+					{ q: 'Tu pousses l’image A vers un registre. Que passe sur le réseau ?', options: ['Seulement la dernière couche, la plus récente', 'Seulement les fichiers visibles dans la vue fusionnée', 'Rien pour `big.bin`, le whiteout l’annule', 'La couche de 100 MB aussi, car elle fait partie de l’image'], answer: 3, why: 'Un push ou un pull transporte toutes les couches. Le whiteout cache le fichier dans la vue fusionnée, mais n’enlève pas les octets du dessous.' }
+				]
+			},
+			{
+				title: 'Lis la dernière couche',
+				questions: [
+					{ q: 'Dans l’archive extraite, quel fichier donne l’ordre des couches ?', options: ['`manifest.json`', '`index.json` tout seul', 'Les noms de fichiers, triés par hash', '`repositories`'], answer: 0, why: '`manifest.json` liste les couches dans l’ordre. La dernière correspond à l’étape `rm`.' },
+					{ q: '`tar tvf` sur cette couche affiche une seule entrée. Laquelle ?', options: ['`big.bin`, vide', '`.wh.big.bin`, un fichier vide', '`big.bin.deleted`, 100 MB', 'Un périphérique caractère nommé `big.bin`'], answer: 1, why: 'La couche est un tar de 77 octets qui contient `.wh.big.bin`, le whiteout sous sa forme de couche d’image.' },
+					{ q: 'Que veut dire le préfixe `.wh.` ?', options: ['Un fichier caché écrit par l’appli', 'Un lien physique vers le fichier inférieur', 'Un whiteout : cache ce nom aux couches du dessous', 'Un fichier qui attend un copy-up'], answer: 2, why: 'La spec d’image OCI stocke un whiteout comme un fichier vide nommé « the prefix `.wh.` plus the basename of the path to be deleted ».' },
+					{ q: 'Dans le répertoire supérieur d’un conteneur qui tourne, à quoi ressemble ce même whiteout ?', options: ['Un fichier `.wh.big.bin`', 'Un lien symbolique vers `/dev/null`', 'Un dossier vide', 'Un périphérique caractère de numéro 0/0'], answer: 3, why: 'Sur le disque, overlayfs écrit un périphérique caractère 0/0. Le nom `.wh.` est sa forme dans le tar d’une couche.' }
+				]
+			},
+			{
+				title: 'Explique les chiffres',
+				questions: [
+					{ q: 'Pourquoi `rm` n’a-t-il pas fait maigrir l’image A ?', options: ['Une suppression ne peut pas toucher une couche inférieure, elle ajoute juste un whiteout au-dessus', 'Docker a oublié de lancer l’étape `rm`', 'L’étape `rm` a échoué sans rien dire', 'Un whiteout prend autant de place que le fichier'], answer: 0, why: 'Les couches inférieures sont en lecture seule. La nouvelle couche cache le nom, et la couche du dessous garde ses octets.' },
+					{ q: 'Comment gardes-tu un fichier temporaire hors de toute couche ?', options: ['En le supprimant dans un `RUN` suivant', 'En le créant et le supprimant dans le même `RUN`', 'En l’écrivant dans `/tmp`, qui n’est jamais dans une couche', 'En l’ajoutant au `.dockerignore`'], answer: 1, why: 'Une couche, c’est l’état à la fin de son étape. Si le fichier a disparu à ce moment, aucune couche ne le contient.' },
+					{ q: 'Un `RUN chown -R app /data` passe sur un gros dossier venu d’une couche précédente. Que se passe-t-il ?', options: ['Seul le champ propriétaire change dans l’ancienne couche', 'Rien n’est écrit, le propriétaire n’est qu’une métadonnée', 'Chaque fichier est remonté par copy-up, le dossier est dupliqué dans une nouvelle couche', 'Le build échoue car les couches inférieures sont en lecture seule'], answer: 2, why: '`chmod` ou `chown` sur un fichier inférieur déclenche un copy-up : la nouvelle couche en garde une copie complète.' },
+					{ q: 'Un conteneur ajoute 2 octets à un fichier de 50 MB venu de l’image. Qu’arrive-t-il dans le répertoire supérieur ?', options: ['Un diff de 2 octets', 'Rien, l’écriture va dans le fichier inférieur', 'Un whiteout et les 2 octets', 'Une copie complète de 50 MB du fichier, plus les 2 octets'], answer: 3, why: 'La première écriture remonte tout le fichier. Pendant l’écriture du chapitre, le répertoire supérieur contenait un fichier de 50 000 002 octets.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -171,6 +209,28 @@ export default {
 			why: 'La doc du noyau : « A whiteout is created as a character device with 0/0 device number ». Quand la vue fusionnée le trouve, le nom correspondant des répertoires inférieurs est caché. Le nom `.wh.` est la forme d’un whiteout dans le tar d’une couche d’image.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire une image dont l’étape de suppression ne libère rien, trouver le whiteout dans sa dernière couche, et voir les changements propres d’un conteneur.',
+		steps: [
+			'Crée deux dossiers de build : `mkdir -p ~/layers-lab/a ~/layers-lab/b && cd ~/layers-lab`, puis `printf \'FROM alpine:3.20\\nRUN head -c 100000000 /dev/urandom > /big.bin\\nRUN rm /big.bin\\n\' > a/Dockerfile` et `printf \'FROM alpine:3.20\\nRUN head -c 100000000 /dev/urandom > /big.bin && rm /big.bin\\n\' > b/Dockerfile`.',
+			'Construis les deux : `docker build -q -t layers-a a && docker build -q -t layers-b b`.',
+			'Compare : `docker history layers-a | head -3`, `docker history layers-b | head -2`, puis `docker save layers-a | wc -c` et `docker save layers-b | wc -c`.',
+			'Ouvre l’archive de A et liste sa dernière couche : `mkdir -p out && docker save layers-a | tar -x -C out`, puis `LAST=$(grep -o \'blobs/sha256/[0-9a-f]*\' out/manifest.json | tail -1); ls -l out/$LAST; tar tvf out/$LAST`.',
+			'Regarde la couche supérieure d’un conteneur : `docker run --name ovl-lab alpine:3.20 sh -c \'rm /etc/motd; echo x >> /etc/profile; touch /new.txt\'`, puis `docker diff ovl-lab`. Fais le ménage avec `docker rm ovl-lab` et `docker rmi layers-a layers-b`.'
+		],
+		done: [
+			'`docker history layers-a` affiche `4.1kB` pour l’étape `rm` et `100MB` pour l’étape `head`. `layers-b` a une seule étape de `4.1kB`.',
+			'`docker save` donne environ 103,7 millions d’octets pour A et environ 3,6 millions pour B.',
+			'La dernière couche de A fait 77 octets, et `tar tvf` affiche une seule entrée, `.wh.big.bin`.',
+			'`docker diff` affiche `C /etc`, `C /etc/profile`, `D /etc/motd` et `A /new.txt`.'
+		],
+		solution: [
+			'Le deuxième `RUN` de A ne pouvait pas retirer d’octets de la couche du dessous, il a donc écrit un whiteout. B a créé et supprimé le fichier dans la même étape : aucune couche ne l’a jamais contenu.',
+			'`manifest.json` liste d’abord le blob de config, puis les couches dans l’ordre : la dernière correspondance `blobs/sha256/...` est la couche `rm`.',
+			'`docker diff` lit le répertoire supérieur du conteneur : `D` est un whiteout, `C` un copy-up (tout `/etc/profile` a été copié avant l’ajout), et `A` un nouveau fichier.'
+		]
+	},
 	recall: {
 		q: 'Une étape de build supprime un fichier de 100 MB créé à l’étape d’avant. Que contient la nouvelle couche, et pourquoi l’image ne rétrécit-elle pas ?',
 		a: 'Un whiteout : un tar de 77 octets avec une seule entrée, `.wh.big.bin`. Il cache le fichier dans la vue fusionnée, et la couche de 100 MB du dessous garde ses octets et reste dans l’image.'

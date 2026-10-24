@@ -131,6 +131,44 @@ struct HeapTupleHeaderData
 			'Chaque ligne coûte 40 + 4 = 44 octets de la page. (8192 - 24) / 44 = 185,6, donc 185 lignes par page.',
 			'Dans `psql` : l’id 185 est en `(0,185)` et l’id 186 en `(1,1)`, le premier emplacement de la page 1. 1000 lignes demandent 6 pages, donc `pg_relation_size` vaut 49152 octets.',
 			'Lance `UPDATE t SET qty = qty + 1 WHERE id = 1` et regarde encore son `ctid` : il a bougé vers un emplacement libre en fin de table, parce que l’update a écrit un nouveau tuple.'
+		],
+		steps: [
+			{
+				title: 'Mesure un tuple',
+				questions: [
+					{ q: 'La ligne n’a aucun NULL. Combien d’octets viennent avant la première colonne ?', options: ['23', '24', '28', '32'], answer: 1, why: 'L’en-tête de 23 octets est complété à 24, pour que les données des colonnes commencent alignées.' },
+					{ q: 'Pourquoi ce tuple n’a-t-il pas de bitmap des NULL ?', options: ['Les bitmaps ne servent qu’aux colonnes texte', 'La table est trop petite', 'Il n’est pas stocké quand le tuple n’a aucun NULL', 'Il vit dans l’en-tête de page à la place'], answer: 2, why: 'Le source : le bitmap « is *not* stored if t_infomask shows that there are no nulls in the tuple ».' },
+					{ q: 'Combien d’octets de données prend `(bigint, int, boolean)` ?', options: ['13', '16', '12', '24'], answer: 0, why: '8 pour le `bigint`, 4 pour le `int`, 1 pour le `boolean`.' },
+					{ q: 'En-tête plus données font 37 octets. Que prend le tuple avec un alignement sur 8 octets ?', options: ['37', '38', '48', '40'], answer: 3, why: '37 arrondi au multiple de 8 supérieur donne 40.' }
+				]
+			},
+			{
+				title: 'Remplis la page',
+				questions: [
+					{ q: 'Combien coûte chaque ligne dans la page, line pointer compris ?', options: ['40 octets', '44 octets', '41 octets', '48 octets'], answer: 1, why: '40 pour le tuple, plus un line pointer de 4 octets en haut de la page.' },
+					{ q: 'Combien de place reste-t-il après l’en-tête de page ?', options: ['8192 octets', '8000 octets', '8168 octets', '8144 octets'], answer: 2, why: '8192 moins l’en-tête de page de 24 octets.' },
+					{ q: 'Combien de lignes tiennent donc dans une page ?', options: ['185', '186', '204', '630'], answer: 0, why: '8168 / 44 = 185,6. Un tuple ne peut pas s’étaler sur deux pages, donc la page en garde 185.' },
+					{ q: 'Sur ces 44 octets par ligne, combien sont tes données ?', options: ['44', '40', '24', '13'], answer: 3, why: 'Le reste, c’est l’en-tête, le remplissage et le line pointer. Sur une table aussi étroite, le surcoût pèse plus que les données.' }
+				]
+			},
+			{
+				title: 'Vérifie dans psql',
+				questions: [
+					{ q: 'Après avoir inséré les ids 1 à 1000, où est l’id 186 ?', options: ['`(0,186)`', '`(1,1)`', '`(1,186)`', '`(0,1)`'], answer: 1, why: 'La page 0 est pleine après 185 lignes, donc l’id 186 prend le premier emplacement de la page 1.' },
+					{ q: 'Que désigne un `ctid` de `(1,1)` ?', options: ['La page 1, line pointer 1', 'L’octet 1 de la ligne 1', 'La transaction 1, commande 1', 'L’entrée d’index 1 de la page 1'], answer: 0, why: 'L’adresse désigne la page et l’emplacement, pas une position en octets, donc les tuples peuvent bouger dans la page.' },
+					{ q: 'Combien de pages demandent 1000 lignes ?', options: ['5', '4', '8', '6'], answer: 3, why: '1000 / 185 font environ 5,4, donc une sixième page porte les dernières lignes.' },
+					{ q: 'Que renvoie donc `pg_relation_size(\'t\')` en octets ?', options: ['8192', '40960', '49152', '44000'], answer: 2, why: 'Six pages de 8192 octets. Le fichier grandit par pages entières.' }
+				]
+			},
+			{
+				title: 'Regarde un update déplacer la ligne',
+				questions: [
+					{ q: 'Tu lances `UPDATE t SET qty = qty + 1 WHERE id = 1`. Où va la nouvelle version ?', options: ['Elle écrase `(0,1)` sur place', 'Dans un emplacement libre en fin de table', 'Dans la table TOAST', 'Seulement dans le WAL, jusqu’à VACUUM'], answer: 1, why: 'Un UPDATE écrit un nouveau tuple. La page 0 est pleine, donc il atterrit là où il y a de la place, comme `(5,76)` dans le schéma.' },
+					{ q: 'Que reste-t-il en `(0,1)` juste après l’update ?', options: ['Rien, l’emplacement est libéré tout de suite', 'La nouvelle version', 'Un tuple vide avec seulement un en-tête', 'L’ancienne version, avec `t_xmax` rempli et `t_ctid` qui pointe vers la nouvelle'], answer: 3, why: 'Des lecteurs qui ont commencé avant peuvent encore en avoir besoin. Elle reste jusqu’à ce que VACUUM la retire.' },
+					{ q: 'Tu supprimes la moitié des lignes. Que dit `pg_relation_size` ?', options: ['Les mêmes 49152 octets', 'Environ la moitié, 24576 octets', '0, jusqu’au passage de VACUUM', 'Plus, à cause des suppressions'], answer: 0, why: 'Un delete marque les tuples, il ne réduit pas le fichier. Ce sont les 35 Mo du début qui restent 35 Mo.' },
+					{ q: 'Quelle colonne de l’ancien tuple dit quelle transaction l’a modifié ?', options: ['`t_xmin`', '`t_hoff`', '`t_xmax`', '`t_bits`'], answer: 2, why: '`t_xmin` est la transaction qui l’a inséré, `t_xmax` celle qui l’a supprimé ou verrouillé.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ struct HeapTupleHeaderData
 			why: 'Un tuple ne peut pas s’étaler sur plusieurs pages. Au-delà de 2 ko environ, TOAST compresse les gros champs et, si la ligne est encore trop large, les déplace par morceaux dans la table TOAST de la table. La ligne du heap garde un pointeur.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Vérifier le calcul des 185 lignes par page sur une vraie table, lire un en-tête de tuple avec `pageinspect`, et voir qu’un delete ne réduit pas le fichier.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-pages -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-pages psql -U postgres`.',
+			'Crée et remplis la table : `CREATE TABLE t (id bigint, qty int, flag boolean); INSERT INTO t SELECT g, 1, true FROM generate_series(1, 1000) g;`',
+			'Vérifie le calcul : `SELECT ctid, id FROM t WHERE id IN (185, 186);` et `SELECT pg_relation_size(\'t\') / 8192 AS pages, pg_relation_size(\'t\') AS bytes;`',
+			'Regarde dans la page 0 pendant qu’un update est encore ouvert : `CREATE EXTENSION pageinspect;` puis `BEGIN; UPDATE t SET qty = qty + 1 WHERE id = 1; SELECT lp, lp_len, t_xmin, t_xmax, t_ctid FROM heap_page_items(get_raw_page(\'t\', 0)) LIMIT 2; SELECT ctid FROM t WHERE id = 1; COMMIT;`',
+			'Supprime la moitié des lignes et mesure de nouveau : `DELETE FROM t WHERE id % 2 = 0;` puis `SELECT pg_relation_size(\'t\');`. Quitte avec `\\q` et nettoie avec `docker rm -f pg-pages`.'
+		],
+		done: [
+			'L’id 185 est en `(0,185)` et l’id 186 en `(1,1)` ; la table fait 6 pages, 49152 octets.',
+			'`heap_page_items` affiche un `lp_len` de 37 pour chaque tuple : l’en-tête de 24 octets plus 13 octets de données, avant alignement.',
+			'Le line pointer 1 a un `t_xmax` différent de 0 et un `t_ctid` égal au nouveau `ctid` de l’id 1.',
+			'Après la suppression de 500 lignes, `pg_relation_size` affiche toujours `49152`.'
+		],
+		solution: [
+			'Les 37 octets s’arrondissent à 40 dans la page, plus 4 pour le line pointer : 44 octets par ligne, et 8168 / 44 donne 185 lignes.',
+			'L’ancienne version de l’id 1 reste dans la page 0 avec la transaction qui l’a modifiée dans `t_xmax`, et son `t_ctid` pointe vers le nouveau tuple. Le nouveau `ctid` est dans la dernière page, là où il y avait de la place.',
+			'Un delete ne fait que marquer les tuples, donc chaque page reste dans le fichier. Les tuples morts s’accumulent jusqu’à ce que VACUUM les retire (jour 16).'
+		]
+	},
 	recall: {
 		q: 'Vers quoi pointe `ctid = (0,3)`, et que se passe-t-il quand tu fais un UPDATE sur cette ligne ?',
 		a: 'Vers la page 0, line pointer 3, dans les pages de 8 Ko de la table. L’UPDATE écrit un nouveau tuple à un autre ctid, et le `t_ctid` de l’ancien tuple pointe vers lui jusqu’à ce que VACUUM retire l’ancien.'

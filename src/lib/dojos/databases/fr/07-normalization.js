@@ -129,6 +129,44 @@ CREATE TABLE federation_blocklist (
 			'`customer_id` et `shipped_to` ne dépendent que de `order_id` (2NF) : déplace-les dans `orders(order_id, customer_id, shipped_to)`.',
 			'`customer_email` dépend de `customer_id`, une colonne hors clé de la commande (une entorse à la 3NF) : déplace-la dans `customers(customer_id, email)`. Le bug de facture du début disparaît.',
 			'Garde exprès `unit_price` sur la ligne et `shipped_to` sur la commande : elles disent ce qui était vrai au moment de la commande, ce que le prix actuel du produit ou l’adresse actuelle du client ne peuvent pas te dire.'
+		],
+		steps: [
+			{
+				title: 'Dis de quoi parle chaque colonne',
+				questions: [
+					{ q: 'De quoi `quantity` est-elle un fait ?', options: ['De la commande seule', 'Du produit seul', 'Du client', 'De toute la clé : ce produit dans cette commande'], answer: 3, why: 'Le même produit peut venir en quantités différentes selon la commande. Il faut les deux parties de la clé.' },
+					{ q: 'De quoi `product_name` est-elle un fait ?', options: ['De `product_id` seul', 'De toute la clé', 'De `order_id` seul', 'De `customer_id`'], answer: 0, why: 'Un produit a un seul nom, quelle que soit la commande.' },
+					{ q: 'De quoi `customer_id` est-elle un fait ?', options: ['De `product_id` seul', 'De `order_id` seul', 'De toute la clé', 'De `customer_email`'], answer: 1, why: 'Une commande a un seul client, donc chaque ligne de la commande répète la même valeur.' },
+					{ q: 'De quoi `customer_email` est-elle un fait ?', options: ['De `order_id` seul', 'De toute la clé', 'De `customer_id`, une colonne hors de la clé', 'De `product_id` seul'], answer: 2, why: 'Un client a un seul email. Il ne dépend de la commande qu’à travers `customer_id`.' }
+				]
+			},
+			{
+				title: 'Nomme la règle enfreinte',
+				questions: [
+					{ q: '`product_name` dépend d’une partie de la clé. Quelle forme enfreint-elle ?', options: ['1NF', '2NF', '3NF', 'Aucune'], answer: 1, why: '2NF : avec une clé composée, aucune colonne n’est un fait sur une partie seulement de la clé.' },
+					{ q: 'Disons que tu ranges d’abord les faits de la commande dans `orders(order_id, customer_id, customer_email)`. Là, `customer_email` dépend de `customer_id`, qui n’est pas la clé. Quelle forme ça enfreint ?', options: ['3NF', '1NF', '2NF', 'Aucune'], answer: 0, why: '3NF : aucune colonne hors de la clé n’est un fait sur une autre colonne hors de la clé. Dans la table plate, l’email dépend aussi de `order_id` seul, donc la rupture de 3NF n’apparaît qu’une fois que les faits de la commande ont leur propre table.' },
+					{ q: 'Le client change d’email, et la facture suivante part à l’ancien. Quelle anomalie est-ce ?', options: ['Une anomalie d’insertion', 'Une anomalie de suppression', 'Une mise à jour perdue', 'Une anomalie de mise à jour'], answer: 3, why: 'Un fait rangé dans plusieurs lignes, changé dans certaines seulement.' },
+					{ q: 'Tu ajoutes un produit que personne n’a encore commandé. Où va son nom dans cette table ?', options: ['Sur une ligne avec un `order_id` NULL', 'Nulle part : aucune ligne n’existe pour le porter', 'Dans `shipped_to`', 'Sur la commande la plus récente'], answer: 1, why: 'C’est une anomalie d’insertion : un fait ne peut pas être rangé tant qu’une autre ligne n’existe pas. `order_id` fait partie de la clé, il ne peut donc pas être NULL.' }
+				]
+			},
+			{
+				title: 'Découpe la table',
+				questions: [
+					{ q: 'Qu’est-ce qui reste dans `order_lines` ?', options: ['`(order_id, product_id, quantity, unit_price)`', '`(order_id, product_id, quantity, product_name)`', '`(order_id, customer_id, quantity)`', '`(order_id, product_id, customer_email)`'], answer: 0, why: 'Seuls les faits sur toute la clé restent, plus le prix du moment, gardé exprès.' },
+					{ q: 'Où va `product_name` ?', options: ['`orders(order_id, product_name)`', '`customers(customer_id, product_name)`', '`products(product_id, name, price)`', 'Elle reste sur la ligne'], answer: 2, why: 'Une table dont la clé est le produit range les faits sur le produit, une seule fois.' },
+					{ q: 'Où vont `customer_id` et `shipped_to` ?', options: ['`customers(customer_id, shipped_to)`', '`orders(order_id, customer_id, shipped_to)`', '`products(product_id, customer_id)`', 'Elles restent sur la ligne'], answer: 1, why: 'Elles ne dépendent que de `order_id`, donc elles vivent dans une table dont la clé est la commande.' },
+					{ q: 'Où va `customer_email` ?', options: ['`orders(order_id, customer_email)`', 'Elle reste sur la ligne', '`products(product_id, customer_email)`', '`customers(customer_id, email)`'], answer: 3, why: 'Avec le client pour clé, l’email est rangé une fois. Le bug de facture du début disparaît.' }
+				]
+			},
+			{
+				title: 'Garde les faits du moment',
+				questions: [
+					{ q: 'Pourquoi garder `unit_price` sur la ligne alors que `products` a un prix ?', options: ['Ça évite une jointure à chaque lecture', 'Il enregistre le prix au moment de la commande', 'Les prix font partie de la clé', 'C’est une exigence de la 2NF'], answer: 1, why: 'Le prix actuel ne peut pas te dire ce que ce client a payé. Ce sont deux faits différents.' },
+					{ q: 'Pourquoi garder `shipped_to` sur la commande et pas dans `customers` ?', options: ['L’adresse où la commande est partie est un autre fait que l’adresse actuelle du client', 'Les adresses sont trop longues pour la table des clients', 'La 3NF interdit les adresses dans les clients', 'Ça rend les commandes plus rapides à insérer'], answer: 0, why: 'Quand le client déménage, une ancienne commande doit toujours dire où elle a été livrée.' },
+					{ q: 'Après le découpage, le client change d’email. Combien de lignes changent ?', options: ['Une par commande', 'Une par ligne de commande', 'Aucune, les emails sont en lecture seule', 'Une, dans `customers`'], answer: 3, why: 'Chaque fait est rangé à un seul endroit, donc un UPDATE suffit et deux lignes ne peuvent pas se contredire.' },
+					{ q: 'Que coûte le découpage ?', options: ['Un écran qui montre les lignes avec l’email du client joint maintenant plusieurs tables', 'La base ne peut plus vérifier l’email', 'Chaque ligne est maintenant plus large', 'Les mises à jour touchent plus de lignes'], answer: 0, why: 'Les tables normalisées sont étroites et vérifiées, mais les relire ensemble demande des jointures.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -166,6 +204,28 @@ CREATE TABLE federation_blocklist (
 			why: 'L’adresse actuelle du client et l’adresse où une facture a été envoyée sont deux faits. Quand le client déménage, l’ancienne facture ne doit pas changer. Chacun des deux faits est rangé une fois, donc la table est normalisée, même si les deux adresses sont souvent égales.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Provoquer l’anomalie de mise à jour du début dans une table plate, la trouver avec une requête, et découper la table pour que la base la refuse.',
+		steps: [
+			'Crée la table plate dans SQLite : `mkdir -p ~/db-lab && cd ~/db-lab && sqlite3 shop.db "CREATE TABLE order_lines (order_id int, product_id int, quantity int, product_name text, unit_price numeric, customer_id int, customer_email text, shipped_to text, PRIMARY KEY (order_id, product_id)); INSERT INTO order_lines VALUES (1, 100, 2, \'Mug\', 8, 7, \'Ana@x.io\', \'1 Main St\'), (1, 101, 1, \'Tea\', 5, 7, \'Ana@x.io\', \'1 Main St\'), (2, 100, 1, \'Mug\', 9, 7, \'Ana@x.io\', \'9 New Rd\');"`',
+			'Provoque l’anomalie : l’app ne met à jour l’email que sur la commande la plus récente. `sqlite3 shop.db "UPDATE order_lines SET customer_email = \'[REDACTED-EMAIL-cba73a69]\' WHERE order_id = 2;"`',
+			'Trouve les faits qui ont maintenant deux valeurs : `sqlite3 shop.db "SELECT customer_id, count(DISTINCT customer_email) FROM order_lines GROUP BY customer_id HAVING count(DISTINCT customer_email) > 1;"`, puis `sqlite3 shop.db "SELECT product_id, count(DISTINCT product_name) AS names, count(DISTINCT unit_price) AS prices FROM order_lines GROUP BY product_id;"`.',
+			'Crée une table `customers` dont la clé est le client, et remplis-la depuis la table plate : `sqlite3 shop.db "CREATE TABLE customers (customer_id int PRIMARY KEY, email text NOT NULL); INSERT INTO customers SELECT DISTINCT customer_id, customer_email FROM order_lines;"`',
+			'Corrige les données avec `UPDATE order_lines SET customer_email = \'[REDACTED-EMAIL-cba73a69]\' WHERE customer_id = 7;`, relance l’insert, puis crée et remplis `products`, `orders` et `lines` de la même façon.'
+		],
+		done: [
+			'L’étape 3 liste le client `7` avec 2 emails, et le produit `100` avec 1 nom mais 2 prix.',
+			'L’étape 4 échoue avec `UNIQUE constraint failed: customers.customer_id`.',
+			'Après l’étape 5, `sqlite3 shop.db "SELECT * FROM customers;"` affiche une ligne, `7|[REDACTED-EMAIL-cba73a69]`.'
+		],
+		solution: [
+			'`CREATE TABLE products (product_id int PRIMARY KEY, name text NOT NULL); INSERT INTO products SELECT DISTINCT product_id, product_name FROM order_lines;`',
+			'`CREATE TABLE orders (order_id int PRIMARY KEY, customer_id int NOT NULL REFERENCES customers, shipped_to text); INSERT INTO orders SELECT DISTINCT order_id, customer_id, shipped_to FROM order_lines;`',
+			'`CREATE TABLE lines (order_id int REFERENCES orders, product_id int REFERENCES products, quantity int, unit_price numeric, PRIMARY KEY (order_id, product_id)); INSERT INTO lines SELECT order_id, product_id, quantity, unit_price FROM order_lines;`',
+			'Deux prix pour le produit 100, ce n’est pas un bug : `unit_price` dit ce qui a été payé à ce moment-là, donc il reste sur la ligne. Deux emails pour un client, c’était le bug, et la clé de `customers` le rend maintenant impossible.'
+		]
+	},
 	recall: {
 		q: 'Dans `inventory(part, warehouse, quantity, warehouse_address)`, de clé `(part, warehouse)`, quelle colonne enfreint la 2NF, et où va-t-elle ?',
 		a: '`warehouse_address` : elle ne dépend que de `warehouse`, une partie de la clé. Elle part dans `warehouse(warehouse, address)`, une ligne par entrepôt.'

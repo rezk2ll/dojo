@@ -117,6 +117,44 @@ services:
 			'Inside, the master is PID 1: the **PID namespace** gives the container its own numbering and hides every host process.',
 			'The host and the container see the same process under two numbers. No second kernel runs.',
 			'After `docker rm -f web`, any file you wrote inside is gone: it lived in the container\'s writable layer. The `nginx` image is unchanged and can start a fresh container.'
+		],
+		steps: [
+			{
+				title: 'Look from the host',
+				questions: [
+					{ q: 'After `docker run -d --name web nginx`, does `ps -ef | grep nginx` on the host list nginx?', options: ['No: it runs inside a guest OS', 'Only if you add `--privileged`', 'Yes: the master and workers, with normal host PIDs', 'Only the `docker` client process'], answer: 2, why: 'A container is a normal process on the host kernel, so the host `ps` lists it.' },
+					{ q: 'What does `docker top web` show?', options: ['The same nginx processes, seen from the host', 'A different copy of nginx', 'The container\'s kernel threads', 'Only the processes Docker started for itself'], answer: 0, why: '`docker top` lists the container\'s processes. They are the same ones the host `ps` shows.' },
+					{ q: 'What did the host boot to start this container?', options: ['A small guest kernel', 'A hypervisor and a VM', 'A second init system', 'Nothing: the process runs on the host kernel'], answer: 3, why: 'A container boots nothing. That is why it starts in about a second.' },
+					{ q: 'Where is the line between a container and a VM here?', options: ['A container has fewer files', 'A container shares the host kernel, a VM boots its own', 'A VM cannot run nginx', 'A container always runs as non-root'], answer: 1, why: 'A VM runs a full OS with its own kernel on virtual hardware. A container is a process on the host kernel.' }
+				]
+			},
+			{
+				title: 'Look from inside',
+				questions: [
+					{ q: 'Inside the container, which PID does the nginx master have?', options: ['The same PID as on the host', 'PID 1', 'No PID: containers do not have them', 'A random PID above 1000'], answer: 1, why: 'The container has its own PID numbering, and the first process it starts is PID 1.' },
+					{ q: '`docker exec web ls /proc` lists only a few numbers. Where are `sshd` and `cron`?', options: ['Hidden by the PID namespace', 'Stopped while the container runs', 'Moved into the image', 'Blocked by a cgroup limit'], answer: 0, why: 'The PID namespace hides every host process. The container sees only its own.' },
+					{ q: 'Which kernel feature decides what the process can see?', options: ['cgroups', 'Capabilities', 'Namespaces', 'Image layers'], answer: 2, why: 'Namespaces give the process a private view: its own PIDs, network, mounts and hostname.' },
+					{ q: 'Which kernel feature would cap its memory if you passed `--memory 512m`?', options: ['The PID namespace', 'The writable layer', 'The mount namespace', 'cgroups'], answer: 3, why: 'cgroups decide how much a process can use. By default a container has no limit.' }
+				]
+			},
+			{
+				title: 'Explain the two PIDs',
+				questions: [
+					{ q: 'Why does the same nginx have two different PIDs?', options: ['Docker copies the process into the container', 'The PID namespace gives it a second number inside', 'nginx forks once for the host and once for the container', 'The VM renumbers processes'], answer: 1, why: 'Host and container see the same process under two numbers. Only the numbering differs.' },
+					{ q: 'How many kernels are running nginx right now?', options: ['One: the host kernel', 'Two: host and container', 'One per worker', 'None: Docker runs it in user space'], answer: 0, why: 'Every container on the host runs on that one host kernel.' },
+					{ q: 'What follows from sharing one kernel?', options: ['Containers can run any OS', 'Each container can load its own kernel version', 'A kernel bug can reach the host and the other containers', 'Containers are isolated as strongly as VMs'], answer: 2, why: 'All containers share the kernel, so a kernel bug or a container with `SYS_MODULE` can reach its neighbours.' },
+					{ q: 'Can you run a Windows app inside a container on this Linux host?', options: ['Yes, with the right image', 'Yes, if you add `SYS_MODULE`', 'Only with `--memory` set', 'No: a container cannot bring a different kernel'], answer: 3, why: 'The container uses the host kernel. A different kernel needs a VM.' }
+				]
+			},
+			{
+				title: 'Remove it and check the files',
+				questions: [
+					{ q: 'You wrote `/tmp/note.txt` inside the container. Where did it go?', options: ['Into the container\'s writable layer', 'Into the `nginx` image', 'Into the host\'s `/tmp`', 'Into a volume Docker created'], answer: 0, why: 'Each container gets its own thin writable layer on top of the read-only image.' },
+					{ q: 'After `docker rm -f web`, what happens to `/tmp/note.txt`?', options: ['It stays in the image', 'It moves to the host', 'It is gone with the writable layer', 'It waits for the next container named `web`'], answer: 2, why: 'Removing the container removes its writable layer. The file lived only there.' },
+					{ q: 'What happens to the `nginx` image?', options: ['It now holds your file', 'It is deleted too', 'It must be pulled again', 'Nothing: it stays unchanged'], answer: 3, why: 'Docker never writes to an image\'s layers, so the image can start a fresh container.' },
+					{ q: 'How would you keep a file across container removals?', options: ['Write it as root', 'Put it in a volume', 'Give the container a fixed name', 'Set a cgroup limit'], answer: 1, why: 'Anything written inside the container is lost on removal unless it is in a volume.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,29 @@ services:
 			why: 'Docker never writes to an image\'s layers. Each container writes to its own thin writable layer, so all three share the same unchanged image.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See one nginx process under two PIDs, cap its memory with a cgroup, and watch a file die with its container.',
+		steps: [
+			'Start nginx with a memory limit: `docker run -d --name lab-web --memory 256m nginx:1.27-alpine`.',
+			'Look from the host: `ps -fp "$(docker inspect -f \'{{.State.Pid}}\' lab-web)"`, then `docker top lab-web`. On macOS or Windows, Docker runs inside a small Linux VM, so only `docker top` works there.',
+			'Look from inside: `docker exec lab-web cat /proc/1/cmdline`, `docker exec lab-web ls /proc`, then compare `docker exec lab-web cat /etc/hostname` with `hostname`.',
+			'Check the cgroup: `docker inspect -f \'{{.HostConfig.Memory}}\' lab-web` and `docker exec lab-web cat /sys/fs/cgroup/memory.max`.',
+			'Write a file, then remove the container: `docker exec lab-web sh -c \'echo hello > /tmp/note.txt\' && docker diff lab-web`, then `docker rm -f lab-web && docker run -d --name lab-web nginx:1.27-alpine && docker exec lab-web cat /tmp/note.txt`. Clean up with `docker rm -f lab-web`.'
+		],
+		done: [
+			'On Linux, the host `ps` shows `nginx: master process` under the same PID as the first line of `docker top lab-web`, a large number.',
+			'Inside, `/proc/1/cmdline` is `nginx: master process nginx -g daemon off;`: the master is PID 1.',
+			'`docker inspect` prints `268435456`, and on a cgroup v2 host `memory.max` prints the same number.',
+			'`docker diff lab-web` lists `A /tmp/note.txt`, and after the new run `cat /tmp/note.txt` fails with "No such file or directory".'
+		],
+		solution: [
+			'The PID namespace gives the container its own numbering: one process, two PIDs, one kernel.',
+			'Another namespace gives the container its own hostname: by default, the short container ID.',
+			'`--memory 256m` became a cgroup limit of 256 × 1024 × 1024 bytes, which the kernel enforces.',
+			'The file lived in the writable layer. `docker rm` dropped that layer, and the image never changed.'
+		]
+	},
 	recall: {
 		q: 'Which two kernel features make a process a container, and what does each one control?',
 		a: 'Namespaces control what the process sees (its PIDs, network, mounts). cgroups control how much it uses (memory, CPU). The process still runs on the host kernel.'

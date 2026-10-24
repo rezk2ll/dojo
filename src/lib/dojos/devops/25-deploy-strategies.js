@@ -104,6 +104,44 @@ spec:
 			'Second: deploy v2, which writes the column, as a **rolling** or canary update. If v2 misbehaves, roll back the app only. The column stays, v1 still works.',
 			'Never drop or rename a column in the same release that stops using it. Wait until no running version needs it.',
 			'Blue-green needs the same two steps: blue and green usually share the database.'
+		],
+		steps: [
+			{
+				title: 'Spot the risk',
+				questions: [
+					{ q: 'During a rolling update across the 4 servers, what talks to the database?', options: ['Only v2, once the first server is updated', 'v1 and v2, at the same time', 'Only v1, until the last server switches', 'Nothing: the update locks the database'], answer: 1, why: 'A rolling update replaces copies a few at a time, so both versions answer users for a while.' },
+					{ q: 'Why is that a problem for the schema change?', options: ['A change v1 does not expect breaks the v1 copies still running', 'Two versions cannot open the same table', 'The load balancer reads the schema', 'v2 cannot start until v1 has stopped'], answer: 0, why: 'v1 and v2 must be compatible, and that includes the database they share.' },
+					{ q: 'Does blue-green avoid the problem?', options: ['Yes: blue and green each get their own database', 'Yes: only one version runs at a time', 'No: blue and green usually share the database', 'Only when the switch is instant'], answer: 2, why: 'Two full app environments, one database. The schema still has to suit both.' },
+					{ q: 'What must the plan keep, whatever the strategy?', options: ['A short window of downtime', 'A copy of every row', 'Only one version running at a time', 'A way back to v1 that works on the new schema'], answer: 3, why: 'Every strategy needs a rollback to the last version that worked.' }
+				]
+			},
+			{
+				title: 'Add the column first',
+				questions: [
+					{ q: 'What does the first deploy contain?', options: ['A migration that only adds the column, nullable or with a default', 'The new column and v2, shipped together', 'A rename of an old column to the new name', 'A copy of `orders` into a new table'], answer: 0, why: 'Adding is safe on its own. v2 comes in a second deploy.' },
+					{ q: 'Why nullable or with a default?', options: ['Postgres requires it for every column', 'v1 keeps inserting rows without that column', 'It makes the migration run faster', 'v2 cannot write a column that has no default'], answer: 1, why: 'v1 knows nothing about the column, so its inserts must still be valid without it.' },
+					{ q: 'After this migration, what does v1 do?', options: ['It crashes until it is restarted', 'It starts writing the new column', 'It ignores the column and keeps working', 'It needs a new release to read `orders`'], answer: 2, why: 'v1 never asks for the column, so nothing it does changes.' },
+					{ q: 'What does this first deploy give you?', options: ['A faster checkout', 'A feature flag for the column', 'Double the capacity', 'A rollback point'], answer: 3, why: 'The schema now suits v1 and v2. You can move between them freely.' }
+				]
+			},
+			{
+				title: 'Ship v2',
+				questions: [
+					{ q: 'How do you ship v2, which writes the column?', options: ['As a rolling or canary update', 'With recreate: stop all four servers, then start v2', 'Together with the migration, in one step', 'By hand, one server per day'], answer: 0, why: 'The schema already suits both versions, so you can update with no downtime.' },
+					{ q: 'v2 misbehaves. What do you roll back?', options: ['The app and the column', 'Only the column', 'The app only, the column stays', 'Nothing: you fix forward'], answer: 2, why: 'v1 ignores the column, so it runs fine with it in place.' },
+					{ q: 'You ship v2 as a canary. Who is hurt if it is bad?', options: ['Every user, as with recreate', 'Only the small share of users sent to v2', 'Nobody, because the canary has no traffic', 'Only the users still on v1'], answer: 1, why: 'A canary limits a bad release to a small share of real traffic.' },
+					{ q: 'What does a canary need to tell you v2 is worse?', options: ['A second database', 'A feature flag on every page', 'A longer pause between steps', 'Metrics that compare v2 with v1'], answer: 3, why: 'Without metrics good enough to show "v2 is worse", the canary tells you nothing.' }
+				]
+			},
+			{
+				title: 'Clean up later',
+				questions: [
+					{ q: 'When can you drop or rename a column?', options: ['When no running version needs it', 'In the same release that stops using it', 'Before v2 ships, to keep the table clean', 'Never: columns stay forever'], answer: 0, why: 'Removing it while a version still reads it breaks that version, and your rollback.' },
+					{ q: 'Why not drop the old column in the release that stops using it?', options: ['Postgres forbids it', 'The v1 copies still running, and your rollback target, still use it', 'The migration would be too slow', 'Feature flags would stop working'], answer: 1, why: 'For a while v1 still serves users, and it is also where you go back to.' },
+					{ q: 'You switch to blue-green next quarter. Do you still need the two deploys?', options: ['No: green gets a fresh database', 'No: the router handles the schema', 'Yes: blue and green usually share the database', 'Only if you also use a canary'], answer: 2, why: 'Both colours read the same tables, so the schema must suit both.' },
+					{ q: 'When should you first run the rollback?', options: ['The day v2 breaks', 'Never: a plan on paper is enough', 'After the column is dropped', 'Once, before you need it'], answer: 3, why: 'A rollback you have never run is a guess. Test it while nothing is on fire.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,28 @@ spec:
 			why: 'A flag separates deploy (the code is on the servers) from release (users get the feature). You can turn it on, or back off, without touching the pipeline.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See for yourself which schema change lets v1 keep running, and which one breaks it.',
+		steps: [
+			'Start a database: `docker run -d --name orders-db -e POSTGRES_PASSWORD=lab postgres:16`. Wait until `docker exec orders-db pg_isready -U postgres` prints `accepting connections`.',
+			'Open a shell with `docker exec -it orders-db psql -U postgres` and create the v1 table: `CREATE TABLE orders (id serial PRIMARY KEY, total numeric NOT NULL);`.',
+			'Play v1: `INSERT INTO orders (total) VALUES (10);`. Then the first deploy: `ALTER TABLE orders ADD COLUMN coupon text;`. Play v1 again with the same insert.',
+			'Play v2: `INSERT INTO orders (total, coupon) VALUES (30, \'SPRING\');`. Then roll back to v1, run the v1 insert once more, and look at the table: `SELECT id, total, coupon FROM orders;`.',
+			'Now try the change you must never ship with v2: `ALTER TABLE orders RENAME COLUMN total TO amount;`, and run the v1 insert.',
+			'Leave psql with `\\q` and clean up with `docker rm -f orders-db`.'
+		],
+		done: [
+			'Every v1 insert after `ADD COLUMN` prints `INSERT 0 1`.',
+			'The `SELECT` in step 4 shows `SPRING` on the v2 row and an empty `coupon` on the v1 rows.',
+			'After the rename, the v1 insert fails with `column "total" of relation "orders" does not exist`.'
+		],
+		solution: [
+			'A nullable column with no default leaves every v1 statement valid, so v1 and v2 can run side by side and you can roll the app back.',
+			'The rename breaks every running v1 copy at once, and the rollback with them. Rename or drop a column only once no running version needs it.',
+			'Try `ALTER TABLE orders ADD COLUMN note text NOT NULL;` on the table with rows: Postgres refuses it, because the existing rows have no value.'
+		]
+	},
 	recall: {
 		q: 'In the Argo Rollouts canary with 5 copies, what does `setWeight: 20` followed by `pause: {}` do?',
 		a: 'It runs 1 new copy and 4 old ones, so about 20% of traffic reaches v2. The rollout then waits until a human runs `kubectl argo rollouts promote canary-demo`.'

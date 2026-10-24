@@ -104,6 +104,44 @@ spec:
 			'Ensuite : déploie la v2, qui écrit dans la colonne, en **rolling** ou en canary. Si la v2 se comporte mal, fais un rollback de l’application seulement. La colonne reste, la v1 marche toujours.',
 			'Ne supprime ni ne renomme jamais une colonne dans la version qui arrête de l’utiliser. Attends qu’aucune version en service n’en ait besoin.',
 			'Blue-green demande les mêmes deux étapes : blue et green partagent en général la base.'
+		],
+		steps: [
+			{
+				title: 'Repère le risque',
+				questions: [
+					{ q: 'Pendant un rolling update sur les 4 serveurs, qui parle à la base ?', options: ['Seulement la v2, dès que le premier serveur est à jour', 'La v1 et la v2, en même temps', 'Seulement la v1, jusqu’à la bascule du dernier serveur', 'Personne : la mise à jour verrouille la base'], answer: 1, why: 'Un rolling update remplace les copies quelques-unes à la fois, donc les deux versions servent les utilisateurs un moment.' },
+					{ q: 'Pourquoi est-ce un problème pour le changement de schéma ?', options: ['Un changement que la v1 n’attend pas casse les copies v1 encore en service', 'Deux versions ne peuvent pas ouvrir la même table', 'Le load balancer lit le schéma', 'La v2 ne peut pas démarrer avant l’arrêt de la v1'], answer: 0, why: 'La v1 et la v2 doivent être compatibles, y compris avec la base qu’elles partagent.' },
+					{ q: 'Blue-green évite-t-il le problème ?', options: ['Oui : blue et green ont chacun leur base', 'Oui : une seule version tourne à la fois', 'Non : blue et green partagent en général la base', 'Seulement si la bascule est instantanée'], answer: 2, why: 'Deux environnements applicatifs complets, une seule base. Le schéma doit toujours convenir aux deux.' },
+					{ q: 'Que doit garder le plan, quelle que soit la stratégie ?', options: ['Une courte fenêtre de coupure', 'Une copie de chaque ligne', 'Une seule version en service à la fois', 'Un retour à la v1 qui marche sur le nouveau schéma'], answer: 3, why: 'Chaque stratégie a besoin d’un rollback vers la dernière version qui marchait.' }
+				]
+			},
+			{
+				title: 'Ajoute la colonne d’abord',
+				questions: [
+					{ q: 'Que contient le premier déploiement ?', options: ['Une migration qui ajoute seulement la colonne, nullable ou avec une valeur par défaut', 'La nouvelle colonne et la v2, livrées ensemble', 'Le renommage d’une ancienne colonne vers le nouveau nom', 'Une copie de `orders` dans une nouvelle table'], answer: 0, why: 'Ajouter ne casse rien à lui seul. La v2 vient dans un second déploiement.' },
+					{ q: 'Pourquoi nullable ou avec une valeur par défaut ?', options: ['Postgres l’exige pour chaque colonne', 'La v1 continue d’insérer des lignes sans cette colonne', 'La migration va plus vite', 'La v2 ne sait pas écrire une colonne sans valeur par défaut'], answer: 1, why: 'La v1 ne connaît pas la colonne, donc ses insertions doivent rester valides sans elle.' },
+					{ q: 'Après cette migration, que fait la v1 ?', options: ['Elle plante jusqu’à son redémarrage', 'Elle commence à écrire dans la nouvelle colonne', 'Elle ignore la colonne et continue de marcher', 'Elle a besoin d’une nouvelle version pour lire `orders`'], answer: 2, why: 'La v1 ne demande jamais la colonne, donc rien ne change pour elle.' },
+					{ q: 'Que t’apporte ce premier déploiement ?', options: ['Un paiement plus rapide', 'Un feature flag pour la colonne', 'Le double de capacité', 'Un point de rollback'], answer: 3, why: 'Le schéma convient maintenant à la v1 et à la v2. Tu peux passer de l’une à l’autre librement.' }
+				]
+			},
+			{
+				title: 'Livre la v2',
+				questions: [
+					{ q: 'Comment livres-tu la v2, qui écrit dans la colonne ?', options: ['En rolling update ou en canary', 'En recreate : arrêter les quatre serveurs, puis lancer la v2', 'Avec la migration, en une seule étape', 'À la main, un serveur par jour'], answer: 0, why: 'Le schéma convient déjà aux deux versions, donc tu peux mettre à jour sans coupure.' },
+					{ q: 'La v2 se comporte mal. De quoi fais-tu le rollback ?', options: ['De l’application et de la colonne', 'De la colonne seulement', 'De l’application seulement, la colonne reste', 'De rien : tu corriges en avant'], answer: 2, why: 'La v1 ignore la colonne, donc elle tourne très bien avec.' },
+					{ q: 'Tu livres la v2 en canary. Qui souffre si elle est mauvaise ?', options: ['Tous les utilisateurs, comme en recreate', 'Seulement la petite part d’utilisateurs envoyée vers la v2', 'Personne, car le canary ne reçoit pas de trafic', 'Seulement les utilisateurs restés sur la v1'], answer: 1, why: 'Un canary limite une mauvaise version à une petite part du vrai trafic.' },
+					{ q: 'De quoi un canary a-t-il besoin pour te dire que la v2 est pire ?', options: ['D’une deuxième base', 'D’un feature flag sur chaque page', 'D’une pause plus longue entre les paliers', 'De métriques qui comparent la v2 à la v1'], answer: 3, why: 'Sans métriques capables de montrer « la v2 est pire », le canary ne t’apprend rien.' }
+				]
+			},
+			{
+				title: 'Nettoie plus tard',
+				questions: [
+					{ q: 'Quand peux-tu supprimer ou renommer une colonne ?', options: ['Quand aucune version en service n’en a besoin', 'Dans la version qui arrête de l’utiliser', 'Avant la livraison de la v2, pour garder la table propre', 'Jamais : les colonnes restent pour toujours'], answer: 0, why: 'La retirer pendant qu’une version la lit encore casse cette version, et ton rollback.' },
+					{ q: 'Pourquoi ne pas supprimer l’ancienne colonne dans la version qui arrête de l’utiliser ?', options: ['Postgres l’interdit', 'Les copies v1 encore en service, et ta cible de rollback, l’utilisent encore', 'La migration serait trop lente', 'Les feature flags ne marcheraient plus'], answer: 1, why: 'Pendant un moment, la v1 sert encore des utilisateurs, et c’est aussi là que tu reviens.' },
+					{ q: 'Tu passes au blue-green le trimestre prochain. Les deux déploiements sont-ils encore utiles ?', options: ['Non : green reçoit une base neuve', 'Non : le routeur gère le schéma', 'Oui : blue et green partagent en général la base', 'Seulement si tu fais aussi un canary'], answer: 2, why: 'Les deux couleurs lisent les mêmes tables, donc le schéma doit convenir aux deux.' },
+					{ q: 'Quand lances-tu le rollback pour la première fois ?', options: ['Le jour où la v2 casse', 'Jamais : un plan sur papier suffit', 'Après la suppression de la colonne', 'Une fois, avant d’en avoir besoin'], answer: 3, why: 'Un rollback jamais lancé n’est qu’une supposition. Teste-le pendant que rien ne brûle.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,28 @@ spec:
 			why: 'Un flag sépare le déploiement (le code est sur les serveurs) de la mise en service (les utilisateurs ont la fonctionnalité). Tu peux l’allumer, ou l’éteindre, sans toucher au pipeline.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir par toi-même quel changement de schéma laisse tourner la v1, et lequel la casse.',
+		steps: [
+			'Lance une base : `docker run -d --name orders-db -e POSTGRES_PASSWORD=lab postgres:16`. Attends que `docker exec orders-db pg_isready -U postgres` affiche `accepting connections`.',
+			'Ouvre un shell avec `docker exec -it orders-db psql -U postgres` et crée la table de la v1 : `CREATE TABLE orders (id serial PRIMARY KEY, total numeric NOT NULL);`.',
+			'Joue la v1 : `INSERT INTO orders (total) VALUES (10);`. Puis le premier déploiement : `ALTER TABLE orders ADD COLUMN coupon text;`. Rejoue la v1 avec la même insertion.',
+			'Joue la v2 : `INSERT INTO orders (total, coupon) VALUES (30, \'SPRING\');`. Puis reviens à la v1, relance l’insertion de la v1, et regarde la table : `SELECT id, total, coupon FROM orders;`.',
+			'Essaie maintenant le changement à ne jamais livrer avec la v2 : `ALTER TABLE orders RENAME COLUMN total TO amount;`, et lance l’insertion de la v1.',
+			'Quitte psql avec `\\q` et nettoie avec `docker rm -f orders-db`.'
+		],
+		done: [
+			'Chaque insertion de la v1 après `ADD COLUMN` affiche `INSERT 0 1`.',
+			'Le `SELECT` de l’étape 4 montre `SPRING` sur la ligne de la v2 et un `coupon` vide sur les lignes de la v1.',
+			'Après le renommage, l’insertion de la v1 échoue avec `column "total" of relation "orders" does not exist`.'
+		],
+		solution: [
+			'Une colonne nullable sans valeur par défaut laisse chaque requête de la v1 valide, donc la v1 et la v2 tournent côte à côte et tu peux faire un rollback de l’application.',
+			'Le renommage casse d’un coup chaque copie v1 en service, et le rollback avec. Renomme ou supprime une colonne seulement quand aucune version en service n’en a besoin.',
+			'Essaie `ALTER TABLE orders ADD COLUMN note text NOT NULL;` sur la table remplie : Postgres refuse, parce que les lignes existantes n’ont pas de valeur.'
+		]
+	},
 	recall: {
 		q: 'Dans le canary Argo Rollouts à 5 copies, que font `setWeight: 20` puis `pause: {}` ?',
 		a: 'Ils font tourner 1 nouvelle copie et 4 anciennes, donc environ 20 % du trafic arrive sur la v2. Le rollout attend ensuite qu’un humain lance `kubectl argo rollouts promote canary-demo`.'

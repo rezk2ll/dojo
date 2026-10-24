@@ -137,6 +137,44 @@ deploy:
 			'On `deploy`: `rules:` then `- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` with `when: manual`. On other branches no rule matches, so the job is not in the pipeline.',
 			'`deploy` gets `build/*` from `run` without any extra line: later stages download earlier artifacts by default.',
 			'Keep `environment: production`. Now every click is recorded on the environment page, and you can roll back to the previous deployment from there.'
+		],
+		steps: [
+			{
+				title: 'Make the stages explicit',
+				questions: [
+					{ q: 'The template has no `stages:` list. Which stages does GitLab use?', options: ['Only `test`', '`build`, `test`, `deploy`, with nothing around them', '`.pre`, `build`, `test`, `deploy`, `.post`', 'None: every job runs in parallel'], answer: 2, why: 'Those are GitLab\'s default stages.' },
+					{ q: 'Which stage does `run` land in today?', options: ['`test`', '`build`', '`deploy`', '`.pre`'], answer: 0, why: '`run` has no `stage` key, and a job with no `stage` is assigned to `test`.' },
+					{ q: 'Which line makes the stages explicit?', options: ['`stage: [build, test, deploy]` on every job', '`rules: [build, test, deploy]` on `deploy`', '`environment: [build, test, deploy]`', '`stages: [build, test, deploy]` at the top'], answer: 3, why: '`stages:` at the top sets the list and its order. `stage:` on a job picks one of them.' },
+					{ q: 'Which line moves `run` into the build stage?', options: ['`needs: build` on `run`', '`stage: build` on `run`', '`image: build` on `run`', '`when: build` on `run`'], answer: 1, why: 'The `stage` key puts a job in a stage. `test` now waits for `run` to pass.' }
+				]
+			},
+			{
+				title: 'Pass the build output',
+				questions: [
+					{ q: '`run` makes `build/*`, and `deploy` needs it. Where does it go?', options: ['In `artifacts`', 'In `cache`', 'In a CI/CD variable', 'Nowhere: `deploy` builds it again'], answer: 0, why: 'GitLab stores artifacts and passes them to later stages of the same pipeline.' },
+					{ q: 'Which extra line does `deploy` need to receive `build/*`?', options: ['`cache: paths: [build/*]`', '`image: python:latest`', '`stage: build`', 'None: later stages download earlier artifacts by default'], answer: 3, why: 'The download is the default. The template already keeps `build/*` as an artifact.' },
+					{ q: 'Why would reading `build/*` from the cache break deploys?', options: ['The cache is read-only for deploy jobs', 'A job can start with an empty cache', 'The cache only holds Python files', 'The cache is deleted after each stage'], answer: 1, why: 'The cache is a speed-up for downloads like `.cache/pip`. A job must still work without it.' },
+					{ q: 'How long does GitLab keep artifacts?', options: ['Forever', 'Until the next push', '30 days by default, unless the job sets `expire_in`', 'Only while the runner stays up'], answer: 2, why: 'The default is 30 days, an instance setting that `expire_in` can change per job.' }
+				]
+			},
+			{
+				title: 'Gate the deploy',
+				questions: [
+					{ q: 'Which rule makes `deploy` default branch only and click to run?', options: ['`when: manual`, with no `if`', '`- if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH` with `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` with `when: manual`', '`- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` alone'], answer: 2, why: 'The `if` picks the branch, and `when: manual` adds the button.' },
+					{ q: 'You push to a feature branch. What happens to `deploy`?', options: ['It shows up, waiting for a click', 'It runs and fails', 'It runs, because rules apply only to merge requests', 'It is not added to the pipeline'], answer: 3, why: 'If no rule matches, the job is not in the pipeline at all.' },
+					{ q: 'When does GitLab check `rules`?', options: ['When it creates the pipeline', 'When a runner picks up the job', 'After the job\'s script ends', 'Only when someone clicks'], answer: 0, why: 'Rules decide if a job is added to the pipeline, and how, at creation time.' },
+					{ q: 'A test job fails on the default branch. Can someone deploy?', options: ['Yes, a manual job ignores earlier stages', 'No: `deploy` starts only if every earlier stage passed', 'Yes, but only with a warning', 'Only from a feature branch'], answer: 1, why: '`deploy` is in the deploy stage, so it waits for every test-stage job to pass.' }
+				]
+			},
+			{
+				title: 'Keep the record',
+				questions: [
+					{ q: 'Why keep `environment: production` on `deploy`?', options: ['GitLab records which commit went there and when', 'It makes the job run faster', 'It is what adds the manual button', 'It picks the runner'], answer: 0, why: 'An environment names a deploy target, and GitLab keeps its deploy history.' },
+					{ q: 'A deploy goes wrong. Where do you roll back?', options: ['On the runner, with `git revert`', 'In `.gitlab-ci.yml`, by deleting `deploy`', 'By clearing the cache', 'On the environment page, to an earlier deployment'], answer: 3, why: 'The environment page has a button to roll back to a previous deployment.' },
+					{ q: 'Someone clicks the button. What runs the deploy script?', options: ['The GitLab server itself', 'A runner that picks up the job', 'The browser of the person who clicked', 'The production server, through a webhook'], answer: 1, why: 'GitLab itself runs nothing. A runner gets the job and runs its `script`.' },
+					{ q: 'How do you treat the runner that deploys to production?', options: ['Like any shared CI machine', 'As disposable: it holds no secrets', 'Like a production server', 'Like a developer laptop'], answer: 2, why: 'An attacker who takes over that runner can deploy anything.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -124,6 +124,44 @@ export default {
 			'`web-to-api`: `podSelector: { matchLabels: { app: web } }`, `policyTypes: [Egress]`, egress `to: [{ podSelector: { matchLabels: { app: api } } }]`, port TCP 8080.',
 			'`api-from-web`: `podSelector: { matchLabels: { app: api } }`, `policyTypes: [Ingress]`, ingress `from: [{ podSelector: { matchLabels: { app: web } } }]`, port TCP 8080.',
 			'Three objects. The connection needs egress on `web` and ingress on `api`, because deny-all isolated both pods both ways. Replies need no rule.'
+		],
+		steps: [
+			{
+				title: 'Count the holes',
+				questions: [
+					{ q: 'After `default-deny-all`, which pods in `shop` are isolated?', options: ['Only pods with no labels', 'Every pod, for ingress and egress', 'Every pod, for ingress only', 'Only `web` and `api`'], answer: 1, why: '`podSelector: {}` selects every pod in the namespace, and both directions are listed with no rules.' },
+					{ q: 'For `web` to reach `api` on 8080, what must be allowed?', options: ['Ingress on `api` only', 'Egress on `web` only', 'Egress on `web` and ingress on `api`', 'One policy on the `api` Service'], answer: 2, why: 'Both ends are isolated. The egress policy on the source and the ingress policy on the destination must both allow the connection.' },
+					{ q: 'In which direction is the DNS query a new hole?', options: ['Egress from the client pods', 'Ingress on the client pods', 'Ingress on CoreDNS in `shop`', 'No hole: DNS is always allowed'], answer: 0, why: 'The client sends the query out. Deny-all blocked that egress, and the docs warn it also blocks DNS.' },
+					{ q: 'Which protocols does DNS need on port 53?', options: ['UDP only', 'TCP only', 'ICMP and UDP', 'UDP and TCP'], answer: 3, why: 'Queries start on UDP. RFC 7766 says a client that gets a truncated UDP answer should retry over TCP.' }
+				]
+			},
+			{
+				title: 'Open DNS',
+				questions: [
+					{ q: 'In the answer, which pods does `allow-dns` select?', options: ['Only `app=web`', 'Every pod in `shop`, with `podSelector: {}`', 'The CoreDNS pods', 'Every pod in the cluster'], answer: 1, why: 'A spec `podSelector: {}` picks every pod in the policy\'s namespace, so all of `shop` can resolve names.' },
+					{ q: 'Which `policyTypes` does it list?', options: ['`[Egress]`', '`[Ingress]`', '`[Ingress, Egress]`', 'None: the type is inferred from `to`'], answer: 0, why: 'It only opens the outbound query. The ingress side of `shop` stays as deny-all left it.' },
+					{ q: 'The `to` entry holds both a `namespaceSelector` and a `podSelector`. What does that mean?', options: ['Either selector is enough', 'The namespace selector is ignored', 'Only the first selector counts', 'Both must match at once'], answer: 3, why: 'Selectors in one `to` item must all match. Two separate items would allow either one.' },
+					{ q: 'Which label picks the `kube-system` namespace?', options: ['`k8s-app: kube-dns`', '`name: kube-system`', '`kubernetes.io/metadata.name: kube-system`', '`app: coredns`'], answer: 2, why: 'The answer and the diagram use the `kubernetes.io/metadata.name` label for the namespace, and `k8s-app: kube-dns` for the pods.' }
+				]
+			},
+			{
+				title: 'Open `web` to `api`',
+				questions: [
+					{ q: 'Which pods does `web-to-api` select?', options: ['`app: api`', '`app: web`', 'Every pod in `shop`', 'The CoreDNS pods'], answer: 1, why: 'It opens egress, so it selects the source pods, `app=web`, and lists `app=api` in `to`.' },
+					{ q: 'Which pods does `api-from-web` select?', options: ['`app: api`', '`app: web`', 'Every pod in `shop`', 'No pods: it selects the Service'], answer: 0, why: 'It opens ingress, so it selects the destination pods, `app=api`, and lists `app=web` in `from`.' },
+					{ q: 'Which port do both rules name?', options: ['UDP 53', 'TCP 6379', 'TCP 80', 'TCP 8080'], answer: 3, why: 'The task says `web` calls `api` on TCP 8080.' },
+					{ q: 'Why not one policy that does both sides?', options: ['A policy cannot list ports', 'A policy cannot select by label', 'The two sides select different pods', 'Two policies are faster'], answer: 2, why: 'A policy applies to the pods its spec `podSelector` picks. The two directions sit on two different sets of pods.' }
+				]
+			},
+			{
+				title: 'Check the set',
+				questions: [
+					{ q: 'How many NetworkPolicy objects does the answer add?', options: ['Three', 'Two', 'One', 'Four'], answer: 0, why: '`allow-dns`, `web-to-api` and `api-from-web`. Each opens one hole on one set of pods.' },
+					{ q: 'Do the replies from `api` back to `web` need a rule?', options: ['Yes, an egress rule on `api`', 'Yes, an ingress rule on `web`', 'Only for UDP', 'No, replies are implicitly allowed'], answer: 3, why: 'The docs say reply traffic for an allowed connection is implicitly allowed.' },
+					{ q: 'Does the order you apply the three policies matter?', options: ['Yes, the last one wins', 'Yes, deny-all must be applied last', 'No, the allowed set is a union', 'Only within one namespace'], answer: 2, why: 'Policies only add allowed connections, so their order never changes the result.' },
+					{ q: 'The cluster runs flannel alone. What do the three policies change?', options: ['Only the DNS policy works', 'Nothing: flannel does not enforce them', 'Everything, once kube-proxy restarts', 'They block all traffic'], answer: 1, why: 'The API server stores the objects, and only a network plugin that enforces policies turns them into filter rules.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,29 @@ export default {
 			why: 'The API server stores the object, and only the network plugin turns it into filter rules on the nodes. A plugin like flannel on its own does not enforce policies, so the object has no effect.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'Break DNS with a deny-all policy on a real cluster, then open exactly the three holes the task asks for.',
+		steps: [
+			'Start a cluster whose network plugin enforces policies: `minikube start -p netpol-lab --cni=calico`.',
+			'Create the namespace and the pods: `kubectl create namespace shop`, `kubectl -n shop create deployment api --image=nginx:1.27`, `kubectl -n shop expose deployment api --port=80`, then `kubectl -n shop run web --image=nicolaka/netshoot:v0.13 --labels=app=web -- sleep 3600`. Wait for them: `kubectl -n shop wait --for=condition=Ready pod --all --timeout=180s`.',
+			'Check the path works: `kubectl -n shop exec web -- curl -s -o /dev/null -w \'%{http_code}\\n\' --max-time 20 http://api/`.',
+			'Apply deny-all: `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"default-deny-all","namespace":"shop"},"spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}\' | kubectl apply -f -`, and run the same `curl` again.',
+			'Write `allow-dns`, `web-to-api` and `api-from-web` from the task, with port TCP 80 in place of 8080, apply them, and run the `curl` once more. Clean up with `minikube delete -p netpol-lab`.'
+		],
+		done: [
+			'Before any policy, `curl` prints `200`.',
+			'After deny-all, `curl` does not print `200`: it fails on the name `api` or hits the 20 s limit.',
+			'After the three policies, `curl` prints `200` again.',
+			'`kubectl -n shop delete networkpolicy api-from-web` makes the `curl` fail again, although DNS still works.'
+		],
+		solution: [
+			'`allow-dns`: `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-dns","namespace":"shop"},"spec":{"podSelector":{},"policyTypes":["Egress"],"egress":[{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}]}}`',
+			'`web-to-api`: `"podSelector":{"matchLabels":{"app":"web"}}`, `"policyTypes":["Egress"]`, `"egress":[{"to":[{"podSelector":{"matchLabels":{"app":"api"}}}],"ports":[{"protocol":"TCP","port":80}]}]`.',
+			'`api-from-web`: `"podSelector":{"matchLabels":{"app":"api"}}`, `"policyTypes":["Ingress"]`, `"ingress":[{"from":[{"podSelector":{"matchLabels":{"app":"web"}}}],"ports":[{"protocol":"TCP","port":80}]}]`.',
+			'The last check is the lesson: egress on `web` alone is not enough. The ingress side on `api` must agree too.'
+		]
+	},
 	recall: {
 		q: 'What does a pod in a namespace with no NetworkPolicy accept, and what must allow a connection from pod A to pod B once both are isolated?',
 		a: 'With no policy, every inbound and outbound connection is allowed. Once isolated, an egress rule on A and an ingress rule on B must both allow it, and the network plugin (Calico, Cilium) must enforce them.'

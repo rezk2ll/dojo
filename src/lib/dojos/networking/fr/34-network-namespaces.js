@@ -121,6 +121,44 @@ export default {
 			'`eth0@if559` et `iflink` à 559 disent que le pair a l’index 559 dans un autre namespace. Sur l’hôte, l’index 559 est `vetha14c4f7`, et son propre `@if2` renvoie vers l’index 2, le `eth0` du conteneur.',
 			'`master docker0` sur l’extrémité hôte dit que la paire est rattachée au bridge `docker0`, d’adresse 172.17.0.1/16.',
 			'La route du conteneur `default via 172.17.0.1` envoie le trafic destiné à l’hôte vers `docker0`. PostgreSQL doit écouter sur 172.17.0.1 (ou sur toutes les adresses) et accepter 172.17.0.0/16, et l’app se connecte à 172.17.0.1:5432.'
+		],
+		steps: [
+			{
+				title: 'Lis le côté conteneur',
+				questions: [
+					{ q: 'Dans `2: eth0@if559`, que vaut `2` ?', options: ['L’index de `eth0` dans le namespace du conteneur', 'Le nombre d’adresses sur `eth0`', 'L’index du pair sur l’hôte', 'Le VLAN de l’interface'], answer: 0, why: 'Le nombre avant les deux-points est l’index de l’interface dans son propre namespace.' },
+					{ q: 'Que t’apprend `@if559` ?', options: ['`eth0` a 559 paquets en file d’attente', 'L’interface paire a l’index 559 dans un autre namespace', '`eth0` est le 559e conteneur de l’hôte', 'Le bridge a l’index 559'], answer: 1, why: 'Dans `name@ifN`, N est l’index de l’interface paire dans l’autre namespace.' },
+					{ q: 'Qu’apporte `cat /sys/class/net/eth0/iflink` qui affiche `559` ?', options: ['Il donne le MTU du lien', 'Il donne le nombre de sauts jusqu’à l’hôte', 'Il confirme le même index de pair, 559', 'Il donne le PID du conteneur'], answer: 2, why: '`iflink` contient l’index de l’interface liée. Il correspond au `@if559` qu’affiche `ip link`.' },
+					{ q: 'Qu’est-ce que `inet 172.17.0.6/16` ?', options: ['L’adresse de l’hôte sur `docker0`', 'L’adresse de l’extrémité hôte de la paire', 'La passerelle par défaut', 'L’adresse du conteneur sur le réseau du bridge'], answer: 3, why: 'C’est l’adresse de `eth0` dans le namespace du conteneur. La passerelle vient de la ligne de route.' }
+				]
+			},
+			{
+				title: 'Trouve l’extrémité hôte',
+				questions: [
+					{ q: 'Quelle interface de l’hôte est l’autre bout de `eth0` ?', options: ['`docker0`', '`vetha14c4f7`', 'Le `eth0` de l’hôte', 'Le `lo` de l’hôte'], answer: 1, why: 'Sur l’hôte, l’index 559 est `vetha14c4f7`, l’index que pointait le côté conteneur.' },
+					{ q: 'Dans `vetha14c4f7@if2`, vers quoi pointe `@if2` ?', options: ['Le `eth0` du conteneur, index 2', 'Le deuxième bridge de l’hôte', 'Le deuxième conteneur lancé', 'L’interface 2 de l’hôte'], answer: 0, why: 'Chaque bout donne l’index de son pair. L’index 2 est `eth0` dans le namespace du conteneur.' },
+					{ q: 'Un paquet sort du conteneur par `eth0`. Où apparaît-il ?', options: ['Directement sur `docker0`, sans interface entre les deux', 'Sur le `eth0` de l’hôte', 'Aussitôt sur `vetha14c4f7`', 'Nulle part tant que l’hôte n’a pas de route'], answer: 2, why: 'veth(4) : un paquet émis sur une interface de la paire est reçu immédiatement sur l’autre.' },
+					{ q: 'Tu lances `ip link set vetha14c4f7 down` sur l’hôte. Que devient `eth0` ?', options: ['Rien, elle est dans un autre namespace', 'Elle est supprimée', 'Elle perd son adresse', 'Son lien tombe'], answer: 3, why: 'Quand l’une des deux interfaces d’une paire veth est down, le lien de la paire est down.' }
+				]
+			},
+			{
+				title: 'Trouve le bridge',
+				questions: [
+					{ q: 'Quelle partie de la ligne hôte nomme le bridge ?', options: ['`master docker0`', '`qdisc noqueue`', '`mtu 1500`', '`<BROADCAST,MULTICAST,UP,LOWER_UP>`'], answer: 0, why: '`master docker0` dit que l’extrémité hôte est rattachée au bridge `docker0`.' },
+					{ q: 'Quelle est l’adresse de `docker0` ?', options: ['172.17.0.6/16', '127.0.0.1', '172.17.0.1/16', '172.17.0.0/16'], answer: 2, why: 'Le bridge a 172.17.0.1/16. 172.17.0.6 est le conteneur, et 172.17.0.0/16 le réseau.' },
+					{ q: 'Que fait `default via 172.17.0.1 dev eth0` ?', options: ['Elle fait de 172.17.0.1 l’adresse du conteneur', 'Elle envoie le trafic vers les autres réseaux à l’adresse du bridge', 'Elle fait suivre le trafic de l’hôte dans le conteneur', 'Elle publie le port 5432'], answer: 1, why: 'Tout paquet sans route plus précise sort par `eth0` vers 172.17.0.1, le bridge, et entre dans l’hôte par là.' },
+					{ q: 'Un autre conteneur a lui aussi son extrémité hôte sur `docker0`. Les deux peuvent-ils se joindre ?', options: ['Non, chaque namespace est totalement isolé', 'Seulement via le `eth0` de l’hôte', 'Seulement avec un port publié', 'Oui, sur 172.17.0.0/16 à travers le bridge'], answer: 3, why: 'Un bridge se comporte comme un seul switch. Chaque conteneur dont l’extrémité hôte est sur `docker0` partage 172.17.0.0/16.' }
+				]
+			},
+			{
+				title: 'Joins PostgreSQL sur l’hôte',
+				questions: [
+					{ q: 'Pourquoi `localhost:5432` échoue-t-il dans le conteneur ?', options: ['`localhost` est le `lo` du conteneur, où rien n’écoute sur 5432', 'Docker bloque le port 5432 par défaut', 'Le DNS ne résout pas `localhost` dans les conteneurs', 'PostgreSQL refuse les connexions des conteneurs'], answer: 0, why: 'Chaque namespace a son propre loopback et ses propres ports. Le noyau du conteneur répond par un RST.' },
+					{ q: 'À quelle adresse l’app doit-elle se connecter ?', options: ['172.17.0.6:5432', '172.17.0.1:5432', '127.0.0.1:5432', '0.0.0.0:5432'], answer: 1, why: '172.17.0.1 est l’hôte sur le bridge, joignable par la route par défaut du conteneur.' },
+					{ q: 'Sur quoi PostgreSQL doit-il écouter ?', options: ['127.0.0.1 seulement', '172.17.0.6', '172.17.0.1, ou toutes les adresses', 'L’index de `vetha14c4f7`'], answer: 2, why: 'Un serveur sur 127.0.0.1 n’est joignable que depuis le loopback de l’hôte. Il doit écouter sur une adresse que le conteneur peut router.' },
+					{ q: 'Quel réseau client PostgreSQL doit-il accepter ?', options: ['127.0.0.0/8', 'Seulement 172.17.0.1', 'Le réseau public de l’hôte', '172.17.0.0/16'], answer: 3, why: 'Le conteneur se connecte depuis 172.17.0.6, dans 172.17.0.0/16. Tout autre conteneur du bridge aussi.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ export default {
 			why: '`ip netns list` affiche les namespaces nommés de `/var/run/netns`. Docker enregistre le namespace de chaque conteneur ailleurs, par exemple `/var/run/docker/netns/727b28c428b4` dans la sortie de `docker inspect`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Suivre le `eth0` d’un conteneur jusqu’à son pair veth et au bridge, puis voir pourquoi `localhost` n’est pas la bonne adresse pour un service de l’hôte.',
+		steps: [
+			'Lance un conteneur : `docker run -d --name ns-lab alpine:3.20 sleep 3600`. Il faut Docker sous Linux : sous macOS, le côté hôte vit dans la VM de Docker.',
+			'Regarde dedans : `docker exec ns-lab ip link`, `docker exec ns-lab ip route` et `docker exec ns-lab cat /sys/class/net/eth0/iflink`.',
+			'Trouve le pair sur l’hôte : `ip -o link | grep "^$(docker exec ns-lab cat /sys/class/net/eth0/iflink):"`.',
+			'Lance un serveur web sur le loopback de l’hôte : `python3 -m http.server 8099 --bind 127.0.0.1 &`, puis `docker exec ns-lab wget -qO- -T 3 http://localhost:8099/`. Arrête-le avec `kill %1`.',
+			'Relance-le sur l’adresse du bridge (`ip -4 addr show docker0` l’affiche, 172.17.0.1 par défaut) : `python3 -m http.server 8099 --bind 172.17.0.1 & sleep 1`, puis `docker exec ns-lab wget -qO- -T 3 http://172.17.0.1:8099/`. Nettoie avec `kill %1 && docker rm -f ns-lab`.'
+		],
+		done: [
+			'Dedans, `ip link` montre `eth0@ifN` et `iflink` affiche le même N.',
+			'Sur l’hôte, l’interface N est une ligne `veth...@if2` avec `master docker0`.',
+			'`wget` vers `localhost:8099` échoue avec `Connection refused`.',
+			'`wget` vers `172.17.0.1:8099` affiche un listing HTML de dossier.'
+		],
+		solution: [
+			'`ip route` dans le conteneur montre `default via 172.17.0.1 dev eth0` : l’adresse du bridge est le chemin du conteneur vers l’hôte.',
+			'Le refus vient du `lo` du conteneur : rien n’écoute sur 8099 dans son namespace, et son noyau répond au SYN par un RST.',
+			'Si le second `wget` expire au lieu de répondre, un pare-feu de l’hôte sur le hook input jette le trafic venu de `docker0`. C’est à nouveau le chapitre 33.'
+		]
+	},
 	recall: {
 		q: 'Comment le `eth0` d’un conteneur rejoint-il le bridge `docker0` de l’hôte ?',
 		a: 'Par une paire veth. Un bout est `eth0` dans le namespace du conteneur, le pair (ici `vetha14c4f7`, index 559) est dans le namespace de l’hôte avec `master docker0`. Un paquet émis sur un bout arrive aussitôt sur l’autre.'

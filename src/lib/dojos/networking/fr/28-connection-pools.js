@@ -135,6 +135,44 @@ export default {
 			'Jusqu’à 32 threads tiennent une connexion en même temps. Le pool a `block=False` : urllib3 ouvre jusqu’à 32 connexions. Sa file n’en garde que 10. Chaque connexion rendue à une file pleine est fermée et journalisée, et la requête suivante en ouvre une neuve.',
 			'Correction : `session.mount("https://", requests.adapters.HTTPAdapter(pool_maxsize=32))`. Dans le test lancé pour ce chapitre, ce changement a fait passer les avertissements de 22 à 0.',
 			'Avec `pool_block=True` et une taille de 10, au plus 10 requêtes tournent en même temps. Les 22 autres threads attendent qu’une connexion revienne. L’API ne voit jamais plus de 10 connexions, mais les threads passent du temps à attendre. requests appelle `urlopen` sans `pool_timeout`, donc cette attente n’a pas de limite.'
+		],
+		steps: [
+			{
+				title: 'Compte les connexions',
+				questions: [
+					{ q: 'Combien de connexions peuvent être utilisées au pic ?', options: ['32, une par thread', '10, la taille du pool', '1, puisque la session est partagée', '2, comme le défaut de Go'], answer: 0, why: 'Chacun des 32 threads tient une connexion pendant sa requête, et tous appellent le même hôte.' },
+					{ q: 'Quelle taille de pool requests donne-t-il par défaut ?', options: ['1, comme urllib3', '10, via `DEFAULT_POOLSIZE`', '32, une par thread', 'Aucune limite'], answer: 1, why: 'La ligne de journal le dit : "Connection pool size: 10". requests fixe `DEFAULT_POOLSIZE = 10`.' },
+					{ q: 'La file est vide et un 11e thread demande une connexion. Avec `block=False`, que fait urllib3 ?', options: ['Il attend qu’une connexion revienne', 'Il lève `EmptyPoolError`', 'Il ouvre une nouvelle connexion au-delà de la taille du pool', 'Il partage une connexion occupée'], answer: 2, why: 'Sur `queue.Empty` avec `block=False`, `_get_conn` continue et appelle `_new_conn()`.' },
+					{ q: 'Combien de connexions peuvent donc être ouvertes en même temps ?', options: ['10, jamais plus', '22, celles au-delà du pool', '1, réutilisée à tour de rôle', 'Jusqu’à 32'], answer: 3, why: 'Chaque thread qui trouve la file vide ouvre la sienne : le nombre suit les threads, pas la taille du pool.' }
+				]
+			},
+			{
+				title: 'Explique l’avertissement',
+				questions: [
+					{ q: 'Quand urllib3 journalise-t-il "Connection pool is full, discarding connection" ?', options: ['Quand le serveur refuse une nouvelle connexion', 'Quand une connexion rendue trouve la file déjà pleine', 'Quand une requête attend plus que `pool_timeout`', 'Quand une connexion coupée est remplacée'], answer: 1, why: '`_put_conn` remet la connexion avec `block=False`. Sur `queue.Full`, il la ferme et journalise l’avertissement.' },
+					{ q: 'Que devient cette connexion ?', options: ['Elle est fermée', 'Elle reste ouverte hors du pool', 'Elle part vers un thread qui attend', 'Elle est rendue au serveur pour être réutilisée'], answer: 0, why: 'Les lignes 40 et 41 la ferment. Ses poignées de main TCP et TLS sont perdues.' },
+					{ q: 'Que fait une requête suivante quand la file est de nouveau vide ?', options: ['Elle réutilise la connexion fermée', 'Elle attend que l’avertissement disparaisse', 'Elle ouvre une nouvelle connexion, avec de nouvelles poignées de main', 'Elle échoue avec `FullPoolError`'], answer: 2, why: 'Avec 10 places pour 32 utilisateurs, la file se vide de nouveau et `_new_conn()` tourne. C’est ce va-et-vient que signale l’avertissement.' },
+					{ q: 'Les threads voient-ils une erreur ?', options: ['Oui : chaque avertissement est une requête échouée', 'Oui : ils reçoivent `EmptyPoolError`', 'Seulement pour les appels HTTPS', 'Non : les requêtes réussissent, le coût est en connexions en plus'], answer: 3, why: 'L’avertissement porte sur une connexion jetée après la fin de sa requête. Le coût, ce sont les poignées de main des nouvelles.' }
+				]
+			},
+			{
+				title: 'Écris la correction',
+				questions: [
+					{ q: 'Quelle ligne corrige le problème ?', options: ['`session.max_redirects = 32`', '`session.mount("https://", requests.adapters.HTTPAdapter(pool_connections=32))`', '`session.mount("https://", requests.adapters.HTTPAdapter(pool_maxsize=32))`', '`requests.Session(pool_block=True)`'], answer: 2, why: '`pool_maxsize` est la taille de la file de chaque hôte. 32 places suffisent pour toutes les connexions que les threads ouvrent.' },
+					{ q: 'Pourquoi 32 ?', options: ['C’est le nombre de threads qui tiennent une connexion au pic', 'C’est le double du défaut de 16', 'C’est la limite de connexions de l’API', 'C’est le défaut de Go pour un hôte'], answer: 0, why: 'Un pool dimensionné sur la concurrence du client arrête le va-et-vient : chaque connexion rendue trouve une place.' },
+					{ q: 'Qu’a donné ce changement dans le test lancé pour ce chapitre ?', options: ['Les avertissements sont passés de 22 à 10', 'Les avertissements sont passés de 22 à 0', 'Rien n’a changé', 'Les avertissements ont doublé'], answer: 1, why: 'Avec 32 places, aucune connexion rendue n’est tombée sur une file pleine.' },
+					{ q: 'Que coûte `pool_maxsize=32` ?', options: ['Chaque requête devient plus lente', 'Plus de sockets en `TIME_WAIT`', 'Rien du tout', 'Jusqu’à 32 connexions inactives tenues des deux côtés jusqu’à ce que l’un les ferme'], answer: 3, why: 'Une connexion inactive tient un socket et de la mémoire chez le client et chez le serveur jusqu’à ce qu’un idle timeout la ferme.' }
+				]
+			},
+			{
+				title: 'Pèse `pool_block=True`',
+				questions: [
+					{ q: 'Avec `pool_block=True` et une taille de 10, combien de requêtes tournent en même temps ?', options: ['10', '32', '22', '1'], answer: 0, why: 'Un pool bloquant plafonne les connexions utilisées à sa taille.' },
+					{ q: 'Que font les 22 autres threads ?', options: ['Ils ouvrent des connexions en plus', 'Ils échouent avec `FullPoolError`', 'Ils attendent qu’une connexion revienne', 'Ils partagent une connexion occupée'], answer: 2, why: '`_get_conn` appelle `self.pool.get(block=True, ...)`, qui attend qu’un autre thread en rende une.' },
+					{ q: 'Combien de temps peuvent-ils attendre ?', options: ['5 s, puis `EmptyPoolError`', '90 s, l’idle timeout', '60 s, comme un balancer', 'Sans limite : requests appelle `urlopen` sans `pool_timeout`'], answer: 3, why: 'Avec `timeout=None`, `queue.get` attend indéfiniment.' },
+					{ q: 'Quand `pool_block=True` a-t-il du sens ?', options: ['Quand l’avertissement remplit le journal', 'Quand l’API ne doit jamais voir plus de 10 connexions de ce worker', 'Toujours, c’est plus rapide', 'Jamais, c’est obsolète'], answer: 1, why: 'Il protège le serveur des connexions en plus, et le prix, ce sont des threads qui attendent côté client.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -172,6 +210,25 @@ export default {
 			why: '`_get_conn` appelle `self.pool.get(block=True, timeout=5)`, qui attend qu’un autre thread rende une connexion. Si 5 s passent avant, `queue.Empty` est levée puis transformée en `EmptyPoolError`. `FullPoolError` ne sert qu’à rendre une connexion à un pool bloquant plein.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Reproduire l’avertissement "Connection pool is full" avec 32 threads et une seule `requests.Session`, puis le corriger et essayer un pool bloquant.',
+		steps: [
+			'Prépare : `mkdir -p ~/pool-lab && cd ~/pool-lab && python3 -m venv .venv && .venv/bin/pip install requests==2.31.0`.',
+			'Dans un second terminal, lance un serveur keep-alive qui met 50 ms par requête : `node -e "require(\'http\').createServer((q, r) => setTimeout(() => r.end(\'ok\\n\'), 50)).listen(8093, \'127.0.0.1\')"`.',
+			'Crée `worker.py` avec cette ligne. Il partage une session entre 32 threads pour 320 appels, et ses arguments fixent `pool_maxsize` et `pool_block` : `import logging, sys, time, requests; from concurrent.futures import ThreadPoolExecutor; logging.basicConfig(level=logging.WARNING); s = requests.Session(); s.mount("http://", requests.adapters.HTTPAdapter(pool_maxsize=int(sys.argv[1]), pool_block=len(sys.argv) > 2)) if len(sys.argv) > 1 else None; t = time.time(); list(ThreadPoolExecutor(32).map(lambda _: s.get("http://127.0.0.1:8093/").status_code, range(320))); print(f"320 calls in {time.time() - t:.1f} s")`',
+			'Lance-le de trois façons et compte les avertissements à chaque fois : `.venv/bin/python worker.py 2>&1 | grep -c "pool is full"`, puis pareil avec `worker.py 32`, puis avec `worker.py 10 block`. Relance chacun sans `grep` pour voir le temps.'
+		],
+		done: [
+			'Sans argument, le compte est d’environ 22, et le journal montre `Connection pool is full, discarding connection: 127.0.0.1. Connection pool size: 10`.',
+			'Avec `32`, le compte est `0`.',
+			'Avec `10 block`, le compte est `0` et l’exécution dure nettement plus qu’avec `32` (1,7 s contre 0,5 s sur la machine qui a servi à tester ce lab).'
+		],
+		solution: [
+			'Avec la taille par défaut de 10 et `block=False`, les 32 threads ouvrent jusqu’à 32 connexions. Chacune, rendue à une file pleine, est fermée et journalisée.',
+			'`pool_maxsize=32` donne une place à chaque connexion. `pool_block=True` avec une taille de 10 évite l’avertissement en faisant attendre 22 threads, d’où la lenteur de cette exécution.'
+		]
+	},
 	recall: {
 		q: 'Combien de connexions inactives par hôte le `http.Transport` de Go garde-t-il par défaut, et qu’ont donné 1000 requêtes envoyées 50 à la fois avec ce défaut ?',
 		a: 'Deux (`DefaultMaxIdleConnsPerHost = 2`). Le test a ouvert 749 connexions TCP et laissé 747 sockets en `TIME_WAIT`. Avec `MaxIdleConnsPerHost: 50`, il en a ouvert 41.'

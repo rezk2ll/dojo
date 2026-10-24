@@ -103,6 +103,44 @@ export default {
 			'(2) Six types differ, for example `net:[4026531833]` on the host against `net:[4026534677]` in the container. `user` is the same, `user:[4026531837]`, because Docker did not create a user namespace: root inside is UID 0 on the host.',
 			'(3) `nsenter` runs the host\'s `ip` inside the container\'s network namespace. It lists the container\'s `lo` and `eth0`, the same two devices `docker exec ns1 ip -o link` showed, and none of the host\'s interfaces.',
 			'The busybox image has `ip`, but many images have no tools at all. `nsenter -t $P -n` lets you debug their network with the host\'s binaries.'
+		],
+		steps: [
+			{
+				title: 'Find the process',
+				questions: [
+					{ q: 'What does `docker inspect -f \'{{.State.Pid}}\' ns1` put in `$P`?', options: ['The PID of `sleep` as the container sees it, so 1', 'The PID of `sleep` in the host\'s PID namespace', 'The PID of the Docker daemon', 'The container ID, shortened to a number'], answer: 1, why: 'Docker reports the host-side PID. That is the number you need for `/proc/$P` and `nsenter -t` on the host.' },
+					{ q: 'Inside, `docker exec ns1 ps` shows `sleep 600` as PID 1. Why?', options: ['It was the first child forked after `unshare(CLONE_NEWPID)`', 'busybox renumbers its processes from 1', '`docker exec` hides the real PIDs on purpose', 'The kernel gives PID 1 to the oldest process on the host'], answer: 0, why: 'A new PID namespace applies to children only. pid_namespaces(7) says the first child created after the `unshare` gets PID 1.' },
+					{ q: 'Why can you compare `/proc/$P` on the host with `/proc/1` inside the container?', options: ['Docker copies the host\'s `/proc` into the container', 'Both paths are the Docker daemon\'s own process', 'They are the same process, seen from two PID namespaces', 'They only match when the container runs as root'], answer: 2, why: 'The container\'s mount namespace has a `proc` mounted for its own PID namespace, where the process is 1. On the host it is `$P`.' },
+					{ q: 'Which system call did runc use to give the container its new namespaces?', options: ['`chroot(2)`', '`setns(2)`', '`mount(2)`', '`unshare(2)` with `CLONE_NEW*` flags'], answer: 3, why: 'runc calls `unshare(2)` with one `CLONE_NEW*` flag per namespace it wants. `setns(2)` joins a namespace that already exists.' }
+				]
+			},
+			{
+				title: 'Read NSpid',
+				questions: [
+					{ q: '`grep NSpid /proc/$P/status` prints `NSpid: 4145502 1`. What does the line list?', options: ['The process\'s PID in each PID namespace it belongs to', 'The PID of the process and of its parent', 'The process\'s PID and its exit code', 'The number of threads and the number of children'], answer: 0, why: 'The kernel gives a process a PID in its own PID namespace and in each one above it, up to the root. `NSpid` lists them all.' },
+					{ q: 'Which of the two numbers is the host\'s view?', options: ['1, the last one', 'Neither, both are container PIDs', '4145502, the first one', 'The smaller one, because the host started first'], answer: 2, why: '4145502 is the same number `ps` shows on the host, and the same as `$P`. The 1 is the container\'s view.' },
+					{ q: 'Why did runc fork once more after its `unshare` call?', options: ['To drop root before the command runs', '`unshare` does not move the caller into the new PID namespace', 'To get a fresh copy of the host\'s memory', 'Each namespace type needs its own process'], answer: 1, why: 'The caller\'s PID would change under it, so only its children enter the new PID namespace. The forked child becomes PID 1.' },
+					{ q: 'Does `ps` on the host list the container\'s `sleep`?', options: ['No, PID namespaces hide containers from the host', 'Only with `ps --containers`', 'Only if the container runs as root', 'Yes, with its normal host PID'], answer: 3, why: 'No second kernel boots. The container is a normal process on the host, visible with its host PID.' }
+				]
+			},
+			{
+				title: 'Compare the namespace links',
+				questions: [
+					{ q: 'How do you know two processes are in the same namespace?', options: ['The two `/proc/<pid>/ns/<type>` links show the same number', 'They have the same parent PID', 'They have the same hostname', 'They were started by the same user'], answer: 0, why: 'Each link reads like `net:[4026531833]`. The same number means the same namespace.' },
+					{ q: 'Of the seven types you compared, how many differ?', options: ['All seven', 'Six', 'Three', 'One'], answer: 1, why: 'pid, net, mnt, uts, ipc and cgroup are new. runc gave no flag for the user namespace.' },
+					{ q: 'Which one shows the same number inside and on the host?', options: ['`net`', '`pid`', '`mnt`', '`user`'], answer: 3, why: 'Both print `user:[4026531837]`: Docker did not create a user namespace for this container.' },
+					{ q: 'What does a shared user namespace mean for root in the container?', options: ['It is mapped to `nobody` on the host', 'It is mapped to the user who ran `docker run`', 'It is UID 0 on the host too', 'It is mapped to UID 100000 from `/etc/subuid`'], answer: 2, why: 'With no new user namespace, UIDs are not translated. Docker maps root to an unprivileged range only with `userns-remap`.' }
+				]
+			},
+			{
+				title: 'Enter the network namespace',
+				questions: [
+					{ q: 'What does `sudo nsenter -t $P -n` change for the command it runs?', options: ['The network namespace only', 'Every namespace of the container', 'The mount and network namespaces', 'Only the hostname'], answer: 0, why: '`-n` opens `/proc/$P/ns/net` and calls `setns(2)` on it. The other namespaces stay the host\'s.' },
+					{ q: 'Where does the `ip` binary that runs come from?', options: ['The container\'s image', 'A copy Docker injects into the container', 'The host\'s filesystem', 'The busybox binary in the container'], answer: 2, why: 'The mount namespace did not change, so the path `ip` resolves on the host. Only its view of the network is the container\'s.' },
+					{ q: 'What does `ip -brief link` list there?', options: ['Every interface of the host, plus the veth', 'Only `docker0`', 'Nothing, a new namespace has no devices', 'The container\'s `lo` and `eth0`, and no host interface'], answer: 3, why: 'A network namespace has its own devices. Inside it you see `lo` and `eth0`, one end of a veth pair.' },
+					{ q: 'Why is this useful on a real system?', options: ['It is faster than `docker exec`', 'You can debug a container whose image has no tools, with the host\'s binaries', 'It moves the container to the host network', 'It lets the container see the host\'s interfaces'], answer: 1, why: 'Many images have no `ip` or `ss`. `nsenter -n` brings the host\'s tools to the container\'s network.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -140,6 +178,28 @@ export default {
 			why: '`nsenter -n` calls `setns(2)` on `/proc/<pid>/ns/net` and keeps the host\'s mount namespace, so the host\'s `ss` runs against the container\'s sockets. `docker exec` looks for `ss` in the image. `unshare -n` creates a new, empty network namespace.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See one process with two PIDs, find which namespaces a container shares with the host, and join one of them from a second container.',
+		steps: [
+			'Start a container and get its host PID: `docker run -d --name ns-lab busybox sleep 600`, then `P=$(docker inspect -f \'{{.State.Pid}}\' ns-lab); echo $P`.',
+			'Look at it from both sides: `ps -o pid,user,cmd -p $P`, `grep NSpid /proc/$P/status`, `docker exec ns-lab ps`, then `hostname` and `docker exec ns-lab hostname`.',
+			'Compare the namespaces: `for t in pid net mnt uts ipc user cgroup; do echo "$t host=$(readlink /proc/self/ns/$t) ctr=$(docker exec ns-lab readlink /proc/1/ns/$t)"; done`.',
+			'Join its network and PID namespaces from a second container: `docker run --rm --network container:ns-lab busybox ip -o link`, then `docker run --rm --pid container:ns-lab busybox ps`. Compare with `ip -o link` on the host.',
+			'Check the UID inside: `docker exec ns-lab id`. Clean up with `docker rm -f ns-lab`.'
+		],
+		done: [
+			'`ps` on the host shows `sleep 600` owned by `root` with PID `$P`, and `NSpid` prints `$P` then `1`.',
+			'The hostname inside is the short container ID, not your host\'s name.',
+			'The loop prints six different pairs and one equal pair, for `user`.',
+			'The second container lists only `lo` and `eth0@if<n>`, and its `ps` shows `sleep 600` as PID 1.'
+		],
+		solution: [
+			'runc made new pid, net, mnt, uts, ipc and cgroup namespaces, and kept the host\'s user namespace. So `id` prints `uid=0(root)`, and the host\'s `ps` shows that process as `root` too.',
+			'`--network container:ns-lab` and `--pid container:ns-lab` make Docker join the existing namespaces with `setns(2)` instead of creating new ones, like lines 1 and 2 of the runc example.',
+			'With sudo on a machine you own, `sudo nsenter -t $P -n ip -brief link` does the same join with the host\'s `ip` binary.'
+		]
+	},
 	recall: {
 		q: 'Which file shows whether two processes share a network namespace, and why does `unshare --pid` need `--fork` to give a command PID 1?',
 		a: '`/proc/<pid>/ns/net`: the same number, such as `net:[4026531833]`, means the same namespace. `CLONE_NEWPID` applies only to the caller\'s children, so the command must be a forked child to be PID 1.'

@@ -108,6 +108,44 @@ func subMono(t, u int64) Duration {
 			'(b) and (d) are exposed: `UTC()` and `Round(0)` strip the monotonic reading, so `Sub` falls back to the wall clock and a step back can give a negative result, the RRDNS bug.',
 			'(c) uses the wall clock by design: `time.Unix` has no monotonic reading. An expiry stored in a database must mean the same instant on every machine, so the wall clock is the right choice there. A step moves the result by the size of the step.',
 			'Output of `timedatectl timesync-status` on the machine this chapter was written on: `Offset: +1.620ms`, `Frequency: -1.233ppm`, server `ntp.ubuntu.com`, stratum 2. The clock is 1.6 ms off its server, small enough for a slew. In `chronyc tracking`, the offset is the `System time` line, and `Frequency` is "the rate by which the system\'s clock would be wrong if chronyd was not correcting it".'
+		],
+		steps: [
+			{
+				title: 'Check what each value carries',
+				questions: [
+					{ q: '(a) `start := time.Now()`. Does `start` carry a monotonic reading?', options: ['No, `time.Now()` reads the wall clock only', 'Yes, `time.Now()` reads both clocks', 'Only when the program runs as root', 'Only on Go versions before 1.9'], answer: 1, why: 'Since Go 1.9, `time.Now()` calls `clock_gettime` for `CLOCK_REALTIME` and `CLOCK_MONOTONIC`, and the `Time` value keeps both.' },
+					{ q: '(b) `start := time.Now().UTC()`. What does `UTC()` do to the monotonic reading?', options: ['It strips it', 'It converts it to UTC', 'It keeps it unchanged', 'It doubles its precision'], answer: 0, why: 'The `time` docs list `t.UTC()`, `t.In()` and `t.Round(0)` as calls that strip the monotonic reading.' },
+					{ q: '(c) `exp := time.Unix(row.ExpiresAt, 0)`. Does `exp` have a monotonic reading?', options: ['Yes, `time.Unix` reads `CLOCK_MONOTONIC`', 'Yes, but only if the row was written by the same process', 'No, a value built from a number has none', 'No, because `ExpiresAt` is in the future'], answer: 2, why: 'Values from `time.Unix`, `time.Parse` or `UnmarshalJSON` have no monotonic reading. A monotonic count means nothing outside the process.' },
+					{ q: '(d) `start := time.Now().Round(0)`. What is left in `start`?', options: ['Both readings, rounded to the second', 'The monotonic reading only', 'Nothing, `Round(0)` returns the zero time', 'The wall-clock reading only'], answer: 3, why: '`Round(0)` is the documented way to strip the monotonic reading and keep the wall clock.' }
+				]
+			},
+			{
+				title: 'Follow a step back',
+				questions: [
+					{ q: 'In (a), how does `time.Since(start)` compute the result?', options: ['It subtracts the two monotonic readings', 'It subtracts the two wall-clock readings', 'It asks chronyd for the current offset', 'It reads `/proc/uptime` twice'], answer: 0, why: '`Sub` checks the `hasMonotonic` bit in both values and calls `subMono`. A wall-clock step cannot change `CLOCK_MONOTONIC`.' },
+					{ q: 'In (b), the wall clock steps back 1 s during a 4 ms call. What can `time.Since(start)` return?', options: ['4 ms, because Go corrects the step', 'A negative duration, about -996 ms', 'Zero, because Go clamps negative values', 'A panic, because the clocks disagree'], answer: 1, why: 'One value has no monotonic reading, so `Sub` subtracts wall-clock times. A 1 s step back between two reads 4 ms apart gives -996 ms, the RRDNS bug.' },
+					{ q: 'In (c), what does the same step do to `time.Until(exp)`?', options: ['It makes the result negative', 'Nothing, `Until` is always monotonic', 'It moves the result by the size of the step', 'It makes Go fall back to `CLOCK_BOOTTIME`'], answer: 2, why: '`time.Until` subtracts wall-clock times here. A 1 s step back makes the expiry look 1 s further away.' },
+					{ q: 'Why is the wall clock the right choice in (c)?', options: ['It is faster to read than the monotonic clock', 'The monotonic clock is not available in containers', 'The wall clock never jumps on a server with NTP', 'A stored expiry must mean the same instant on every machine'], answer: 3, why: 'A monotonic reading counts from process start, so it cannot be stored in a database and read elsewhere. An expiry needs a real date.' }
+				]
+			},
+			{
+				title: 'Name the exposed snippets',
+				questions: [
+					{ q: 'Which snippets can return a negative duration after a 1 s step back?', options: ['(b) and (d)', '(a) and (c)', 'Only (c)', 'All four'], answer: 0, why: 'In (b) and (d), `start` lost its monotonic reading, so `Sub` takes the wall-clock path. (c) moves by the step but stays a wall-clock comparison by design.' },
+					{ q: 'Which snippet is safe as written?', options: ['(b), because UTC has no leap seconds', '(d), because the value is rounded', '(c), because it reads a database', '(a), because both values are from `time.Now()`'], answer: 3, why: 'Only (a) keeps two monotonic readings, so the result stays positive across the step.' },
+					{ q: 'How do you fix (b) and still log the start in UTC?', options: ['Call `UTC()` on the end time too', 'Time with the plain `time.Now()` value and call `UTC()` only when you format it', 'Replace `time.Since` with `time.Until`', 'Add `Round(0)` to both values'], answer: 1, why: 'Keep the value from `time.Now()` for the subtraction. Converting a copy for display does not touch the value you measure with.' },
+					{ q: 'After the fix, a log line written just after the step shows an earlier time than the line before. Why?', options: ['The fix broke the logger', 'Go reorders log lines by monotonic time', 'Log timestamps still come from the wall clock', 'The kernel writes logs before the step'], answer: 2, why: 'The monotonic reading fixes durations only. Timestamps you print are wall-clock times, so they jump with the clock.' }
+				]
+			},
+			{
+				title: 'Read the sync status',
+				questions: [
+					{ q: 'On a machine with systemd-timesyncd, which command shows the offset?', options: ['`timedatectl timesync-status`', '`date --offset`', '`hwclock --show`', '`sysctl kernel.time`'], answer: 0, why: '`timedatectl timesync-status` prints the server, stratum, `Offset` and `Frequency` of systemd-timesyncd. With chrony, run `chronyc tracking`.' },
+					{ q: 'The output shows `Offset: +1.620ms`. What will the daemon do?', options: ['Step the clock back 1.6 ms at once', 'Wait for a reboot to apply it', 'Ignore it, offsets below 1 s are never corrected', 'Slew it away by changing the clock rate a little'], answer: 3, why: '1.6 ms is small enough for a slew, so the wall clock keeps moving forward. Steps are for large offsets, such as a clock far off at boot.' },
+					{ q: 'In `chronyc tracking`, which line holds the offset?', options: ['`Frequency`', '`System time`', '`Stratum`', '`Reference ID`'], answer: 1, why: 'The chronyc docs put the offset of the system clock on the `System time` line.' },
+					{ q: 'What does `Frequency` mean in that output?', options: ['How often the daemon polls its server', 'How many leap seconds are scheduled', 'How fast the clock would drift if the daemon stopped correcting it', 'How many servers the daemon trusts'], answer: 2, why: 'chronyc(1): the rate by which the clock "would be wrong if chronyd was not correcting it", in ppm.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -145,6 +183,27 @@ func subMono(t, u int64) Duration {
 			why: '`t.UTC()` strips the monotonic reading, so `Sub` takes the wall-clock path on line 9 of the example. A one-second step back between the two reads makes the difference negative. Without `UTC()`, both values have monotonic readings and the result stays positive.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Read the two clocks side by side, see which Go values keep a monotonic reading, and read your machine\'s NTP offset.',
+		steps: [
+			'Read the wall clock, the monotonic clock and the uptime: `python3 -c \'import time; print(time.clock_gettime(time.CLOCK_REALTIME), time.clock_gettime(time.CLOCK_MONOTONIC))\'; cat /proc/uptime`.',
+			'Make a folder: `mkdir -p ~/clock-lab && cd ~/clock-lab`. Write `main.go` (package `main`, imports `fmt` and `time`) whose `main` prints four values with `fmt.Println`: `time.Now()`, `time.Now().UTC()`, `time.Now().Round(0)` and `time.Unix(time.Now().Unix(), 0)`.',
+			'Run it: `go run main.go`. Look at the end of each line.',
+			'Read the sync status: `timedatectl timesync-status` with systemd-timesyncd, or `chronyc tracking` with chrony.'
+		],
+		done: [
+			'On a machine that has not been suspended since boot, the monotonic value from Python is close to the first number of `/proc/uptime`, and the wall-clock value is about 1.79 billion seconds or more.',
+			'Only the `time.Now()` line ends with `m=+0.0000...`. The `UTC()`, `Round(0)` and `time.Unix` lines have no `m=` part.',
+			'You can read an `Offset` line (timesyncd) or a `System time` line (chrony) and say whether it is small enough to slew.'
+		],
+		solution: [
+			'`CLOCK_MONOTONIC` counts from boot, minus suspend, so on a server it tracks `/proc/uptime`. `CLOCK_REALTIME` counts seconds since 1970.',
+			'`main.go`: `package main`, `import ("fmt"; "time")`, then `func main() { fmt.Println(time.Now()); fmt.Println(time.Now().UTC()); fmt.Println(time.Now().Round(0)); fmt.Println(time.Unix(time.Now().Unix(), 0)) }`.',
+			'Go prints `m=+<seconds>` when a value carries a monotonic reading. The other three lines lost it, so `Sub` on them falls back to the wall clock, like snippets (b), (c) and (d) of the task.',
+			'An offset of a few milliseconds is normal and gets slewed. You cannot step the clock without root, and you should not on a shared machine: the lesson is that only values with `m=` survive a step.'
+		]
+	},
 	recall: {
 		q: 'Which Linux clock should code use to measure a timeout, and what went wrong in Cloudflare\'s RRDNS on 1 January 2017?',
 		a: '`CLOCK_MONOTONIC`, which never goes back. RRDNS subtracted two wall-clock readings across the leap second, got a negative duration, and `rand.Int63n()` panicked; 0.2% of DNS queries failed at peak.'

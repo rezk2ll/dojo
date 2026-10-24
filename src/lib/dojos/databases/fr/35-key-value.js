@@ -141,6 +141,44 @@ try_fsync:
 			'(2) Sessions : les perdre déconnecte tout le monde. Mets `appendonly yes` avec `everysec` et garde RDB pour les sauvegardes. Garde `noeviction` et de la marge en mémoire : une politique `volatile-*` évincerait justement les clés avec un TTL, tes sessions. Accepte qu’environ une seconde d’écritures puisse être perdue, ou garde les sessions dans PostgreSQL si ce n’est pas acceptable.',
 			'(3) Limiteur : `INCR rate:203.0.113.7:2026-10-17T10:42` puis, si le résultat vaut 1, `EXPIRE rate:203.0.113.7:2026-10-17T10:42 60`. `INCR` laisse le TTL en place, donc les incréments suivants le gardent. Ne réécris jamais le compteur avec un simple `SET` : ça efface le TTL et la clé vit pour toujours.',
 			'Perdre les compteurs dans un redémarrage ne remet les limites à zéro que pour une minute, donc (3) peut tourner sans persistance, sur la même instance que (1) si tu acceptes que l’éviction jette parfois un compteur trop tôt.'
+		],
+		steps: [
+			{
+				title: 'Demande ce qu’un redémarrage casse',
+				questions: [
+					{ q: 'Redis redémarre vide. Que coûte la perte des fragments produit (1) ?', options: ['Un remplissage depuis la base', 'Tous les utilisateurs sont déconnectés', 'Les limites repartent à zéro', 'Des commandes sont perdues pour de bon'], answer: 0, why: 'Un cache peut tout perdre et se remplir à nouveau. C’est ce qui en fait un cache.' },
+					{ q: 'Que coûte la perte des sessions (2) ?', options: ['Les pages s’affichent plus lentement pendant une minute', 'Tout le monde est déconnecté', 'Les limites repartent à zéro', 'Rien : les sessions se reconstruisent seules'], answer: 1, why: 'Redis garde la seule copie d’une session. Sans elle, l’utilisateur doit se reconnecter.' },
+					{ q: 'Que coûte la perte des compteurs du limiteur (3) ?', options: ['Tout le monde est déconnecté', 'Chaque IP est bloquée jusqu’à ce qu’un humain intervienne', 'Les limites repartent à zéro pour une minute au plus', 'Rien, jamais'], answer: 2, why: 'Chaque compteur couvre une minute. Un Redis vide recommence simplement à compter.' },
+					{ q: 'Tel que livré, que persiste `redis.conf` ?', options: ['Chaque écriture, fsyncée avant la réponse', 'Un AOF en `everysec`', 'Rien du tout', 'Des snapshots RDB aux points de sauvegarde, avec l’AOF coupé'], answer: 3, why: 'Il est livré avec `appendonly no` et des points de sauvegarde RDB à 1 heure, 5 minutes et 60 secondes, donc des minutes d’écritures peuvent se perdre.' }
+				]
+			},
+			{
+				title: 'Choisis la persistance',
+				questions: [
+					{ q: 'Quelle persistance convient aux fragments produit (1) ?', options: ['Coupée, ou RDB seulement', '`appendfsync always`', 'AOF en `everysec` plus RDB', 'Une copie dans PostgreSQL'], answer: 0, why: 'Perdre le cache coûte un remplissage, donc aucune raison de payer un fsync à chaque écriture.' },
+					{ q: 'Quelle persistance convient aux sessions (2) ?', options: ['Coupée : les sessions vivent peu', 'Des snapshots RDB seulement', '`appendonly yes` avec `everysec`, et RDB pour les sauvegardes', '`no-appendfsync-on-rewrite yes` pour la vitesse'], answer: 2, why: 'La doc recommande RDB et AOF ensemble pour une sûreté proche de celle de PostgreSQL. RDB seul peut perdre des minutes.' },
+					{ q: 'Avec `appendfsync everysec`, que peut perdre une coupure de courant ?', options: ['Rien, chaque écriture est sur le disque', 'Environ une seconde d’écritures, plus si un fsync était lent', 'Tout depuis le dernier snapshot RDB', 'Seulement les clés qui ont un TTL'], answer: 1, why: 'Le fsync tourne une fois par seconde en arrière-plan, et Redis repousse les écritures jusqu’à deux secondes quand un fsync est lent.' },
+					{ q: 'Le métier ne peut pas accepter de perdre même une seconde de sessions. Que fais-tu ?', options: ['Passer les sessions en RDB seulement', 'Activer `no-appendfsync-on-rewrite`', 'Donner un TTL plus long à chaque session', 'Garder les sessions dans PostgreSQL'], answer: 3, why: 'Les trois autres perdent plus, pas moins. Si la fenêtre de Redis est trop large, range les données là où les commits sont durables.' }
+				]
+			},
+			{
+				title: 'Choisis l’éviction',
+				questions: [
+					{ q: 'Quels réglages mémoire conviennent aux fragments produit (1) ?', options: ['`noeviction` et pas de `maxmemory`', '`maxmemory` avec `allkeys-lru`, et un TTL sur chaque fragment', '`volatile-ttl` sans aucun TTL posé', 'Pas de `maxmemory`, pour ne jamais rien jeter'], answer: 1, why: 'Un cache doit évincer les entrées les moins récemment utilisées quand il est plein, et les TTL nettoient les vieux fragments sans job.' },
+					{ q: 'Quelle politique d’éviction convient aux sessions (2) ?', options: ['`noeviction`, avec de la marge en mémoire', '`allkeys-lru`', '`volatile-lru`', '`allkeys-random`'], answer: 0, why: 'Une session ne doit pas disparaître parce que la mémoire est serrée. Un Redis plein refuse alors les écritures, donc tu surveilles la mémoire et tu gardes de la marge.' },
+					{ q: 'Pourquoi une politique `volatile-*` est-elle le mauvais choix pour les sessions ?', options: ['Elle ignore le TTL de chaque clé', 'Elle refuse toutes les écritures quand Redis est plein', 'Elle évince justement les clés avec un TTL, c’est-à-dire les sessions', 'Elle demande de couper l’AOF'], answer: 2, why: 'Les sessions ont des TTL, donc `volatile-*` les choisit en premier, précisément les clés que tu voulais garder.' },
+					{ q: 'Un Redis en `noeviction` atteint `maxmemory`. Que devient un nouveau `SET` ?', options: ['Redis évince la plus vieille clé pour faire de la place', 'Redis écrit les vieilles clés sur le disque', 'Redis supprime d’abord toutes les clés avec un TTL', 'Redis le refuse avec une erreur, et les lectures marchent encore'], answer: 3, why: '`noeviction` est le défaut : les commandes qui demandent plus de mémoire échouent, rien n’est jeté.' }
+				]
+			},
+			{
+				title: 'Écris le limiteur',
+				questions: [
+					{ q: 'Quelles commandes comptent une requête pour que le compteur s’arrête après une minute ?', options: ['`INCR` sur la clé, puis `EXPIRE` de 60 secondes si le résultat vaut 1', '`SET key 1 EX 60` à chaque requête', '`GET` la clé, ajouter un dans l’application, puis `SET`', '`EXPIRE` de 60 secondes sur la clé, puis `INCR`'], answer: 0, why: '`INCR` crée la clé à 1 la première fois, et c’est là qu’elle reçoit son délai.' },
+					{ q: 'Pourquoi poser le TTL seulement quand `INCR` renvoie 1 ?', options: ['`EXPIRE` échoue sur une clé au-dessus de 1', 'La clé vient d’être créée, et les `INCR` suivants gardent son TTL', '`INCR` efface le TTL à chaque fois', 'Redis n’autorise qu’un `EXPIRE` par clé'], answer: 1, why: 'Les commandes qui modifient une valeur sur place, comme `INCR`, laissent le délai tranquille, donc un seul `EXPIRE` couvre la minute.' },
+					{ q: 'Un script remet un compteur à zéro avec un simple `SET rate:... 0`. Que se passe-t-il ?', options: ['Le TTL est gardé', 'Le TTL revient à 60 secondes', 'La clé est supprimée tout de suite', 'Le TTL est effacé, et la clé vit pour toujours'], answer: 3, why: 'Les commandes qui écrasent la clé, comme `SET`, effacent son délai. Utilise `SET ... EX` ou `KEEPTTL` si tu dois la réécrire.' },
+					{ q: 'Où peut tourner le limiteur (3) ?', options: ['Seulement sur l’instance des sessions, en `appendfsync always`', 'Sur sa propre instance avec AOF', 'Sans persistance, même sur l’instance du cache, si un compteur évincé trop tôt est acceptable', 'Seulement dans PostgreSQL'], answer: 2, why: 'Un compteur perdu ne remet une limite à zéro que pour une minute. Partager l’instance du cache veut dire que `allkeys-lru` peut en jeter un trop tôt.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -178,6 +216,30 @@ try_fsync:
 			why: 'Le défaut est noeviction : les commandes qui demandent plus de mémoire échouent, les lectures marchent encore. Un cache doit choisir explicitement une politique `allkeys-*` ; une base qui ne doit pas perdre de clés garde noeviction et surveille la mémoire.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Construire le limiteur dans un Redis local, voir `SET` effacer un TTL, et voir `noeviction` et `allkeys-lru` se comporter quand la mémoire est pleine.',
+		steps: [
+			'Lance Redis et ouvre le CLI : `docker run -d --name kv-lab redis:7`, puis `docker exec -it kv-lab redis-cli`.',
+			'Lis les défauts : `CONFIG GET appendonly`, `CONFIG GET save`, `CONFIG GET maxmemory-policy`.',
+			'Compte deux requêtes d’une même IP : `INCR rate:203.0.113.7:2026-10-17T10:42`, puis `EXPIRE rate:203.0.113.7:2026-10-17T10:42 60` puisque le résultat valait 1, puis encore un `INCR` et un `TTL` sur la clé. Écrase-la ensuite avec `SET rate:203.0.113.7:2026-10-17T10:42 5` et relance `TTL`.',
+			'Réécris une session de deux façons : `SET session:9 x EX 3600`, puis `SET session:9 y KEEPTTL`, puis `TTL session:9`.',
+			'Remplis la mémoire : `FLUSHALL`, puis `EVAL "for i=1,20000 do redis.call(\'SET\',\'junk:\'..i,string.rep(\'x\',100)) end" 0`, puis `CONFIG SET maxmemory 2mb`. Essaie `SET one more` et `GET junk:5`. Puis `CONFIG SET maxmemory-policy allkeys-lru`, réessaie `SET one more`, et lance `DBSIZE`.',
+			'Quitte le CLI et nettoie : `docker rm -f kv-lab`.'
+		],
+		done: [
+			'Les défauts affichent `appendonly no`, les points de sauvegarde `3600 1 300 100 60 10000`, et `noeviction`.',
+			'Après le deuxième `INCR`, `TTL` affiche environ 60. Après le simple `SET`, `TTL` affiche `-1` : plus de délai, la clé vit pour toujours.',
+			'Avec `KEEPTTL`, `TTL session:9` affiche encore environ 3600.',
+			'En `noeviction`, `SET one more` échoue avec `OOM command not allowed when used memory > \'maxmemory\'`, et `GET junk:5` répond encore.',
+			'En `allkeys-lru`, le même `SET` renvoie `OK`, et `DBSIZE` est bien en dessous de 20 000 : Redis a jeté des clés pour tenir.'
+		],
+		solution: [
+			'Limiteur, à chaque requête : `INCR rate:<ip>:<minute>`. Si la réponse vaut `1`, `EXPIRE rate:<ip>:<minute> 60`. Ne réécris jamais le compteur avec un simple `SET`.',
+			'Instance du cache pour (1) et (3) : `maxmemory` réglé, `maxmemory-policy allkeys-lru`, persistance coupée ou RDB seulement.',
+			'Instance des sessions (2) : `appendonly yes`, `appendfsync everysec`, RDB gardé pour les sauvegardes, `maxmemory-policy noeviction`, et des alertes mémoire avec de la marge.'
+		]
+	},
 	recall: {
 		q: 'Redis tient la seule copie de tes paniers. Quels réglages poses-tu, et combien une coupure de courant peut-elle encore faire perdre ?',
 		a: '`appendonly yes` avec `appendfsync everysec`, des snapshots RDB pour les sauvegardes, et `noeviction`. Une coupure peut encore faire perdre environ une seconde d’écritures confirmées, plus si un fsync était lent.'

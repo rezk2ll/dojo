@@ -128,6 +128,44 @@ export default {
 			'For billing, the GIN index does not help: `settings->>\'plan\'` is an expression. Quick fix: `CREATE INDEX ON customers ((settings->>\'plan\'))`, a B-tree on exactly that expression.',
 			'Better fix: `plan` is filtered on and has a fixed set of values, so promote it. Add `plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'))`, backfill it from `settings` in batches, switch the code, then remove the key (expand and contract).',
 			'Check with `EXPLAIN` (day 12) that each query now shows an index scan or a bitmap index scan on the index you meant.'
+		],
+		steps: [
+			{
+				title: 'Read each query',
+				questions: [
+					{ q: 'How do you write the support search for settings containing `{"beta": true}`?', options: ['`settings @> \'{"beta": true}\'`', '`settings ? \'beta\'`', '`settings::text LIKE \'%beta%\'`', '`settings->\'beta\' IS NOT NULL`'], answer: 0, why: 'Containment checks the key and its value, at that place. `?` and `IS NOT NULL` only check that the key is there.' },
+					{ q: 'What does the billing filter `settings->>\'plan\' = \'pro\'` compare?', options: ['The whole document with a jsonb value', 'A text value pulled out of the column by an expression', 'A typed `plan` column', 'The keys of the document'], answer: 1, why: '`->>` returns the field as text. The comparison is on that expression, not on the column itself.' },
+					{ q: 'Why does the billing page read every row of the table today?', options: ['`pro` is too common for an index', 'jsonb values cannot be filtered', 'No index stores the value of `settings->>\'plan\'`', 'GIN indexes stop working on large tables'], answer: 2, why: 'With nothing indexed on that expression, the plan falls back to a sequential scan.' },
+					{ q: 'How did a customer end up with `"plan": "Pro"`?', options: ['jsonb changes the case of values', 'Duplicate keys were merged on input', 'The GIN index rewrote the value', 'The database checks no type or rule inside the document'], answer: 3, why: 'PostgreSQL sees the document as one value. No CHECK or NOT NULL reaches the keys inside it unless you add one.' }
+				]
+			},
+			{
+				title: 'Index the support search',
+				questions: [
+					{ q: 'Which index serves `settings @> \'{"beta": true}\'`?', options: ['`CREATE INDEX ON customers USING GIN (settings jsonb_path_ops)`', '`CREATE INDEX ON customers (settings)`, a B-tree', '`CREATE INDEX ON customers ((settings->>\'beta\'))`', '`CREATE INDEX ON customers USING HASH (settings)`'], answer: 0, why: 'A GIN index on the column answers containment over any key in the document.' },
+					{ q: 'Why pick `jsonb_path_ops` over the default `jsonb_ops`?', options: ['Only `jsonb_path_ops` supports `@>`', 'It is usually much smaller and more specific, and no query here needs `?`', 'It also serves `->>` filters', 'It needs no recheck of the rows'], answer: 1, why: 'The docs say a `jsonb_path_ops` index is usually much smaller over the same data. Its one limit, no `?`, costs nothing here.' },
+					{ q: 'What can a `jsonb_path_ops` index not answer?', options: ['`@>`', '`@?`', '`?`, whether a key exists on its own', '`@@`'], answer: 2, why: 'It stores one hash per path to a value, so it cannot tell whether a key exists by itself.' },
+					{ q: 'How does PostgreSQL answer the support search with that index?', options: ['It reads every document and parses the JSON', 'It walks a B-tree of text values', 'It reads a cached copy of the last result', 'It hashes the paths in the query, looks them up in GIN, then rechecks the rows'], answer: 3, why: 'GIN is an inverted index: entries point back to rows, and the rows found are rechecked.' }
+				]
+			},
+			{
+				title: 'Fix the billing filter',
+				questions: [
+					{ q: 'Does the new GIN index speed up `settings->>\'plan\' = \'pro\'`?', options: ['No: the operator is applied to an expression, not to the indexed column', 'Yes, GIN covers every key', 'Yes, once you run `ANALYZE`', 'Only with `jsonb_ops`'], answer: 0, why: 'An operator only uses the index when it is applied directly to the indexed column.' },
+					{ q: 'Which index fixes the billing filter as written?', options: ['A second GIN index with `jsonb_ops`', 'A B-tree on `settings`', '`CREATE INDEX ON customers ((settings->>\'plan\'))`', '`CREATE INDEX ON customers USING GIN ((settings->\'plan\'))`'], answer: 2, why: 'An expression index stores exactly `settings->>\'plan\'`, the value the filter compares.' },
+					{ q: 'Which queries can that expression index serve?', options: ['Any filter on `settings`', 'Only filters on exactly `settings->>\'plan\'`', 'Containment queries with `@>`', 'Any key read with `->>`'], answer: 1, why: 'It indexes one expression. Each hot key needs its own, which is a sign the key wants a column.' },
+					{ q: 'Which rewrite would let the GIN index from step 2 serve billing instead?', options: ['`settings->\'plan\' = \'"pro"\'`', '`lower(settings->>\'plan\') = \'pro\'`', '`settings::text LIKE \'%"pro"%\'`', '`settings @> \'{"plan": "pro"}\'`'], answer: 3, why: 'Containment is applied to the column itself, so the GIN index can answer it.' }
+				]
+			},
+			{
+				title: 'Promote `plan` to a column',
+				questions: [
+					{ q: 'Why give `plan` its own column?', options: ['It is filtered on and has a fixed set of values, so it needs a type, a rule and a B-tree', 'Columns are always faster than jsonb', 'jsonb cannot hold more than a few keys', 'The GIN index cannot be built with `plan` inside'], answer: 0, why: 'If you filter, sort or enforce a rule on a value, give it a real column. Keep in jsonb only the part whose shape varies.' },
+					{ q: 'Which column definition stops `"Pro"` and missing plans?', options: ['`plan jsonb`', '`plan text`, validated by the app', '`plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'))`', '`plan text UNIQUE`'], answer: 2, why: 'NOT NULL, a default and a CHECK are applied by the database on every write. App checks alone can be bypassed.' },
+					{ q: 'In which order do you make the change?', options: ['Remove the key, then add the column', 'Add the column, backfill in batches, switch the code, then remove the key', 'Switch the code first, then add the column', 'Add, backfill and remove in one long transaction'], answer: 1, why: 'Expand and contract: old and new code both work at every step, and the backfill in batches keeps locks short.' },
+					{ q: 'How do you check that each query uses the index you meant?', options: ['Count the rows it returns', 'Time it on a laptop', 'Read the index size', '`EXPLAIN` shows an index scan or bitmap index scan on it'], answer: 3, why: '`EXPLAIN` (day 12) names the index in the plan. A fast run on small data proves nothing.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,31 @@ export default {
 			why: 'A typed column gets a B-tree for filtering and sorting, and a CHECK constraint that the database applies on every write. App-side validation alone can be bypassed and can race (day 22).'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Index a local `customers.settings` jsonb column, watch which filters use which index, and promote `plan` to a checked column.',
+		steps: [
+			'Start PostgreSQL and open `psql`: `docker run -d --name doc-lab -e POSTGRES_PASSWORD=lab postgres:16`, wait a few seconds, then `docker exec -it doc-lab psql -U postgres`.',
+			'Load 200,000 customers, then break two of them the way the hook describes: `CREATE TABLE customers (id bigint PRIMARY KEY, settings jsonb); INSERT INTO customers SELECT g, jsonb_build_object(\'plan\', (ARRAY[\'free\',\'free\',\'free\',\'pro\',\'team\'])[1 + g % 5], \'beta\', g % 50 = 0, \'theme\', \'dark\') FROM generate_series(1, 200000) g; UPDATE customers SET settings = settings || \'{"plan": "Pro"}\' WHERE id = 7; UPDATE customers SET settings = settings - \'plan\' WHERE id = 8;`',
+			'Add the GIN index, named `customers_settings_gin`, and run `ANALYZE customers;`. Then `EXPLAIN (COSTS OFF)` both queries: `SELECT id FROM customers WHERE settings @> \'{"beta": true}\';` and `SELECT id FROM customers WHERE settings->>\'plan\' = \'pro\';`.',
+			'Add the expression index for `plan`, `ANALYZE` again, and explain the billing query again. Then look at the data: `SELECT settings->>\'plan\' AS plan, count(*) FROM customers GROUP BY 1 ORDER BY 1;`.',
+			'Promote `plan`: add the checked column, then backfill with `UPDATE customers SET plan = settings->>\'plan\' WHERE settings->>\'plan\' IS NOT NULL;`. Read the error, fix the backfill, add a B-tree on `plan`, and try `INSERT INTO customers (id, settings, plan) VALUES (0, \'{}\', \'Pro\');`.',
+			'When you are done: `docker rm -f doc-lab`.'
+		],
+		done: [
+			'The `@>` plan shows `Bitmap Index Scan on customers_settings_gin`.',
+			'Before the expression index, the `->>` plan shows a `Seq Scan` with a `Filter`. After it, it shows a bitmap index scan on the expression index.',
+			'The `GROUP BY` lists `Pro` and an empty plan next to `free`, `pro` and `team`.',
+			'The first backfill fails with `violates check constraint "customers_plan_check"` on row 7, and the insert of `\'Pro\'` fails the same way.',
+			'`EXPLAIN SELECT id FROM customers WHERE plan = \'pro\';` uses the B-tree on `plan`.'
+		],
+		solution: [
+			'`CREATE INDEX customers_settings_gin ON customers USING GIN (settings jsonb_path_ops);` and `CREATE INDEX customers_plan_expr ON customers ((settings->>\'plan\'));`',
+			'`ALTER TABLE customers ADD COLUMN plan text NOT NULL DEFAULT \'free\' CHECK (plan IN (\'free\', \'pro\', \'team\'));` Row 8, with no key, keeps the default `free`.',
+			'Fixed backfill: `UPDATE customers SET plan = lower(settings->>\'plan\') WHERE settings->>\'plan\' IS NOT NULL;`, then `CREATE INDEX ON customers (plan);`. On a real table, run the backfill in batches.',
+			'The bad values were in the document all along. The column turned them into errors on the first write.'
+		]
+	},
 	recall: {
 		q: 'Which jsonb filter can a GIN index on the column serve, and what does a `->>` filter need instead?',
 		a: 'Containment applied to the column itself, like `settings @> \'{"beta": true}\'`. A `->>` filter needs an expression index on that exact expression, or the key moved to a typed column with a B-tree.'

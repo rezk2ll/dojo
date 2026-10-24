@@ -136,6 +136,44 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 			'(a) one shard: `WHERE customer_id = 42` is routed, and the join to `order_items` stays local thanks to co-location.',
 			'(b) fans out: it reads every customer\'s items. Acceptable for a report, or precompute it into a rollup table.',
 			'(c) fans out if the URL only carries `order_id`. Put the customer in the route, `/customers/42/orders/123`, or look up `customer_id` from the session, so the query can say `WHERE customer_id = 42 AND order_id = 123`.'
+		],
+		steps: [
+			{
+				title: 'Find the shard key',
+				questions: [
+					{ q: 'Which id are almost all of the shop\'s queries scoped to?', options: ['`customer_id`', '`order_id`', '`product_id`', '`created_at`'], answer: 0, why: 'History, cart, order pages: nearly everything a customer does names that customer. That makes it the distribution column.' },
+					{ q: 'Why not distribute on `created_at`, since many pages show recent orders?', options: ['Citus cannot hash a timestamp', 'Hashing scatters a time range over every shard', 'A timestamp has too few distinct values', 'Timestamps are not unique'], answer: 1, why: 'Nearby times hash to different shards, so "the last week" touches all of them. Partition by time inside each shard instead (day 33).' },
+					{ q: 'What do the Citus docs ask of a distribution column?', options: ['Few values, so each shard stays large', 'A column that never appears in `WHERE`', 'High cardinality and even distribution', 'A timestamp, so the data stays ordered'], answer: 2, why: 'A `status` column with three values can never fill more than three shards. Many customers spread well.' },
+					{ q: 'Why not distribute `orders` on `order_id`?', options: ['A customer\'s order history would then fan out to every shard', '`order_id` cannot be hashed', 'Citus forbids a primary key as the shard key', '`order_id` values are too large for the hash'], answer: 0, why: 'Most queries name the customer, not one order. With `order_id` as key, they would all lose their routing.' }
+				]
+			},
+			{
+				title: 'Change the schema',
+				questions: [
+					{ q: '`order_items` has no `customer_id`. What do you do?', options: ['Distribute it on `order_id` instead', 'Make it a reference table', 'Keep it on the coordinator only', 'Add `customer_id` to it'], answer: 3, why: 'A table without the key cannot be co-located with `orders`. Adding the column keeps an order and its items on the same node.' },
+					{ q: 'What does the primary key of `orders` become?', options: ['`(order_id)`', '`(customer_id, order_id)`', '`(order_id, created_at)`', '`(customer_id)`'], answer: 1, why: 'The key must contain the distribution column. `order_id` alone is no longer accepted.' },
+					{ q: 'Why must every unique constraint include `customer_id`?', options: ['Each shard can only check uniqueness among its own rows', 'Citus sorts each index by its first column', 'It makes the index smaller', 'Foreign keys only work on the first column'], answer: 0, why: 'Unique constraints must contain the distribution column, so that two equal keys always land on the same shard, where they can be checked.' },
+					{ q: '`products` has 10,000 rows and every query joins it. What do you make it?', options: ['A table distributed on `product_id`', 'A table distributed on `customer_id`', 'A reference table, copied to every node', 'A table on one worker only'], answer: 2, why: 'A small table joined by everyone is copied to each node, so every join with it stays local.' }
+				]
+			},
+			{
+				title: 'Route the three queries',
+				questions: [
+					{ q: '(a) A customer\'s order history, `WHERE customer_id = 42`. Where does it run?', options: ['On one shard', 'On every shard', 'On two shards, orders and items', 'On the coordinator only'], answer: 0, why: 'The coordinator hashes 42, finds the one shard whose range holds it, and sends the whole query there.' },
+					{ q: 'Why does the join from `orders` to `order_items` stay on that node?', options: ['The coordinator copies the items to it', 'Both are sharded on `customer_id` with the same ranges: co-location', '`order_items` is a reference table', 'Citus caches every join result'], answer: 1, why: 'Co-located tables keep matching rows on the same node, so joins and transactions on one key stay local.' },
+					{ q: '(b) The top 10 products this week. Where does it run?', options: ['On one shard, since `products` is a reference table', 'On one shard, since the week is a known range', 'On the coordinator only', 'On every shard: it reads every customer\'s items'], answer: 3, why: 'The query names no customer, so it must ask every shard and merge the answers.' },
+					{ q: '(c) `/orders/123`, with only `order_id` in the URL. Where does it run?', options: ['On one shard, found from `order_id`', 'On the coordinator, which keeps every order', 'On every shard', 'On the newest worker'], answer: 2, why: 'Routing needs the value of the distribution column. Without `customer_id`, the shard is unknown.' }
+				]
+			},
+			{
+				title: 'Fix what fans out',
+				questions: [
+					{ q: 'How do you route the order page (c) to one shard?', options: ['Carry the customer: `/customers/42/orders/123`, or `customer_id` from the session', 'Add an index on `order_id`', 'Raise the shard count', 'Make `orders` a reference table'], answer: 0, why: 'With `WHERE customer_id = 42 AND order_id = 123`, the coordinator knows the shard. An index does not tell it which shard to ask.' },
+					{ q: 'The top 10 report (b) runs on every page view. What do you do?', options: ['Distribute `order_items` on `product_id` as well', 'Precompute it into a rollup table', 'Add more workers', 'Index `created_at` on each shard'], answer: 1, why: 'A fan-out is fine for a nightly report. On a page, read a precomputed rollup instead.' },
+					{ q: 'One customer places a third of all orders. What happens?', options: ['Citus splits that customer over all shards', 'The rebalancer moves its rows to the emptiest node', 'All its rows still live on one shard, so one node takes most of the load', 'Its orders are copied to every node'], answer: 2, why: 'A key value maps to one shard. A skewed key leaves one node busy while the others sit idle.' },
+					{ q: 'Later you add a third worker and rebalance. What moves?', options: ['Every row is rehashed into new shards', 'Nothing, until you raise the shard count', 'Only new rows go to the new worker', 'Some whole shards, and every row keeps its shard'], answer: 3, why: 'The shard count is fixed, so the rebalancer moves whole shards with logical replication. Nothing is rehashed.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,30 @@ CalculateUniformHashRangeIndex(int hashedValue, int shardCount)
 			why: 'Routing needs the value of the distribution column. Without it, the coordinator sends the query to all shards and merges the answers: a fan-out. Carry the key in every request.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Shard the shop schema on `customer_id` in a one-node Citus, and read `Task Count` in `EXPLAIN` to see which queries go to one shard and which fan out.',
+		steps: [
+			'Start Citus, a PostgreSQL image with the extension loaded, and open `psql`: `docker run -d --name shard-lab -e POSTGRES_PASSWORD=lab citusdata/citus:12.1`, wait a few seconds, then `docker exec -it shard-lab psql -U postgres`. One node is both coordinator and worker, which is enough to see the routing.',
+			'Create the four tables with the keys from the task: `customers (customer_id bigint PRIMARY KEY, name text)`, `orders (customer_id bigint, order_id bigint, total numeric, PRIMARY KEY (customer_id, order_id))`, `order_items (customer_id bigint, order_id bigint, product_id bigint, qty int, PRIMARY KEY (customer_id, order_id, product_id))` and `products (product_id bigint PRIMARY KEY, name text)`.',
+			'Distribute them: `SELECT create_distributed_table(\'customers\', \'customer_id\');`, the same for `orders` and `order_items` with `colocate_with => \'customers\'`, and `SELECT create_reference_table(\'products\');`. Count the shards: `SELECT logicalrelid, count(*) FROM pg_dist_shard GROUP BY 1;`.',
+			'Try a table whose key leaves out the distribution column: `CREATE TABLE bad (id bigint PRIMARY KEY, customer_id bigint); SELECT create_distributed_table(\'bad\', \'customer_id\');`.',
+			'Run `EXPLAIN (COSTS OFF)` on the three task queries: (a) `SELECT o.order_id, i.product_id FROM orders o JOIN order_items i USING (customer_id, order_id) WHERE o.customer_id = 42;`, (b) `SELECT product_id, sum(qty) FROM order_items GROUP BY product_id ORDER BY 2 DESC LIMIT 10;`, (c) `SELECT * FROM orders WHERE order_id = 123;`. Then fix (c) by adding `customer_id = 42` and explain it again.',
+			'When you are done: `docker rm -f shard-lab`.'
+		],
+		done: [
+			'`pg_dist_shard` lists 32 shards for each distributed table and 1 for `products`.',
+			'Distributing `bad` fails: `Distributed relations cannot have UNIQUE, EXCLUDE, or PRIMARY KEY constraints that do not include the partition column`.',
+			'(a) shows `Task Count: 1`, with the join to `order_items` inside that one task.',
+			'(b) and (c) show `Task Count: 32`.',
+			'(c) with `customer_id = 42 AND order_id = 123` shows `Task Count: 1`.'
+		],
+		solution: [
+			'`SELECT create_distributed_table(\'orders\', \'customer_id\', colocate_with => \'customers\');` and the same line for `order_items`.',
+			'Fixed (c): `EXPLAIN (COSTS OFF) SELECT * FROM orders WHERE customer_id = 42 AND order_id = 123;`. The plan is one index scan on one shard.',
+			'`Task Count` is the number of shards the coordinator asks. With more workers, a count of 32 means every worker does some of the work on every call.'
+		]
+	},
 	recall: {
 		q: '`orders` is distributed on `customer_id`. Which queries go to one shard, and which go to every shard?',
 		a: 'A query with `WHERE customer_id = 42` goes to the one shard whose hash range holds 42. A query without `customer_id`, such as `WHERE order_id = 123`, fans out to every shard, 32 by default.'

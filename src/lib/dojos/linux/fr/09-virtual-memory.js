@@ -133,7 +133,7 @@ error:
 			{
 				title: 'Lis les lignes du processus',
 				questions: [
-					{ q: 'Quelle ligne te dit combien de RAM le processus utilise ?', options: ['`VmSize: 104918924 kB`', '`VmRSS: 215548 kB`', '`VmPTE: 488 kB`', '`Committed_AS: 24291668 kB`'], answer: 1, why: 'Le RSS est la part de la mémoire mappée qui est en RAM maintenant.' },
+					{ q: 'Combien de pages de 4 Kio représente `VmRSS: 215548 kB` ?', options: ['215548', '53887', '51200', '862192'], answer: 1, why: '215548 kB / 4 kB = 53887 pages avec de la RAM derrière. Les 200 MiB écrits par le processus en font 51200.' },
 					{ q: '`VmRSS: 215548 kB`, ça fait environ combien ?', options: ['Environ 210 MiB', 'Environ 2 GiB', 'Environ 21 MiB', 'Environ 100 GiB'], answer: 0, why: '215548 kB divisés par 1024 font environ 210 MiB.' },
 					{ q: 'Que compte `VmSize: 104918924 kB` ?', options: ['La RAM plus le swap utilisés par le processus', 'Les pages où le processus a écrit', 'Chaque plage mappée, avec RAM ou non', 'La mémoire en RAM de tous ses threads'], answer: 2, why: 'Le VSZ est la taille de chaque mapping, y compris les 100 GiB que le processus n’a jamais écrits.' },
 					{ q: 'Qu’est-ce que `VmPTE: 488 kB` ?', options: ['La mémoire partie en swap', 'Les bibliothèques partagées qu’il mappe', 'La pile du thread principal', 'Ses tables des pages'], answer: 3, why: 'La table des pages grandit avec les pages qui ont de la RAM. Ajoute-la au RSS pour le vrai coût.' }
@@ -145,7 +145,7 @@ error:
 					{ q: 'Que compte `Committed_AS` ?', options: ['La RAM utilisée maintenant par tous les processus', 'La mémoire promise par les mappings, écrite ou non', 'Le swap utilisé maintenant', 'Le cache de pages qui garde les fichiers'], answer: 1, why: '`__vm_enough_memory` ajoute chaque mapping privé et inscriptible à `vm_committed_as`, affiché comme `Committed_AS`.' },
 					{ q: '`Committed_AS` vaut 24291668 kB et `CommitLimit` 18183952 kB. Est-ce une erreur ?', options: ['Non : en mode 1, seul le mode 2 applique la limite', 'Oui : le noyau manque de mémoire', 'Oui : l’OOM killer va tourner tout de suite', 'Non : les deux nombres ne sont pas dans la même unité'], answer: 0, why: 'Seul le mode 2 refuse les nouveaux engagements au-delà de `CommitLimit`. Le mode 1 ne vérifie jamais.' },
 					{ q: 'En mode 1, que répond le noyau au `mmap` de 100 GiB ?', options: ['Il demande root', 'Non, si RAM plus swap est plus petit', 'Oui, mais seulement pour les 27 premiers GiB', 'Toujours oui'], answer: 3, why: '`OVERCOMMIT_ALWAYS` renvoie 0 tout de suite : le noyau « pretends there is always enough memory ».' },
-					{ q: 'Pourquoi le mapping de 100 GiB n’a-t-il coûté presque aucune RAM ?', options: ['Il a été compressé', 'Il est parti en swap', 'La RAM arrive page par page, à l’écriture', 'Le noyau le partage avec d’autres processus'], answer: 2, why: 'Seuls les 200 MiB que le processus a écrits ont reçu des pages de RAM.' }
+					{ q: 'De combien `Committed_AS` dépasse-t-il `CommitLimit` ici ?', options: ['Il ne le dépasse pas : il est en dessous', 'D’environ 18 GiB', 'D’environ 5,8 GiB : 6107716 kB', 'D’environ 100 GiB'], answer: 2, why: '24291668 - 18183952 = 6107716 kB, environ 5,8 GiB. Le mode 1 laisse passer, puisqu’il ne vérifie jamais la limite.' }
 				]
 			},
 			{
@@ -154,7 +154,7 @@ error:
 					{ q: 'À quoi le mode 0 compare-t-il une demande ?', options: ['À la RAM totale plus le swap total', 'À la RAM libre seulement, sans le swap', 'À `CommitLimit`', 'Au RSS du processus'], answer: 0, why: 'Ligne 15 de `__vm_enough_memory` : `pages > totalram_pages() + total_swap_pages`.' },
 					{ q: 'La RAM fait 27 GiB et le swap 3,8 GiB. Que devient un `mmap` de 100 GiB ?', options: ['Il passe, le contrôle se fait par page', 'Il passe, seules les écritures sont contrôlées', 'Il échoue avec `ENOMEM`', 'L’OOM killer tourne'], answer: 2, why: '100 GiB dépassent 27 + 3,8 GiB : la demande est refusée.' },
 					{ q: 'En mode 0, un `mmap` de 20 GiB passerait-il sur le même portable ?', options: ['Non, `Committed_AS` dépasse la limite', 'Non, toute demande au-dessus de la RAM libre échoue', 'Seulement pour root', 'Oui, quel que soit le total déjà engagé'], answer: 3, why: 'Le mode 0 ne regarde que la demande, pas le total engagé.' },
-					{ q: 'En mode 0, de la RAM est-elle utilisée quand le mapping réussit ?', options: ['Oui, toute la taille, d’un coup', 'Non, pas avant qu’il écrive dans les pages', 'La moitié, le reste à la première écriture', 'Seulement les tables des pages, en entier'], answer: 1, why: 'Le contrôle porte sur l’engagement. La RAM arrive toujours page par page, à la première écriture.' }
+					{ q: 'En mode 0, quelle fonction du noyau refuse la demande de 100 GiB ?', options: ['`vm_commit_limit()`', '`__vm_enough_memory()`', '`oom_badness()`', '`calc_global_load()`'], answer: 1, why: 'La ligne 15 de `__vm_enough_memory` compare cette demande au total des pages de RAM et de swap, et renvoie une erreur.' }
 				]
 			},
 			{
@@ -163,7 +163,7 @@ error:
 					{ q: 'Que compare le mode 2 ?', options: ['Le total engagé à `CommitLimit`', 'Une demande à RAM plus swap', 'Le RSS au VSZ', 'La RAM libre à la demande'], answer: 0, why: 'La ligne 36 refuse la demande dès que `vm_committed_as` atteint la limite.' },
 					{ q: 'Ici, `Committed_AS` dépasse déjà `CommitLimit`. Que fait le `mmap` de 100 GiB ?', options: ['Il passe, puisque de la RAM est libre', 'Il passe, puis l’OOM killer tourne', 'Il attend que de la mémoire se libère', 'Il échoue avec `ENOMEM`'], answer: 3, why: 'Le total engagé dépasse la limite : chaque nouvel engagement est refusé.' },
 					{ q: 'Et un `mmap` privé et inscriptible de 1 MiB venant d’un autre processus ?', options: ['Il passe : les petites demandes sont exemptées', 'Il échoue aussi : tout nouvel engagement est refusé', 'Il passe pour n’importe quel utilisateur', 'Il est déplacé en swap'], answer: 1, why: 'Le mode 2 contrôle le total, et ce total dépasse déjà la limite : les petites demandes échouent aussi.' },
-					{ q: 'Que voit un programme en mode 2 qu’il ne verrait pas en mode 1 ?', options: ['Un SIGKILL de l’OOM killer plus tard', 'Un RSS plus haut qu’en mode 0', 'Un `mmap` raté tout de suite', 'Une table des pages plus grande'], answer: 2, why: 'Le mode 2 fait échouer l’appel d’emblée. Le mode 1 le laisse passer, et l’OOM killer peut agir plus tard.' }
+					{ q: 'En mode 2, quel changement monte `CommitLimit` sans ajouter de RAM ?', options: ['Un `vm.swappiness` plus bas', 'Remettre `vm.overcommit_memory` à 0', 'Un `vm.overcommit_ratio` plus haut, ou plus de swap', 'Une taille de page plus petite'], answer: 2, why: '`vm_commit_limit()` renvoie la RAM fois `overcommit_ratio` / 100, plus le swap : monter l’un ou l’autre monte la limite.' }
 				]
 			}
 		]

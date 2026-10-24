@@ -139,7 +139,7 @@ dispatch_event(const struct tcb_wait_data *wd)
 					{ q: 'Which new line shows strace following the child?', options: ['`strace: Process 4084412 attached`', '`+++ exited with 1 +++`', '`--- SIGCHLD ...`', '`execve("/usr/bin/sh", ...)`'], answer: 0, why: 'With `-f`, strace attaches to every child created by `fork`, `vfork` or `clone`.' },
 					{ q: 'Which line appears only with `-f` and shows the program change?', options: ['`execve("/usr/bin/sh", ["sh", "-c", "cat /etc/shadow"], ...)`', '`openat(... "/etc/ld.so.cache" ...)`', '`[pid 4084412] execve("/usr/bin/cat", ...)`', '`cat: /etc/shadow: Permission denied`'], answer: 2, why: 'The child loads `cat` with `execve`, and strace now sees it.' },
 					{ q: 'What does `[pid 4084412]` at the start of a line mean?', options: ['The call took 4084412 ns to complete', 'The call came from process 4084412', 'It is the 4084412th call', 'The PID of strace'], answer: 1, why: 'With `-f`, strace tags lines from other processes with their PID.' },
-					{ q: 'Why does the failing call show up only now?', options: ['`-f` makes strace print errors', 'The call only fails under `-f`', '`-f` raises strace\'s privileges so it can see the call', 'The child makes it, and `-f` follows children'], answer: 3, why: '`sh` runs `cat` in a child. Only `-f` stops that child at its system calls.' }
+					{ q: 'Even with `-f`, no `clone` line shows how `sh` made the child. Why?', options: ['`sh` runs `cat` without forking', '`-f` hides the fork it follows', '`clone` is not a system call', '`-e trace=execve,openat` prints only those two calls'], answer: 3, why: 'The filter limits what strace prints. `sh` still forks, and the `Process 4084412 attached` line shows the new child.' }
 				]
 			},
 			{
@@ -148,14 +148,14 @@ dispatch_event(const struct tcb_wait_data *wd)
 					{ q: 'Which line is the failure?', options: ['`openat(... "/etc/shadow" ...) = -1 EACCES`', '`execve("/usr/bin/cat", ["cat", "/etc/shadow"], ...) = 0`', '`openat(... "libc.so.6" ...) = 3`', '`+++ exited with 1 +++`'], answer: 0, why: '`= -1` means the call failed, and strace appends the `errno`.' },
 					{ q: 'Which process made it?', options: ['strace', '`sh`, the parent', 'The kernel', 'The child `cat`, PID 4084412 here'], answer: 3, why: 'The line carries the child\'s `[pid 4084412]` prefix.' },
 					{ q: 'Why does `openat` return 3 for `libc.so.6`?', options: ['3 is an error code', 'The library has 3 parts', 'It succeeded and returned file descriptor 3', 'It was the third try'], answer: 2, why: 'A successful `openat` returns the new file descriptor, the lowest free number after 0, 1 and 2.' },
-					{ q: 'How many stops did each of these calls cost `cat`?', options: ['None: only the failed calls make strace stop it', 'Two: one at entry and one at exit', 'One, at entry', 'One per argument'], answer: 1, why: 'strace restarts the tracee with `PTRACE_SYSCALL`, so it stops at every entry and exit.' }
+					{ q: 'Which part of the failing `openat` shows that `cat` only asked to read?', options: ['`AT_FDCWD`', '`O_RDONLY`', '`= -1`', '`EACCES`'], answer: 1, why: '`O_RDONLY` asks for read access only, and even that was refused.' }
 				]
 			},
 			{
 				title: 'Read the errno',
 				questions: [
 					{ q: 'What does `EACCES` tell you?', options: ['The file exists, but access was refused', 'The path does not exist', 'The disk holding the file is full or read-only', 'strace blocked the call'], answer: 0, why: '`EACCES` is permission denied: the path was found, the access was not allowed.' },
-					{ q: 'What would `ENOENT` have told you instead?', options: ['The file is locked', 'The file is empty', 'You need root to trace', 'Nothing exists at that path'], answer: 3, why: '`ENOENT` is "No such file or directory", as with a missing `/etc/myapp.conf`.' },
+					{ q: 'Does `EACCES` here mean that strace lacked a permission?', options: ['Yes: strace needs root to trace `cat`', 'Yes: `-f` causes the error', 'Only when `-e trace=` is set', 'No: the kernel refused `cat`, and strace only prints the result'], answer: 3, why: 'strace prints the return value of the call that `cat` made. Without strace, `cat` gets the same error and prints `Permission denied`.' },
 					{ q: '`stat -c \'%a %U %G\' /etc/shadow` prints `640 root shadow`. Who may read it?', options: ['Everyone', 'Only root', 'Root and the `shadow` group', 'Any user in `sudo`'], answer: 2, why: 'Mode 640: owner read and write, group read, others nothing.' },
 					{ q: 'Which option prints only the calls that failed?', options: ['`-c`', '`-e status=failed` or `-Z`', '`-T`', '`-p`'], answer: 1, why: 'It cuts the trace down to the calls that returned an error.' }
 				]

@@ -141,7 +141,7 @@ export default {
 				questions: [
 					{ q: 'Which two numbers give the anonymous share of pid 49\'s memory?', options: ['`Private_Dirty` over `Shared_Clean`', '`Anonymous` over `Rss`', '`Rss` over `Anonymous`', '`Anonymous` over `Private_Dirty`'], answer: 1, why: '`Rss` is all resident memory. `Anonymous` is the part that belongs to no file.' },
 					{ q: '1178592 / 1196664 is about what?', options: ['98.5 %', '85 %', '50 %', '9.8 %'], answer: 0, why: 'The two numbers differ by about 18 MB out of 1.2 GB.' },
-					{ q: 'What goes into `Anonymous`?', options: ['Pages of mapped libraries', 'The page cache of files the worker read', 'Kernel slab objects', 'Heap, stacks, anonymous `mmap`, and private copies of written file pages'], answer: 3, why: '`smaps_account` adds a page to `Anonymous` when it belongs to no file. A written `MAP_PRIVATE` file page becomes a private anonymous copy.' },
+					{ q: 'Same ratio for the fresh worker: 265636 / 282820 is about what?', options: ['About 50 %', 'About 98.5 %', 'About 9 %', 'About 94 %'], answer: 3, why: 'The fresh worker is mostly anonymous memory too. What differs between the two is the size, not the kind.' },
 					{ q: '`Private_Dirty` is 1096568 kB. What does that add?', options: ['Those pages are shared with other workers', 'Those pages can be dropped at any time', 'Those pages are mapped by this process only and were written', 'Those pages sit in swap'], answer: 2, why: 'Private dirty pages belong to this process alone. The kernel cannot drop them, only swap them out.' }
 				]
 			},
@@ -159,7 +159,7 @@ export default {
 				questions: [
 					{ q: 'The restart freed the memory. What does that rule out?', options: ['The kernel or the page cache holding it', 'A leak in the Python code', 'glibc arenas keeping freed chunks', 'Nothing: restarts free kernel memory too'], answer: 0, why: 'Memory that leaves with the process belonged to that process, not to the kernel or the page cache.' },
 					{ q: 'Inside the process, what two things could hold the anonymous pages?', options: ['Open sockets and pipes', 'Live Python objects, or freed chunks kept in glibc arenas', 'Shared libraries and the page cache', 'The stack of the main thread only'], answer: 1, why: 'Both are anonymous memory the process wrote. The numbers alone cannot tell them apart.' },
-					{ q: 'Why can freed chunks keep `Rss` high?', options: ['free() sends pages to swap', 'The kernel holds freed pages until reboot', 'Python never calls free()', 'glibc can trim a heap only from the top end'], answer: 3, why: 'mallopt(3): "the heap can be trimmed only if memory is freed at the top end". One live object near the top keeps the pages below it.' },
+					{ q: 'Which test helps tell those two apart?', options: ['Read `smaps_rollup` again', 'Compare the `Shared_Clean` values', 'Restart the worker', 'Rerun with `MALLOC_ARENA_MAX=2` and see if the kept memory drops'], answer: 3, why: 'Fewer arenas leave fewer freed chunks to keep. In the report the memory kept after a burst fell from about 2 GiB to about 640 MiB. A restart frees both kinds at once.' },
 					{ q: 'What does gunicorn `max_requests` do about it?', options: ['It caps each arena at 64 MiB', 'It finds the code that allocates', 'It restarts a worker after that many requests', 'It turns off glibc arenas'], answer: 2, why: 'It is "a simple method to help limit the damage of memory leaks". It does not show which code allocates.' }
 				]
 			},
@@ -169,7 +169,7 @@ export default {
 					{ q: 'Which file has the per-mapping split?', options: ['`/proc/49/smaps_rollup`', '`/proc/49/status`', '`/proc/49/smaps`', '`/proc/49/maps`'], answer: 2, why: '`smaps_rollup` sums all mappings. `smaps` keeps one block per mapping, with its own `Rss:`.' },
 					{ q: 'In the `awk` command, why test `$6==""`?', options: ['An empty 6th column means an unnamed anonymous mapping', 'It skips the `[heap]` line', 'It skips mappings in swap', 'It keeps only shared libraries'], answer: 0, why: 'The name sits in the 6th column of the header line. Large `malloc` blocks and extra arenas have no name.' },
 					{ q: 'A `malloc(1 MB)` in glibc lands where?', options: ['In `[heap]`, grown with `brk`', 'In its own private anonymous mapping', 'In `[stack]`', 'In the page cache'], answer: 1, why: 'glibc serves a block of 128 kB or more from its own `mmap`. It shows up with no name.' },
-					{ q: 'The reporter found 61 unnamed mappings of 1 MiB or more, 1039848 kB in total, and 76392 kB of `[heap]`. Where is the growth?', options: ['In the main arena `[heap]`', 'In the libraries', 'In the stacks', 'In unnamed anonymous mappings: large blocks and extra arenas'], answer: 3, why: 'The unnamed mappings hold about 1 GB, more than ten times the `[heap]`.' }
+					{ q: 'The reporter found 61 unnamed mappings of 1 MiB or more, 1039848 kB in total. About how large is one on average?', options: ['About 1 MiB', 'About 64 MiB', 'About 128 kB', 'About 17000 kB'], answer: 3, why: '1039848 / 61 is about 17046 kB. 61 single 1 MiB blocks would add up to only about 61 MiB.' }
 				]
 			}
 		]

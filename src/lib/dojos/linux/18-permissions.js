@@ -130,7 +130,7 @@ export default {
 				questions: [
 					{ q: '`drwxrwxrwt 1777 root root /tmp`. Which special bit is set?', options: ['Set-user-ID', 'Set-group-ID', 'Sticky', 'None: `t` is a file type'], answer: 2, why: 'The first octal digit is 1, shown as `t` in the others\' execute slot: the sticky bit.' },
 					{ q: 'What does the 777 part let users do in `/tmp`?', options: ['Create files there', 'Delete any file there', 'Read every file there', 'Run every file there as root'], answer: 0, why: 'Write and execute on a directory let every user add entries to it.' },
-					{ q: 'Bob tries to delete a file alice made in `/tmp`, mode 0666. What happens?', options: ['It works: the file is writable by all', 'It works: `/tmp` is writable by all', 'It works only at boot', 'It fails: the sticky bit limits deletion to the owners'], answer: 3, why: 'Deleting changes the directory, so the directory decides. Only the file\'s owner, root or a privileged process may delete it.' },
+					{ q: 'Besides alice, who can delete a file alice made in `/tmp`?', options: ['Any member of group `root`', 'Any user, if the file is mode 0666', 'Nobody, not even root', 'Root, which also owns `/tmp`'], answer: 3, why: 'With the sticky bit, only the file\'s owner, the directory\'s owner or a privileged process may delete it. Here the directory\'s owner is root.' },
 					{ q: 'Why does the file\'s own mode not matter for deletion?', options: ['The kernel checks the file mode after the delete', 'Deleting removes a directory entry, so the directory\'s mode decides', 'Files in `/tmp` have no mode', 'Because root owns `/tmp`'], answer: 1, why: 'A name lives in the parent directory. Removing it is a write to that directory.' }
 				]
 			},
@@ -138,7 +138,7 @@ export default {
 				title: 'Read the two programs',
 				questions: [
 					{ q: '`-rwsr-xr-x 4755 root root /usr/bin/passwd`. What does the 4 do?', options: ['It makes the file readable by root only', 'Set-user-ID: the process runs with effective UID 0 for any caller', 'Set-group-ID: it runs with group root', 'It marks the file sticky in memory'], answer: 1, why: 'execve sets the effective user ID to the file owner\'s, root here. The real UID stays the caller\'s.' },
-					{ q: 'User 1000 runs `passwd`. What is the process\'s real UID?', options: ['0', '1000', '4755', 'The UID of the last user who ran it'], answer: 1, why: 'Only the effective UID changes. The real UID stays 1000, so the program knows who called it.' },
+					{ q: 'Root runs the PwnKit fix on it: `chmod 0755 /usr/bin/passwd`. What mode string does `stat` show then?', options: ['`-rwsr-xr-x`', '`-rwxr-xr-x`', '`-rw-r--r--`', '`-rwxr-sr-x`'], answer: 1, why: '0755 drops the leading 4, so the owner\'s slot shows `x` again. `passwd` would then run with the caller\'s UID.' },
 					{ q: '`-rwxr-sr-x 2755 root crontab /usr/bin/crontab`. What does the 2 do?', options: ['It runs with effective group `crontab`', 'It runs with effective user `crontab`', 'Only the group can run it', 'New files take group `crontab`'], answer: 0, why: 'The `s` in the group slot on a program is set-group-ID: it sets the effective group ID to the file\'s group.' },
 					{ q: 'When would `passwd` keep effective UID 1000 despite the bit?', options: ['When the caller is in group `root`', 'When the umask is `022`', 'When its filesystem is mounted `nosuid`, or `no_new_privs` is set', 'Never'], answer: 2, why: 'execve(2) ignores the set-user-ID bit on a `nosuid` mount or when the thread has `no_new_privs`.' }
 				]

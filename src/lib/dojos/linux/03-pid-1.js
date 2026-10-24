@@ -152,8 +152,8 @@ export default {
 				questions: [
 					{ q: 'SIGTERM is not caught. What is its disposition?', options: ['`SIG_DFL`, the default action', '`SIG_IGN`, set by Docker', 'Blocked until the program reads stdin', 'Caught by the kernel for the program'], answer: 0, why: 'No handler and no ignore means the default disposition, `SIG_DFL`.' },
 					{ q: 'What flag does the kernel set on PID 1 of a new PID namespace?', options: ['`SIGCHLD`', '`SIG_IGN`', '`SIGNAL_UNKILLABLE`', '`WNOHANG`'], answer: 2, why: '`kernel/fork.c` sets `SIGNAL_UNKILLABLE` when the new process is the namespace\'s child reaper.' },
-					{ q: 'A SIGTERM with `SIG_DFL` reaches an `SIGNAL_UNKILLABLE` PID 1. What happens?', options: ['It terminates the process', 'It waits in a queue until a handler appears', 'It is turned into SIGKILL', 'The kernel drops it before it is queued'], answer: 3, why: '`sig_task_ignored()` returns true in that case, so the signal is thrown away.' },
-					{ q: 'Does running `kill -TERM 1` as root inside the container change that?', options: ['Yes, root can send any signal to any process', 'No, the rule applies even to privileged processes', 'Yes, if it is sent through `docker exec` from the host', 'Only when SELinux is off'], answer: 1, why: 'pid_namespaces(7) says the rule "applies even to privileged processes".' }
+					{ q: 'Which kernel function decides, on delivery, that this SIGTERM is ignored?', options: ['`sigtimedwait()`', '`waitpid()`', '`reap_zombies()`', '`sig_task_ignored()`'], answer: 3, why: '`sig_task_ignored()` in `kernel/signal.c` returns true for a `SIG_DFL` signal sent to an unkillable init, so the signal is thrown away.' },
+					{ q: 'You run `docker exec app kill -INT 1` instead. What happens?', options: ['The kernel drops it, like SIGTERM', 'Python gets it and raises `KeyboardInterrupt`', 'Docker turns it into SIGKILL', 'Nothing until the 10 second grace period ends'], answer: 1, why: 'The drop rule only hits signals left at `SIG_DFL`. Bit 1 of the mask says python has a SIGINT handler, so the signal is delivered.' }
 				]
 			},
 			{
@@ -162,14 +162,14 @@ export default {
 					{ q: '`docker stop` sends SIGTERM to PID 1. What does python do?', options: ['Nothing: the signal never reaches it', 'Raises `KeyboardInterrupt` and exits cleanly', 'Exits with 143', 'Forwards it to its children'], answer: 0, why: 'The kernel drops it, so python never sees it and keeps running.' },
 					{ q: 'How long does `docker stop` take?', options: ['Under a second', 'Until python finishes the work it was doing', 'About 10 seconds, the default grace period', 'Forever, until you press Ctrl-C in the terminal'], answer: 2, why: 'Docker waits its 10 seconds for an exit that never comes.' },
 					{ q: 'What ends python at second 10?', options: ['A second SIGTERM', 'SIGKILL from the host, which is forced through', 'SIGINT, since python catches that one and exits', 'The kernel\'s OOM killer'], answer: 1, why: 'SIGKILL from an ancestor namespace is "forcibly delivered", even to init.' },
-					{ q: 'What happens to the other processes in the container when PID 1 dies?', options: ['They are re-parented to the host\'s PID 1', 'They keep running until `docker rm`', 'They get SIGHUP', 'The kernel kills them all with SIGKILL'], answer: 3, why: 'pid_namespaces(7): when init terminates, the kernel kills every process in the namespace with SIGKILL.' }
+					{ q: 'Which exit code does `docker ps -a` show for the container after this stop?', options: ['143', '0', '1', '137'], answer: 3, why: 'SIGKILL ended python at second 10, so the runtime reports 128 + 9.' }
 				]
 			},
 			{
 				title: 'Add --init',
 				questions: [
 					{ q: 'With `docker run --init`, which process is PID 1?', options: ['python3', '`docker-init`, which is tini', 'The host\'s systemd', 'A shell that Docker starts to run your command'], answer: 1, why: '`--init` starts tini as PID 1, and tini runs your program as its child.' },
-					{ q: 'How does SIGTERM get past the drop rule to tini?', options: ['tini installs a SIGTERM handler', 'Docker sends it as SIGKILL, which no PID 1 can drop', 'tini blocks it and waits with `sigtimedwait()`', 'tini runs as root on the host'], answer: 2, why: '`sig_ignored()` never drops a blocked signal, so it reaches tini, which waits for it with `sigtimedwait()`.' },
+					{ q: 'Suppose python ran a shell script with background jobs. With plain `--init`, do those jobs get the SIGTERM?', options: ['Yes, tini signals every process in the container', 'Yes, the kernel copies it down the whole tree', 'No: only tini started with `-g` signals the whole process group', 'No: tini drops SIGTERM for every process but PID 1'], answer: 2, why: 'tini forwards the signal to its child with `kill()`. With `-g` it goes to the child\'s process group, so a script\'s own children get it too.' },
 					{ q: 'tini forwards SIGTERM to python. Why does python now stop at once?', options: ['Python is not PID 1 now, so the default applies', 'tini sends SIGKILL instead', 'Python now catches SIGTERM', 'Docker shortens the grace period when `--init` is set'], answer: 0, why: 'Only a namespace\'s init gets the drop rule. As a child, python takes the default action: terminate.' },
 					{ q: 'What exit code does the container report?', options: ['137', '0', '15', '143'], answer: 3, why: 'tini exits with 128 plus the signal number: 128 + 15 = 143.' }
 				]

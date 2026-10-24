@@ -133,7 +133,7 @@ error:
 			{
 				title: 'Read the process lines',
 				questions: [
-					{ q: 'Which line tells you how much RAM the process uses?', options: ['`VmSize: 104918924 kB`', '`VmRSS: 215548 kB`', '`VmPTE: 488 kB`', '`Committed_AS: 24291668 kB`'], answer: 1, why: 'RSS is the part of the mapped memory that is in RAM now.' },
+					{ q: 'How many 4 KiB pages does `VmRSS: 215548 kB` stand for?', options: ['215548', '53887', '51200', '862192'], answer: 1, why: '215548 kB / 4 kB = 53887 pages that have RAM behind them. The 200 MiB the process wrote account for 51200 of them.' },
 					{ q: '`VmRSS: 215548 kB` is about how much?', options: ['About 210 MiB', 'About 2 GiB', 'About 21 MiB', 'About 100 GiB'], answer: 0, why: '215548 kB divided by 1024 is about 210 MiB.' },
 					{ q: 'What does `VmSize: 104918924 kB` count?', options: ['RAM plus swap used by the process', 'The pages the process wrote to', 'Every mapped range, with RAM or not', 'The memory of all its threads in RAM'], answer: 2, why: 'VSZ is the size of every mapping, including the 100 GiB the process never wrote.' },
 					{ q: 'What is `VmPTE: 488 kB`?', options: ['Memory that went out to swap', 'Shared libraries it maps', 'The stack of the main thread', 'Its page tables'], answer: 3, why: 'The page table grows with the pages that have RAM. Add it to RSS for the real cost.' }
@@ -145,7 +145,7 @@ error:
 					{ q: 'What does `Committed_AS` count?', options: ['RAM in use right now by all processes', 'Memory promised by mappings, written or not', 'Swap in use right now', 'The page cache holding file data'], answer: 1, why: '`__vm_enough_memory` adds each private writable mapping to `vm_committed_as`, printed as `Committed_AS`.' },
 					{ q: '`Committed_AS` is 24291668 kB and `CommitLimit` is 18183952 kB. Is that an error?', options: ['No: in mode 1, only mode 2 enforces the limit', 'Yes: the kernel is out of memory', 'Yes: the OOM killer will run now', 'No: the two numbers are in different units'], answer: 0, why: 'Only mode 2 refuses new commits past `CommitLimit`. Mode 1 never checks.' },
 					{ q: 'In mode 1, what does the kernel answer to the 100 GiB `mmap`?', options: ['It asks for root', 'No, if RAM plus swap is smaller', 'Yes, but only the first 27 GiB', 'Always yes'], answer: 3, why: '`OVERCOMMIT_ALWAYS` returns 0 at once: the kernel "pretends there is always enough memory".' },
-					{ q: 'Why did the 100 GiB mapping cost almost no RAM?', options: ['It was compressed', 'It went to swap', 'RAM comes one page at a time, on the first write', 'The kernel shares it with other processes'], answer: 2, why: 'Only the 200 MiB the process wrote got pages of RAM.' }
+					{ q: 'By how much is `Committed_AS` above `CommitLimit` here?', options: ['It is not: it is below', 'About 18 GiB', 'About 5.8 GiB: 6107716 kB', 'About 100 GiB'], answer: 2, why: '24291668 - 18183952 = 6107716 kB, about 5.8 GiB. Mode 1 lets that pass, since it never checks the limit.' }
 				]
 			},
 			{
@@ -154,7 +154,7 @@ error:
 					{ q: 'What does mode 0 compare one request with?', options: ['Total RAM plus total swap', 'Free RAM only', '`CommitLimit`', 'The process\'s RSS'], answer: 0, why: 'Line 15 of `__vm_enough_memory`: `pages > totalram_pages() + total_swap_pages`.' },
 					{ q: 'RAM is 27 GiB and swap is 3.8 GiB. What happens to a 100 GiB `mmap`?', options: ['It passes, the check is per page', 'It passes, only writes are checked', 'It fails with `ENOMEM`', 'The OOM killer runs'], answer: 2, why: '100 GiB is more than 27 + 3.8 GiB, so the request is refused.' },
 					{ q: 'Under mode 0, would a 20 GiB `mmap` pass on the same laptop?', options: ['No, `Committed_AS` is above the limit', 'No, any request above free RAM fails', 'Only for root', 'Yes, however much is already committed'], answer: 3, why: 'Mode 0 looks at the one request only, not the committed total.' },
-					{ q: 'In mode 0, is RAM used when the mapping succeeds?', options: ['Yes, the full size, all at once', 'No, not until it writes to the pages', 'Half of it, the rest on first write', 'Only the page tables, in full'], answer: 1, why: 'The check is about commit. RAM still comes page by page on first write.' }
+					{ q: 'Under mode 0, which kernel function turns down the 100 GiB request?', options: ['`vm_commit_limit()`', '`__vm_enough_memory()`', '`oom_badness()`', '`calc_global_load()`'], answer: 1, why: 'Line 15 of `__vm_enough_memory` compares the one request with total RAM pages plus swap pages, and returns an error.' }
 				]
 			},
 			{
@@ -163,7 +163,7 @@ error:
 					{ q: 'What does mode 2 compare?', options: ['The committed total with `CommitLimit`', 'One request with RAM plus swap', 'RSS with VSZ', 'Free RAM with the request'], answer: 0, why: 'Line 36 refuses the request once `vm_committed_as` reaches the limit.' },
 					{ q: 'Here `Committed_AS` is already above `CommitLimit`. What does the 100 GiB `mmap` do?', options: ['It passes, since RAM is free', 'It passes, then the OOM killer runs', 'It waits for memory to free up', 'It fails with `ENOMEM`'], answer: 3, why: 'The committed total is past the limit, so every new commit is refused.' },
 					{ q: 'And a 1 MiB private writable `mmap` from another process?', options: ['It passes: small requests are exempt', 'It fails too: any new commit is refused', 'It passes for any user', 'It is moved to swap'], answer: 1, why: 'Mode 2 checks the total, and the total is already past the limit, so small requests fail too.' },
-					{ q: 'What does a program see under mode 2 that it would not see under mode 1?', options: ['A SIGKILL from the OOM killer later', 'A higher RSS than in mode 0', 'A failed `mmap` at once', 'A larger page table'], answer: 2, why: 'Mode 2 fails the call up front. Mode 1 lets it pass, and the OOM killer may act later.' }
+					{ q: 'In mode 2, which change raises `CommitLimit` without adding RAM?', options: ['A lower `vm.swappiness`', 'Setting `vm.overcommit_memory` back to 0', 'A higher `vm.overcommit_ratio`, or more swap', 'A smaller page size'], answer: 2, why: '`vm_commit_limit()` returns RAM times `overcommit_ratio` / 100, plus swap, so raising either term raises the limit.' }
 				]
 			}
 		]

@@ -130,16 +130,16 @@ export default {
 				questions: [
 					{ q: 'Which line gives "94% used"?', options: ['`MemAvailable` over `MemTotal`', '`MemFree`: 5.9% free', '`Cached` over `MemTotal`', '`SReclaimable`'], answer: 1, why: '100% minus 5.9% free is about 94%. The alert read `MemFree`.' },
 					{ q: 'What does `MemFree` leave out?', options: ['Swap that is in use', 'RAM that holds nothing at all', 'Page cache it can hand back', 'Memory used by root processes'], answer: 2, why: 'File pages kept in case they are read again leave `MemFree`, even though programs can still get them.' },
-					{ q: 'Why is a low `MemFree` normal on a busy server?', options: ['The kernel caches file data in idle RAM', 'The kernel reserves most RAM for itself', 'Programs leak memory slowly over time', '`MemFree` is only updated at boot'], answer: 0, why: 'RAM that no program uses holds file pages instead of sitting empty.' },
-					{ q: 'Which line should the alert use instead?', options: ['`Cached`', '`Buffers`', '`MemTotal`', '`MemAvailable`'], answer: 3, why: 'It estimates how much a new program can get "without swapping".' }
+					{ q: 'Traffic stops for the night. Does the alert stop firing?', options: ['No: the cached file data stays in RAM until something needs the memory', 'Yes: the kernel empties the cache when the server is idle', 'Yes: `MemFree` is reset every minute', 'Yes: page cache expires after 15 minutes'], answer: 0, why: 'The kernel takes cache back only when memory is needed. On a quiet server `MemFree` stays low, and an alert on it keeps firing.' },
+					{ q: 'Which column of `free -h` shows the same number as `MemFree`?', options: ['`available`', '`buff/cache`', '`used`', '`free`'], answer: 3, why: 'The `free` column is `MemFree`: 1670320 kB, about 1.6 GiB. The alert was built on that number.' }
 				]
 			},
 			{
 				title: 'Rebuild used',
 				questions: [
-					{ q: 'How does free(1) compute `used`?', options: ['Total minus free', 'Total minus available', 'Total minus buff/cache', 'Cached plus Buffers'], answer: 1, why: 'free(1): `used` is total minus available.' },
-					{ q: 'What is `used` here?', options: ['26695032 kB', '21073136 kB', '6352852 kB', '1670320 kB'], answer: 2, why: '28365352 - 22012500 = 6352852 kB, about 6.1 GiB.' },
-					{ q: 'What share of RAM is that?', options: ['About 22%', 'About 94%', 'About 6%', 'About 78%'], answer: 0, why: '6352852 / 28365352 is about 22%, far from the 94% in the alert.' },
+					{ q: 'If `used` were total minus `MemFree`, as the alert assumes, what would it be?', options: ['6352852 kB', '26695032 kB', '21073136 kB', '1670320 kB'], answer: 1, why: '28365352 - 1670320 = 26695032 kB, 94% of RAM: the alert\'s number.' },
+					{ q: 'free(1) subtracts `MemAvailable` instead of `MemFree`. By how much does that lower `used`?', options: ['1670320 kB', '22012500 kB', '20342180 kB', '6352852 kB'], answer: 2, why: '22012500 - 1670320 = 20342180 kB, about 19.4 GiB that the kernel can hand back to programs.' },
+					{ q: 'free\'s `used` comes to 6352852 kB. What share of RAM is that?', options: ['About 22%', 'About 94%', 'About 6%', 'About 78%'], answer: 0, why: '6352852 / 28365352 is about 22%, far from the 94% in the alert.' },
 					{ q: 'How much is available to new programs?', options: ['About 1.6 GiB', 'About 6.1 GiB', 'About 10 GiB', 'About 21 GiB'], answer: 3, why: '`MemAvailable` is 22012500 kB, about 21 GiB.' }
 				]
 			},
@@ -148,7 +148,7 @@ export default {
 				questions: [
 					{ q: 'Which three lines add up to buff/cache?', options: ['`Buffers`, `Cached`, `SReclaimable`', '`MemFree`, `Cached`, `Buffers`', '`Active(file)`, `Inactive(file)`, `Cached`', '`Cached`, `SReclaimable`, `MemAvailable`'], answer: 0, why: 'free(1) adds `Buffers`, `Cached` and `SReclaimable`.' },
 					{ q: 'What is buff/cache here?', options: ['17256208 kB', '21073136 kB', '22012500 kB', '16985396 kB'], answer: 1, why: '7061852 + 10194356 + 3816928 = 21073136 kB.' },
-					{ q: 'Can the kernel drop all of buff/cache?', options: ['Yes, every cached page is a copy of disk', 'Yes, but only once dirty pages are written', 'No: `Cached` includes tmpfs and shared memory', 'No: only `Buffers` can be dropped'], answer: 2, why: 'tmpfs pages have no file on disk behind them, and the estimate keeps some cache back.' },
+					{ q: 'What share of RAM is buff/cache here?', options: ['About 22%', 'About 94%', 'About 74%', 'About 6%'], answer: 2, why: '21073136 / 28365352 is about 74%: most of the RAM the alert called used holds cache.' },
 					{ q: 'What must happen before the kernel can reuse a dirty page?', options: ['Nothing, it drops it', 'A process must close the file', 'The page must be swapped out', 'It must be written to disk'], answer: 3, why: 'A dirty page differs from the file on disk, so it is written back first.' }
 				]
 			},

@@ -120,7 +120,7 @@ export default {
 				questions: [
 					{ q: 'Que sont `6.12 5.90 5.31` ?', options: ['L’usage CPU en pourcentage sur les trois dernières minutes', 'La charge moyennée sur 1, 5 et 15 minutes', 'Les tâches par CPU à cet instant', 'Les secondes d’attente par minute'], answer: 1, why: 'Les trois premiers champs sont les valeurs amorties à 1, 5 et 15 minutes de `avenrun`.' },
 					{ q: 'Que dit `1/388` ?', options: ['1 tâche exécutable maintenant, sur 388', '1 CPU occupé sur 388', '1 tâche en état D', '1 % des tâches sont bloquées en attente d’I/O'], answer: 0, why: 'Le quatrième champ, ce sont les tâches exécutables à cet instant sur l’ensemble des tâches.' },
-					{ q: 'Que compte 6.12 sous Linux ?', options: ['Seulement les tâches qui utilisent un CPU', 'Toutes les tâches qui existent', 'Les tâches en R plus les tâches en D', 'Les tâches en état S'], answer: 2, why: 'Chaque CPU verse `nr_running + nr_uninterruptible` dans le compte global.' },
+					{ q: 'Que dit le dernier champ, `20417` ?', options: ['Le nombre de tâches en état D', 'L’uptime en secondes', 'Le PID créé le plus récemment', 'La mémoire libre, en pages'], answer: 2, why: '`/proc/loadavg` finit par le dernier PID que le noyau a créé.' },
 					{ q: 'La valeur à 15 minutes vaut 5.31 et celle à 1 minute 6.12. Qu’est-ce que ça t’apprend ?', options: ['Le pic a fini avant que tu te connectes pour regarder', 'La machine vient de redémarrer', 'Les nombres sont faux', 'La charge dure et monte un peu'], answer: 3, why: 'Les trois valeurs sont proches et la plus courte est la plus haute : la charge dure et monte un peu.' }
 				]
 			},
@@ -139,7 +139,7 @@ export default {
 					{ q: 'Les CPU sont-ils le goulot ?', options: ['Non : 1 tâche exécutable, CPU au repos à 50 %', 'Oui : la charge de 6 dépasse les 4 CPU de la VM', 'Oui : la charge à 15 minutes dépasse 4', 'Impossible à dire sans `top`'], answer: 0, why: 'Un goulot CPU montrerait beaucoup de tâches exécutables et peu de temps au repos.' },
 					{ q: 'Deux CPU de plus rendraient-ils cette VM plus rapide ?', options: ['Oui, la charge tomberait à 1,5 par CPU', 'Oui, `wa` deviendrait du `us`', 'Non : elles attendent des I/O, pas un CPU', 'Seulement pour la valeur à 15 minutes'], answer: 2, why: 'Les tâches D n’utilisent aucun CPU. Elles attendent le disque quel que soit le nombre de CPU.' },
 					{ q: 'Pourquoi ne pas simplement diviser 6.12 par 4 CPU ?', options: ['La charge est déjà par CPU', 'Les tâches D n’utilisent aucun CPU : le rapport trompe', 'Il faudrait plutôt diviser par les 388 tâches', 'Seule la valeur à 15 minutes se divise'], answer: 1, why: 'La charge par CPU mélange l’attente du disque et la demande de CPU. Gregg compare plutôt la charge à la valeur habituelle du même serveur.' },
-					{ q: 'D’où vient surtout la charge ?', options: ['D’une boucle infinie', 'De trop de threads', 'Seulement des threads du noyau qui vident les écritures', 'Des tâches en état D qui attendent le disque'], answer: 3, why: '6 processus bloqués et 45 % d’attente d’I/O désignent le disque.' }
+					{ q: 'Le disque se rétablit et les 6 tâches bloquées finissent. Que fait la charge à 1 minute ?', options: ['Elle tombe à 1 d’un coup', 'Elle reste à 6 pendant les 15 minutes suivantes', 'Elle monte, parce que les tâches deviennent exécutables', 'Elle descend vers 1 en une minute environ, à mesure que la moyenne s’amortit'], answer: 3, why: 'Chaque échantillon de 5 secondes garde 92 % de l’ancienne valeur à 1 minute : la charge décroît peu à peu une fois les tâches D parties.' }
 				]
 			},
 			{

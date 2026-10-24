@@ -106,8 +106,8 @@ export default {
 				title: 'Read the two runs',
 				questions: [
 					{ q: 'Both runs use `dd iflag=direct`. Why does that matter here?', options: ['It makes each read 4 KiB larger', 'It turns off `%util` accounting', 'Every read skips the page cache and reaches the device', 'It lets `dd` keep 64 reads in flight'], answer: 2, why: 'Direct I/O uses `O_DIRECT`, so no read is served from memory. The counters see every one.' },
-					{ q: 'What does `r_await` include?', options: ['Only the time the device spent on the read', 'Queue time plus device time, from request creation to completion', 'The time `dd` spent between two reads', 'Only the time the request waited in the queue'], answer: 1, why: 'The kernel measures from `blk_mq_alloc_request()` to `__blk_mq_end_request()`, so queue time is part of it.' },
-					{ q: 'What does `%util` count?', options: ['The share of the interval with at least one request in flight', 'The share of the device\'s maximum throughput in use', 'The share of the queue slots that are full', 'The share of time the CPU waited on the disk'], answer: 0, why: 'iostat computes it from `io_ticks`, the milliseconds with requests queued, whatever their number.' },
+					{ q: 'Run A reads 71,008 blocks of 4 KiB per second. About what throughput is that?', options: ['About 71 MB/s', 'About 291 MB/s', 'About 3578 MB/s', 'About 4 MB/s'], answer: 1, why: '71,008 × 4096 bytes is about 291 million bytes per second, the 291 MB/s of the single `dd`.' },
+					{ q: 'Run B reads 873,584 blocks of 4 KiB per second. About what throughput is that?', options: ['About 3578 MB/s', 'About 291 MB/s', 'About 873 MB/s', 'About 64 MB/s'], answer: 0, why: '873,584 × 4096 bytes is about 3578 million bytes per second, twelve times run A.' },
 					{ q: 'What does `aqu-sz` tell you?', options: ['The size of each request in kB', 'The number of requests rejected per second', 'The number of processes reading the disk', 'The average number of requests in flight'], answer: 3, why: '`aqu-sz` is the queue depth the device sees, averaged over the interval.' }
 				]
 			},

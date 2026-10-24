@@ -149,16 +149,16 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 				questions: [
 					{ q: 'Quel signal porte le numéro 15 ?', options: ['SIGKILL', 'SIGINT', 'SIGQUIT', 'SIGTERM'], answer: 3, why: 'signal(7) : SIGTERM vaut 15. SIGKILL vaut 9 sur x86.' },
 					{ q: 'Quelle ligne Python donnerait exactement ce masque ?', options: ['`signal.signal(signal.SIGTERM, handler)`', '`signal.signal(signal.SIGKILL, handler)`', '`os.kill(os.getpid(), 15)`', '`signal.pause()`'], answer: 0, why: 'Enregistrer un handler pour SIGTERM met le bit 14 à 1. Le chapitre a capturé exactement `0000000000004000` dans ce cas.' },
-					{ q: 'Pourrais-tu ajouter un bit pour SIGKILL dans ce masque ?', options: ['Oui, avec `sigaction()` quand le processus tourne en root', 'Non : SIGKILL ne peut être ni intercepté, ni bloqué, ni ignoré', 'Oui, mais seulement dans un conteneur', 'Seulement si SIGTERM est intercepté avant'], answer: 1, why: 'sigaction(2) accepte « any valid signal except SIGKILL and SIGSTOP ».' },
+					{ q: 'Comme l’image `postgres`, une image pourrait fixer `STOPSIGNAL SIGINT`. Quel bit de `SigCgt` montre qu’un programme intercepte SIGINT ?', options: ['Le bit 2', 'Le bit 1', 'Le bit 14', 'Le bit 0'], answer: 1, why: 'SIGINT est le signal 2, et le bit n-1 représente le signal n. Ce masque n’a que le bit 14 : le programme n’intercepterait pas SIGINT.' },
 					{ q: 'Que ne te dit pas le masque sur le handler de SIGTERM ?', options: ['Qu’un handler existe', 'Pour quel signal il est', 'Si le handler fait sortir le programme', 'Que l’action par défaut est remplacée'], answer: 2, why: 'Le bit dit seulement qu’un handler est enregistré. Ce qu’il fait, sortir ou juste écrire un log, se lit dans le code.' }
 				]
 			},
 			{
 				title: 'Suis le docker stop',
 				questions: [
-					{ q: 'Qu’envoie d’abord `docker stop` quand l’image ne fixe aucun `STOPSIGNAL` ?', options: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP'], answer: 0, why: 'Docker envoie le `StopSignal` de l’image, ou SIGTERM s’il n’y en a pas.' },
+					{ q: 'À quel processus `docker stop` envoie-t-il son premier signal ?', options: ['Au processus principal, `python app.py`', 'À tous les processus du conteneur à la fois', 'Au démon Docker, qui arrête ensuite le programme', 'Au shell où tu as tapé `docker stop`'], answer: 0, why: 'Docker signale le processus principal du conteneur. Son masque montre un handler pour SIGTERM : c’est ce handler qui s’exécute.' },
 					{ q: 'Le handler nettoie et sort en moins de 10 secondes. Que se passe-t-il ensuite ?', options: ['Docker envoie quand même SIGKILL à la seconde 10', 'Docker redémarre le conteneur', 'Le noyau relance le handler une deuxième fois', 'Docker n’envoie jamais SIGKILL'], answer: 3, why: 'SIGKILL n’arrive que si le processus tourne encore à la fin du délai de grâce.' },
-					{ q: 'Le handler se contente d’écrire un log et rend la main. Que se passe-t-il ?', options: ['Le programme sort de lui-même une fois le handler revenu', 'Il continue jusqu’au SIGKILL de la seconde 10', 'Docker attend le programme indéfiniment', 'Le noyau transforme tout de suite SIGTERM en SIGKILL'], answer: 1, why: 'Après le retour d’un handler, le programme reprend. Docker envoie SIGKILL quand les 10 secondes sont écoulées.' },
+					{ q: 'Le handler se contente d’écrire une ligne de log et rend la main. Combien de ces lignes apparaissent pendant l’arrêt ?', options: ['Dix, une par seconde du délai de grâce', 'Une : SIGTERM arrive une fois, et le signal suivant est SIGKILL', 'Aucune : un handler ne peut pas écrire de log', 'Deux : une pour SIGTERM et une pour SIGKILL'], answer: 1, why: 'Docker envoie le signal d’arrêt une seule fois et attend. Ensuite vient SIGKILL, et aucun handler ne s’exécute pour lui.' },
 					{ q: 'Comment laisser plus de 10 secondes au programme ?', options: ['Intercepter SIGKILL dans le handler', 'Fixer `STOPSIGNAL SIGINT`', 'Passer `--stop-timeout` ou `docker stop -t`', 'Relancer le conteneur avec `--rm`'], answer: 2, why: 'Le délai de grâce vaut 10 secondes par défaut, et ces deux options le changent.' }
 				]
 			},
@@ -168,7 +168,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 					{ q: '`sleep 300` sans handler reçoit `kill -TERM`. Quel code le shell voit-il ?', options: ['143', '137', '15', '0'], answer: 0, why: 'Capturé dans le chapitre : 143, soit 128 + 15 pour SIGTERM.' },
 					{ q: 'Une boucle bash avec `trap ... TERM` reçoit `kill -TERM`. Que se passe-t-il ?', options: ['Elle sort avec 143', 'Elle sort avec 0', 'Elle sort avec 137', 'Elle continue de tourner'], answer: 3, why: 'Le trap est un handler : l’action par défaut ne s’applique plus.' },
 					{ q: 'Cette boucle reçoit ensuite `kill -KILL`. Quel code ?', options: ['143', '137', '9', '1'], answer: 1, why: 'SIGKILL la termine quoi que dise le trap, et le code vaut 137, soit 128 + 9.' },
-					{ q: 'Après un arrêt qui a pris 10 secondes, le processus principal a fini avec le code 137. Qu’est-ce que ça indique ?', options: ['Le handler est sorti en erreur', 'Le healthcheck a échoué', 'SIGKILL l’a terminé après le délai de grâce', 'SIGTERM a été remis deux fois'], answer: 2, why: '137 veut dire SIGKILL, et 10 secondes est le délai de grâce par défaut.' }
+					{ q: 'Le handler Python nettoie et appelle `sys.exit(0)` en moins de 10 secondes. Quel code le conteneur affiche-t-il ?', options: ['143', '137', '0', '15'], answer: 2, why: 'Le programme s’est terminé lui-même avec le code 0. 143 n’apparaît que quand SIGTERM tue un processus sans handler.' }
 				]
 			}
 		]

@@ -128,7 +128,7 @@ export default {
 					{ q: 'Le disque `sda` affiche 100G. Pourquoi `df -h /data` affiche-t-il toujours 50G ?', options: ['La console du cloud n’a pas fini l’agrandissement', 'Le noyau doit redémarrer pour voir le disque', 'La partition, le PV, le LV et le système de fichiers ont gardé leur ancienne taille', '`df` garde les tailles en cache jusqu’au prochain montage'], answer: 2, why: 'Chaque couche a sa propre taille. Agrandir le disque ne change que celle du bas.' },
 					{ q: 'Quel périphérique est encore à 50G juste au-dessus du disque de 100G ?', options: ['`vg0-data`', '`sda1`', '`/data`', '`sda`'], answer: 1, why: 'L’indice dit de partir du bas. `sda1` est posé directement sur `sda` et finit toujours là où finissait l’ancien disque.' },
 					{ q: 'Que te dit le type `LVM2_member` sur `sda1` ?', options: ['La partition est un volume physique LVM', 'La partition porte un système de fichiers ext4', 'La partition est une zone de swap', 'La partition est un volume logique'], answer: 0, why: '`lsblk` affiche un PV préparé avec `pvcreate` comme `LVM2_member`.' },
-					{ q: 'Dans quel ordre agrandis-tu les couches ?', options: ['Système de fichiers, LV, PV, partition', 'LV, partition, PV, système de fichiers', 'PV, partition, système de fichiers, LV', 'Partition, PV, LV, système de fichiers'], answer: 3, why: 'De bas en haut : chaque couche ne peut grandir que dans la place que la couche du dessous a déjà.' }
+					{ q: 'Quelle couche est `vg0-data` dans cet arbre ?', options: ['Le disque', 'La partition', 'Le volume physique', 'Le volume logique qui porte l’ext4'], answer: 3, why: 'Il est au-dessus de `sda1` et porte le système de fichiers monté sur `/data`. Son nom joint le VG et le LV par un tiret.' }
 				]
 			},
 			{
@@ -152,9 +152,9 @@ export default {
 			{
 				title: 'Agrandis le LV et le système de fichiers',
 				questions: [
-					{ q: 'Quelle commande donne toute la place libre à `vg0/data` et agrandit le système de fichiers ?', options: ['`lvextend -l +100%FREE vg0/data`', '`lvextend -r -l +100%FREE vg0/data`', '`lvresize -L 100G vg0`', '`resize2fs -l +100%FREE vg0/data`'], answer: 1, why: '`-l +100%FREE` prend tous les extents libres du VG, et `-r` agrandit le système de fichiers « together with the LV using fsadm(8) ».' },
+					{ q: 'Après `lvextend -r -l +100%FREE vg0/data`, quelle place libre `vgs` affiche-t-il ?', options: ['Environ 50G', 'Aucune : le LV a tout pris', 'Environ 100G', 'Environ 25G'], answer: 1, why: '`-l +100%FREE` donne au LV tous les extents libres de `vg0` : il ne reste rien au VG.' },
 					{ q: 'Faut-il démonter `/data` ?', options: ['Non : resize2fs agrandit un ext4 monté avec `EXT4_IOC_RESIZE_FS`', 'Oui : resize2fs refuse sur un système de fichiers monté', 'Oui, sauf avec `--force`', 'Seulement au premier agrandissement'], answer: 0, why: 'resize2fs(8) : « If the file system is mounted, it can be used to expand the size of the mounted file system ». Seule la réduction demande un démontage.' },
-					{ q: 'Tu as oublié `-r`. `lvs` montre 100G et `df` 50G. Que lances-tu ?', options: ['`pvresize /dev/sda1`', '`growpart /dev/sda 1`', '`resize2fs /dev/vg0/data`', 'Un redémarrage'], answer: 2, why: 'Le LV a grandi, l’ext4 dessus non. `df` affiche la taille du système de fichiers.' },
+					{ q: 'Quelle commande montre la taille du LV lui-même, à part de son système de fichiers ?', options: ['`pvs`', '`growpart`', '`lvs`', '`df -h /data`'], answer: 2, why: '`lvs` liste chaque volume logique avec sa taille. `df` affiche le système de fichiers, qui peut rester en retard sur le LV.' },
 					{ q: '`df -h /data` affiche un peu moins de 100G. Pourquoi ?', options: ['LVM garde 5 % pour les snapshots', 'growpart laisse un trou à la fin du disque', 'L’agrandissement tourne encore en arrière-plan', 'Les métadonnées d’ext4 ne comptent pas dans la taille de `df`'], answer: 3, why: 'Les tables d’inodes, le journal et les bitmaps prennent une place que `df` ne montre jamais : 16 GB d’un LV de 1 TB sur le portable de test.' }
 				]
 			}

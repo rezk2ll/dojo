@@ -119,17 +119,17 @@ export default {
 				questions: [
 					{ q: '`grep NSpid /proc/$P/status` prints `NSpid: 4145502 1`. What does the line list?', options: ['The process\'s PID in each PID namespace it belongs to', 'The PID of the process and of its parent', 'The process\'s PID and its exit code', 'The number of threads and the number of children'], answer: 0, why: 'The kernel gives a process a PID in its own PID namespace and in each one above it, up to the root. `NSpid` lists them all.' },
 					{ q: 'Which of the two numbers is the host\'s view?', options: ['1, the last one', 'Neither, both are container PIDs', '4145502, the first one', 'The smaller one, because the host started first'], answer: 2, why: '4145502 is the same number `ps` shows on the host, and the same as `$P`. The 1 is the container\'s view.' },
-					{ q: 'Why did runc fork once more after its `unshare` call?', options: ['To drop root before the command runs', '`unshare` does not move the caller into the new PID namespace', 'To get a fresh copy of the host\'s memory', 'Each namespace type needs its own process'], answer: 1, why: 'The caller\'s PID would change under it, so only its children enter the new PID namespace. The forked child becomes PID 1.' },
+					{ q: 'The line holds two numbers. How many PID namespaces is `sleep` in?', options: ['One', 'Two: the host\'s and the container\'s', 'Seven, one per type', 'None'], answer: 1, why: '`NSpid` lists one PID per PID namespace, from the outermost to the process\'s own. Two numbers, two namespaces.' },
 					{ q: 'Does `ps` on the host list the container\'s `sleep`?', options: ['No, PID namespaces hide containers from the host', 'Only with `ps --containers`', 'Only if the container runs as root', 'Yes, with its normal host PID'], answer: 3, why: 'No second kernel boots. The container is a normal process on the host, visible with its host PID.' }
 				]
 			},
 			{
 				title: 'Compare the namespace links',
 				questions: [
-					{ q: 'How do you know two processes are in the same namespace?', options: ['The two `/proc/<pid>/ns/<type>` links show the same number', 'They have the same parent PID', 'They have the same hostname', 'They were started by the same user'], answer: 0, why: 'Each link reads like `net:[4026531833]`. The same number means the same namespace.' },
+					{ q: 'The host\'s `pid` link and the container\'s show different numbers. What does that confirm?', options: ['`sleep` runs in its own PID namespace', 'Docker failed to start the container', 'The container shares the host\'s PIDs', 'One of the links is broken'], answer: 0, why: 'Different numbers mean different namespaces. That matches the two PIDs in `NSpid`.' },
 					{ q: 'Of the seven types you compared, how many differ?', options: ['All seven', 'Six', 'Three', 'One'], answer: 1, why: 'pid, net, mnt, uts, ipc and cgroup are new. runc gave no flag for the user namespace.' },
 					{ q: 'Which one shows the same number inside and on the host?', options: ['`net`', '`pid`', '`mnt`', '`user`'], answer: 3, why: 'Both print `user:[4026531837]`: Docker did not create a user namespace for this container.' },
-					{ q: 'What does a shared user namespace mean for root in the container?', options: ['It is mapped to `nobody` on the host', 'It is mapped to the user who ran `docker run`', 'It is UID 0 on the host too', 'It is mapped to UID 100000 from `/etc/subuid`'], answer: 2, why: 'With no new user namespace, UIDs are not translated. Docker maps root to an unprivileged range only with `userns-remap`.' }
+					{ q: 'Which daemon setting would make the `user` link differ too?', options: ['`--privileged`', '`--pid=host`', '`userns-remap`', '`--network none`'], answer: 2, why: 'With `userns-remap`, Docker gives containers a new user namespace and maps root to an unprivileged range.' }
 				]
 			},
 			{
@@ -138,7 +138,7 @@ export default {
 					{ q: 'What does `sudo nsenter -t $P -n` change for the command it runs?', options: ['The network namespace only', 'Every namespace of the container', 'The mount and network namespaces', 'Only the hostname'], answer: 0, why: '`-n` opens `/proc/$P/ns/net` and calls `setns(2)` on it. The other namespaces stay the host\'s.' },
 					{ q: 'Where does the `ip` binary that runs come from?', options: ['The container\'s image', 'A copy Docker injects into the container', 'The host\'s filesystem', 'The busybox binary in the container'], answer: 2, why: 'The mount namespace did not change, so the path `ip` resolves on the host. Only its view of the network is the container\'s.' },
 					{ q: 'What does `ip -brief link` list there?', options: ['Every interface of the host, plus the veth', 'Only `docker0`', 'Nothing, a new namespace has no devices', 'The container\'s `lo` and `eth0`, and no host interface'], answer: 3, why: 'A network namespace has its own devices. Inside it you see `lo` and `eth0`, one end of a veth pair.' },
-					{ q: 'Why is this useful on a real system?', options: ['It is faster than `docker exec`', 'You can debug a container whose image has no tools, with the host\'s binaries', 'It moves the container to the host network', 'It lets the container see the host\'s interfaces'], answer: 1, why: 'Many images have no `ip` or `ss`. `nsenter -n` brings the host\'s tools to the container\'s network.' }
+					{ q: 'You run `sudo nsenter -t $P -n hostname` the same way. Which name prints?', options: ['`ns1`', 'The host\'s own hostname', 'The container\'s short ID, its hostname inside', 'Nothing: `hostname` needs the uts namespace'], answer: 1, why: '`-n` joins the network namespace only. The uts namespace, which holds the hostname, stays the host\'s.' }
 				]
 			}
 		]

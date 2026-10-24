@@ -152,15 +152,15 @@ export default {
 					{ q: '`ps -o pid,stat,rss,args -p <pid>` prints `4124475 SN 2320 sleep 300`. How did `ps` get it?', options: ['From a special system call for process lists', 'By reading text files under `/proc`', 'From the shell\'s job table', 'From `/var/log`'], answer: 1, why: 'Under strace, `ps` makes no special call. It opens `stat`, `status` and `cmdline`.' },
 					{ q: 'With `-p` and one PID, how many `stat` files did `ps` open on the chapter\'s machine?', options: ['One, for the whole list', 'Three', '749, one per process', 'None, it reads a cache'], answer: 2, why: 'procps-ng 4.0.4 walked all 749 processes even for one PID.' },
 					{ q: 'What does the `N` in `SN` mean?', options: ['Low priority: a nice value of 5', 'New process, started under a second ago', 'No terminal attached', 'Not responding to signals'], answer: 0, why: 'ps(1) calls `N` "low-priority". `ps -o ni` printed `5`.' },
-					{ q: 'Why did `ps` fail on `/proc/1/environ` while it read `/proc/1/status`?', options: ['PID 1 has no environment at all', '`environ` is on disk with mode 600', 'The file is too large to read', 'Reading it needs a ptrace access check'], answer: 3, why: 'proc_pid_environ(5): access is "governed by a ptrace access mode PTRACE_MODE_READ_FSCREDS check".' }
+					{ q: '`/proc/1/environ` is refused to your user. Can you read `/proc/<pid>/environ` of your own `sleep`?', options: ['No, `environ` is root only', 'Only with `sudo`', 'Only while `sleep` is stopped', 'Yes: the ptrace access check passes for a process that runs as you'], answer: 3, why: 'The check compares you with the target process. Your own `sleep` passes it, root\'s PID 1 does not.' }
 				]
 			},
 			{
 				title: 'Match the columns',
 				questions: [
-					{ q: 'The `STAT` column `S` comes from which file?', options: ['`status`, the `Threads` line', '`stat`, field 3', '`cmdline`', '`limits`'], answer: 1, why: '`ps` reads `stat` for every process, and field 3 is the state.' },
-					{ q: 'The `RSS` column `2320` comes from which line?', options: ['`VmRSS: 2320 kB` in `status`', 'Field 3 of `stat`', '`Max open files` in `limits`', 'The size of `cmdline`'], answer: 0, why: 'The `rss` column is `PIDS_VM_RSS`, filled from `status`.' },
-					{ q: 'The `COMMAND` column `sleep 300` comes from which file?', options: ['`exe`', '`environ`', '`status`, the `Name` line', '`cmdline`, joined with spaces'], answer: 3, why: '`ps` joins the null-separated arguments with spaces.' },
+					{ q: 'The `PID` column `4124475` matches what in the paths you read?', options: ['The `PPid:` line of `status`', 'The directory name, `/proc/4124475`', 'Field 3 of `stat`', 'The first word of `cmdline`'], answer: 1, why: 'Each process has a directory named after its PID. `ps` lists `/proc` to find them.' },
+					{ q: 'The `RSS` column shows `2320`. In which unit?', options: ['kB, the unit of the `VmRSS` line', 'Pages of 4 KiB', 'Bytes', 'MB'], answer: 0, why: '`ps` prints the `VmRSS` value as it is, in kB: 2320 kB is about 2.3 MB.' },
+					{ q: 'In the `status` you read, which line says the same thing as the `S` in `STAT`?', options: ['`Threads: 1`', '`PPid: 4124473`', '`VmRSS: 2320 kB`', '`State: S (sleeping)`'], answer: 3, why: '`status` spells the state out in words. `ps` takes the letter from `stat`, and both agree.' },
 					{ q: 'Which file tells you the real binary, whatever `cmdline` says?', options: ['`/proc/<pid>/environ`', '`/proc/<pid>/stat`', '`ls -l /proc/<pid>/exe`', '`/proc/<pid>/limits`'], answer: 2, why: 'A process controls its argv. `exe` is a link to the binary that really runs.' }
 				]
 			}

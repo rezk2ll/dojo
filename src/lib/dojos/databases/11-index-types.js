@@ -101,6 +101,44 @@ export default {
 			'Sizes on PostgreSQL 18: the table is about 100 MB, the B-tree about 43 MB, the BRIN 24 kB. The BRIN holds one summary per 128 pages, the B-tree one entry per row.',
 			'The plan is a Bitmap Index Scan on the BRIN under a Bitmap Heap Scan, with `Heap Blocks: lossy=640` and `Rows Removed by Index Recheck`. The index names whole page ranges, and the executor rechecks every row in them.',
 			'It works because `created_at` grows with the insert order, so each range covers a short time window. Fill a second table with `random()` dates over the same 23 days and the same query marks every page of the table lossy (about 12,700 pages): each range now holds dates from the whole period.'
+		],
+		steps: [
+			{
+				title: 'Fill the table',
+				questions: [
+					{ q: 'Which expression gives one row per second from 2026-01-01?', options: ['`now() - i * interval \'1 second\'`', '`timestamptz \'2026-01-01\' + random() * interval \'23 days\'`', '`timestamptz \'2026-01-01\' + i * interval \'1 second\'`', '`timestamptz \'2026-01-01\' + i * interval \'1 day\'`'], answer: 2, why: 'With `i` from `generate_series(1, 2000000)`, each row is one second after the previous one, starting at 2026-01-01.' },
+					{ q: 'Which statement builds the BRIN?', options: ['`CREATE INDEX ON events (created_at);`', '`CREATE INDEX ON events USING brin (created_at);`', '`CREATE INDEX ON events USING gin (created_at);`', '`CREATE INDEX ON events USING hash (created_at);`'], answer: 1, why: 'The index type is one `USING` keyword. Without it, `CREATE INDEX` builds a B-tree, which is the second index you need.' },
+					{ q: 'Which function gives the size of the table or of one index?', options: ['`pg_relation_size`', '`count(*)`', '`EXPLAIN (BUFFERS)`', 'The `pg_stats` view'], answer: 0, why: '`pg_relation_size` returns the size on disk of one relation, a table or an index, as the hint says.' },
+					{ q: 'Why does `created_at` follow the physical order of the rows here?', options: ['BRIN sorts the table by the indexed column when it is built', 'PostgreSQL always stores rows sorted by their primary key', 'The B-tree moves the rows into order when it is created', 'Rows go in one by one in time order, each after the last'], answer: 3, why: 'The insert walks the series in order, so each new row lands after the previous one, with a later time. Nothing sorts the table afterwards.' }
+				]
+			},
+			{
+				title: 'Compare the sizes',
+				questions: [
+					{ q: 'The table is about 100 MB on PostgreSQL 18. About how big is the B-tree on `created_at`?', options: ['24 kB', '43 MB', '100 MB', '4 MB'], answer: 1, why: 'The B-tree holds one entry per row, 2 million of them: about 43 MB.' },
+					{ q: 'About how big is the BRIN?', options: ['24 kB', '43 MB', '4 MB', '640 kB'], answer: 0, why: 'In this test the BRIN takes 24 kB, against 43 MB for the B-tree.' },
+					{ q: 'Why is the BRIN so much smaller?', options: ['It compresses each row entry better than a B-tree does', 'It indexes only the rows inserted after it was built', 'It keeps the values in memory and stores nothing on disk', 'It keeps one summary per 128 pages, not one entry per row'], answer: 3, why: 'BRIN stores a summary per block range, 128 table pages by default. The B-tree stores an entry for every row.' },
+					{ q: 'What does a BRIN summary hold for a column like `created_at`?', options: ['The exact time of each row in the range', 'A hash of each value in the range', 'The min and the max of the range', 'The number of rows for each day'], answer: 2, why: 'For a sortable column, the summary is a min and a max per block range. That is all the index knows.' }
+				]
+			},
+			{
+				title: 'Read the plan',
+				questions: [
+					{ q: 'After you drop the B-tree, which scan nodes count the rows of one day?', options: ['A Bitmap Index Scan on the BRIN under a Bitmap Heap Scan', 'An Index Only Scan on the BRIN, with no table access', 'An Index Scan on the BRIN that returns one row at a time', 'A Seq Scan, because a BRIN cannot be used for a range'], answer: 0, why: 'BRIN returns page ranges, so the plan builds a bitmap of pages and the heap scan reads them.' },
+					{ q: 'What does `Heap Blocks: lossy=640` tell you?', options: ['640 pages were missing from the cache and read from disk', '640 rows of the day were lost and have to be recounted', 'The index named whole pages, not rows, so each row in them is checked', 'The index is damaged on 640 pages and needs a REINDEX'], answer: 2, why: 'Lossy means the bitmap knows pages, not rows. The executor rechecks every row of those pages against the condition.' },
+					{ q: 'Where do the `Rows Removed by Index Recheck` come from?', options: ['Dead rows that VACUUM has not removed yet', 'Rows in the matching ranges that fall outside the day', 'Rows that the B-tree had already counted before', 'Rows hidden from this query by an open transaction'], answer: 1, why: 'A matching range can hold times just before or after the day. The recheck drops them.' },
+					{ q: '640 lossy pages is how many block ranges of 128 pages?', options: ['128', '640', '2', '5'], answer: 3, why: '640 / 128 = 5. The day sits in about five ranges, and the scan reads all their pages.' }
+				]
+			},
+			{
+				title: 'Explain why',
+				questions: [
+					{ q: 'Why does the BRIN skip most of the table here?', options: ['Because BRIN keeps the exact time of every row in its summary', 'Because `created_at` grows with the insert order, so each range is a short window', 'Because the planner caches the result of the previous count', 'Because the rows of one day are stored in the index itself'], answer: 1, why: 'Each range covers a few hours, so only the ranges around that day can match.' },
+					{ q: 'A second table gets `random()` dates over the same 23 days. What does the same query do?', options: ['It marks every page of the table lossy, about 12,700 pages', 'It reads the same 640 pages, since the dates are the same', 'It switches to an Index Only Scan on the BRIN', 'It fails, because BRIN needs values in sorted order'], answer: 0, why: 'Each range now holds dates from the whole period, so every summary matches the day.' },
+					{ q: 'The table is in production. Which change slowly breaks the BRIN?', options: ['Adding a `payload` column', 'Running `ANALYZE` every night', 'A backfill of old dates and many `UPDATE`s', 'Counting a full week instead of a day'], answer: 2, why: 'A backfill lands at the end of the table, and an `UPDATE` can write the new version on another page. The ranges start to overlap.' },
+					{ q: 'You also need `created_at` to be unique. What do you add?', options: ['A second BRIN with a smaller range size', 'A Hash index, which serves `=` exactly', 'A GIN index on `created_at`', 'A B-tree, the only type that can be unique'], answer: 3, why: 'The docs: "Currently, only B-tree indexes can be declared unique." BRIN, Hash, GIN and GiST cannot enforce it.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -138,6 +176,27 @@ export default {
 			why: 'One row yields one index entry per extracted key. With `fastupdate` on, entries wait in a pending list, and the insert that makes it too large pays for the merge. Vacuum and autoanalyze also merge it in the background. A B-tree (day 10) pays one entry per row.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See a B-tree ignore an array containment query, and a GIN index serve it.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql`: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres`.',
+			'Create the hook\'s table with 200,000 rows of three random user ids: `CREATE TABLE acl (id bigint generated always as identity primary key, allowed_user_ids bigint[] not null);` then `INSERT INTO acl (allowed_user_ids) SELECT ARRAY[(random()*5000)::bigint, (random()*5000)::bigint, (random()*5000)::bigint] FROM generate_series(1, 200000);`',
+			'Add a B-tree and look at the plan: `CREATE INDEX acl_btree ON acl (allowed_user_ids); VACUUM ANALYZE acl;` then `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM acl WHERE allowed_user_ids @> ARRAY[42]::bigint[];`',
+			'Add a GIN index and run the same `EXPLAIN` again: `CREATE INDEX acl_gin ON acl USING gin (allowed_user_ids);`',
+			'Write the same question another way: `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM acl WHERE 42 = ANY(allowed_user_ids);`. Compare sizes with `SELECT pg_size_pretty(pg_relation_size(\'acl_btree\')), pg_size_pretty(pg_relation_size(\'acl_gin\'));`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'With only the B-tree, the `@>` plan is a `Seq Scan on acl` with about 200,000 `Rows Removed by Filter`.',
+			'With the GIN index, the same query shows `Bitmap Index Scan on acl_gin` and about a hundred buffers instead of about 2,000.',
+			'The `= ANY` version is a Seq Scan (maybe parallel) even with `acl_gin` in place.'
+		],
+		solution: [
+			'The B-tree sorts whole arrays, so it cannot find 42 inside `{3,7,42}`. The planner reads the table.',
+			'GIN stores one entry per element. `@>` is in its array operator class, so the clause has the shape "indexed column, operator, value" and the index serves it.',
+			'`42 = ANY(allowed_user_ids)` puts the column on the wrong side of an operator that is not in the class, so the planner ignores the GIN index without a warning. Write `@>` in your queries.'
+		]
+	},
 	recall: {
 		q: 'Which index type serves `WHERE allowed_user_ids @> ARRAY[42]`, and why does a B-tree on the column not help?',
 		a: 'GIN, through its array operator class (`<@`, `@>`, `=`, `&&`). A B-tree sorts whole arrays, so it cannot find 42 inside `{3,7,42}`.'

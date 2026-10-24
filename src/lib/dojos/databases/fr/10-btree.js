@@ -131,6 +131,44 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 			'`bt_metap` affiche `level = 2` : les niveaux se comptent à partir de 0 pour les feuilles, donc 2 veut dire racine, un niveau interne, feuilles. L’index fait environ 2 750 pages.',
 			'Le plan montre un `Index Scan`. Lance-le deux fois : la deuxième fois affiche `Buffers: shared hit=4`, la racine, une page interne, une feuille et une page du heap. (La première exécution d’une session en lit quelques-unes de plus, comme la métapage de l’index.) Un `Seq Scan` lirait chaque page de la table.',
 			'100 millions de lignes : environ 270 000 feuilles, environ 1 000 pages internes au-dessus, quelques pages au-dessus de celles-là, puis la racine. Quatre niveaux : une lecture de plus pour une table cent fois plus grosse.'
+		],
+		steps: [
+			{
+				title: 'Prédis les niveaux',
+				questions: [
+					{ q: 'Une feuille contient environ 370 clés `bigint`. Combien de feuilles pour un million de lignes ?', options: ['Environ 370', 'Environ 2 700', 'Environ 27 000', 'Environ 7 300'], answer: 1, why: '1 000 000 / 370, c’est environ 2 700.' },
+					{ q: 'Une page interne pointe vers quelques centaines d’enfants. Combien de pages internes au-dessus de ces feuilles ?', options: ['Environ 10', 'Environ 270', 'Environ 2 700', 'Une seule'], answer: 0, why: '2 700 feuilles divisées par quelques centaines donnent environ 10 pages.' },
+					{ q: 'Combien de niveaux a l’arbre ?', options: ['Deux', 'Quatre', 'Cinq', 'Trois'], answer: 3, why: 'Les feuilles, un niveau interne d’environ 10 pages, et une racine au-dessus.' },
+					{ q: '`bt_metap` affiche `level = 2`. Est-ce que ça contredit les trois niveaux ?', options: ['Oui, l’arbre a deux niveaux', 'Oui, la racine n’est pas comptée', 'Non, les niveaux se comptent à partir de 0 pour les feuilles', 'Non, `level` compte les pages internes'], answer: 2, why: '0, ce sont les feuilles, 1 le niveau interne, 2 la racine.' }
+				]
+			},
+			{
+				title: 'Prédis les lectures',
+				questions: [
+					{ q: 'Combien de pages lit `WHERE id = 424242`, heap compris ?', options: ['Quatre', 'Trois', 'Une', 'Environ 7 300'], answer: 0, why: 'La racine, une page interne, une feuille, puis la page du heap vers laquelle pointe le ctid.' },
+					{ q: 'Pourquoi les pages d’index lues sont-elles aussi nombreuses que les niveaux ?', options: ['Chaque niveau est mis en cache comme une seule page', 'La recherche lit exactement une page par niveau en descendant', 'Le planificateur lit la racine une fois par niveau', 'Les feuilles sont lues en bloc'], answer: 1, why: '`_bt_search` boucle une fois par niveau, fait une recherche dichotomique dans la page, et suit un seul lien vers le bas.' },
+					{ q: 'Tu lances la requête deux fois. Qu’affiche la deuxième ?', options: ['`Buffers: shared hit=1`', '`Buffers: shared read=7300`', '`Buffers: shared hit=7`', '`Buffers: shared hit=4`'], answer: 3, why: 'Les quatre pages du chemin sont maintenant dans le cache, donc ce sont des hits.' },
+					{ q: 'Pourquoi la première exécution d’une session peut-elle lire quelques pages de plus ?', options: ['La première exécution parcourt toujours la table', 'Elle lit aussi des pages comme la métapage de l’index', 'Elle construit l’index à la volée', 'Elle lit chaque feuille une fois'], answer: 1, why: 'La métapage note où est la racine (c’est elle que montre `bt_metap`), et la première exécution la lit en plus du chemin. Les exécutions suivantes de la session ne touchent que les quatre pages du chemin.' }
+				]
+			},
+			{
+				title: 'Lis le plan',
+				questions: [
+					{ q: 'Quel nœud de plan attends-tu pour `WHERE id = 424242` ?', options: ['`Seq Scan`', '`Hash Join`', '`Index Scan`', '`Sort`'], answer: 2, why: 'Le B-tree sur `id` répond à une égalité en quelques lectures de pages.' },
+					{ q: 'Sans l’index, que lirait la requête ?', options: ['Chaque page de la table, plus de 7 000', 'La moitié de la table en moyenne', 'Seulement la première page', 'Quatre pages, comme avec l’index'], answer: 0, why: 'Un `Seq Scan` lit toutes les pages de la table pour trouver une ligne.' },
+					{ q: 'Pourquoi `ORDER BY id LIMIT 20` n’a-t-il besoin d’aucun tri ?', options: ['Le heap est rangé trié par `id`', 'Le planificateur garde les résultats triés en cache', 'La racine contient les 20 premières clés', 'Les feuilles gardent les clés dans l’ordre et pointent vers la suivante'], answer: 3, why: 'Le parcours descend une fois, puis suit les liens droits et s’arrête après 20 lignes.' },
+					{ q: 'Que fait `WHERE email LIKE \'%@example.com\'` avec un B-tree sur `email` ?', options: ['Il utilise l’index par la droite', 'Il lit quand même toute la table', 'Il ne lit que les feuilles', 'Il lit quatre pages'], answer: 1, why: 'Un B-tree n’aide que si la requête suit son ordre, et un `%` au début ne donne aucun point de départ.' }
+				]
+			},
+			{
+				title: 'Passe à 100 millions de lignes',
+				questions: [
+					{ q: 'Environ combien de feuilles pour 100 millions de clés `bigint` ?', options: ['Environ 2 700', 'Environ 27 millions', 'Environ 270 000', 'Environ 1 000'], answer: 2, why: '100 000 000 / 370, c’est environ 270 000.' },
+					{ q: 'Combien de pages internes juste au-dessus de ces feuilles ?', options: ['Environ 1 000', 'Environ 10', 'Environ 270 000', 'Une seule'], answer: 0, why: '270 000 divisé par quelques centaines, c’est environ 1 000. Quelques pages au-dessus, puis la racine.' },
+					{ q: 'Combien de niveaux en tout ?', options: ['Trois', 'Cinq', 'Six', 'Quatre'], answer: 3, why: 'Les feuilles, environ 1 000 pages internes, quelques pages au-dessus, et la racine.' },
+					{ q: 'Que coûte une recherche par rapport à un million de lignes ?', options: ['Cent fois plus de lectures', 'Une lecture de page de plus', 'Deux fois plus de lectures', 'Les trois mêmes lectures d’index'], answer: 1, why: 'Chaque niveau divise par quelques centaines, donc une table cent fois plus grosse ajoute un niveau.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 			why: 'Chaque index doit pointer vers la nouvelle ligne, donc chacun reçoit une nouvelle entrée de feuille, et peut-être un split. Tous ces changements passent dans le WAL. Avec six index, un insert fait six écritures de feuille : supprime les index qu’aucune requête n’utilise.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire un B-tree sur un million de lignes, compter ses niveaux avec `pageinspect`, et voir une recherche lire quatre pages quand un parcours les lit toutes.',
+		steps: [
+			'Lance un PostgreSQL jetable : `docker run -d --name pg-btree -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-btree psql -U postgres`.',
+			'Construis la table et l’index : `CREATE TABLE users (id bigint, email text); INSERT INTO users SELECT g, \'user\' || g || \'@example.com\' FROM generate_series(1, 1000000) g; CREATE INDEX ON users(id); VACUUM ANALYZE users;`',
+			'Compte les niveaux et les pages : `CREATE EXTENSION pageinspect;` puis `SELECT root, level FROM bt_metap(\'users_id_idx\');`, `SELECT live_items FROM bt_page_stats(\'users_id_idx\', (SELECT root FROM bt_metap(\'users_id_idx\'))::int);` et `SELECT pg_relation_size(\'users_id_idx\') / 8192 AS index_pages, pg_relation_size(\'users\') / 8192 AS table_pages;`',
+			'Lance deux fois `EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM users WHERE id = 424242;` et lis la ligne `Buffers` de la deuxième.',
+			'Compare avec une requête que l’index ne peut pas aider : `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM users WHERE email LIKE \'%@example.com\';`, et avec `EXPLAIN SELECT * FROM users ORDER BY id LIMIT 20;`. Quitte avec `\\q` et nettoie avec `docker rm -f pg-btree`.'
+		],
+		done: [
+			'`bt_metap` affiche `level` 2, et la racine a 10 `live_items`.',
+			'L’index fait environ 2 750 pages et la table environ 7 350.',
+			'La deuxième recherche affiche `Index Scan using users_id_idx` et `Buffers: shared hit=4`.',
+			'La requête `LIKE` montre un `Seq Scan` dont les buffers couvrent toutes les pages de la table, et le plan `ORDER BY ... LIMIT 20` a un `Index Scan` et aucun `Sort`.'
+		],
+		solution: [
+			'Le niveau 2, compté à partir de 0 pour les feuilles, veut dire trois niveaux : la racine avec 10 entrées, 10 pages internes, environ 2 700 feuilles.',
+			'Les quatre hits sont la racine, une page interne, une feuille et la page du heap. Le parcours lit chaque page parce qu’un `%` au début ne donne au B-tree aucun point de départ.',
+			'Pour 100 millions de lignes, le même calcul donne quatre niveaux : une lecture de plus par recherche.'
+		]
+	},
 	recall: {
 		q: 'Combien de pages lit `WHERE id = 424242` sur une table `users` d’un million de lignes avec un B-tree sur `id`, et pourquoi si peu ?',
 		a: 'Quatre : la racine, une page interne, une feuille et la page du heap. Chaque niveau divise l’intervalle des clés par quelques centaines, donc un million de clés `bigint` tiennent sur trois niveaux.'

@@ -131,6 +131,44 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 			'`bt_metap` reports `level = 2`: levels are counted from 0 at the leaves, so 2 means root, one internal level, leaves. The index is about 2,750 pages.',
 			'The plan shows an `Index Scan`. Run it twice: the second run says `Buffers: shared hit=4`, the root, one internal page, one leaf and one heap page. (The first run in a session reads a few more, such as the index metapage.) A `Seq Scan` would read every page of the table.',
 			'100 million rows: about 270,000 leaves, about 1,000 internal pages above them, a few pages above those, then the root. Four levels: one more read for a table a hundred times bigger.'
+		],
+		steps: [
+			{
+				title: 'Predict the levels',
+				questions: [
+					{ q: 'A leaf holds about 370 `bigint` keys. How many leaf pages for a million rows?', options: ['About 370', 'About 2,700', 'About 27,000', 'About 7,300'], answer: 1, why: '1,000,000 / 370 is about 2,700.' },
+					{ q: 'An internal page points to a few hundred children. How many internal pages sit above those leaves?', options: ['About 10', 'About 270', 'About 2,700', 'Exactly 1'], answer: 0, why: '2,700 leaves divided by a few hundred gives about 10 pages.' },
+					{ q: 'How many levels does the tree have?', options: ['Two', 'Four', 'Five', 'Three'], answer: 3, why: 'Leaves, one internal level of about 10 pages, and one root above them.' },
+					{ q: '`bt_metap` reports `level = 2`. Does that contradict three levels?', options: ['Yes, the tree has two levels', 'Yes, the root is not counted', 'No, levels are counted from 0 at the leaves', 'No, `level` counts the internal pages'], answer: 2, why: '0 is the leaves, 1 the internal level, 2 the root.' }
+				]
+			},
+			{
+				title: 'Predict the reads',
+				questions: [
+					{ q: 'How many pages does `WHERE id = 424242` read, heap included?', options: ['Four', 'Three', 'One', 'About 7,300'], answer: 0, why: 'Root, one internal page, one leaf, then the heap page the ctid points to.' },
+					{ q: 'Why do the index pages read equal the number of levels?', options: ['Each level is cached as one page', 'The search reads exactly one page per level on the way down', 'The planner reads the root once per level', 'Leaves are read in bulk'], answer: 1, why: '`_bt_search` loops once per level, binary searches the page, and follows one downlink.' },
+					{ q: 'You run the query twice. What does the second run show?', options: ['`Buffers: shared hit=1`', '`Buffers: shared read=7300`', '`Buffers: shared hit=7`', '`Buffers: shared hit=4`'], answer: 3, why: 'The four pages of the path are now in the cache, so they are hits.' },
+					{ q: 'Why can the first run in a session read a few more pages?', options: ['The first run always scans the table', 'It also reads pages such as the index metapage', 'It builds the index on the fly', 'It reads every leaf once'], answer: 1, why: 'The metapage records where the root is (it is what `bt_metap` shows), and the first run reads it on top of the path. Later runs in the session touch only the four pages of the path.' }
+				]
+			},
+			{
+				title: 'Read the plan',
+				questions: [
+					{ q: 'Which plan node do you expect for `WHERE id = 424242`?', options: ['`Seq Scan`', '`Hash Join`', '`Index Scan`', '`Sort`'], answer: 2, why: 'The B-tree on `id` answers an equality in a few page reads.' },
+					{ q: 'Without the index, what would the query read?', options: ['Every page of the table, more than 7,000', 'Half the table on average', 'Only the first page', 'Four pages, like with the index'], answer: 0, why: 'A `Seq Scan` reads all of the table\'s pages to find one row.' },
+					{ q: 'Why does `ORDER BY id LIMIT 20` need no sort step?', options: ['The heap is stored sorted by `id`', 'The planner caches sorted results', 'The root holds the first 20 keys', 'Leaves keep keys in order and link to the next leaf'], answer: 3, why: 'The scan goes down once, then follows the right-links and stops after 20 rows.' },
+					{ q: 'What does `WHERE email LIKE \'%@example.com\'` do with a B-tree on `email`?', options: ['It uses the index from the right', 'It still reads the whole table', 'It reads only the leaves', 'It reads four pages'], answer: 1, why: 'A B-tree helps only when the query matches its order, and a leading `%` gives no starting point.' }
+				]
+			},
+			{
+				title: 'Scale to 100 million rows',
+				questions: [
+					{ q: 'About how many leaf pages for 100 million `bigint` keys?', options: ['About 2,700', 'About 27 million', 'About 270,000', 'About 1,000'], answer: 2, why: '100,000,000 / 370 is about 270,000.' },
+					{ q: 'How many internal pages sit right above those leaves?', options: ['About 1,000', 'About 10', 'About 270,000', 'Exactly 1'], answer: 0, why: '270,000 divided by a few hundred is about 1,000. A few more pages above those, then the root.' },
+					{ q: 'How many levels in all?', options: ['Three', 'Five', 'Six', 'Four'], answer: 3, why: 'Leaves, about 1,000 internal pages, a few pages above them, and the root.' },
+					{ q: 'What does a lookup cost compared with a million rows?', options: ['A hundred times more reads', 'One more page read', 'Twice as many reads', 'The same three index reads'], answer: 1, why: 'Each level divides by a few hundred, so a table a hundred times bigger adds one level.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ _bt_search(Relation rel, Relation heaprel, BTScanInsert key, Buffer *bufP,
 			why: 'Every index must point at the new row, so each one gets a new leaf entry, and maybe a page split. All of those changes are logged in the WAL. With six indexes, one insert makes six leaf writes, so drop the indexes no query uses.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a B-tree on a million rows, count its levels with `pageinspect`, and watch a lookup read four pages while a scan reads them all.',
+		steps: [
+			'Start a throwaway PostgreSQL: `docker run -d --name pg-btree -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-btree psql -U postgres`.',
+			'Build the table and index: `CREATE TABLE users (id bigint, email text); INSERT INTO users SELECT g, \'user\' || g || \'@example.com\' FROM generate_series(1, 1000000) g; CREATE INDEX ON users(id); VACUUM ANALYZE users;`',
+			'Count the levels and pages: `CREATE EXTENSION pageinspect;` then `SELECT root, level FROM bt_metap(\'users_id_idx\');`, `SELECT live_items FROM bt_page_stats(\'users_id_idx\', (SELECT root FROM bt_metap(\'users_id_idx\'))::int);` and `SELECT pg_relation_size(\'users_id_idx\') / 8192 AS index_pages, pg_relation_size(\'users\') / 8192 AS table_pages;`',
+			'Run `EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM users WHERE id = 424242;` twice and read the `Buffers` line of the second run.',
+			'Compare with a query the index cannot help: `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM users WHERE email LIKE \'%@example.com\';`, and with `EXPLAIN SELECT * FROM users ORDER BY id LIMIT 20;`. Quit with `\\q` and clean up with `docker rm -f pg-btree`.'
+		],
+		done: [
+			'`bt_metap` shows `level` 2, and the root page has 10 `live_items`.',
+			'The index is about 2,750 pages and the table about 7,350.',
+			'The second lookup shows `Index Scan using users_id_idx` and `Buffers: shared hit=4`.',
+			'The `LIKE` query shows a `Seq Scan` whose buffers add up to every table page, and the `ORDER BY ... LIMIT 20` plan has an `Index Scan` and no `Sort`.'
+		],
+		solution: [
+			'Level 2 counted from 0 at the leaves means three levels: the root with 10 entries, 10 internal pages, about 2,700 leaves.',
+			'The four buffer hits are the root, one internal page, one leaf and the heap page. The scan reads every page because a leading `%` gives the B-tree no place to start.',
+			'For 100 million rows, the same math gives four levels: one more read per lookup.'
+		]
+	},
 	recall: {
 		q: 'How many pages does `WHERE id = 424242` read on a million-row `users` table with a B-tree on `id`, and why so few?',
 		a: 'Four: the root, one internal page, one leaf, and the heap page. Each level divides the key range by a few hundred, so a million `bigint` keys need only three levels.'

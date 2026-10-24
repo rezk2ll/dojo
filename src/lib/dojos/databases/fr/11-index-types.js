@@ -101,6 +101,44 @@ export default {
 			'Tailles sur PostgreSQL 18 : la table fait environ 100 MB, le B-tree environ 43 MB, le BRIN 24 kB. Le BRIN garde un résumé par 128 pages, le B-tree une entrée par ligne.',
 			'Le plan est un Bitmap Index Scan sur le BRIN sous un Bitmap Heap Scan, avec `Heap Blocks: lossy=640` et `Rows Removed by Index Recheck`. L’index désigne des plages de pages entières, et l’exécuteur revérifie chaque ligne dedans.',
 			'Ça marche parce que `created_at` croît avec l’ordre d’insertion, donc chaque plage couvre une courte fenêtre de temps. Remplis une deuxième table avec des dates `random()` sur les mêmes 23 jours et la même requête marque toutes les pages de la table comme lossy (environ 12 700 pages) : chaque plage contient alors des dates de toute la période.'
+		],
+		steps: [
+			{
+				title: 'Remplis la table',
+				questions: [
+					{ q: 'Quelle expression donne une ligne par seconde à partir du 2026-01-01 ?', options: ['`now() - i * interval \'1 second\'`', '`timestamptz \'2026-01-01\' + random() * interval \'23 days\'`', '`timestamptz \'2026-01-01\' + i * interval \'1 second\'`', '`timestamptz \'2026-01-01\' + i * interval \'1 day\'`'], answer: 2, why: 'Avec `i` venant de `generate_series(1, 2000000)`, chaque ligne a une seconde de plus que la précédente, à partir du 2026-01-01.' },
+					{ q: 'Quelle instruction construit le BRIN ?', options: ['`CREATE INDEX ON events (created_at);`', '`CREATE INDEX ON events USING brin (created_at);`', '`CREATE INDEX ON events USING gin (created_at);`', '`CREATE INDEX ON events USING hash (created_at);`'], answer: 1, why: 'Le type d’index tient en un mot-clé `USING`. Sans lui, `CREATE INDEX` construit un B-tree, qui est le deuxième index dont tu as besoin.' },
+					{ q: 'Quelle fonction donne la taille de la table ou d’un index ?', options: ['`pg_relation_size`', '`count(*)`', '`EXPLAIN (BUFFERS)`', 'La vue `pg_stats`'], answer: 0, why: '`pg_relation_size` renvoie la taille sur disque d’une relation, table ou index, comme le dit l’indice.' },
+					{ q: 'Pourquoi `created_at` suit-il ici l’ordre physique des lignes ?', options: ['BRIN trie la table selon la colonne indexée quand il est construit', 'PostgreSQL range toujours les lignes triées par clé primaire', 'Le B-tree remet les lignes dans l’ordre quand il est créé', 'Les lignes arrivent une par une dans l’ordre du temps, chacune après la précédente'], answer: 3, why: 'L’insert parcourt la série dans l’ordre, donc chaque nouvelle ligne arrive après la précédente, avec une heure plus tardive. Rien ne trie la table ensuite.' }
+				]
+			},
+			{
+				title: 'Compare les tailles',
+				questions: [
+					{ q: 'La table fait environ 100 MB sur PostgreSQL 18. Quelle taille environ pour le B-tree sur `created_at` ?', options: ['24 kB', '43 MB', '100 MB', '4 MB'], answer: 1, why: 'Le B-tree garde une entrée par ligne, 2 millions en tout : environ 43 MB.' },
+					{ q: 'Quelle taille environ pour le BRIN ?', options: ['24 kB', '43 MB', '4 MB', '640 kB'], answer: 0, why: 'Dans ce test, le BRIN prend 24 kB, contre 43 MB pour le B-tree.' },
+					{ q: 'Pourquoi le BRIN est-il tellement plus petit ?', options: ['Il compresse chaque entrée de ligne mieux qu’un B-tree', 'Il n’indexe que les lignes insérées après sa création', 'Il garde les valeurs en mémoire et n’écrit rien sur disque', 'Il garde un résumé par 128 pages, pas une entrée par ligne'], answer: 3, why: 'BRIN garde un résumé par plage de blocs, 128 pages de table par défaut. Le B-tree garde une entrée pour chaque ligne.' },
+					{ q: 'Que contient un résumé BRIN pour une colonne comme `created_at` ?', options: ['L’heure exacte de chaque ligne de la plage', 'Un hash de chaque valeur de la plage', 'Le min et le max de la plage', 'Le nombre de lignes de chaque jour'], answer: 2, why: 'Pour une colonne triable, le résumé est un min et un max par plage de blocs. C’est tout ce que l’index sait.' }
+				]
+			},
+			{
+				title: 'Lis le plan',
+				questions: [
+					{ q: 'Une fois le B-tree supprimé, quels nœuds de parcours comptent les lignes d’une journée ?', options: ['Un Bitmap Index Scan sur le BRIN sous un Bitmap Heap Scan', 'Un Index Only Scan sur le BRIN, sans lire la table', 'Un Index Scan sur le BRIN qui renvoie une ligne à la fois', 'Un Seq Scan, parce qu’un BRIN ne sert pas un intervalle'], answer: 0, why: 'BRIN renvoie des plages de pages, donc le plan construit un bitmap de pages que le parcours de la table lit ensuite.' },
+					{ q: 'Que te dit `Heap Blocks: lossy=640` ?', options: ['640 pages manquaient dans le cache et ont été lues sur disque', '640 lignes de la journée ont été perdues et doivent être recomptées', 'L’index a désigné des pages entières, pas des lignes, donc chaque ligne y est revérifiée', 'L’index est abîmé sur 640 pages et demande un REINDEX'], answer: 2, why: 'Lossy veut dire que le bitmap connaît des pages, pas des lignes. L’exécuteur revérifie chaque ligne de ces pages avec la condition.' },
+					{ q: 'D’où viennent les `Rows Removed by Index Recheck` ?', options: ['Des lignes mortes que VACUUM n’a pas encore retirées', 'Des lignes des plages retenues qui tombent hors de la journée', 'Des lignes que le B-tree avait déjà comptées avant', 'Des lignes cachées à la requête par une transaction ouverte'], answer: 1, why: 'Une plage retenue peut contenir des heures juste avant ou juste après la journée. La revérification les écarte.' },
+					{ q: '640 pages lossy, ça fait combien de plages de 128 pages ?', options: ['128', '640', '2', '5'], answer: 3, why: '640 / 128 = 5. La journée tient dans environ cinq plages, et le parcours lit toutes leurs pages.' }
+				]
+			},
+			{
+				title: 'Explique pourquoi',
+				questions: [
+					{ q: 'Pourquoi le BRIN saute-t-il ici la plus grande partie de la table ?', options: ['Parce que BRIN garde l’heure exacte de chaque ligne dans son résumé', 'Parce que `created_at` croît avec l’ordre d’insertion, donc chaque plage est une courte fenêtre', 'Parce que le planificateur garde en cache le résultat du comptage précédent', 'Parce que les lignes d’une journée sont rangées dans l’index lui-même'], answer: 1, why: 'Chaque plage couvre quelques heures, donc seules les plages autour de la journée peuvent correspondre.' },
+					{ q: 'Une deuxième table reçoit des dates `random()` sur les mêmes 23 jours. Que fait la même requête ?', options: ['Elle marque toutes les pages de la table comme lossy, environ 12 700 pages', 'Elle lit les mêmes 640 pages, puisque les dates sont les mêmes', 'Elle passe à un Index Only Scan sur le BRIN', 'Elle échoue, parce que BRIN exige des valeurs triées'], answer: 0, why: 'Chaque plage contient alors des dates de toute la période, donc chaque résumé correspond à la journée.' },
+					{ q: 'La table est en production. Quel changement casse peu à peu le BRIN ?', options: ['Ajouter une colonne `payload`', 'Lancer `ANALYZE` chaque nuit', 'Un rattrapage de vieilles dates et beaucoup d’`UPDATE`', 'Compter une semaine entière au lieu d’une journée'], answer: 2, why: 'Un rattrapage atterrit en fin de table, et un `UPDATE` peut écrire la nouvelle version sur une autre page. Les plages se mettent à se chevaucher.' },
+					{ q: 'Il faut aussi que `created_at` soit unique. Qu’ajoutes-tu ?', options: ['Un deuxième BRIN avec des plages plus petites', 'Un index Hash, qui sert `=` exactement', 'Un index GIN sur `created_at`', 'Un B-tree, le seul type qui peut être unique'], answer: 3, why: 'La doc : « Currently, only B-tree indexes can be declared unique. » BRIN, Hash, GIN et GiST ne peuvent pas la garantir.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -138,6 +176,27 @@ export default {
 			why: 'Une ligne donne une entrée d’index par clé extraite. Avec `fastupdate` activé, les entrées attendent dans une liste en attente, et l’insert qui la rend trop grosse paie la fusion. Vacuum et l’autoanalyze la fusionnent aussi en arrière-plan. Un B-tree (jour 10) paie une entrée par ligne.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir un B-tree ignorer une requête d’inclusion dans un tableau, et un index GIN la servir.',
+		steps: [
+			'Lance un PostgreSQL 18 jetable et ouvre `psql` : `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, attends quelques secondes, puis `docker exec -it pg-lab psql -U postgres`.',
+			'Crée la table de l’accroche avec 200 000 lignes de trois ids d’utilisateurs au hasard : `CREATE TABLE acl (id bigint generated always as identity primary key, allowed_user_ids bigint[] not null);` puis `INSERT INTO acl (allowed_user_ids) SELECT ARRAY[(random()*5000)::bigint, (random()*5000)::bigint, (random()*5000)::bigint] FROM generate_series(1, 200000);`',
+			'Ajoute un B-tree et regarde le plan : `CREATE INDEX acl_btree ON acl (allowed_user_ids); VACUUM ANALYZE acl;` puis `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM acl WHERE allowed_user_ids @> ARRAY[42]::bigint[];`',
+			'Ajoute un index GIN et relance le même `EXPLAIN` : `CREATE INDEX acl_gin ON acl USING gin (allowed_user_ids);`',
+			'Pose la même question autrement : `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM acl WHERE 42 = ANY(allowed_user_ids);`. Compare les tailles avec `SELECT pg_size_pretty(pg_relation_size(\'acl_btree\')), pg_size_pretty(pg_relation_size(\'acl_gin\'));`. Arrête tout avec `docker stop pg-lab`.'
+		],
+		done: [
+			'Avec le B-tree seul, le plan de `@>` est un `Seq Scan on acl` avec environ 200 000 `Rows Removed by Filter`.',
+			'Avec l’index GIN, la même requête montre `Bitmap Index Scan on acl_gin` et une centaine de buffers au lieu d’environ 2 000.',
+			'La version `= ANY` reste un Seq Scan (parfois parallèle) même avec `acl_gin` en place.'
+		],
+		solution: [
+			'Le B-tree trie des tableaux entiers, il ne peut donc pas trouver 42 dans `{3,7,42}`. Le planificateur lit la table.',
+			'GIN garde une entrée par élément. `@>` fait partie de sa classe d’opérateurs des tableaux, donc la clause a la forme « colonne indexée, opérateur, valeur » et l’index la sert.',
+			'`42 = ANY(allowed_user_ids)` place la colonne derrière un opérateur hors de la classe, donc le planificateur ignore l’index GIN sans prévenir. Écris `@>` dans tes requêtes.'
+		]
+	},
 	recall: {
 		q: 'Quel type d’index sert `WHERE allowed_user_ids @> ARRAY[42]`, et pourquoi un B-tree sur la colonne n’aide pas ?',
 		a: 'GIN, grâce à sa classe d’opérateurs des tableaux (`<@`, `@>`, `=`, `&&`). Un B-tree trie des tableaux entiers, il ne peut donc pas trouver 42 dans `{3,7,42}`.'

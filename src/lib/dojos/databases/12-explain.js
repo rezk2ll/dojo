@@ -107,6 +107,44 @@ Execution time: 297.334 ms`,
 			'With the index: `Index Only Scan using orders_customer_id_idx ... rows=49.00 loops=1`, `Heap Fetches: 0`, `Buffers: shared hit=1 read=3`. From 6,434 pages to 4. Heap fetches are 0 because `VACUUM` has just marked every page all-visible.',
 			'`status = \'paid\'` keeps a Parallel Seq Scan even with the index: it matches about 95% of the rows, so reading the table in order is cheaper than jumping through the index for each one.',
 			'`status = \'refunded\'` (about 5%) switches to `Index Scan using orders_status_idx`. Same index, same column: the planner chose by the estimated number of rows, which is what day 13 is about.'
+		],
+		steps: [
+			{
+				title: 'Read the first plan',
+				questions: [
+					{ q: 'Without an index, the scan node shows `rows=16.33 loops=3`. How many rows did it find for customer 42?', options: ['16 rows, the value shown on the node', '3 rows, one per loop', 'About 49 rows: 16.33 × 3', 'About 333,317 rows'], answer: 2, why: 'Actual rows are an average per loop. Multiply by `loops` to get the total: 16.33 × 3 is about 49.' },
+					{ q: 'The top node shows `Buffers: shared hit=6434`. What does that cover?', options: ['The whole table, read to find about 49 rows', 'Only the pages that hold customer 42', 'The pages of the primary key index', 'The pages the planner read to build the plan'], answer: 0, why: 'A sequential scan reads every page. 6,434 pages of 8 kB to return about 49 rows.' },
+					{ q: 'What does `hit` mean in that Buffers line?', options: ['Pages that matched the filter', 'Pages found in PostgreSQL\'s cache', 'Pages read from the disk', 'Pages changed by the query'], answer: 1, why: '`hit` counts pages found in PostgreSQL\'s cache. `read` counts pages it had to ask the OS or the disk for.' },
+					{ q: 'Which line is the classic sign that an index could help?', options: ['`Planning Time: 0.1 ms`', '`loops=3` on the scan node', 'A cost that starts at `0.00`', 'A huge `Rows Removed by Filter` under a scan that returns few rows'], answer: 3, why: 'The scan read about a million rows and kept 49. An index could jump straight to those rows.' }
+				]
+			},
+			{
+				title: 'Add the index on customer_id',
+				questions: [
+					{ q: 'After `CREATE INDEX ON orders (customer_id)`, which node replaces the Parallel Seq Scan?', options: ['`Bitmap Heap Scan on orders`', '`Index Only Scan using orders_customer_id_idx`', '`Index Scan using orders_pkey`', '`Parallel Seq Scan`, with a smaller filter'], answer: 1, why: 'A count needs no other column, so the planner reads only the index: an index-only scan.' },
+					{ q: 'The plan now shows `rows=49.00 loops=1`. How many rows in total?', options: ['49 × 3, since there were three loops before', '1, the number of loops', '49', 'It depends on the buffers'], answer: 2, why: 'With one loop, the per-loop average is the total: 49 rows, the same answer as before.' },
+					{ q: 'How many buffers does the new plan touch?', options: ['About 6,434, the same as before', 'About 3,000, half the table', 'About 49, one per row', '4: `hit=1 read=3`'], answer: 3, why: 'From 6,434 pages to 4. The drop in buffers is the work saved, whatever the cache holds.' },
+					{ q: 'Why is `Heap Fetches: 0`?', options: ['`VACUUM` has just marked every page all-visible', 'The index stores every column of the table', 'The table is empty after the count', 'Heap fetches are only counted with `TIMING OFF`'], answer: 0, why: 'An index-only scan visits the table only for pages not marked all-visible. The `VACUUM` before the test marked them all.' }
+				]
+			},
+			{
+				title: 'Index status and compare',
+				questions: [
+					{ q: 'With an index on `status`, how does PostgreSQL run `sum(total)` for `\'paid\'`?', options: ['Index Scan using orders_status_idx', 'Index Only Scan, since status is indexed', 'Parallel Seq Scan, as without the index', 'Bitmap Heap Scan on the status index'], answer: 2, why: 'The index is there, and the planner still reads the table in order.' },
+					{ q: 'Why does it ignore the index for `\'paid\'`?', options: ['`paid` is about 95% of the rows, so reading the table in order is cheaper', 'The index on status is not built until the next VACUUM', 'An index cannot serve a text column', 'The `sum` aggregate always forces a sequential scan'], answer: 0, why: 'Jumping through the index for almost every row costs more than one pass over the table.' },
+					{ q: 'And for `\'refunded\'`, about 5% of the rows?', options: ['Parallel Seq Scan, the same as `\'paid\'`', '`Index Scan using orders_status_idx`', 'Index Only Scan with `Heap Fetches: 0`', 'A Hash Join on the status index'], answer: 1, why: 'Same index, same column, fewer rows: now the index is the cheaper path.' },
+					{ q: 'What made the planner choose differently for the two values?', options: ['The order in which you ran the two queries', 'The size of the `total` column', 'Which pages were in the cache', 'Its estimate of how many rows match'], answer: 3, why: 'The planner chose by the estimated number of rows. Day 13 shows where that estimate comes from.' }
+				]
+			},
+			{
+				title: 'Say what you learned',
+				questions: [
+					{ q: 'Which number do you compare between two plans of the same query?', options: ['The execution time of each run', 'The buffers of the top node', 'The planning time', 'The cost of the top node, in milliseconds'], answer: 1, why: 'Timing moves with the cache and the load. Buffers count the pages touched, which is the work itself.' },
+					{ q: 'Why does the Buffers line of the top node sum up the whole plan?', options: ['A parent\'s buffers include those of its children', 'Only the top node reads pages', 'The top node is the slowest one', 'PostgreSQL rounds the buffers up at the top'], answer: 0, why: 'Each node adds its own pages to those of its children, so the top line is the total.' },
+					{ q: 'You want the plan of an `UPDATE` with real numbers. What do you do?', options: ['Run plain `EXPLAIN`, which also gives actual rows', 'Run `EXPLAIN ANALYZE` alone, since it only simulates', 'Wrap `EXPLAIN ANALYZE` in `BEGIN` and `ROLLBACK`', 'Run the `UPDATE` twice and compare'], answer: 2, why: 'With `ANALYZE` the statement is actually executed. The rollback undoes the write.' },
+					{ q: 'Why run `VACUUM ANALYZE orders` before the first plan?', options: ['To compress the table so it fits in the cache', 'To lock the table while you read the plans', 'To build the index on `customer_id` for you', 'So the planner has statistics and the pages are marked all-visible'], answer: 3, why: '`ANALYZE` gives the planner its row estimates, and `VACUUM` marks the pages all-visible, which is why the index-only scan shows `Heap Fetches: 0`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -144,6 +182,27 @@ Execution time: 297.334 ms`,
 			why: 'Timing moves with the cache state and the load. Buffers count the pages the query had to touch, which is the work itself. Cost is in planner units, not milliseconds, and ANALYZE numbers are measured, not estimated.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See that `EXPLAIN ANALYZE` really runs a write, and read `loops` on a nested loop.',
+		steps: [
+			'Start a throwaway PostgreSQL 18 and open `psql`: `docker run --rm -d --name pg-lab -e POSTGRES_PASSWORD=lab postgres:18`, wait a few seconds, then `docker exec -it pg-lab psql -U postgres`.',
+			'Create two tables: `CREATE TABLE customers (id int primary key, name text); CREATE TABLE orders (id bigint generated always as identity primary key, customer_id int not null, total numeric not null);` then `INSERT INTO customers SELECT i, \'c\' || i FROM generate_series(1, 20000) i; INSERT INTO orders (customer_id, total) SELECT 1 + (random()*19999)::int, (random()*100)::numeric(6,2) FROM generate_series(1, 200000); VACUUM ANALYZE customers, orders;`',
+			'Explain a write with `ANALYZE`: `EXPLAIN ANALYZE UPDATE orders SET total = -1 WHERE id <= 10;` then `SELECT count(*) FROM orders WHERE total = -1;`',
+			'Do it safely: `BEGIN; EXPLAIN ANALYZE DELETE FROM orders WHERE id <= 1000; ROLLBACK;` then `SELECT count(*) FROM orders;`',
+			'Explain a join: `EXPLAIN (ANALYZE, BUFFERS) SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id <= 36;`. Stop with `docker stop pg-lab`.'
+		],
+		done: [
+			'After the `EXPLAIN ANALYZE UPDATE`, the count of `total = -1` is 10: the update really happened.',
+			'After the `DELETE` inside `BEGIN` and `ROLLBACK`, `count(*)` is still 200000.',
+			'The join plan shows `Index Scan using customers_pkey` with `rows=1.00 loops=36`.'
+		],
+		solution: [
+			'`EXPLAIN ANALYZE` executes the statement and its side effects happen. Wrap any write in `BEGIN` and `ROLLBACK`.',
+			'The inner side of the nested loop runs once per outer row: 36 loops of 1 row is 36 rows in total, not 1.',
+			'Its buffers (about 108) are summed over the 36 loops, and the top node\'s buffers include them.'
+		]
+	},
 	recall: {
 		q: 'A scan node shows `rows=16.33 loops=3`. How many rows did it return, and which number do you compare between two versions of a query?',
 		a: 'About 49 rows, because rows is a per-loop average: 16.33 × 3. You compare the buffers (8 kB pages touched), because the time changes with what is cached.'

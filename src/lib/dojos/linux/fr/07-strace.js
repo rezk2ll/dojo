@@ -122,6 +122,44 @@ dispatch_event(const struct tcb_wait_data *wd)
 			'Avec `-f` : `strace: Process 4084412 attached`, puis `[pid 4084412] execve("/usr/bin/cat", ["cat", "/etc/shadow"], ...)`, les ouvertures de bibliothèques, et `[pid 4084412] openat(AT_FDCWD, "/etc/shadow", O_RDONLY) = -1 EACCES (Permission denied)`.',
 			'L’enfant `cat`, PID 4084412 ici, a fait l’`openat` raté. `EACCES` veut dire que le fichier existe et que le contrôle des droits l’a refusé. `ENOENT` voudrait dire que le chemin n’existe pas, comme pour `/etc/myapp.conf`.',
 			'`stat -c \'%a %U %G\' /etc/shadow` a affiché `640 root shadow` sur la machine de ce chapitre : seuls root et le groupe `shadow` peuvent le lire.'
+		],
+		steps: [
+			{
+				title: 'Lance-le sans -f',
+				questions: [
+					{ q: 'Sans `-f`, quel processus strace trace-t-il ?', options: ['Seulement `sh`, le processus qu’il a lancé', '`sh` et `cat`', 'Seulement `cat`', 'Tous les processus de ton utilisateur'], answer: 0, why: 'Sans `-f`, strace trace la commande qu’il lance et aucun de ses enfants.' },
+					{ q: 'Quelles lignes `openat` vois-tu sans `-f` ?', options: ['Celle sur `/etc/shadow`', '`sh` qui ouvre `/etc/ld.so.cache` et `libc.so.6`', 'Aucune', 'Seulement `cat` qui charge `libc.so.6` et ses autres bibliothèques'], answer: 1, why: 'Ce sont les appels de `sh` lui-même. `cat` tourne dans un enfant que strace n’arrête pas.' },
+					{ q: 'Le message `Permission denied` s’affiche quand même. Qui l’a écrit ?', options: ['strace', 'Le noyau', '`cat`, dans l’enfant que strace n’a pas tracé', '`sh`, après avoir essayé de lire `/etc/shadow` lui-même'], answer: 2, why: 'L’enfant a tourné normalement, sans trace, et a affiché son erreur. strace n’a vu que le `SIGCHLD` à sa fin.' },
+					{ q: 'Qu’est-ce qui te dit qu’un enfant a existé ?', options: ['Un préfixe `[pid N]`', 'L’`execve` de `/usr/bin/cat`', 'Une ligne `EACCES`', 'La ligne `SIGCHLD`'], answer: 3, why: '`sh` reçoit `SIGCHLD` quand son enfant se termine, et strace affiche ce signal.' }
+				]
+			},
+			{
+				title: 'Ajoute -f',
+				questions: [
+					{ q: 'Quelle nouvelle ligne montre que strace suit l’enfant ?', options: ['`strace: Process 4084412 attached`', '`+++ exited with 1 +++`', '`--- SIGCHLD ...`', '`execve("/usr/bin/sh", ...)`'], answer: 0, why: 'Avec `-f`, strace s’attache à chaque enfant créé par `fork`, `vfork` ou `clone`.' },
+					{ q: 'Quelle ligne n’apparaît qu’avec `-f` et montre le changement de programme ?', options: ['`execve("/usr/bin/sh", ["sh", "-c", "cat /etc/shadow"], ...)`', '`openat(... "/etc/ld.so.cache" ...)`', '`[pid 4084412] execve("/usr/bin/cat", ...)`', '`cat: /etc/shadow: Permission denied`'], answer: 2, why: 'L’enfant charge `cat` avec `execve`, et strace le voit maintenant.' },
+					{ q: 'Que veut dire `[pid 4084412]` en début de ligne ?', options: ['L’appel a pris 4084412 ns pour se terminer', 'L’appel vient du processus 4084412', 'C’est le 4084412e appel', 'Le PID de strace'], answer: 1, why: 'Avec `-f`, strace marque les lignes des autres processus avec leur PID.' },
+					{ q: 'Pourquoi l’appel raté n’apparaît-il que maintenant ?', options: ['`-f` fait afficher les erreurs à strace', 'L’appel n’échoue que sous `-f`', '`-f` donne plus de droits à strace pour voir l’appel', 'L’enfant le fait, et `-f` suit les enfants'], answer: 3, why: '`sh` exécute `cat` dans un enfant. Seul `-f` arrête cet enfant à ses appels système.' }
+				]
+			},
+			{
+				title: 'Trouve l’appel raté',
+				questions: [
+					{ q: 'Quelle ligne est l’échec ?', options: ['`openat(... "/etc/shadow" ...) = -1 EACCES`', '`execve("/usr/bin/cat", ["cat", "/etc/shadow"], ...) = 0`', '`openat(... "libc.so.6" ...) = 3`', '`+++ exited with 1 +++`'], answer: 0, why: '`= -1` veut dire que l’appel a échoué, et strace ajoute l’`errno`.' },
+					{ q: 'Quel processus l’a fait ?', options: ['strace', '`sh`, le parent', 'Le noyau', 'L’enfant `cat`, PID 4084412 ici'], answer: 3, why: 'La ligne porte le préfixe `[pid 4084412]` de l’enfant.' },
+					{ q: 'Pourquoi `openat` renvoie-t-il 3 pour `libc.so.6` ?', options: ['3 est un code d’erreur', 'La bibliothèque a 3 parties', 'Il a réussi et renvoie le descripteur 3', 'C’était le troisième essai'], answer: 2, why: 'Un `openat` réussi renvoie le nouveau descripteur, le plus petit numéro libre après 0, 1 et 2.' },
+					{ q: 'Combien d’arrêts chacun de ces appels a-t-il coûté à `cat` ?', options: ['Aucun : seuls les appels ratés font arrêter le processus', 'Deux : un à l’entrée, un à la sortie', 'Un, à l’entrée', 'Un par argument'], answer: 1, why: 'strace relance le tracé avec `PTRACE_SYSCALL` : il s’arrête à chaque entrée et à chaque sortie.' }
+				]
+			},
+			{
+				title: 'Lis l’errno',
+				questions: [
+					{ q: 'Que t’apprend `EACCES` ?', options: ['Le fichier existe, mais l’accès est refusé', 'Le chemin n’existe pas', 'Le disque qui porte le fichier est plein ou en lecture seule', 'strace a bloqué l’appel'], answer: 0, why: '`EACCES`, c’est permission refusée : le chemin a été trouvé, l’accès n’a pas été permis.' },
+					{ q: 'Qu’aurait dit `ENOENT` à la place ?', options: ['Le fichier est verrouillé', 'Le fichier est vide', 'Il faut root pour tracer', 'Rien n’existe à ce chemin'], answer: 3, why: '`ENOENT`, c’est « No such file or directory », comme pour un `/etc/myapp.conf` absent.' },
+					{ q: '`stat -c \'%a %U %G\' /etc/shadow` affiche `640 root shadow`. Qui peut le lire ?', options: ['Tout le monde', 'Seulement root', 'Root et le groupe `shadow`', 'Tout utilisateur de `sudo`'], answer: 2, why: 'Mode 640 : lecture et écriture pour le propriétaire, lecture pour le groupe, rien pour les autres.' },
+					{ q: 'Quelle option n’affiche que les appels ratés ?', options: ['`-c`', '`-e status=failed` ou `-Z`', '`-T`', '`-p`'], answer: 1, why: 'Elle réduit la trace aux appels qui ont renvoyé une erreur.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,28 @@ dispatch_event(const struct tcb_wait_data *wd)
 			why: '`-1` signale un échec, et strace ajoute l’`errno`. `ENOENT` veut dire « No such file or directory » : rien n’existe à ce chemin. Un problème de droits afficherait `EACCES`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Trouver un appel système raté dans un processus enfant, puis mesurer ce que coûte strace et ce que `--seccomp-bpf` fait gagner.',
+		steps: [
+			'Crée un dossier de travail : `mkdir -p ~/strace-lab && cd ~/strace-lab`. Ce lab demande Linux et `strace`.',
+			'Trace sans `-f` : `strace -e trace=execve,openat sh -c \'cat /etc/shadow\'`. Ajoute ensuite `-f` : `strace -f -e trace=execve,openat sh -c \'cat /etc/shadow\'`.',
+			'N’affiche que les échecs pour un fichier absent : `LANG=C strace -f -Z -e trace=openat sh -c \'cat ./myapp.conf\'`.',
+			'Mesure `dd` seul : `time dd if=/dev/zero of=/dev/null bs=1 count=200k`.',
+			'Mesure-le sous strace, avec et sans le filtre : `time strace -f -e trace=accept dd if=/dev/zero of=/dev/null bs=1 count=200k`, puis la même chose avec `--seccomp-bpf` après `-f`.'
+		],
+		done: [
+			'Sans `-f`, aucune ligne sur `/etc/shadow`. Avec `-f`, tu vois `Process N attached` et `[pid N] openat(AT_FDCWD, "/etc/shadow", O_RDONLY) = -1 EACCES (Permission denied)`.',
+			'Le passage avec `-Z` affiche `openat(AT_FDCWD, "./myapp.conf", O_RDONLY) = -1 ENOENT (No such file or directory)` et aucune ouverture réussie.',
+			'`dd` sous strace prend bien plus de temps que seul, alors qu’il ne fait aucun appel `accept`.',
+			'Avec `--seccomp-bpf`, le temps redescend près de celui sans strace.'
+		],
+		solution: [
+			'`sh` exécute `cat` dans un enfant : seul `-f` trace l’`openat` qui échoue. `EACCES` dit que le fichier existe et que le contrôle des droits l’a refusé. `ENOENT` dit qu’il n’y a rien.',
+			'`-e trace=accept` ne filtre que l’affichage. strace arrête quand même `dd` deux fois à chacun de ses appels système, et avec `bs=1` cela fait des centaines de milliers d’appels.',
+			'`--seccomp-bpf` place un filtre dans le noyau : `dd` ne s’arrête que sur les appels tracés. Il demande `-f` et ne marche pas avec `-p`.'
+		]
+	},
 	recall: {
 		q: 'Combien de fois strace arrête-t-il un processus pour un appel système, et quelle option fait sauter au noyau les appels que tu n’as pas demandés ?',
 		a: 'Deux fois : à l’entrée et à la sortie de l’appel, avec une relance par `PTRACE_SYSCALL` à chaque fois. `--seccomp-bpf` (avec `-f`) installe un filtre qui n’arrête que les appels tracés : `dd` est passé de 6,90 s à 0,088 s.'

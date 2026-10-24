@@ -126,6 +126,44 @@ export default {
 			'`limits` shows `Max open files 1048576 1048576 files`: the soft limit, the hard limit and the unit.',
 			'`ps` printed `4124475 SN 2320 sleep 300`. `S` is the state from `stat`, `2320` is `VmRSS` from `status`, and `sleep 300` is `cmdline` joined with spaces.',
 			'The `N` after `S` is "low-priority" in ps(1). `ps -o ni` printed `5` for a background `sleep` on this machine, so the shell started it with a nice value of 5.'
+		],
+		steps: [
+			{
+				title: 'Start the process',
+				questions: [
+					{ q: 'After `sleep 300 &`, where do you find its PID?', options: ['In `$?`', 'In `$$`', 'In `$!`', 'In `/proc/self`'], answer: 2, why: '`$!` holds the PID of the last background job. `$$` is the shell itself.' },
+					{ q: 'Which directory holds everything the kernel shows about that process?', options: ['`/proc/<pid>`', '`/var/run/<pid>`', '`/sys/<pid>`', '`/tmp/<pid>`'], answer: 0, why: '/proc has one directory per process, named by its PID.' },
+					{ q: 'Are the files in `/proc/<pid>` stored on a disk?', options: ['Yes, in a hidden partition', 'Yes, in RAM as a cache of the disk', 'Only `status` is, the others are generated', 'No: the kernel writes them as you read'], answer: 3, why: 'proc(5) calls /proc "an interface to kernel data structures". Nothing is stored.' },
+					{ q: 'What does `/proc/self` point at?', options: ['PID 1', 'The directory of the process that reads it', 'The shell that started your session', 'The kernel itself'], answer: 1, why: '`/proc/self` resolves to the reader\'s own `/proc/<pid>` directory.' }
+				]
+			},
+			{
+				title: 'Read status and cmdline',
+				questions: [
+					{ q: '`State: S (sleeping)`. Why is `sleep` in S?', options: ['It waits on its timer, using no CPU', 'It is stopped by a signal', 'It is waiting for the disk to answer', 'It has exited and waits to be reaped'], answer: 0, why: '`sleep` waits for its time to pass. S is a normal, interruptible sleep.' },
+					{ q: '`PPid: 4124473`. Which process is that?', options: ['PID 1', 'The kernel thread `kthreadd`', 'The `ps` command', 'The shell that started `sleep`'], answer: 3, why: 'The shell forked `sleep`, so it is the parent.' },
+					{ q: 'Why pipe `cmdline` through `tr \'\\0\' \' \'`?', options: ['The file is compressed by the kernel', 'The arguments are split by null bytes', 'The file is in UTF-16', 'To remove the PID from the front'], answer: 1, why: '`od -c` shows `s l e e p \\0 3 0 0 \\0`. `tr` turns the null bytes into spaces.' },
+					{ q: 'What does `Max open files 1048576 1048576 files` give you?', options: ['The open files right now, and the peak', 'The limit for the whole machine', 'The soft limit, the hard limit and the unit', 'The fds of the shell'], answer: 2, why: 'Each line of `limits` is soft, hard, unit, for the running process.' }
+				]
+			},
+			{
+				title: 'Run ps',
+				questions: [
+					{ q: '`ps -o pid,stat,rss,args -p <pid>` prints `4124475 SN 2320 sleep 300`. How did `ps` get it?', options: ['From a special system call for process lists', 'By reading text files under `/proc`', 'From the shell\'s job table', 'From `/var/log`'], answer: 1, why: 'Under strace, `ps` makes no special call. It opens `stat`, `status` and `cmdline`.' },
+					{ q: 'With `-p` and one PID, how many `stat` files did `ps` open on the chapter\'s machine?', options: ['One, for the whole list', 'Three', '749, one per process', 'None, it reads a cache'], answer: 2, why: 'procps-ng 4.0.4 walked all 749 processes even for one PID.' },
+					{ q: 'What does the `N` in `SN` mean?', options: ['Low priority: a nice value of 5', 'New process, started under a second ago', 'No terminal attached', 'Not responding to signals'], answer: 0, why: 'ps(1) calls `N` "low-priority". `ps -o ni` printed `5`.' },
+					{ q: 'Why did `ps` fail on `/proc/1/environ` while it read `/proc/1/status`?', options: ['PID 1 has no environment at all', '`environ` is on disk with mode 600', 'The file is too large to read', 'Reading it needs a ptrace access check'], answer: 3, why: 'proc_pid_environ(5): access is "governed by a ptrace access mode PTRACE_MODE_READ_FSCREDS check".' }
+				]
+			},
+			{
+				title: 'Match the columns',
+				questions: [
+					{ q: 'The `STAT` column `S` comes from which file?', options: ['`status`, the `Threads` line', '`stat`, field 3', '`cmdline`', '`limits`'], answer: 1, why: '`ps` reads `stat` for every process, and field 3 is the state.' },
+					{ q: 'The `RSS` column `2320` comes from which line?', options: ['`VmRSS: 2320 kB` in `status`', 'Field 3 of `stat`', '`Max open files` in `limits`', 'The size of `cmdline`'], answer: 0, why: 'The `rss` column is `PIDS_VM_RSS`, filled from `status`.' },
+					{ q: 'The `COMMAND` column `sleep 300` comes from which file?', options: ['`exe`', '`environ`', '`status`, the `Name` line', '`cmdline`, joined with spaces'], answer: 3, why: '`ps` joins the null-separated arguments with spaces.' },
+					{ q: 'Which file tells you the real binary, whatever `cmdline` says?', options: ['`/proc/<pid>/environ`', '`/proc/<pid>/stat`', '`ls -l /proc/<pid>/exe`', '`/proc/<pid>/limits`'], answer: 2, why: 'A process controls its argv. `exe` is a link to the binary that really runs.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,30 @@ export default {
 			why: 'proc_pid_environ(5): access is "governed by a ptrace access mode PTRACE_MODE_READ_FSCREDS check". Your user cannot pass it for a root process. `status` has no such check.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Rebuild one line of `ps` from the files under `/proc`, then catch a process that lies about its name.',
+		steps: [
+			'Start a process: `sleep 300 & p=$!`. This lab needs Linux.',
+			'Read it: `grep -E \'State|PPid|VmRSS|Threads\' /proc/$p/status`, `tr \'\\0\' \' \' < /proc/$p/cmdline; echo`, `od -c /proc/$p/cmdline` and `grep \'Max open files\' /proc/$p/limits`.',
+			'Compare with `ps -o pid,stat,rss,args -p $p`, then try `cat /proc/1/environ`.',
+			'Start a process with a fake name: `bash -c \'exec -a "nginx: worker process" sleep 300\' & q=$!; sleep 1`. Read `tr \'\\0\' \' \' < /proc/$q/cmdline; echo` and `ls -l /proc/$q/exe`.',
+			'If you have strace, count the files `ps` opens: `strace -e trace=openat ps -o pid -p $p 2>&1 | grep -c \'/stat"\'`. Clean up with `kill $p $q`.'
+		],
+		done: [
+			'`status` shows `State: S (sleeping)`, a `PPid` equal to your shell\'s `echo $$`, `Threads: 1` and a `VmRSS` line in kB.',
+			'`od -c` shows `s l e e p \\0 3 0 0 \\0`.',
+			'`ps` prints the same state, the same RSS number and `sleep 300`. `cat /proc/1/environ` gives `Permission denied`.',
+			'The fake process shows `nginx: worker process 300` in `cmdline`, while `exe` points to the `sleep` binary.',
+			'The strace count is close to the number of processes on your machine, not 1.'
+		],
+		solution: [
+			'`STAT` is field 3 of `stat`, `RSS` is `VmRSS` from `status`, and `COMMAND` is `cmdline` with its null bytes turned into spaces.',
+			'`environ` passes a ptrace access check first, which a normal user fails for a root process.',
+			'`exec -a` sets argv[0], and `cmdline` shows whatever the process put there. `exe` is the real binary.',
+			'`ps` reads `stat` for every process, even with `-p` and one PID.'
+		]
+	},
 	recall: {
 		q: 'Which three files under `/proc/<pid>` give `ps -o stat,rss,args` its three columns?',
 		a: '`stat` (field 3, the state), `status` (the `VmRSS` line, in kB) and `cmdline` (arguments separated by null bytes).'

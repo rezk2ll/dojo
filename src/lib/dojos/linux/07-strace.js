@@ -122,6 +122,44 @@ dispatch_event(const struct tcb_wait_data *wd)
 			'With `-f`: `strace: Process 4084412 attached`, then `[pid 4084412] execve("/usr/bin/cat", ["cat", "/etc/shadow"], ...)`, the library opens, and `[pid 4084412] openat(AT_FDCWD, "/etc/shadow", O_RDONLY) = -1 EACCES (Permission denied)`.',
 			'The child `cat`, PID 4084412 here, made the failing `openat`. `EACCES` means the file exists and the permission check refused it. `ENOENT` would mean the path does not exist, as with `/etc/myapp.conf`.',
 			'`stat -c \'%a %U %G\' /etc/shadow` printed `640 root shadow` on the machine used for this chapter: only root and the `shadow` group may read it.'
+		],
+		steps: [
+			{
+				title: 'Run it without -f',
+				questions: [
+					{ q: 'Without `-f`, which process does strace trace?', options: ['Only `sh`, the process it started', '`sh` and `cat`', 'Only `cat`', 'Every process of your user'], answer: 0, why: 'Without `-f`, strace traces the command it starts and none of its children.' },
+					{ q: 'Which `openat` lines do you see without `-f`?', options: ['The one on `/etc/shadow`', '`sh` opening `/etc/ld.so.cache` and `libc.so.6`', 'None at all', 'Only `cat` loading `libc.so.6` and its other libraries'], answer: 1, why: 'Those are `sh`\'s own calls. `cat` runs in a child that strace does not stop.' },
+					{ q: 'The `Permission denied` message still prints. Who wrote it?', options: ['strace', 'The kernel', '`cat`, in the child that strace did not trace', '`sh`, after it tried to read `/etc/shadow` itself'], answer: 2, why: 'The child ran normally, untraced, and printed its error. strace only saw `SIGCHLD` when it ended.' },
+					{ q: 'What tells you a child existed?', options: ['A `[pid N]` prefix', 'The `execve` of `/usr/bin/cat`', 'An `EACCES` line', 'The `SIGCHLD` line'], answer: 3, why: '`sh` gets `SIGCHLD` when its child ends, and strace prints that signal.' }
+				]
+			},
+			{
+				title: 'Add -f',
+				questions: [
+					{ q: 'Which new line shows strace following the child?', options: ['`strace: Process 4084412 attached`', '`+++ exited with 1 +++`', '`--- SIGCHLD ...`', '`execve("/usr/bin/sh", ...)`'], answer: 0, why: 'With `-f`, strace attaches to every child created by `fork`, `vfork` or `clone`.' },
+					{ q: 'Which line appears only with `-f` and shows the program change?', options: ['`execve("/usr/bin/sh", ["sh", "-c", "cat /etc/shadow"], ...)`', '`openat(... "/etc/ld.so.cache" ...)`', '`[pid 4084412] execve("/usr/bin/cat", ...)`', '`cat: /etc/shadow: Permission denied`'], answer: 2, why: 'The child loads `cat` with `execve`, and strace now sees it.' },
+					{ q: 'What does `[pid 4084412]` at the start of a line mean?', options: ['The call took 4084412 ns to complete', 'The call came from process 4084412', 'It is the 4084412th call', 'The PID of strace'], answer: 1, why: 'With `-f`, strace tags lines from other processes with their PID.' },
+					{ q: 'Why does the failing call show up only now?', options: ['`-f` makes strace print errors', 'The call only fails under `-f`', '`-f` raises strace\'s privileges so it can see the call', 'The child makes it, and `-f` follows children'], answer: 3, why: '`sh` runs `cat` in a child. Only `-f` stops that child at its system calls.' }
+				]
+			},
+			{
+				title: 'Find the failing call',
+				questions: [
+					{ q: 'Which line is the failure?', options: ['`openat(... "/etc/shadow" ...) = -1 EACCES`', '`execve("/usr/bin/cat", ["cat", "/etc/shadow"], ...) = 0`', '`openat(... "libc.so.6" ...) = 3`', '`+++ exited with 1 +++`'], answer: 0, why: '`= -1` means the call failed, and strace appends the `errno`.' },
+					{ q: 'Which process made it?', options: ['strace', '`sh`, the parent', 'The kernel', 'The child `cat`, PID 4084412 here'], answer: 3, why: 'The line carries the child\'s `[pid 4084412]` prefix.' },
+					{ q: 'Why does `openat` return 3 for `libc.so.6`?', options: ['3 is an error code', 'The library has 3 parts', 'It succeeded and returned file descriptor 3', 'It was the third try'], answer: 2, why: 'A successful `openat` returns the new file descriptor, the lowest free number after 0, 1 and 2.' },
+					{ q: 'How many stops did each of these calls cost `cat`?', options: ['None: only the failed calls make strace stop it', 'Two: one at entry and one at exit', 'One, at entry', 'One per argument'], answer: 1, why: 'strace restarts the tracee with `PTRACE_SYSCALL`, so it stops at every entry and exit.' }
+				]
+			},
+			{
+				title: 'Read the errno',
+				questions: [
+					{ q: 'What does `EACCES` tell you?', options: ['The file exists, but access was refused', 'The path does not exist', 'The disk holding the file is full or read-only', 'strace blocked the call'], answer: 0, why: '`EACCES` is permission denied: the path was found, the access was not allowed.' },
+					{ q: 'What would `ENOENT` have told you instead?', options: ['The file is locked', 'The file is empty', 'You need root to trace', 'Nothing exists at that path'], answer: 3, why: '`ENOENT` is "No such file or directory", as with a missing `/etc/myapp.conf`.' },
+					{ q: '`stat -c \'%a %U %G\' /etc/shadow` prints `640 root shadow`. Who may read it?', options: ['Everyone', 'Only root', 'Root and the `shadow` group', 'Any user in `sudo`'], answer: 2, why: 'Mode 640: owner read and write, group read, others nothing.' },
+					{ q: 'Which option prints only the calls that failed?', options: ['`-c`', '`-e status=failed` or `-Z`', '`-T`', '`-p`'], answer: 1, why: 'It cuts the trace down to the calls that returned an error.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,28 @@ dispatch_event(const struct tcb_wait_data *wd)
 			why: '`-1` means the call failed, and strace appends the `errno`. `ENOENT` is "No such file or directory": nothing exists at that path. A permission problem would show `EACCES`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Find a failing system call in a child process, then measure what strace costs and what `--seccomp-bpf` saves.',
+		steps: [
+			'Make a scratch folder: `mkdir -p ~/strace-lab && cd ~/strace-lab`. This lab needs Linux and `strace`.',
+			'Trace without `-f`: `strace -e trace=execve,openat sh -c \'cat /etc/shadow\'`. Then add `-f`: `strace -f -e trace=execve,openat sh -c \'cat /etc/shadow\'`.',
+			'Print only the failures for a missing file: `LANG=C strace -f -Z -e trace=openat sh -c \'cat ./myapp.conf\'`.',
+			'Time `dd` alone: `time dd if=/dev/zero of=/dev/null bs=1 count=200k`.',
+			'Time it under strace, with and without the filter: `time strace -f -e trace=accept dd if=/dev/zero of=/dev/null bs=1 count=200k`, then the same with `--seccomp-bpf` after `-f`.'
+		],
+		done: [
+			'Without `-f` there is no line on `/etc/shadow`. With `-f` you see `Process N attached` and `[pid N] openat(AT_FDCWD, "/etc/shadow", O_RDONLY) = -1 EACCES (Permission denied)`.',
+			'The `-Z` run prints `openat(AT_FDCWD, "./myapp.conf", O_RDONLY) = -1 ENOENT (No such file or directory)` and no successful opens.',
+			'`dd` under strace takes many times longer than alone, though it makes no `accept` call.',
+			'With `--seccomp-bpf`, the time drops back close to the time without strace.'
+		],
+		solution: [
+			'`sh` runs `cat` in a child, so only `-f` traces the `openat` that fails. `EACCES` says the file exists and the permission check refused it. `ENOENT` says nothing is there.',
+			'`-e trace=accept` only filters what strace prints. It still stops `dd` twice at each of its system calls, and with `bs=1` that is hundreds of thousands of calls.',
+			'`--seccomp-bpf` puts a filter in the kernel, so `dd` stops only on traced calls. It needs `-f` and does not work with `-p`.'
+		]
+	},
 	recall: {
 		q: 'How many times does strace stop a process for one system call, and which option makes the kernel skip the calls you did not ask for?',
 		a: 'Twice: at syscall entry and at syscall exit, restarted each time with `PTRACE_SYSCALL`. `--seccomp-bpf` (with `-f`) installs a filter so only traced calls stop: `dd` went from 6.90 s to 0.088 s.'

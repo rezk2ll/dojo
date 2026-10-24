@@ -138,7 +138,7 @@ export default {
 					{ q: 'What kind of check is `requireLogin`?', options: ['Authentication', 'Authorization', 'RBAC', 'Rate limiting'], answer: 0, why: 'It checks who the caller is. It says nothing about what they may access.' },
 					{ q: 'What is this bug called?', options: ['CSRF', 'An IDOR', 'SQL injection', 'A broken session'], answer: 1, why: 'The request carries an id and the server returns that object without checking the caller may access it: an insecure direct object reference.' },
 					{ q: 'Would a role check such as "must have `billing`" close it?', options: ['Yes: only billing users would see invoices', 'Yes, if combined with a rate limit', 'No: every billing user could still read every invoice', 'No: roles only apply to admins'], answer: 2, why: 'RBAC works on roles. The missing check is at the object level: does this invoice belong to this caller?' },
-					{ q: 'Which line in Discourse’s `can_edit_post?` is the same kind of check that is missing here?', options: ['`return true if is_admin?`', 'The locked-post `is_staff?` check', 'The final `false`', '`is_my_own?(post)`, which compares the owner with the caller'], answer: 3, why: '`is_my_own?` returns `obj.user_id == @user.id`. That is the owner check that stops an IDOR.' }
+					{ q: 'A `DELETE /invoices/:id` route uses the same unscoped `WHERE id = $1`. What can Alice do with it?', options: ['Nothing: deletes need an admin', 'Only delete her own 1041', 'Read 1042 but not delete it', 'Delete Bob’s invoice 1042'], answer: 3, why: 'The hole is in the lookup, not in the verb. Any route that finds an invoice by id alone acts on whatever id the caller sends.' }
 				]
 			},
 			{
@@ -155,7 +155,7 @@ export default {
 				questions: [
 					{ q: 'How does the cheat sheet say to test this?', options: ['Create users A and B, log in as A, and request B’s id', 'Scan the API with a fuzzer', 'Check that every route calls `requireLogin`', 'Log in as an admin and list all invoices'], answer: 0, why: 'Two users, each with their own object, and a cross request is the direct way to see the hole.' },
 					{ q: 'Which actions should the test cover?', options: ['Only read', 'Read, update and delete', 'Only delete', 'Only the list endpoint'], answer: 1, why: 'Each route that takes an id needs its own owner check, so each one needs its own cross test.' },
-					{ q: 'The team switches to UUIDs. Can the owner check go?', options: ['Yes: UUIDs cannot be guessed', 'Yes, if the UUIDs are encrypted', 'No: an obtained URL must still be blocked', 'Only for read routes'], answer: 2, why: 'The cheat sheet: "If attackers obtain URLs for unauthorized objects, the application should still block their access attempts." Random ids are defence in depth only.' },
+					{ q: 'Which result shows the fix did not lock owners out?', options: ['Bob gets 404 for 1042', 'Alice gets 200 for 1042', 'Bob gets 200 and his invoice for 1042', 'Every request gets 403'], answer: 2, why: 'A cross test proves the block. The owner’s own request proves the scoped query still finds the row when `owner_id` matches.' },
 					{ q: 'What did the Discourse directory bug have in common with this one?', options: ['A broken login', 'A missing CSRF token', 'A SQL injection', 'The server knew the caller but never checked access to the requested ids'], answer: 3, why: 'Discourse returned any `user_field_ids` asked for. The fix kept only fields the caller may see.' }
 				]
 			}

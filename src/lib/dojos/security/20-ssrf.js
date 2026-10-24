@@ -133,7 +133,7 @@ export default {
 				questions: [
 					{ q: 'Who sends the webhook request?', options: ['The project owner’s browser', 'The GitLab server, from inside its own network', 'The receiving server', 'The DNS resolver'], answer: 1, why: 'That is what makes it SSRF: the request reaches whatever the server reaches.' },
 					{ q: 'With default outbound settings, what is `allow_local_network`?', options: ['True', 'Only true for admins', 'False', 'Not used'], answer: 2, why: 'Local network requests from webhooks are not allowed, so line 22 does not return early and the checks run.' },
-					{ q: 'On which values do most checks run?', options: ['The IP addresses that DNS returns', 'Only the hostname text', 'Only the port', 'The path'], answer: 0, why: 'A public-looking name can resolve to an internal IP, so the checks look at the addresses.' },
+					{ q: 'Which of the four URLs need a DNS answer before the address checks can say anything?', options: ['(3) and (4), the two hostnames', '(1) and (2), the literal IPs', 'All four', 'None: the checks read the URL text'], answer: 0, why: '(1) and (2) already are addresses. For (3) and (4), only the resolved address tells you where the request would go.' },
 					{ q: 'Which check also runs on the hostname, before DNS?', options: ['The loopback check', 'The private network check', 'The port check', 'The cloud metadata check'], answer: 3, why: '`validate_cloud_metadata_hostname!` matches the literal metadata IP before any lookup.' }
 				]
 			},
@@ -158,9 +158,9 @@ export default {
 			{
 				title: 'Close the remaining gaps',
 				questions: [
-					{ q: 'What does `dns_rebind_protection` do for (4)?', options: ['It resolves the name twice', 'It connects to the IP that was checked, keeping `ci.example.org` for TLS', 'It blocks HTTPS', 'It caches DNS for a day'], answer: 1, why: 'Lines 6 to 8 put the checked IP in the URI, so a second DNS answer cannot swap in an internal address.' },
+					{ q: 'Right after the check, `ci.example.org` starts resolving to `10.0.0.5`. With `dns_rebind_protection` on, where does the webhook go?', options: ['To `10.0.0.5`', 'To the public IP that was checked', 'Nowhere: the new answer raises an error', 'To both addresses, one after the other'], answer: 1, why: 'Lines 6 to 8 put the checked IP in the URI, so the client never asks DNS again. The new answer is never seen.' },
 					{ q: 'What attack does that pinning stop?', options: ['CSRF', 'Credential stuffing', 'DNS rebinding', 'SQL injection'], answer: 2, why: 'The name resolves to a public IP at the check and to an internal IP at the connect. Pinning removes the second lookup.' },
-					{ q: 'The server at (4) answers with a redirect to `http://10.0.0.5/`. What must happen?', options: ['The redirect must be checked again or refused', 'Follow it: the first URL passed', 'Follow it only for `GET`', 'Follow it if the port is 80'], answer: 0, why: 'A redirect is a new URL. Without a new check, it walks straight past the blocker.' },
+					{ q: 'An attacker rewrites (1) as `http://[::1]:6379/`. What happens?', options: ['Refused: the loopback check also tests `ipv6_loopback?`', 'Accepted: only IPv4 addresses are checked', 'Refused by the metadata check', 'Accepted, because no DNS lookup takes place'], answer: 0, why: 'Line 31 refuses if any address is `ipv4_loopback?` or `ipv6_loopback?`, and `::1` is the IPv6 loopback.' },
 					{ q: 'Which check stays on even if an admin enables local network requests?', options: ['The loopback check', 'The private network check', 'The `any?` check', '`validate_cloud_metadata!`, which runs before the allowlist'], answer: 3, why: 'It is not skipped by `allow_local_network`. The webhook docs date it to GitLab 19.5.' }
 				]
 			}

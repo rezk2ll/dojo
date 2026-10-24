@@ -104,15 +104,15 @@ export default {
 				questions: [
 					{ q: 'What does `?q=x\' OR \'1\'=\'1` do to the query?', options: ['It finds no one named `x`', 'It raises a syntax error', 'It closes the quote, and `OR \'1\'=\'1` makes the filter true for every row', 'It is escaped by Django'], answer: 2, why: 'The first `\'` ends the string early, and the rest is read as SQL. Every person is returned.' },
 					{ q: 'Which change closes it?', options: ['`WHERE last_name = %s` with `[q]` as params', '`WHERE last_name = \'%s\'` with `[q]` as params', 'Double every `\'` in `q` first', 'Strip spaces from `q`'], answer: 0, why: 'The value goes to the driver in a separate list, as data. That is what Django’s `StringAgg` fix did with `Value()`.' },
-					{ q: 'Why no quotes around `%s`?', options: ['They make the query slower', 'SQLite needs them, PostgreSQL does not', 'Django adds a second pair', 'The docs say quoting the placeholder puts you at risk for SQL injection'], answer: 3, why: 'The driver quotes the value itself. "You must not include quotes around the %s placeholders in the SQL string."' },
+					{ q: 'With the parameter in place, `?q=x\' OR \'1\'=\'1` arrives again. What does the query return?', options: ['Every row', 'A syntax error', 'Only rows where `last_name` is `x`', 'No one: it looks for a person literally named `x\' OR \'1\'=\'1`'], answer: 3, why: 'The driver sends the whole input as one value, so the quote and the `OR` are just characters in a name.' },
 					{ q: 'Why not escape quotes by hand instead?', options: ['It is too slow', 'OWASP marks escaping "STRONGLY DISCOURAGED"', 'Python has no way to do it', 'It breaks `ORDER BY`'], answer: 1, why: 'Hand escaping is easy to get wrong. A parameter never enters the SQL text at all.' }
 				]
 			},
 			{
 				title: 'Close the hole in `sort`',
 				questions: [
-					{ q: 'Can `ORDER BY %s` with `[sort]` carry the column name?', options: ['Yes, on every database', 'Yes, with named parameters', 'No: a placeholder stands for a value, never a column name', 'No: `ORDER BY` takes no input at all'], answer: 2, why: 'OWASP lists column names among the parts that "can\'t use bind variables". The query would sort by a constant string.' },
-					{ q: 'So what protects `sort`?', options: ['An allow-list in the code that maps input to known column names', 'Escaping it', 'Checking its length', 'Making it upper case'], answer: 0, why: 'Only strings written in the code reach the SQL, whatever the user sends.' },
+					{ q: 'Unlike `q`, what does an attacker need to inject through `sort` in the f-string?', options: ['A closing `\'` first', 'A `--` at the start', 'No quote at all: `{sort}` sits outside any string literal', 'A second statement after `;`'], answer: 2, why: '`{q}` sits between quotes, so the attack must close one. `{sort}` is pasted straight into the SQL, so any text there is already code.' },
+					{ q: 'The page sorts by name or by age. Which `columns` dict is the allow-list?', options: ['`{"name": "last_name", "age": "age"}`', '`{"name": sort, "age": sort}`', '`{"name": "last_name", "age": request.GET["sort"]}`', '`dict(request.GET)`'], answer: 0, why: 'Every value is a string written in the code. The input only picks a key, so nothing the user types reaches the SQL.' },
 					{ q: 'What does `columns.get(sort, "last_name")` return for an unknown input?', options: ['`None`', 'The input itself', 'An error', '`"last_name"`'], answer: 3, why: 'The default keeps the query valid and the input out of the SQL.' },
 					{ q: 'What else does OWASP put in the same group as column names?', options: ['Numbers', '`ASC` and `DESC`', 'Dates', 'Email addresses'], answer: 1, why: 'Sort direction is also SQL structure, so it needs an allow-list too.' }
 				]

@@ -129,10 +129,10 @@ spec:
 			{
 				title: 'Close everything first',
 				questions: [
-					{ q: 'Before any policy exists in `shop`, who can connect to `db` on 5432?', options: ['Only `web`', 'Any Pod: a Pod no policy selects accepts everything', 'Only Pods in `shop`', 'Nobody, until a Service exists'], answer: 1, why: 'A Pod is isolated only when some policy selects it. With none, "all inbound connections are allowed".' },
-					{ q: 'Which spec is `default-deny-all`?', options: ['`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rules', '`podSelector: { app: web }`, no rules', '`podSelector: {}`, `ingress: [{}]`', '`podSelector: {}`, `policyTypes: [Ingress]`, no rules'], answer: 0, why: 'The empty selector picks every Pod, both directions are listed, and no rule allows anything. `ingress: [{}]` would allow everything instead.' },
+					{ q: 'The deny uses `podSelector: {}`. Next month a new `app=report` Pod starts in `shop`. What traffic does it get?', options: ['Everything, since no policy names `app=report`', 'None, until a policy names it', 'Only traffic from `web`', 'Only traffic from `ingress-nginx`'], answer: 1, why: 'The empty selector picks every Pod in the namespace, new ones included. Pods added later start closed, which a deny that listed `app=web` and `app=db` would not give you.' },
+					{ q: 'By mistake, the deny lists only `policyTypes: [Ingress]`. What do the Pods in `shop` still get?', options: ['Every outgoing connection, to any destination', 'Nothing: the empty selector blocks both directions', 'Only DNS', 'Only connections to `db`'], answer: 0, why: 'A Pod is isolated only for the directions a policy lists. With Egress missing, `web` and `db` can still open connections anywhere.' },
 					{ q: 'Policies are additive. What can the policies you add next do?', options: ['Close paths the deny left open', 'Override the deny for the whole namespace', 'Only open paths', 'Nothing, until the deny is removed'], answer: 2, why: 'Each allow rule adds to what gets through. No policy can take away what another allows.' },
-					{ q: 'What makes the deny actually block traffic?', options: ['The API server', 'kube-proxy', 'The kubelet', 'A network plugin that supports NetworkPolicy'], answer: 3, why: 'The docs: a NetworkPolicy "without a controller that implements it will have no effect". The API server only stores it.' }
+					{ q: 'With the deny enforced and no allow rule yet, which traffic can still reach `db`?', options: ['Traffic from `web`', 'Traffic from `kube-system`', 'Traffic from the ingress controller', 'Traffic from the node where `db` runs'], answer: 3, why: 'The docs: traffic "to and from the node where a Pod is running is always allowed". A policy cannot block it.' }
 				]
 			},
 			{
@@ -159,7 +159,7 @@ spec:
 					{ q: 'After the deny, `web` looks up `db.shop.svc`. What happens?', options: ['It resolves as before', 'It fails: the egress deny also blocks DNS', 'It resolves through the node', 'It resolves over TCP only'], answer: 1, why: 'The docs warn that a default deny on egress "also blocks DNS traffic". DNS is just another outgoing connection.' },
 					{ q: 'Which labels pick the cluster DNS Pods?', options: ['`k8s-app: kube-dns`, in namespace `kube-system`', '`app: coredns`, in namespace `default`', '`k8s-app: dns`, in namespace `shop`', '`app: kube-dns`, in namespace `ingress-nginx`'], answer: 0, why: 'The cluster DNS Pods carry `k8s-app=kube-dns` in `kube-system`.' },
 					{ q: 'Which ports does the DNS rule open?', options: ['UDP 53 only', 'TCP 53 only', 'UDP 53 and TCP 53', 'TCP 8053'], answer: 2, why: 'The DNS service listens on 53/UDP and 53/TCP, so the rule opens both.' },
-					{ q: 'Why put the `namespaceSelector` and the `podSelector` in one `to` entry?', options: ['The API server refuses two entries', 'One entry is faster to check', 'It makes no difference', 'Split into two, they would mean any Pod in `kube-system`, or `kube-dns` Pods in `shop`'], answer: 3, why: 'One entry with both selectors picks particular Pods in particular namespaces. Two entries are an OR, which is much wider.' }
+					{ q: 'The DNS rule sits in a policy on `podSelector: {}`. Which Pods can then resolve names?', options: ['Only `app=web`', 'Only the Pods in `kube-system`', 'None, until each Pod gets its own DNS rule', 'Every Pod in `shop`, including ones added later'], answer: 3, why: 'The empty selector applies the egress rule to every Pod in the namespace, so `db` and any new Pod can look up names too, not only `web`.' }
 				]
 			}
 		]

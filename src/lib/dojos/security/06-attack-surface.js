@@ -122,9 +122,9 @@ export default {
 			{
 				title: 'Read the address column',
 				questions: [
-					{ q: 'Which address means "every network interface"?', options: ['`127.0.0.1`', '`0.0.0.0`', '`::1`', '`localhost`'], answer: 1, why: 'A socket on `0.0.0.0` accepts connections on every interface, including the external one.' },
+					{ q: 'In each `ss -tlnp` line, which part tells you who can connect?', options: ['The process name, such as `redis-server`', 'The address in front of the port', 'The order of the lines', 'The port number alone'], answer: 1, why: 'The address a socket is bound to decides which interfaces accept connections. The port number and the process name say nothing about who can reach it.' },
 					{ q: 'Which ports can another machine reach?', options: ['Only 8080', '8080 and 5432', 'All four of them', '22, 8080 and 6379'], answer: 3, why: 'These three listen on `0.0.0.0`. PostgreSQL on `127.0.0.1` only takes local connections.' },
-					{ q: 'Why is PostgreSQL not on that list?', options: ['Its port is above 5000', 'It asks for a password', 'It is bound to `127.0.0.1`, this machine only', '`ss` hides database ports'], answer: 2, why: '`127.0.0.1` is the loopback address. Only processes on the same machine can connect.' },
+					{ q: 'The Java app on this same server connects to `127.0.0.1:5432`. Does that work?', options: ['No: 5432 is not on `0.0.0.0`', 'Only with an extra firewall rule', 'Yes: a process on the same machine can use loopback', 'Only if the app runs as root'], answer: 2, why: '`127.0.0.1` accepts connections from processes on this machine. The app keeps its database, and other machines still cannot reach it.' },
 					{ q: 'Only 8080 should serve users. Which reachable items are extra?', options: ['Redis on 6379, and SSH from outside your admins', 'Only PostgreSQL', 'Only SSH', 'Nothing: every port is needed'], answer: 0, why: 'Users need 8080. Redis has no reason to be reachable, and SSH only from your admin network.' }
 				]
 			},
@@ -142,7 +142,7 @@ export default {
 				questions: [
 					{ q: 'What does `exposure.include=*` do?', options: ['It sets `matchesAll`, so every endpoint answers', 'It exposes `health` and `info` only', 'It exposes nothing until you list ids', 'It exposes only read-only endpoints'], answer: 0, why: 'The `"*".equals(pattern)` line sets `matchesAll`. One character exposes every endpoint the app has.' },
 					{ q: 'Which endpoints then answer on 8080?', options: ['Only `health`', 'Only `shutdown` and `heapdump`', '`env`, `beans`, `threaddump` and every other unrestricted one', 'Only the ones listed in `exclude`'], answer: 2, why: 'By default, every endpoint except `shutdown` and `heapdump` has unrestricted access, so `*` puts them all on the user port.' },
-					{ q: 'Which value gives back Spring Boot\'s default exposure?', options: ['`include=*` with `exclude=env`', '`include=info`', '`include=gateway`', '`include=health`'], answer: 3, why: 'The default web exposure is `health` alone. Listing only it keeps every other endpoint off.' },
+					{ q: 'Monitoring needs metrics, so you set `include=health,prometheus`. Does `/actuator/env` still answer on 8080?', options: ['Yes: `env` is always exposed', 'Yes, until the app restarts twice', 'Only for GET requests', 'No: only `health` and `prometheus` are exposed'], answer: 3, why: 'With a non-empty include list, `isIncluded` matches only the ids in it. Every other endpoint, `env` included, has no URL.' },
 					{ q: 'Which other setup keeps `/actuator` off the network?', options: ['`management.server.port=8080` on all interfaces', '`management.server.port=8081` with `management.server.address=127.0.0.1`', 'A second copy of the app on port 8080', '`management.endpoints.web.base-path=/hidden`'], answer: 1, why: 'The docs say the app then "does not allow remote management connections". Even a later `*` stays off the network.' }
 				]
 			},

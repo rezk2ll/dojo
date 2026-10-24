@@ -117,7 +117,7 @@ export default {
 			{
 				title: 'Compte la partie 1',
 				questions: [
-					{ q: 'Avec `limit: 5`, quelle requête d’une fenêtre reçoit la première un `429` ?', options: ['La 5e', 'La 6e', 'La 4e', 'La 20e'], answer: 1, why: 'La ligne 19 bloque quand `count > current_limit`. Un total de 5 ne dépasse pas 5.' },
+					{ q: 'La première salve arrive à 1 000 019. Combien de temps reste-t-il à la fenêtre 50 000 à ce moment ?', options: ['20 secondes', '1 seconde', '19 secondes', 'Rien : la fenêtre est déjà close'], answer: 1, why: 'La fenêtre 50 000 couvre 1 000 000 à 1 000 019. La suivante commence à 1 000 020, une seconde plus tard.' },
 					{ q: 'La première salve de 5 tombe dans la fenêtre 50 000. Combien passent ?', options: ['4', '0', '1', '5'], answer: 3, why: 'Les totaux 1 à 5 sont tous au plus égaux à la limite.' },
 					{ q: 'La seconde salve de 5 tombe dans la fenêtre 50 001. Combien passent ?', options: ['5', '0', '1', '4'], answer: 0, why: 'C’est un nouveau compteur : la seconde salve compte elle aussi de 1 à 5.' },
 					{ q: 'Combien des 10 tentatives atteignent donc l’appli, et en combien de temps ?', options: ['5, en 20 secondes', '6, en 1 seconde', '10, en à peu près une seconde', '10, en 40 secondes'], answer: 2, why: 'Les deux salves chevauchent le bord d’une fenêtre : une fenêtre fixe laisse passer deux fois la limite en une seconde environ.' }
@@ -126,9 +126,9 @@ export default {
 			{
 				title: 'Lis le trafic de la partie 2',
 				questions: [
-					{ q: '50 000 IP envoient chacune une connexion. À combien arrive chaque compteur `logins/ip` ?', options: ['1', '5', '50 000', '6'], answer: 0, why: 'Le throttle compte par discriminant, et chaque IP n’envoie qu’une requête.' },
-					{ q: 'Chaque requête vise un compte différent. À combien arrive chaque compteur `logins/email` ?', options: ['5', '50 000', '0', '1'], answer: 3, why: 'Un essai par compte : chaque compteur par email reste à 1.' },
-					{ q: 'Combien de requêtes reçoivent donc un `429` ?', options: ['45 000', 'Aucune', 'Toutes après la 5e', 'La moitié'], answer: 1, why: '`count > 5` est faux pour chaque compteur. La limitation ne voit pas cette attaque.' },
+					{ q: 'Suppose que les 50 000 requêtes tombent dans une même fenêtre de 20 secondes. Combien de clés `logins/ip` le cache garde-t-il pour elle ?', options: ['50 000, une par IP', '1', '5', '6'], answer: 0, why: 'La clé contient le discriminant, ici l’IP. Chaque IP a son propre compteur, et chacun ne contient qu’une requête.' },
+					{ q: 'Que devrait faire l’attaquant pour déclencher `logins/email` ?', options: ['Utiliser plus d’IP', 'Envoyer chaque requête plus vite', 'Passer à une autre liste de fuites', 'Envoyer un 6e essai pour un même compte dans une fenêtre de 20 secondes'], answer: 3, why: 'Ce throttle compte par compte. Le credential stuffing n’a jamais besoin d’un second essai sur le même compte, donc il n’y arrive jamais.' },
+					{ q: 'Pour les deux throttles, en quoi une de ces requêtes diffère-t-elle d’Ann qui se connecte ?', options: ['Elle vient d’une nouvelle IP', 'En rien : un essai d’une IP pour un compte ressemble à une connexion normale', 'Son mot de passe est plus long', 'Elle utilise une autre méthode HTTP'], answer: 1, why: 'Les throttles ne voient que des totaux par IP et par email. Chaque requête ajoute 1 à un compteur neuf, exactement comme un vrai utilisateur.' },
 					{ q: 'Comment s’appelle cette attaque ?', options: ['Le password spraying', 'La fixation de session', 'Le credential stuffing', 'Le verrouillage de compte'], answer: 2, why: 'Le credential stuffing essaie des couples identifiant et mot de passe tirés de la fuite d’un autre site, un par compte.' }
 				]
 			},
@@ -138,7 +138,7 @@ export default {
 					{ q: 'Quelle défense le cheat sheet OWASP sur le credential stuffing cite-t-il en premier ?', options: ['L’authentification multifacteur', 'Une limite de throttle plus basse', 'Des identifiants plus longs', 'Bloquer toutes les IP étrangères'], answer: 0, why: 'Un mot de passe réutilisé ne suffit plus quand un second facteur est exigé.' },
 					{ q: 'Que liste aussi l’OWASP, qui agit sur le mot de passe lui-même ?', options: ['Imposer un changement de mot de passe tous les 30 jours', 'Hasher les mots de passe deux fois', 'Cacher le formulaire de connexion', 'Vérifier les mots de passe contre des listes de fuites comme Pwned Passwords'], answer: 3, why: 'Un mot de passe déjà présent dans une liste de fuites est justement celui que cette attaque utilise.' },
 					{ q: 'Qu’a relevé l’ICO comme manquant dans l’amende de 23andMe ?', options: ['Un CAPTCHA', 'Un throttle par IP', 'Une authentification multifacteur obligatoire', 'Un pare-feu applicatif'], answer: 2, why: 'L’ICO a relevé l’absence de "mandatory multi-factor authentication, secure password protocols, or unpredictable usernames" (MFA obligatoire, règles de mots de passe sûres, identifiants imprévisibles).' },
-					{ q: 'Pourquoi ne pas simplement baisser `logins/email` à 1 essai par fenêtre ?', options: ['Rack::Attack ne le permet pas', 'Ça compte toujours 1 par compte, et ça permet à un attaquant de bloquer les vrais utilisateurs', 'Ça ralentirait le cache', 'Ça ne marche qu’avec `GET`'], answer: 1, why: 'Le stuffing n’envoie de toute façon qu’un essai par compte, et une limite serrée par compte laisse quiconque connaît un email en bloquer le titulaire.' }
+					{ q: 'La MFA est maintenant obligatoire. Un des 50 000 mots de passe fuités est le bon. Qu’obtient l’attaquant ?', options: ['Une session connectée', 'Une demande de second facteur, à laquelle il ne peut pas répondre', 'Un `429`', 'Un email de réinitialisation'], answer: 1, why: 'Le bon mot de passe ne passe que le premier facteur. Sans le second facteur de l’utilisateur, la connexion s’arrête là.' }
 				]
 			}
 		]

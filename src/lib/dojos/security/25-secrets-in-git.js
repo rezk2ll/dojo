@@ -106,19 +106,19 @@ export default {
 			{
 				title: 'Find what is still exposed',
 				questions: [
-					{ q: 'After `e4f5a6b` removes the file, what does `git show a1b2c3d:config/.env` print?', options: ['An error: the file is gone', 'Nothing, the commit was rewritten', 'The key, from any clone', 'The key, but only on the developer’s laptop'], answer: 2, why: 'A new commit adds a snapshot without the file and leaves `a1b2c3d` as it was.' },
-					{ q: 'Who else may hold the key now?', options: ['Every clone and fork made since 17:10', 'Only GitHub staff', 'Nobody, the repo was public for only 15 minutes', 'Only people who starred the repo'], answer: 0, why: 'Each clone or fork holds its own copy of the commit, and GitHub serves the commit page by SHA.' },
-					{ q: 'The developer says it is fixed. What did the delete change?', options: ['It revoked the key in AWS', 'It removed the commit from GitHub', 'It stopped forks from syncing', 'Only the latest snapshot of the files'], answer: 3, why: 'The working tree looks clean, but the history and every copy of it still hold the key.' },
+					{ q: 'From what time could anyone on the internet copy the key?', options: ['From 17:25, when the fix was pushed', 'Only while the developer’s laptop is online', 'From 17:10, when `a1b2c3d` reached the public repo', 'Never: GitHub hides `.env` files'], answer: 2, why: 'The push at 17:10 made the commit public. The 17:25 commit does not shorten that window, and the window stays open until the key is rotated.' },
+					{ q: 'On Monday, someone opens the GitHub page of commit `a1b2c3d`. What do they see?', options: ['The diff that adds `config/.env`, key included', 'A 404: the file was removed', 'The commit message without its diff', 'Only the later commit "remove .env"'], answer: 0, why: 'GitHub serves a commit page by its SHA, and `e4f5a6b` did not change `a1b2c3d`.' },
+					{ q: 'Besides the AWS key, what else in `config/.env` do you treat as exposed?', options: ['Nothing: only the AWS key is a secret', 'Only values that start with `AKIA`', 'Only the file name', 'Every other value in the file, since the whole file was public'], answer: 3, why: 'The commit holds the full file. Any other token or password in it leaked the same way and needs its own rotation.' },
 					{ q: 'Why does a gitleaks scan still find the key?', options: ['It reads the working tree twice', 'It scans patches with `git log -p`', 'It asks GitHub for deleted files', 'It reads the reflog only'], answer: 1, why: 'The README: "gitleaks uses the `git log -p` command to scan patches", so the commit that added the key shows up.' }
 				]
 			},
 			{
 				title: 'Pick the first move',
 				questions: [
-					{ q: 'Which single action makes every copy useless at once?', options: ['Rewrite the history and force push', 'Make the repo private', 'Ask forks to delete their copy', 'Rotate the key inside AWS'], answer: 3, why: 'The change happens where the key is checked, so it covers clones you cannot reach.' },
+					{ q: 'It is 17:30 and the key is still active. What can someone who cloned the repo at 17:12 do with it?', options: ['Nothing until they decrypt it', 'Only read the repo', 'Only use it from GitHub Actions', 'Call AWS as `ci-deploy`, with all of its permissions'], answer: 3, why: 'A secret grants access on its own, with no other check. Every minute the key stays active is a minute anyone with a copy can use it.' },
 					{ q: 'Why not rewrite history first?', options: ['A rewrite does nothing for copies taken since 17:10', 'Git cannot rewrite a public repo', 'A rewrite deletes the IAM user', '`git-filter-repo` only works on private repos'], answer: 0, why: 'GitHub’s docs: "as a first step you need to revoke and/or rotate that secret."' },
 					{ q: 'Why not just make the repo private?', options: ['It deletes the repo', 'Clones and forks already have the key', 'It costs money', 'It disables push protection'], answer: 1, why: 'A private repo hides the page, not the copies people already took.' },
-					{ q: 'What does rotation mean here?', options: ['Renaming the IAM user', 'Moving the `.env` to another folder', 'New key, move every program to it, then disable the old one', 'Encrypting the old key'], answer: 2, why: 'After rotation, the leaked copy is refused wherever it ends up.' }
+					{ q: 'Rotation breaks any program that still holds the old key. Which one must move to the new key in this story?', options: ['The developer’s editor', 'GitHub push protection', 'The deploy that runs as `ci-deploy`', 'The gitleaks hook'], answer: 2, why: 'The key belongs to `ci-deploy`, the user your deploy runs as. Turn the old key off before the deploy moves, and the next deploy fails.' }
 				]
 			},
 			{

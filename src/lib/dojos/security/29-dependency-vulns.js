@@ -129,8 +129,8 @@ export default {
 			{
 				title: 'Read the ranges',
 				questions: [
-					{ q: 'When is a version affected by an OSV range?', options: ['When it equals `fixed`', 'When it is at or above `introduced` and below `fixed`', 'When it is below `introduced`', 'When it is above `fixed`'], answer: 1, why: 'The range is `[introduced, fixed)`: `introduced` is included, `fixed` is not.' },
-					{ q: 'Is the `fixed` version itself affected?', options: ['Yes, it is the last vulnerable one', 'Only if no `limit` event exists', 'No: `fixed` is exclusive', 'Only for Maven packages'], answer: 2, why: '`IsVulnerable` sets `vulnerable` back to `false` at `fixed`. The event that names an included last version is `last_affected`.' },
+					{ q: 'GHSA-jfh8-c2jp-5v3q is the GitHub id of this record. Which CVE do its three ranges describe?', options: ['CVE-2021-45046', 'CVE-2021-44228, Log4Shell', 'CVE-2021-44832', 'CVE-2025-68161'], answer: 1, why: 'These are the CVE-2021-44228 ranges, with 2.15.0 as the first `fixed`. Each of the other CVEs has its own record and its own ranges.' },
+					{ q: 'A fifth service ships 2.3.2. Does this record affect it?', options: ['Yes, inside `[2.0-beta9, 2.3.1)`', 'Yes, inside `[2.4, 2.12.2)`', 'No: it falls between the second range and the third', 'Yes: it lies between `2.0-beta9` and `2.12.2`'], answer: 2, why: '2.3.2 is at or above the `fixed` 2.3.1 and below the `introduced` 2.4, so no range covers it. The ranges are separate, not one span from the lowest `introduced` to the highest `fixed`.' },
 					{ q: 'How many ranges does this record list for `log4j-core`?', options: ['Three', 'One', 'Two', 'Four'], answer: 0, why: '`[2.13.0, 2.15.0)`, `[2.0-beta9, 2.3.1)` and `[2.4, 2.12.2)`.' },
 					{ q: 'A version must fall in how many of them to be affected?', options: ['All three', 'At least two', 'Exactly the last one', 'At least one'], answer: 3, why: 'Each range is a separate stretch of vulnerable versions. One match is enough.' }
 				]

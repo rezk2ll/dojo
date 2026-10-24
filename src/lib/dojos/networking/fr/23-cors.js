@@ -131,6 +131,44 @@ export default {
 			'Sans options, `origin` vaut `*` : le preflight et la réponse au `POST` portent `Access-Control-Allow-Origin: *`. La requête utilise `credentials: \'include\'`, et le standard Fetch dit « `*` is not allowed when credentials are involved ». Le navigateur rejette la réponse.',
 			'Il manque aussi `Access-Control-Allow-Credentials` : `configureCredentials` ne le pose que si `credentials === true`.',
 			'Correction : `app.use(cors({ origin: \'https://app.example.com\', credentials: true }))`. Le middleware envoie alors `Access-Control-Allow-Origin: https://app.example.com`, `Vary: Origin` et `Access-Control-Allow-Credentials: true`. `POST` fait partie des méthodes par défaut, et `Content-Type` est recopié depuis le preflight.'
+		],
+		steps: [
+			{
+				title: 'Lis la requête',
+				questions: [
+					{ q: 'Ce `fetch` a-t-il besoin d’un preflight ?', options: ['Oui : `application/json` n’est pas un type de contenu safelisted', 'Non : `POST` est une méthode safelisted', 'Non : les deux hôtes sont sous `example.com`', 'Oui : toute requête avec un corps en a besoin'], answer: 0, why: '`POST` est safelisted, mais `Content-Type` ne l’est que pour trois types, et `application/json` n’en fait pas partie.' },
+					{ q: '`https://app.example.com` et `https://api.example.com` sont-ils la même origine ?', options: ['Oui : même schéma et même domaine parent', 'Non : l’hôte diffère, donc l’appel est cross-origin', 'Oui : les deux utilisent le port 443', 'Seulement s’ils posent le même cookie'], answer: 1, why: 'Une origine, c’est schéma, hôte et port. `app` et `api` sont deux hôtes différents.' },
+					{ q: 'Que change `credentials: \'include\'` pour la réponse du serveur ?', options: ['Rien, sauf si le serveur pose d’abord un cookie', 'Le serveur doit vérifier un certificat client TLS', 'La réponse doit nommer l’origine exacte, pas `*`', 'La requête doit passer en `PUT` au lieu de `POST`'], answer: 2, why: 'Avec des credentials, le standard Fetch interdit `*`. La réponse doit nommer l’origine et envoyer `Access-Control-Allow-Credentials: true`.' },
+					{ q: 'Qui empêche la commande de s’afficher ?', options: ['Le serveur Express, avec un `403`', 'Un pare-feu entre les deux hôtes', 'La couche TLS, pendant la poignée de main', 'Le navigateur, après avoir lu les en-têtes CORS'], answer: 3, why: 'CORS vit dans le navigateur. Le middleware ne fait que poser des en-têtes. Le navigateur décide si le script peut continuer.' }
+				]
+			},
+			{
+				title: 'Lis ce qu’envoie `cors()`',
+				questions: [
+					{ q: 'Avec `app.use(cors())` sans options, que vaut `origin` ?', options: ['`*`', 'L’`Origin` de la requête, renvoyée telle quelle', '`false`', 'Le nom d’hôte de l’API'], answer: 0, why: 'La ligne 2 fixe l’`origin` par défaut à `*`.' },
+					{ q: 'Quel `Access-Control-Allow-Origin` porte donc le preflight ?', options: ['`https://app.example.com`', '`*`', 'Aucun', '`https://api.example.com`'], answer: 1, why: 'Les lignes 8 à 13 ajoutent `Access-Control-Allow-Origin: *` quand `origin` vaut `*`, sur le preflight comme sur la vraie réponse.' },
+					{ q: '`cors()` envoie-t-il `Access-Control-Allow-Credentials` ?', options: ['Oui, à `true` par défaut', 'Seulement sur le preflight `OPTIONS`', 'Seulement si la requête porte des cookies', 'Non : `configureCredentials` ne le pose que si `credentials === true`'], answer: 3, why: 'Les options par défaut n’ont pas de `credentials`, donc l’en-tête n’est jamais envoyé.' },
+					{ q: '`POST` fait-il partie des méthodes par défaut ?', options: ['Oui : la valeur par défaut est `GET,HEAD,PUT,PATCH,POST,DELETE`', 'Non : seuls `GET` et `HEAD` sont autorisés', 'Non : il faut ajouter `POST` à la main', 'Seulement pour les corps `text/plain`'], answer: 0, why: 'La ligne 3 liste `POST` dans les `methods` par défaut. La méthode n’est pas le problème.' }
+				]
+			},
+			{
+				title: 'Trouve l’en-tête fautif',
+				questions: [
+					{ q: 'Quel en-tête fait échouer la requête ?', options: ['`Access-Control-Allow-Methods`, qui n’a pas `POST`', '`Content-Length: 0` sur le `204`', '`Access-Control-Allow-Origin: *` sur une requête avec credentials', '`Vary: Access-Control-Request-Headers`'], answer: 2, why: 'Le standard Fetch dit « `*` is not allowed when credentials are involved ». Le navigateur rejette la réponse.' },
+					{ q: 'Pourquoi `*` est-il refusé ici, et pas pour l’API GitHub de l’accroche ?', options: ['Cette requête envoie des credentials, celle-là n’en envoyait pas', 'GitHub utilise HTTP/2, qui autorise `*`', 'GitHub n’envoie `*` que pour les `GET`', 'Express écrit `*` dans un format que les navigateurs refusent'], answer: 0, why: '`*` autorise n’importe quelle origine seulement pour une requête sans credentials. Le fetch de l’accroche n’en envoyait pas.' },
+					{ q: 'Le handler de la route `/orders` s’exécute-t-il dans cette config cassée ?', options: ['Oui : le navigateur ne vérifie CORS qu’au retour du `POST`', 'Non : le preflight échoue, donc le navigateur n’envoie jamais le `POST`', 'Oui, et il répond `403`', 'Non : Express la jette avant le routage'], answer: 1, why: 'La réponse au preflight échoue au contrôle. D’après le standard Fetch, la vraie requête n’est alors jamais envoyée.' },
+					{ q: 'Que voit le script lui-même ?', options: ['Un `403` avec la raison dans le corps', 'Le JSON de la commande, sans les cookies', '`TypeError: Failed to fetch`, la raison n’étant que dans la console', 'Un `204` avec un corps vide'], answer: 2, why: 'L’erreur est cachée à JavaScript. Seule la console du navigateur dit pourquoi.' }
+				]
+			},
+			{
+				title: 'Écris la correction',
+				questions: [
+					{ q: 'Quel appel corrige le problème ?', options: ['`cors({ origin: \'*\', credentials: true })`', '`cors({ origin: \'https://app.example.com\', credentials: true })`', '`cors({ origin: \'https://app.example.com\' })`', '`cors({ credentials: true })`'], answer: 1, why: 'La réponse doit nommer l’origine exacte et envoyer `Access-Control-Allow-Credentials: true`. Seul cet appel fait les deux.' },
+					{ q: 'Pourquoi ne pas garder `origin: \'*\'` en ajoutant seulement `credentials: true` ?', options: ['Express refuse de démarrer avec ce couple', 'Ça n’autorise que `GET`', 'Ça supprime l’en-tête `Vary`', 'La réponse dit toujours `*`, et le navigateur refuse `*` avec des credentials'], answer: 3, why: 'Ajouter `credentials` envoie l’en-tête de credentials, mais `origin` vaut toujours `*`, ce que le navigateur refuse ici.' },
+					{ q: 'Qu’envoie l’appel corrigé ?', options: ['`Access-Control-Allow-Origin: *` et `Vary: Origin`', '`Access-Control-Allow-Origin: https://app.example.com`, `Vary: Origin`, `Access-Control-Allow-Credentials: true`', '`Access-Control-Allow-Credentials: true` et aucun en-tête d’origine', '`Access-Control-Allow-Origin: https://api.example.com` et `Vary: Cookie`'], answer: 1, why: 'Une origine fixe est envoyée telle quelle, avec `Vary: Origin` pour qu’un cache partagé garde une copie par origine, plus l’en-tête de credentials.' },
+					{ q: 'La correction a-t-elle aussi besoin de `allowedHeaders: [\'Content-Type\']` ?', options: ['Oui, sinon le preflight échoue', 'Oui, car JSON n’est jamais autorisé par défaut', 'Non : sans `allowedHeaders`, le middleware recopie `Access-Control-Request-Headers`', 'Non, car `Content-Type` est toujours safelisted'], answer: 2, why: '`configureAllowedHeaders` recopie ce que le preflight a demandé quand l’option n’est pas posée.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -168,6 +206,28 @@ export default {
 			why: '`isOriginAllowed` renvoie false, donc la valeur de l’en-tête est `false` et `applyHeaders` la saute. Le middleware appelle quand même `next()`, et la route tourne. Le navigateur empêche ensuite le script de lire la réponse.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Reconstruire la tâche en local : une page sur un port, une API Express sur un autre, un `fetch` avec credentials qui échoue avec `cors()` et marche avec l’appel corrigé.',
+		steps: [
+			'Prépare l’API : `mkdir -p ~/cors-lab/web && cd ~/cors-lab && npm init -y && npm install express@4.21.2 cors@2.8.5`.',
+			'Crée `server.js` avec cette ligne, puis lance `node server.js` : `const express = require(\'express\'); const cors = require(\'cors\'); const app = express(); app.use(cors()); app.post(\'/orders\', (req, res) => { console.log(\'handler ran for\', req.headers.origin); res.json({ id: 42 }); }); app.listen(3000);`',
+			'Crée `web/index.html` avec cette ligne : `<pre id="out">waiting</pre><script>fetch(\'http://localhost:3000/orders\', { method: \'POST\', credentials: \'include\', headers: { \'Content-Type\': \'application/json\' }, body: \'{}\' }).then((r) => r.text()).then((t) => { out.textContent = \'OK \' + t; }).catch((e) => { out.textContent = String(e); });</script>`. Dans un second terminal, lance `python3 -m http.server 8765 -d ~/cors-lab/web`, puis ouvre `http://localhost:8765/` avec la console développeur ouverte.',
+			'Regarde le preflight toi-même : `curl -si -X OPTIONS localhost:3000/orders -H "Origin: http://localhost:8765" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type"`.',
+			'Dans `server.js`, remplace `cors()` par `cors({ origin: \'http://localhost:8765\', credentials: true })`. Relance node, recharge la page et relance le même curl. Pour finir, envoie un `POST` depuis une origine étrangère : `curl -si -X POST localhost:3000/orders -H "Origin: https://evil.example" -H "Content-Type: application/json" -d "{}"`.'
+		],
+		done: [
+			'Avec `cors()`, la page affiche `TypeError: Failed to fetch`, la console dit que l’en-tête « must not be the wildcard \'*\' when the request\'s credentials mode is \'include\' », et node n’affiche aucune ligne `handler ran`.',
+			'Avec `cors()`, le preflight vu par curl montre `Access-Control-Allow-Origin: *` et aucun `Access-Control-Allow-Credentials`.',
+			'Après la correction, la page affiche `OK {"id":42}`, node affiche `handler ran for http://localhost:8765`, et le preflight montre `Access-Control-Allow-Origin: http://localhost:8765` et `Access-Control-Allow-Credentials: true`.',
+			'Le curl depuis `evil.example` reçoit `200` avec le JSON, et node affiche `handler ran for https://evil.example`.'
+		],
+		solution: [
+			'`localhost:8765` et `localhost:3000` diffèrent par le port : ce sont deux origines, comme `app.example.com` et `api.example.com`.',
+			'Le preflight échoue sur `*` avec credentials, donc le navigateur n’envoie jamais le `POST` et le handler ne tourne jamais.',
+			'L’appel corrigé nomme l’origine et ajoute `Access-Control-Allow-Credentials: true`. La requête `evil.example` montre l’autre face : le serveur exécute toutes les requêtes, et seul le navigateur décide si un script peut lire la réponse.'
+		]
+	},
 	recall: {
 		q: 'Un navigateur bloque un `fetch` vers une autre origine que curl termine sans souci. Qui applique CORS, et quel en-tête de réponse doit citer ton origine quand la requête envoie des cookies ?',
 		a: 'Le navigateur, après l’arrivée de la réponse ; le serveur exécute quand même la requête. Avec credentials, la réponse doit porter `Access-Control-Allow-Origin: https://ton.origine` (pas `*`) et `Access-Control-Allow-Credentials: true`.'

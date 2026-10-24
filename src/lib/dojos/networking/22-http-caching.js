@@ -136,6 +136,44 @@ ngx_http_upstream_process_cache_control(ngx_http_request_t *r,
 			'From Oct 14 18:01:21 to Oct 16 23:54:57 is 53 h 53 min 36 s, or 194016 seconds. 10% is about 19402 seconds: the response stays fresh for about 5 h 23 min. A 200 is "heuristically cacheable" per RFC 9110, so the heuristic applies.',
 			'After that, the cache sends `GET /en/docs/` with `If-None-Match: "6acfc371-36ae"`. In this session the server answered `HTTP/1.1 304 Not Modified` with the same `ETag` and no body, so the cache reuses its 13998 bytes and resets the age.',
 			'If the docs team publishes a fix right after the cache stored the page, readers behind that cache can see the old page for up to 5 h 23 min. A `Cache-Control: max-age=300` from the origin would cap it at 5 minutes.'
+		],
+		steps: [
+			{
+				title: 'Read the headers',
+				questions: [
+					{ q: 'Which headers would give this response an explicit lifetime?', options: ['`Cache-Control` or `Expires`, and neither is here', '`ETag`, which holds the lifetime in hex', '`Content-Length`, read as a number of seconds', '`Date`, which marks when the copy expires'], answer: 0, why: 'An explicit lifetime comes from `Cache-Control` or `Expires`. This response has neither, so the cache must fall back on a heuristic.' },
+					{ q: 'With no explicit lifetime, may a shared cache reuse this 200 at all?', options: ['No: without `Cache-Control`, nothing may be stored', 'Yes: a 200 is "heuristically cacheable", so a heuristic applies', 'Only if the client asked with `Cache-Control: max-age`', 'Only the browser may, never a shared cache'], answer: 1, why: 'RFC 9110 lists 200 as heuristically cacheable. RFC 9111 then lets the cache pick a lifetime on its own.' },
+					{ q: 'Which two headers does the 10% heuristic use?', options: ['`ETag` and `Content-Length`', '`Date` and `ETag`', '`Last-Modified` and `Date`', '`Content-Length` and `Last-Modified`'], answer: 2, why: 'The heuristic takes 10% of the time since `Last-Modified`, counted up to `Date`, when the response was made.' },
+					{ q: 'What is `ETag: "6acfc371-36ae"` for?', options: ['It is the cache key nginx uses for this URL', 'It is a checksum the browser verifies before display', 'It is the number of seconds the page stays fresh', 'It is a validator the cache sends back to ask if its copy is current'], answer: 3, why: 'An ETag is an opaque string. The cache returns it in `If-None-Match`, and the origin compares it with the current one.' }
+				]
+			},
+			{
+				title: 'Compute the lifetime',
+				questions: [
+					{ q: 'How much time passed between `Last-Modified` and `Date`?', options: ['53 h 53 min 36 s, or 194016 seconds', '48 h exactly, or 172800 seconds', '5 h 23 min, or about 19402 seconds', '54 h, or 194400 seconds'], answer: 0, why: 'From Oct 14 18:01:21 to Oct 16 23:54:57 is two days, 5 h 53 min 36 s: 194016 seconds.' },
+					{ q: 'What is 10% of that?', options: ['About 1940 seconds, 32 minutes', 'About 19402 seconds, 5 h 23 min', 'About 194016 seconds, two days', 'About 600 seconds, 10 minutes'], answer: 1, why: '194016 / 10 is about 19402 seconds, a little over 5 h 23 min.' },
+					{ q: 'The cache stored the copy at the `Date` time. Roughly until when may it reuse it without asking?', options: ['Until Oct 16 23:59:57, five minutes later', 'Until Oct 18 18:01, four days after `Last-Modified`', 'For as long as the ETag stays the same', 'Until about Oct 17 05:18, 5 h 23 min later'], answer: 3, why: 'The copy is fresh while its age is below the lifetime: 23:54:57 plus about 5 h 23 min.' },
+					{ q: 'Is 10% a fixed rule?', options: ['Yes: RFC 9111 requires exactly 10% for every response', 'No: RFC 9111 allows a heuristic and calls 10% "typical"', 'Yes: every browser and CDN uses 10%', 'No: the origin sets the percentage in the `ETag`'], answer: 1, why: 'RFC 9111 allows a heuristic lifetime and gives 10% of the time since `Last-Modified` as the typical value.' }
+				]
+			},
+			{
+				title: 'Revalidate',
+				questions: [
+					{ q: 'After about 5 h 23 min the copy is stale. What does the cache send?', options: ['`GET /en/docs/` with `If-None-Match: "6acfc371-36ae"`', '`HEAD /en/docs/` with `Cache-Control: no-cache`', 'Nothing: it serves the stale copy until it is evicted', '`GET /en/docs/` with `ETag` set as a request header'], answer: 0, why: 'A stale copy with a validator is checked with a conditional request. The validator travels in `If-None-Match`.' },
+					{ q: 'The page has not changed. What does the origin answer?', options: ['`200 OK` with the full 13998 bytes', '`304 Not Modified` with the same `ETag` and no body', '`412 Precondition Failed` with no body', '`204 No Content` with a new `ETag`'], answer: 1, why: 'In this session the server answered `HTTP/1.1 304 Not Modified`, same `ETag`, no body.' },
+					{ q: 'What does the cache do with that 304?', options: ['Drops its copy and fetches the page again', 'Passes the empty 304 body on to the user', 'Reuses its stored 13998 bytes and resets the age', 'Keeps the copy, but marks it stale for good'], answer: 2, why: 'A 304 says the stored copy is still current, so the cache serves it again and its age starts over.' },
+					{ q: 'What does the revalidation save compared with a full fetch?', options: ['The body: only headers travel', 'The TCP connection: no packets are sent', 'Nothing: the origin sends the body anyway', 'The DNS lookup, and nothing else'], answer: 0, why: 'The 304 has headers only. The 13998-byte page does not cross the network again.' }
+				]
+			},
+			{
+				title: 'Weigh the risk',
+				questions: [
+					{ q: 'The docs team publishes a fix right after the cache stored the page. How long can readers behind that cache see the old page?', options: ['Up to 10 minutes', 'Not at all: the ETag changes at once', 'Up to 5 h 23 min', 'Up to 53 h, the full time since `Last-Modified`'], answer: 2, why: 'The cache does not ask the origin until the heuristic lifetime runs out. A new ETag at the origin is only seen at revalidation.' },
+					{ q: 'Which header from the origin would cap that at 5 minutes?', options: ['`Cache-Control: private`', '`ETag: "300"`', '`Last-Modified` set to five minutes ago', '`Cache-Control: max-age=300`'], answer: 3, why: 'An explicit `max-age` replaces the heuristic. 300 seconds is 5 minutes.' },
+					{ q: 'Someone suggests `Cache-Control: private` on the docs page. What would it do?', options: ['Lower the heuristic from 10% to 1%', 'Keep every shared cache from storing a public page', 'Make the cache revalidate every 5 minutes', 'Nothing: shared caches ignore `private`'], answer: 1, why: '`private` means a shared cache must not store the response. That is right for `/account`, and a waste for a public docs page.' },
+					{ q: 'In nginx, which directive makes a stale copy revalidate with `If-None-Match` instead of a full fetch?', options: ['`proxy_ignore_headers Cache-Control`', '`proxy_cache_key $request_uri`', '`proxy_cache_revalidate on`', '`proxy_no_cache`'], answer: 2, why: 'With `proxy_cache_revalidate on`, nginx sends a conditional request and serves its stored body on a 304.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -173,6 +211,27 @@ ngx_http_upstream_process_cache_control(ngx_http_request_t *r,
 			why: 'The cache sends the stored validator back in `If-None-Match`. The origin compares it with the current `ETag` and answers `304 Not Modified`, which per RFC 9110 has no content, and the cache serves its stored body.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Put an nginx cache in front of a small origin and watch a miss, a hit, a revalidation, a `private` page that is never stored, and the Steam mistake.',
+		steps: [
+			'Make two pages: `mkdir -p ~/cache-lab/site ~/cache-lab/conf && cd ~/cache-lab`, then `echo "<h1>docs</h1>" > site/docs.html` and `echo "<h1>account of user A</h1>" > site/account.html`.',
+			'Create `conf/default.conf` with this one line. Port 8081 is the origin, port 8080 the shared cache: `proxy_cache_path /tmp/cache keys_zone=lab:1m; server { listen 8081; root /site; location = /docs.html { add_header Cache-Control "max-age=10"; } location = /account.html { add_header Cache-Control "private"; } } server { listen 8080; location / { proxy_pass http://127.0.0.1:8081; proxy_cache lab; proxy_cache_revalidate on; add_header X-Cache $upstream_cache_status; } }`',
+			'Start it: `docker run -d --rm --name cache-lab -p 8080:8080 -p 8081:8081 -v "$PWD/conf:/etc/nginx/conf.d:ro" -v "$PWD/site:/site:ro" nginx:1.27-alpine`.',
+			'Ask the cache for the docs page twice, wait 10 seconds, ask again: `curl -sI localhost:8080/docs.html | grep -iE "x-cache|cache-control|etag"`. Then ask the origin directly with the ETag you saw: `curl -sI -H \'If-None-Match: "<etag>"\' localhost:8081/docs.html`.',
+			'Ask for `/account.html` twice through the cache. Then add `proxy_ignore_headers Cache-Control; proxy_cache_valid 200 1m;` after `proxy_cache_revalidate on;`, run `docker exec cache-lab nginx -s reload`, and ask for `/account.html` twice again. Clean up with `docker rm -f cache-lab`.'
+		],
+		done: [
+			'The docs page shows `X-Cache: MISS`, then `X-Cache: HIT`, then `X-Cache: REVALIDATED` after the 10 seconds.',
+			'The direct request with `If-None-Match` returns `HTTP/1.1 304 Not Modified`.',
+			'`/account.html` shows `X-Cache: MISS` both times with the first config, and `MISS` then `HIT` after the reload.'
+		],
+		solution: [
+			'`max-age=10` keeps the copy fresh for 10 seconds, so the second request never reaches the origin. After that, `proxy_cache_revalidate on` sends `If-None-Match`, the origin answers 304, and nginx reports `REVALIDATED`.',
+			'`Cache-Control: private` sets `no_cache` in nginx, so the account page is never stored.',
+			'`proxy_ignore_headers Cache-Control` makes nginx skip that header, and `proxy_cache_valid` gives it a lifetime. The page built for user A is now served from the cache to anyone: the same kind of rule that leaked Steam pages in 2015.'
+		]
+	},
 	recall: {
 		q: 'Which `Cache-Control` directive keeps a personal page out of a CDN or nginx cache but lets the browser keep it, and what did Steam lose without it in December 2015?',
 		a: '`Cache-Control: private`: shared caches must not store the response. On December 25, 2015, a caching rule cached pages for logged-in users, and pages for about 34k users may have been shown to other users.'

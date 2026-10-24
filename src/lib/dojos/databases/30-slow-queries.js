@@ -140,6 +140,44 @@ export default {
 			'B is usually fast but sometimes takes seconds: mean 1.8 ms, stddev 40 ms. That pattern points to waiting on something, not to slow work. While it spikes, look at `pg_stat_activity` for `wait_event_type = \'Lock\'`: two requests updating the same cart row (day 20). A new index will not help.',
 			'C runs 30 times. Move it to a replica (day 28) or a materialized view refreshed at night (day 8), and set `log_min_duration_statement` with `auto_explain` to keep its plan if it gets worse.',
 			'After each fix, `SELECT pg_stat_statements_reset();` (or save a snapshot) so the next reading shows the new state, not last week\'s.'
+		],
+		steps: [
+			{
+				title: 'Rank them by total time',
+				questions: [
+					{ q: 'In which order do you work on the three rows?', options: ['C, then B, then A', 'A, then B, then C', 'B, then A, then C', 'C, then A, then B'], answer: 1, why: 'Total time is where the server spends its time: 2,160 s, 1,620 s, then 240 s.' },
+					{ q: 'About what share of the three totals is the report C?', options: ['About 60%', 'About 25%', 'About 6%', 'About 40%'], answer: 2, why: '240 s out of 4,020 s is about 6%. It is the star of the slow log, not of the CPU.' },
+					{ q: 'Why sort by `total_exec_time` rather than `mean_exec_time`?', options: ['The mean hides fast queries that run very often', 'The mean is only computed for slow queries', 'The total is cheaper to compute', 'The mean resets every hour'], answer: 0, why: 'A 0.9 ms query called 2.4 million times costs more than an 8 second report run 30 times.' },
+					{ q: 'With `log_min_duration_statement = 250ms`, why does the slow log show C but never A?', options: ['The slow log ignores SELECTs', 'A and B run inside transactions', 'The slow log samples one query in ten', 'It looks at one run at a time, and no single run of A reaches 250 ms'], answer: 3, why: 'Every run of C passes 250 ms, and so do B\'s rare 4 s spikes. A never does, however often it runs.' }
+				]
+			},
+			{
+				title: 'Read row A',
+				questions: [
+					{ q: 'Row A is fast every time. What is its problem?', options: ['A missing index', 'A lock wait', 'The number of calls', 'A bad plan'], answer: 2, why: '0.9 ms is fine. 2.4 million of them is not.' },
+					{ q: 'Where do you look for the cause?', options: ['In the app: a loop that loads one product per row', 'In `pg_locks`', 'In the planner settings', 'In the WAL archive'], answer: 0, why: 'A query by id called that often usually comes from code that fetches rows one at a time.' },
+					{ q: 'What is the fix?', options: ['An index on `products(id)`', 'Load the products in one query: `WHERE id = ANY($1)`', 'Raise `shared_buffers`', 'Move it to `auto_explain`'], answer: 1, why: 'One query for the whole list replaces many round trips. `id` is the primary key, so it is already indexed.' },
+					{ q: 'Which numbers confirm it is not an index problem?', options: ['A high `stddev_exec_time`', 'A large `max_exec_time`', 'A low `calls` count', '`rows / calls` is 1 and the hit percent is high'], answer: 3, why: 'One row per call from cached pages means each run does little work. Many block reads per call would point at a missing index.' }
+				]
+			},
+			{
+				title: 'Read row B',
+				questions: [
+					{ q: 'Mean 1.8 ms, stddev 40 ms, max 4,000 ms. What does that pattern say?', options: ['Every call is slow', 'The query needs a new index', 'Most calls are fast and a few wait on something', 'The counters are broken'], answer: 2, why: 'A large spread means most runs are quick and a few are very slow: a plan that flips, or a lock wait.' },
+					{ q: 'Where do you look while it spikes?', options: ['`pg_stat_activity`, for `wait_event_type = \'Lock\'`', '`pg_stat_replication`', 'The `rows` column', '`shared_blks_read`'], answer: 0, why: 'A lock wait shows up on the waiting backend, live.' },
+					{ q: 'What is the likely cause for `UPDATE carts SET updated_at = $1 WHERE id = $2`?', options: ['A sequential scan of `carts`', 'Two requests updating the same cart row', 'A slow disk', 'Too many indexes on `carts`'], answer: 1, why: 'Two updates on one row: the second waits for the first to commit (day 20).' },
+					{ q: 'Will a new index fix B?', options: ['Yes, on `updated_at`', 'Yes, on `id`', 'Only a GIN index', 'No: the time is spent waiting, not working'], answer: 3, why: 'The update already finds its row fast. The fix is in how the app writes the same cart at once.' }
+				]
+			},
+			{
+				title: 'Handle C, then measure again',
+				questions: [
+					{ q: 'Where does the nightly report go?', options: ['To a replica or a materialized view refreshed at night', 'Into a loop of smaller queries', 'Into `pg_stat_statements_reset()`', 'Nowhere: delete it'], answer: 0, why: 'It runs 30 times. Taking it off the primary is enough (days 28 and 8).' },
+					{ q: 'How do you keep its plan if it gets worse?', options: ['Run EXPLAIN by hand each morning', 'Raise `pg_stat_statements.max`', 'Set `log_min_duration_statement` and `auto_explain`', 'Turn on `track_io_timing`'], answer: 2, why: 'auto_explain logs the plan of the slow run itself, which may differ from the one you get later in `psql`.' },
+					{ q: 'You fixed A. Why does it still top the list next week?', options: ['The fix did not work', 'The counters add up from the last reset', 'pg_stat_statements caches the old plan', 'Normalization keeps the old text'], answer: 1, why: 'The sums include every call since the last reset. Old calls keep A on top.' },
+					{ q: 'What do you run after each fix?', options: ['`VACUUM FULL`', 'A server restart', '`DROP EXTENSION pg_stat_statements`', '`SELECT pg_stat_statements_reset();`, or save a snapshot'], answer: 3, why: 'Then the next reading shows the new state, not last week\'s.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -177,6 +215,30 @@ export default {
 			why: 'The docs: "per-plan-node timing occurs for all statements executed, whether or not they run long enough to actually get logged." The code turns the timers on in `ExecutorStart` and checks the duration in `ExecutorEnd`. Turning off `auto_explain.log_timing` lowers the cost.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Make a fast query that runs often outweigh one slow report, find it with `pg_stat_statements`, and catch the report with the slow log and `auto_explain`.',
+		steps: [
+			'Start PostgreSQL with both modules loaded: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17 -c shared_preload_libraries=pg_stat_statements,auto_explain -c log_min_duration_statement=250ms -c auto_explain.log_min_duration=250ms`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`.',
+			'Create the view and some data: `docker exec dojo-pg psql -U postgres -c "CREATE EXTENSION pg_stat_statements" -c "CREATE TABLE products (id int PRIMARY KEY, name text)" -c "INSERT INTO products SELECT g, \'p\' || g FROM generate_series(1, 10000) g"`',
+			'Write a file `fast.sql` with two lines: `\\set id random(1, 10000)` and `SELECT * FROM products WHERE name = \'p\' || :id;`. Copy it in: `docker cp fast.sql dojo-pg:/tmp/fast.sql`.',
+			'Start from zero, then run the fast query 5,000 times: `docker exec dojo-pg psql -U postgres -c "SELECT pg_stat_statements_reset()"` then `docker exec dojo-pg pgbench -U postgres -n -f /tmp/fast.sql -t 5000 postgres`.',
+			'Run the "report" once: `docker exec dojo-pg psql -U postgres -c "SELECT count(*) FROM products a, products b WHERE a.id % 7 = b.id % 5"`',
+			'Read the top list: `docker exec dojo-pg psql -U postgres -c "SELECT calls, round(total_exec_time::numeric) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms, shared_blks_hit / calls AS hits_per_call, left(query, 45) AS query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 3"`. Then the log: `docker logs dojo-pg 2>&1 | grep -A4 "duration:"`.',
+			'Fix the fast query and measure again: `docker exec dojo-pg psql -U postgres -c "CREATE INDEX ON products (name)" -c "SELECT pg_stat_statements_reset()"`, then repeat the pgbench run and the top list.'
+		],
+		done: [
+			'In step 6, the fast query is on top with `calls` 5000 and a sub-millisecond mean, above the report with `calls` 1. Its text reads `WHERE name = $1 || $2`.',
+			'The log shows the report twice, once with `plan:` and its `Query Text`, and never the fast query.',
+			'After step 7, the fast query\'s `hits_per_call` drops from dozens to a few, and its total falls far below the report\'s total from step 6.'
+		],
+		solution: [
+			'Each fast run stays far under 250 ms, so the slow log never sees it. Only the sum in `pg_stat_statements` shows that it used more time than the report.',
+			'Normalization folded 5,000 different names into one row, with the constants replaced by `$1` and `$2`.',
+			'Dozens of buffer hits per call for a one-row lookup point at a scan: here a missing index on `name`. In the chapter\'s row A the lookup was already by primary key, so the fix there was fewer calls, not an index.',
+			'Clean up with `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'A 3 ms query runs 40,000 times a minute. Where do you see it, and why does `log_min_duration_statement = 250ms` never log it?',
 		a: 'In `pg_stat_statements` sorted by `total_exec_time`: 40,000 × 3 ms is two minutes of database time per minute. `log_min_duration_statement` looks at one run at a time, and no single run reaches 250 ms.'

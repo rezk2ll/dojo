@@ -135,6 +135,44 @@ export default {
 			'Fix 1: raise the window, `delay: 10.seconds`. Simple, but more reads hit the primary, and it is still a guess about the worst lag.',
 			'Fix 2: track the WAL position like GitLab. After the write, store `pg_current_wal_lsn()` for the user; before using a replica, check `pg_wal_lsn_diff(stored, pg_last_wal_replay_lsn()) <= 0` on it. Exact, at the cost of one more query and somewhere to store the position.',
 			'Fix 3, for the few writes that matter: `SET LOCAL synchronous_commit = remote_apply` in that transaction, with a synchronous standby. The commit waits until the standby shows the change. It costs latency on those commits, and they stall if the standby is down.'
+		],
+		steps: [
+			{
+				title: 'Compare the lag to the window',
+				questions: [
+					{ q: 'Which `pg_stat_replication` column tells you when a replica read will see the write?', options: ['`write_lag`', '`flush_lag`', '`replay_lag`', '`sync_state`'], answer: 2, why: 'A query on the replica sees a row only after replay. Written or flushed WAL is not visible yet.' },
+					{ q: 'Normal hours: lag 0.4 s, window 2 s. What does the user who saved see?', options: ['The new name: their GET goes to the primary', 'The old name for 0.4 s', 'The old name for 2 s', 'An error until the replica catches up'], answer: 0, why: 'They wrote less than 2 s ago, so Rails reads from the primary. The lag is inside the window.' },
+					{ q: 'During the import, lag is 6 s. Does the 2 s window still cover the writer?', options: ['Yes, the window grows with the lag', 'Yes, Rails waits for the replica', 'Only if they reload twice', 'No: from 2 s to 6 s after Save, they read a replica that has not replayed the write'], answer: 3, why: 'The window is a fixed timer. Once it ends, reads go back to a replica that is still behind.' },
+					{ q: 'Who else sees stale data, and how old?', options: ['Nobody, since the writer\'s window covers the site', 'Everyone else: up to 0.4 s old normally, 6 s during the import', 'Only users on the same pod', 'Only users who also wrote recently'], answer: 1, why: 'The window is per session. Rails "doesn\'t guarantee "read a recent write"" for other users.' }
+				]
+			},
+			{
+				title: 'Fix it with a longer window',
+				questions: [
+					{ q: 'What is the first fix?', options: ['Drop the replicas', 'Turn on `remote_apply` for every commit', 'Raise the window, for example `delay: 10.seconds`', 'Lower `max_connections`'], answer: 2, why: 'A longer window keeps the writer on the primary past the worst lag seen so far.' },
+					{ q: 'What does it cost?', options: ['More reads hit the primary, and it is still a guess about the worst lag', 'Every commit waits a network round trip', 'Users lose their session after a write', 'Nothing'], answer: 0, why: 'A timer does not know the real lag. A bigger import could still pass 10 s.' },
+					{ q: 'Does a longer window help the other users?', options: ['Yes, everyone reads the primary during the window', 'Yes, the replica speeds up', 'Only for GET requests', 'No: it only covers the session that wrote'], answer: 3, why: 'Each user has their own `last_write` timestamp. Other users still read the replica.' },
+					{ q: 'Where does Rails keep the time of the last write?', options: ['In a server-side cache', 'In the user\'s session, as `session[:last_write]`', 'In a column on the `users` table', 'In `pg_stat_replication`'], answer: 1, why: 'The resolver\'s `Session` stores it in milliseconds. That is why the window is per user and per browser.' }
+				]
+			},
+			{
+				title: 'Fix it by WAL position',
+				questions: [
+					{ q: 'After the write, what does the app store for the user?', options: ['`pg_current_wal_lsn()` from the primary', '`now()` from the replica', 'The replica\'s `replay_lag`', 'The id of the row written'], answer: 0, why: 'GitLab saves "the latest WAL pointer from the primary". It marks exactly what the replica must have replayed.' },
+					{ q: 'Before using a replica, what does the app check on it?', options: ['`SELECT pg_is_in_recovery()`', '`now() - pg_last_xact_replay_timestamp() < 2 seconds`', '`pg_wal_lsn_diff(stored, pg_last_wal_replay_lsn()) <= 0`', '`SELECT count(*) FROM pg_stat_replication`'], answer: 2, why: 'A difference of zero or less means the replica has replayed past the user\'s write.' },
+					{ q: 'Why not use `now() - pg_last_xact_replay_timestamp()` as the test?', options: ['It only works on the primary', 'On a quiet primary it grows even when the replica is missing nothing', 'It returns bytes, not seconds', 'It requires a synchronous standby'], answer: 1, why: 'The timestamp is when the last replayed commit was made. With no new commits, the number keeps rising.' },
+					{ q: 'What does the WAL position fix cost?', options: ['A restart of the replica', 'Every commit waits for replay', 'A wider window for every user', 'One more query and somewhere to store the position'], answer: 3, why: 'It is exact, but the app must keep the LSN per user and ask the replica before each read.' }
+				]
+			},
+			{
+				title: 'Weigh synchronous commit',
+				questions: [
+					{ q: 'Which setting makes a commit wait until the standby shows the change?', options: ['`synchronous_commit = on`', '`synchronous_commit = remote_apply`', '`synchronous_commit = remote_write`', '`synchronous_commit = off`'], answer: 1, why: '`on` waits for the flush and `remote_write` for the write. Only `remote_apply` waits for replay, which is what reads see.' },
+					{ q: 'Where do you set it, for the few writes that matter?', options: ['`SET LOCAL synchronous_commit = remote_apply` in that transaction', 'In `postgresql.conf` for every commit', 'On the replica', 'In the Rails `delay` option'], answer: 0, why: '`SET LOCAL` limits the cost to the transactions that need it.' },
+					{ q: 'What does each such commit pay?', options: ['Nothing, replicas are fast', 'A table lock', 'A network round trip and the standby\'s replay time', 'A full WAL segment'], answer: 2, why: 'The commit returns only once the standby has replayed it.' },
+					{ q: 'The only synchronous standby dies. What happens to those commits?', options: ['They fall back to asynchronous', 'They fail with an error at once', 'They commit and replay at restart', 'They wait, and may never complete until another standby takes its place'], answer: 3, why: 'The docs warn of exactly this. Name several potential standbys in `synchronous_standby_names`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -172,6 +210,31 @@ export default {
 			why: 'The docs warn that such commits "may never be completed if any one of the synchronous standbys should crash", and advise naming several potential synchronous standbys in `synchronous_standby_names` so another can take over.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Build a primary and a streaming replica, read a stale row from the replica, detect it by WAL position, then make one commit wait for replay.',
+		steps: [
+			'Start the primary: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`. Then `docker exec dojo-pg psql -U postgres -c "CREATE TABLE users (id int PRIMARY KEY, name text)" -c "INSERT INTO users VALUES (1, \'Ada\')"`.',
+			'Start a replica in the primary\'s network namespace, on port 5433: `docker run -d --name dojo-replica --network container:dojo-pg -u postgres postgres:17 sh -c \'pg_basebackup -h localhost -U postgres -D /tmp/replica -R -X stream && exec postgres -D /tmp/replica -c port=5433\'`. Wait until `docker logs dojo-replica` shows `started streaming WAL from primary`.',
+			'Check the stream from the primary: `docker exec dojo-pg psql -U postgres -c "SELECT application_name, state, sync_state, replay_lag FROM pg_stat_replication"`. Read from the replica: `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_is_in_recovery(), name FROM users"`.',
+			'Make lag on purpose: `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_wal_replay_pause()"`. On the primary: `docker exec dojo-pg psql -U postgres -At -c "UPDATE users SET name = \'Grace\' WHERE id = 1" -c "SELECT pg_current_wal_lsn()"` and note the LSN.',
+			'Read the replica, and check it the GitLab way with your LSN: `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT name FROM users" -c "SELECT pg_wal_lsn_diff(\'<your lsn>\', pg_last_wal_replay_lsn())"`',
+			'Make the replica synchronous: `docker exec dojo-pg psql -U postgres -c "ALTER SYSTEM SET synchronous_standby_names = \'walreceiver\'" -c "SELECT pg_reload_conf()"`. Then, with replay still paused: `docker exec dojo-pg psql -U postgres -c "SET synchronous_commit = remote_apply" -c "UPDATE users SET name = \'Lovelace\' WHERE id = 1"`.',
+			'In a second terminal, while that commit waits: `docker exec dojo-replica psql -p 5433 -U postgres -c "SELECT pg_wal_replay_resume()"`.'
+		],
+		done: [
+			'In step 3, `pg_stat_replication` shows one `walreceiver` row, `streaming` and `async`, and the replica answers `t` and `Ada`.',
+			'In step 5, the replica still says `Ada`, and `pg_wal_lsn_diff` is above zero.',
+			'After step 6, `pg_stat_replication` shows `sync_state` as `sync`, and the `remote_apply` UPDATE hangs.',
+			'In step 7, the UPDATE returns as soon as replay resumes, and the replica reads `Lovelace`.'
+		],
+		solution: [
+			'The primary committed `Grace` without asking the replica: that is asynchronous replication. A read on the replica sees a row only after replay, so it served the old name.',
+			'`pg_wal_lsn_diff` above zero says the replica has not replayed up to the user\'s write. An app would send that read to the primary.',
+			'With `remote_apply`, the commit waits for replay on the synchronous standby. With replay paused, it could wait forever, which is what a dead standby does to such commits.',
+			'Clean up with `docker rm -f dojo-replica dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'For how long does Rails send a user\'s reads to the primary after they write, and when does that user still see stale data?',
 		a: 'For 2 seconds (`delay`), tracked in that user\'s session. If replay lag is longer than the window, like 6 s during an import, their reads go back to a replica that has not replayed the write.'

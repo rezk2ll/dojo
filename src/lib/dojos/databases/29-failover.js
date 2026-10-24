@@ -128,6 +128,44 @@ export default {
 			'In etcd the key expires 30 s after A\'s last successful renewal, so by about 03:00:30. On their next loop B and C see no leader, check their lag, and race. Say B creates the key first and promotes; C follows B.',
 			'If A\'s Patroni had hung instead of demoting, the watchdog, set 5 s before the TTL, resets A before the key expires. So A is no longer running when B promotes.',
 			'The cost: commits A took in the last seconds before it demoted, and that never streamed to B, stay on A\'s old timeline. With `synchronous_mode` they would not have been acknowledged in the first place.'
+		],
+		steps: [
+			{
+				title: 'Follow A in its first seconds',
+				questions: [
+					{ q: 'At 03:00:00 the port dies. Is A still primary right after?', options: ['No, it demotes the instant the port dies', 'Yes, until its next loop, at most 10 s later', 'Yes, until the key expires 30 s later', 'No, B promotes at once'], answer: 1, why: 'Patroni only notices on its next loop, every `loop_wait` (10 s). Until then A keeps accepting writes from its rack.' },
+					{ q: 'Where do the writes A takes in those seconds go?', options: ['To B and C, once the port is back', 'Nowhere: A refuses them', 'Into etcd', 'Only into A: they cannot reach B or C'], answer: 3, why: 'With asynchronous replication, the commit returns once A flushed its own WAL. Nothing can stream out.' },
+					{ q: 'A tries to renew the key and cannot reach etcd. How long can that call take?', options: ['Up to `retry_timeout`, 10 s', 'Up to the TTL, 30 s', 'Forever, until etcd answers', 'No time: it fails at once'], answer: 0, why: '`retry_timeout` bounds how long Patroni retries the DCS before treating the update as failed.' },
+					{ q: 'Why can\'t A wait and see if the problem is only etcd?', options: ['etcd forbids it', 'A has no replicas', 'From one node, a DCS outage and a partition look the same', 'Postgres would crash'], answer: 2, why: 'The failsafe doc: "it is impossible to distinguish between these two from a single node". In a partition, another node may already be promoting.' }
+				]
+			},
+			{
+				title: 'Say what A does and what its rack sees',
+				questions: [
+					{ q: 'The renewal failed. What does A do?', options: ['`demote(\'immediate-nolock\')`: it restarts read-only', 'It keeps running as primary', 'It shuts down Postgres and waits for an operator', 'It promotes B over the network'], answer: 0, why: 'The leader code demotes at once on a failed update, unless the cluster is paused.' },
+					{ q: 'What does the app on A\'s rack see from then on?', options: ['Writes keep working against A', 'Writes go to B through A', 'Errors on writes: downtime, but no second primary', 'Stale reads with no errors'], answer: 2, why: 'A read-only server refuses writes. That is the price of never having two primaries.' },
+					{ q: 'A stops renewing. What else does that stop?', options: ['etcd itself', 'The keepalive to A\'s watchdog', 'Replication from B', 'The TTL countdown'], answer: 1, why: '`update_lock` calls `watchdog.keepalive()` only after a successful write. A leader that cannot write stops feeding its watchdog.' },
+					{ q: 'A\'s Patroni had hung instead of demoting. What saves you?', options: ['The watchdog resets A, set 5 s before the TTL runs out', 'etcd kills A\'s Postgres', 'B sends A a demote command', 'Nothing: you get split brain'], answer: 0, why: 'The watchdog needs nothing from Patroni. A is down before the key can expire and B can win.' }
+				]
+			},
+			{
+				title: 'Follow the key in etcd',
+				questions: [
+					{ q: 'When does the leader key disappear?', options: ['At 03:00:00, when the port dies', 'At A\'s next loop', '30 s after A\'s last successful renewal, by about 03:00:30', 'Only when an operator deletes it'], answer: 2, why: 'The key is attached to a lease with a 30 s TTL. When the lease expires, etcd deletes every key attached to it.' },
+					{ q: 'What must B check before it races for the key?', options: ['That A is unreachable by ping', 'That it is not lagging past `maximum_lag_on_failover`', 'That C agrees by vote', 'That its disk is empty'], answer: 1, why: 'A replica only races when `is_lagging` is false. A replica too far behind would lose too many commits.' },
+					{ q: 'B and C both feel healthiest and race. How does etcd pick one?', options: ['The node with the lowest name wins', 'Both win and etcd merges them', 'The first node to ping etcd wins', 'The create only succeeds if the key does not exist, so one write wins'], answer: 3, why: 'Patroni writes with `create_revision=\'0\'`. etcd agrees on that condition across its own members.' },
+					{ q: 'B wins. What does C do?', options: ['It follows B', 'It promotes too', 'It shuts down', 'It keeps following A'], answer: 0, why: 'C sees B holds the key and replicates from the new primary.' }
+				]
+			},
+			{
+				title: 'Count what is lost',
+				questions: [
+					{ q: 'Which commits are lost?', options: ['None: Patroni promotes only a replica with every commit', 'Those A took in its last seconds that never streamed to B', 'Everything since the last base backup', 'All writes made after 03:00:30'], answer: 1, why: 'With asynchronous replication, they stay on A\'s old timeline, "effectively unrecoverable".' },
+					{ q: 'What bounds that loss in the worst case?', options: ['The TTL alone', '`loop_wait` alone', '`maximum_lag_on_failover` bytes, plus what was written in the last TTL seconds', 'The size of A\'s disk'], answer: 2, why: 'The primary\'s position is only sampled each loop, so the doc adds the last TTL seconds to the lag limit.' },
+					{ q: 'Which setting would have kept those commits?', options: ['A shorter `loop_wait`', '`failsafe_mode`', 'A bigger `maximum_lag_on_failover`', '`synchronous_mode`: they would not have been acknowledged'], answer: 3, why: 'With synchronous mode, a commit returns only once a standby has it.' },
+					{ q: 'What does `synchronous_mode` cost?', options: ['Writes can block when no synchronous standby is left', 'Reads must go to the primary', 'etcd needs five members', 'Nothing'], answer: 0, why: 'The doc: "the system may be unavailable for writes even though some servers are available".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -165,6 +203,31 @@ export default {
 			why: 'The replication modes doc: loss is "worst case bounded by maximum_lag_on_failover bytes of transaction log plus the amount that is written in the last ttl seconds", because the primary\'s position is only sampled each loop. With `synchronous_mode`, Patroni only promotes a standby it is "certain" holds every commit acknowledged to a client (day 28).'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Play the leader key by hand in a real etcd: take it with a lease, lose it by not renewing, and watch a second node win it.',
+		steps: [
+			'Start etcd: `docker run -d --name dojo-etcd quay.io/coreos/etcd:v3.5.17 etcd --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://localhost:2379`',
+			'Node A gets a lease with the default Patroni TTL: `docker exec dojo-etcd etcdctl lease grant 30`. Note the lease id.',
+			'A takes the key only if nobody holds it: `printf \'create("/leader") = "0"\\n\\nput /leader A --lease=<A lease>\\n\\nget /leader\\n\\n\' | docker exec -i dojo-etcd etcdctl txn`',
+			'Node B gets its own lease (`etcdctl lease grant 30` again) and sends the same transaction with `B` and its lease id.',
+			'A renews, as a healthy leader does every loop: `docker exec dojo-etcd etcdctl lease keep-alive --once <A lease>`, then `docker exec dojo-etcd etcdctl lease timetolive <A lease>`.',
+			'Now cut A off: stop renewing. Run `lease timetolive <A lease>` a few times, and after 30 seconds `docker exec dojo-etcd etcdctl get /leader`.',
+			'B races again: get B a fresh lease, resend its transaction, then `docker exec dojo-etcd etcdctl get /leader`. Then A comes back and tries to renew: `docker exec dojo-etcd etcdctl lease keep-alive --once <A lease>`.'
+		],
+		done: [
+			'In step 3, etcd prints `SUCCESS`. In step 4, it prints `FAILURE` followed by `/leader` and `A`.',
+			'In step 5, `timetolive` shows the remaining time back near 30 s.',
+			'In step 6, the remaining time counts down to `already expired`, and `get /leader` prints nothing.',
+			'In step 7, B gets `SUCCESS` and `get /leader` shows `B`. A gets `requested lease not found`.'
+		],
+		solution: [
+			'`create("/leader") = "0"` holds only when the key does not exist, and etcd checks it atomically. That is the `create_revision=\'0\'` write Patroni sends, and why two nodes cannot both win.',
+			'The key lives only as long as its lease. A leader that stops renewing loses the key after the TTL, with nobody having to delete it.',
+			'When A returns, its lease is gone, so it cannot claim it is still leader. Patroni goes further: A demoted itself at the first failed renewal, long before the TTL ran out.',
+			'Clean up with `docker rm -f dojo-etcd`.'
+		]
+	},
 	recall: {
 		q: 'What makes a Patroni primary demote itself, and what keeps a frozen primary from writing after a replica takes over?',
 		a: 'A failed update of the leader key in etcd: Patroni calls `demote(\'immediate-nolock\')` at once. If Patroni is frozen, the watchdog resets the machine 5 seconds before the 30 s TTL runs out.'

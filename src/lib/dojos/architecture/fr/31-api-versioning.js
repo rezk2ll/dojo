@@ -108,6 +108,44 @@ export default {
 			'Ancien client : `/v1` répond toujours avec `amount`, plus un en-tête `Deprecation` et un en-tête `Sunset` qui porte la date de suppression. Son code ne change pas et rien ne casse.',
 			'Mesurer : compte les appels à `/v1` par clé d’API. Écris aux propriétaires des clés qui l’appellent encore, quelques semaines avant la date, pas le jour même.',
 			'Jour de la suppression : quand le compteur est à zéro (ou que la date est passée et que chaque propriétaire a été prévenu), réponds sur `/v1` avec `410 Gone` et un lien vers la note de migration. Garde cette réponse un moment plutôt qu’un simple 404.'
+		],
+		steps: [
+			{
+				title: 'Décide ce que tu livres maintenant',
+				questions: [
+					{ q: 'Lequel des deux changements est additif ?', options: ['Renommer `amount` en `total`', 'Les deux, si tu les annonces d’abord', 'Ajouter le champ optionnel `currency`', 'Aucun : tout changement sur `/v1` casse quelqu’un'], answer: 2, why: 'Un nouveau champ optionnel laisse chaque lecteur tolérant fonctionner. Un renommage casse chaque client qui lit `amount`.' },
+					{ q: 'Où va le champ optionnel `currency` ?', options: ['Dans `/v1` tout de suite, puisqu’il ne casse personne', 'Seulement dans `/v2`, pour garder `/v1` figée', 'Dans un endpoint séparé `/v1/currencies`', 'Nulle part tant que `/v1` n’est pas supprimée'], answer: 0, why: 'Les changements additifs ne demandent aucune coordination : le champ sort avec le serveur seul, et les anciens lecteurs l’ignorent.' },
+					{ q: 'Où va le renommage en `total` ?', options: ['Dans `/v1`, avec une note dans le changelog', 'Dans `/v1`, derrière un feature flag par client', 'Dans `/v1`, à la place de `amount`, une nuit calme', 'Dans un nouveau `/v2/invoices`, à côté de `/v1`'], answer: 3, why: 'Un renommage est un changement cassant, donc il attend une nouvelle version. Kubernetes a fait pareil avec `nominalConcurrencyShares` en v1beta3.' },
+					{ q: 'Quelles données lit `/v2/invoices` ?', options: ['Une copie des factures faite le jour où `/v2` sort', 'Les mêmes lignes que `/v1` : deux vues d’une même facture', 'Seulement les factures créées après la sortie de `/v2`', 'Une nouvelle table, remplie chaque nuit depuis `/v1`'], answer: 1, why: 'Dans Kubernetes, toutes les versions sont des représentations des mêmes données persistées. Deux copies finiraient par diverger.' }
+				]
+			},
+			{
+				title: 'Dis ce que voit un ancien client',
+				questions: [
+					{ q: 'Un ancien client appelle `/v1/invoices` le lendemain de la sortie de `/v2`. Quel champ lit-il ?', options: ['`total`, puisque c’est le nouveau nom', 'Les deux champs, pour qu’il choisisse', 'Aucun : il reçoit une redirection vers `/v2`', '`amount`, comme avant'], answer: 3, why: '`/v1` garde sa forme jusqu’au jour de la suppression. Rien ne casse et le code du client ne change pas.' },
+					{ q: 'Comment `/v1` prévient-elle l’appelant qu’elle va disparaître ?', options: ['Avec des en-têtes `Deprecation` et `Sunset` sur chaque réponse', 'En passant le code de statut à 299', 'En ajoutant un champ `deprecated: true` dans le corps', 'Par un e-mail à chaque client, et rien dans l’API'], answer: 0, why: 'Les en-têtes atteignent l’appelant et laissent le statut et le corps tranquilles. Kubernetes fait pareil avec son en-tête `Warning`.' },
+					{ q: 'Que porte l’en-tête `Sunset` ?', options: ['Le nom de l’endpoint de remplacement', 'La date de suppression', 'Le nombre de jours depuis la dépréciation', 'La version du serveur qui a répondu'], answer: 1, why: 'Une date de suppression publiée, c’est ce qui empêche « déprécié » de durer pour toujours.' },
+					{ q: 'Pourquoi le statut et le corps de `/v1` doivent-ils rester les mêmes pendant la dépréciation ?', options: ['Parce que HTTP interdit un nouveau statut sur une route dépréciée', 'Pour que les caches gardent leurs anciennes entrées', 'Pour que les anciens clients marchent pendant qu’on les prévient', 'Parce qu’on ne peut pas envoyer d’en-têtes avec un 200'], answer: 2, why: 'L’avertissement informe une personne ou un journal. Un nouveau statut ou un nouveau corps casserait le programme qui le lit.' }
+				]
+			},
+			{
+				title: 'Sache quand les anciens clients sont partis',
+				questions: [
+					{ q: 'Que comptes-tu pour savoir qui appelle encore `/v1` ?', options: ['Les appels à `/v1` par clé d’API', 'Le trafic total sur toute l’API', 'Les téléchargements de la note de migration', 'Les tickets de support ouverts sur `/v2`'], answer: 0, why: 'Un compteur par clé te dit **qui** dépend encore de l’ancienne forme, donc à qui écrire.' },
+					{ q: 'Dans Kubernetes, quel signal joue ce rôle pour l’admin du cluster ?', options: ['Un tag `deprecated` sur les types Go', 'Les notes de la release suivante', 'La métrique `apiserver_requested_deprecated_apis`', 'L’avertissement de kubectl sur stderr'], answer: 2, why: 'Un tag ou une note de release dit ce que le projet a l’intention de faire. Seule la métrique ou le journal d’audit dit ce qui appelle encore l’ancienne version.' },
+					{ q: 'Quand écris-tu aux propriétaires des clés qui appellent encore `/v1` ?', options: ['Le jour de la suppression, quand `/v1` répond 410', 'Quelques semaines avant la date', 'Seulement s’ils ouvrent un ticket', 'Le jour où tu livres `/v2`, et plus jamais'], answer: 1, why: 'Les propriétaires ont besoin de temps pour migrer à leur rythme. Un message le jour même ne leur en laisse aucun.' },
+					{ q: 'L’appli mobile passe par les stores. Pourquoi le compteur compte-t-il d’autant plus ?', options: ['Les stores bloquent les applis qui appellent des API dépréciées', 'On peut forcer la mise à jour de l’appli en une nuit', 'Les stores te donnent l’usage de l’API', 'Tu ne peux pas la mettre à jour toi-même, donc les vieilles versions appellent encore'], answer: 3, why: 'N’importe quelle version de client peut tomber sur n’importe quelle version de serveur. Seul le compteur montre quand les anciennes sont parties.' }
+				]
+			},
+			{
+				title: 'Supprime à la date prévue',
+				questions: [
+					{ q: 'Quand arrêtes-tu de servir `/v1` ?', options: ['Dès que `/v2` a plus de trafic que `/v1`', 'Quand le compteur est à zéro, ou que la date est passée et chaque propriétaire prévenu', 'Six mois après la sortie, quoi que dise le compteur', 'Quand le dernier client interne a migré'], answer: 1, why: 'La date est publique et le compteur est vérifié. Supprimer sur l’un des deux seulement, sans prévenir, casse quelqu’un par surprise.' },
+					{ q: 'Que répond `/v1` après la suppression ?', options: ['`410 Gone` avec un lien vers la note de migration', 'Un simple `404 Not Found`', 'Une redirection `301` vers `/v2`', '`200` avec un corps vide'], answer: 0, why: '410 dit que la route a existé et qu’elle est partie exprès, et le lien dit à l’appelant où aller.' },
+					{ q: 'Pourquoi garder la réponse 410 un moment au lieu de supprimer la route ?', options: ['Parce qu’un 404 est interdit sur une API', 'Pour que la route puisse revenir si besoin', 'Pour que le tableau de bord des métriques marche encore', 'Pour qu’un client en retard reçoive une raison claire, pas un simple 404'], answer: 3, why: 'Un appelant en retard apprend ce qui s’est passé et comment corriger, au lieu de deviner devant un 404.' },
+					{ q: 'Kubernetes laisse un admin pas prêt servir les API supprimées un peu plus longtemps. Combien de temps ?', options: ['Pour toujours, derrière un flag', 'Trois releases de plus', 'Une release de plus, et pas plus loin', 'Jusqu’à ce que la métrique montre zéro appel'], answer: 2, why: '`KUBE_APISERVER_SERVE_REMOVED_APIS_FOR_ONE_RELEASE` repousse le problème d’une release, et pas plus loin.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -118,6 +118,44 @@ export default {
 			'Release 2 (migrate): the code reads `total` and still writes both. Rolling back to release 1 is safe, because `amount` is still current.',
 			'Release 3 (contract): the code stops writing `amount` and marks it in `ignored_columns`. Drop the column in a post-deployment migration of a later release, once no version you might roll back to reads it.',
 			'Or ask whether the rename is worth it. Rails\' `alias_attribute :total, :amount` lets the code say `total` while the column keeps its name: the code reads well and the schema never moves.'
+		],
+		steps: [
+			{
+				title: 'Expand the schema',
+				questions: [
+					{ q: 'Why can\'t you ship one `rename_column` with the deploy?', options: ['Rails has no `rename_column` for PostgreSQL', 'Old and new pods run together, and one of them misses its column', 'A rename always locks the table for hours', 'The rename would lose every value in `amount`'], answer: 1, why: 'Run the rename first and old pods query a column that is gone. Run it last and new pods query one that is not there yet.' },
+					{ q: 'What does the release 1 migration do?', options: ['Rename `amount` to `total`', 'Add `total` as NOT NULL with a default of 0', 'Drop `amount` and add `total`', 'Add `total` as a nullable column'], answer: 3, why: 'A new nullable column is invisible to code that does not name it, so the running release keeps working.' },
+					{ q: 'In release 1, which column does the code read?', options: ['`amount`', '`total`', 'Whichever one is not null', 'Both, and it compares them'], answer: 0, why: '`total` is still empty for old rows, so the code keeps reading `amount` until the backfill is done.' },
+					{ q: 'In release 1, which columns does the code write?', options: ['Only `amount`, as before', 'Only `total`, the new name', 'Both `amount` and `total`', 'Neither: the backfill fills `total`'], answer: 2, why: 'Writing both keeps `total` current for new rows. With no trigger helper, the code does the copy that GitLab\'s trigger would do.' }
+				]
+			},
+			{
+				title: 'Backfill the old rows',
+				questions: [
+					{ q: 'When do you run the backfill?', options: ['Before release 1, so `total` is full from the start', 'Once release 1 is fully out', 'In the same migration that adds `total`', 'After release 3 drops `amount`'], answer: 1, why: 'Until every pod runs release 1, an old pod can still write `amount` alone. Run the copy after the rollout and it misses nothing.' },
+					{ q: 'Which rows does the backfill touch?', options: ['Every row, overwriting `total`', 'Only rows created today', 'Only rows where `amount` is null', 'Rows where `total` is null'], answer: 3, why: 'Rows written by release 1 already have `total`. Only the older ones need the copy.' },
+					{ q: 'How does it copy on a large `orders` table?', options: ['In batches', 'In one `UPDATE` inside a transaction', 'By exporting and reimporting the table', 'Row by row from the application on read'], answer: 0, why: 'GitLab copies in batches, and for large tables moves the copy to a batched background migration. One big update means long load and locks.' },
+					{ q: 'GitLab\'s `rename_column_concurrently` copies inside the migration. What does its doc say about that?', options: ['It is the right choice for every table', 'It is only appropriate for small tables', 'It must run inside a transaction', 'It needs no trigger on PostgreSQL'], answer: 1, why: 'The doc warns the procedure is "only appropriate for small tables". Large ones use a background job over several releases.' }
+				]
+			},
+			{
+				title: 'Move the reads',
+				questions: [
+					{ q: 'In release 2, which column does the code read?', options: ['`amount`, as in release 1', '`total`', 'Both, preferring `amount`', 'Neither: it reads a view'], answer: 1, why: 'After the backfill, every row has `total`, so the code can read the new name.' },
+					{ q: 'In release 2, which columns does the code still write?', options: ['Only `total`', 'Only `amount`', 'Neither: a trigger does it', 'Both `amount` and `total`'], answer: 3, why: 'Writing both keeps `amount` current, which is what makes a rollback to release 1 safe.' },
+					{ q: 'You roll back from release 2 to release 1. Why does it work?', options: ['Release 1 reads `amount`, and `amount` is still current', 'Rails rebuilds `amount` from `total` on boot', 'The migration is reversed during the rollback', 'Release 1 also reads `total` when it exists'], answer: 0, why: 'Until the contract step, the previous release still runs on the current schema.' },
+					{ q: 'Which rule must every state of the schema follow?', options: ['It must match the latest release exactly', 'It must have no duplicated data', 'It must work for the code just before it and just after it', 'It must be reached in a single migration'], answer: 2, why: 'In a rolling deploy, both versions of the code run against one database at the same time.' }
+				]
+			},
+			{
+				title: 'Contract last',
+				questions: [
+					{ q: 'In release 3, what does the code do with `amount`?', options: ['Drops it in a regular migration', 'Renames it to `amount_old`', 'Stops writing it and marks it in `ignored_columns`', 'Keeps writing it until the column is dropped'], answer: 2, why: 'An ignored column never appears in SQL queries, so a running process does not break when it disappears.' },
+					{ q: 'Why mark the column ignored before dropping it?', options: ['ActiveRecord caches the columns at boot, and a vanished column can break a running process', 'Rails refuses to drop a column that is not ignored', 'It makes the drop migration run faster', 'It copies the data into `total` one last time'], answer: 0, why: 'GitLab\'s guide gives the reason: no code should raise errors from a cached schema when the migration runs.' },
+					{ q: 'When do you drop `amount`?', options: ['In release 3, with the `ignored_columns` change', 'In a later release, once no version you might roll back to reads it', 'Right after the backfill finishes', 'Never: the data stays twice for safety'], answer: 1, why: 'Dropping a column is destructive and hard to roll back. It comes after the code stopped using it, often a release later.' },
+					{ q: 'Where does the drop go?', options: ['In the release 1 migration, behind a flag', 'In a regular migration that runs before the new code', 'In a manual SQL script run by an admin', 'In a post-deployment migration'], answer: 3, why: 'A post-deployment migration runs only once every server runs the new code.' }
+				]
+			}
 		]
 	},
 	quiz: [

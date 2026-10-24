@@ -108,6 +108,44 @@ export default {
 			'Old client: `/v1` still answers with `amount`, plus a `Deprecation` header and a `Sunset` header carrying the removal date. Its code does not change and nothing breaks.',
 			'Measure: count `/v1` calls per API key. Write to the owners of the keys that still call it, a few weeks before the date, not on the day.',
 			'Removal date: when the count is zero (or the date has passed and every owner was told), answer `/v1` with `410 Gone` and a link to the migration note. Keep that answer for a while instead of a bare 404.'
+		],
+		steps: [
+			{
+				title: 'Decide what ships now',
+				questions: [
+					{ q: 'Which of the two changes is additive?', options: ['Renaming `amount` to `total`', 'Both, if you announce them first', 'Adding the optional `currency` field', 'Neither: any change to `/v1` breaks someone'], answer: 2, why: 'A new optional field leaves every tolerant reader working. A rename breaks every client that reads `amount`.' },
+					{ q: 'Where does the optional `currency` field go?', options: ['Into `/v1` right away, since it breaks no one', 'Only into `/v2`, to keep `/v1` frozen', 'Into a separate `/v1/currencies` endpoint', 'Nowhere until `/v1` is removed'], answer: 0, why: 'Additive changes need no coordination: the field ships with the server alone, and old readers ignore it.' },
+					{ q: 'Where does the rename to `total` go?', options: ['Into `/v1`, with a note in the changelog', 'Into `/v1`, behind a feature flag per client', 'Into `/v1`, in place of `amount`, on a quiet night', 'Into a new `/v2/invoices`, next to `/v1`'], answer: 3, why: 'A rename is a breaking change, so it waits for a new version. Kubernetes did the same with `nominalConcurrencyShares` in v1beta3.' },
+					{ q: 'What data does `/v2/invoices` read?', options: ['A copy of the invoices made on the day `/v2` ships', 'The same rows as `/v1`: two views of one invoice', 'Only invoices created after `/v2` ships', 'A new table, filled by a nightly sync from `/v1`'], answer: 1, why: 'In Kubernetes all versions are representations of the same persisted data. Two copies would drift.' }
+				]
+			},
+			{
+				title: 'Say what an old client sees',
+				questions: [
+					{ q: 'An old client calls `/v1/invoices` the day after `/v2` ships. Which field does it read?', options: ['`total`, since that is the new name', 'Both fields, so it can pick one', 'None: it gets a redirect to `/v2`', '`amount`, as before'], answer: 3, why: '`/v1` keeps its shape until the removal date. Nothing breaks and the client code does not change.' },
+					{ q: 'How does `/v1` tell the caller it is going away?', options: ['With `Deprecation` and `Sunset` headers on each response', 'By changing the status code to 299', 'By adding a `deprecated: true` field to the body', 'By an email to every customer, and nothing in the API'], answer: 0, why: 'Headers reach the caller and leave status and body alone. Kubernetes does the same with its `Warning` header.' },
+					{ q: 'What does the `Sunset` header carry?', options: ['The name of the replacement endpoint', 'The removal date', 'The number of days since deprecation', 'The version of the server that answered'], answer: 1, why: 'A published removal date is what keeps "deprecated" from lasting forever.' },
+					{ q: 'Why must the status and body of `/v1` stay the same while it is deprecated?', options: ['Because HTTP forbids a new status on a deprecated route', 'So that caches keep their old entries', 'So old clients keep working while they are told', 'Because headers cannot be sent with a 200'], answer: 2, why: 'The warning informs a person or a log. A new status or body would break the program that reads it.' }
+				]
+			},
+			{
+				title: 'Know when old clients are gone',
+				questions: [
+					{ q: 'What do you count to know who still calls `/v1`?', options: ['`/v1` calls per API key', 'Total traffic on the whole API', 'Downloads of the migration note', 'Open support tickets about `/v2`'], answer: 0, why: 'A count per key tells you **who** still depends on the old shape, so you know whom to write to.' },
+					{ q: 'In Kubernetes, which signal plays that role for the cluster admin?', options: ['A `deprecated` tag on the Go types', 'The release notes of the next version', 'The `apiserver_requested_deprecated_apis` metric', 'The kubectl warning on stderr'], answer: 2, why: 'A tag or a release note says what the project intends. Only the metric or the audit log says what still calls the old version.' },
+					{ q: 'When do you write to the owners of keys that still call `/v1`?', options: ['On the removal date, when `/v1` answers 410', 'A few weeks before the date', 'Only if they open a ticket', 'On the day you ship `/v2`, and never again'], answer: 1, why: 'Owners need time to upgrade on their own schedule. A message on the day leaves them none.' },
+					{ q: 'The mobile app ships through app stores. Why does that make the count matter?', options: ['App stores block apps that call deprecated APIs', 'The app can be forced to update overnight', 'App stores report API usage for you', 'You cannot upgrade it yourself, so old versions keep calling'], answer: 3, why: 'Any client version can meet any server version. Only the count shows when the old ones are gone.' }
+				]
+			},
+			{
+				title: 'Remove on the date',
+				questions: [
+					{ q: 'When do you stop serving `/v1`?', options: ['As soon as `/v2` has more traffic than `/v1`', 'When the count is zero, or the date passed and every owner was told', 'Six months after shipping, whatever the count says', 'When the last internal client has moved'], answer: 1, why: 'The date is public and the count is checked. Removing on either alone, without telling owners, breaks someone by surprise.' },
+					{ q: 'What does `/v1` answer after removal?', options: ['`410 Gone` with a link to the migration note', 'A bare `404 Not Found`', 'A `301` redirect to `/v2`', '`200` with an empty body'], answer: 0, why: '410 says the route existed and is gone on purpose, and the link tells the caller where to go.' },
+					{ q: 'Why keep the 410 answer for a while instead of dropping the route?', options: ['Because 404 is not allowed on an API', 'So the route can come back if needed', 'To keep the metrics dashboard working', 'So a late client gets a clear reason, not a bare 404'], answer: 3, why: 'A late caller learns what happened and how to fix it, instead of guessing at a 404.' },
+					{ q: 'Kubernetes lets an admin who was not ready serve removed APIs a bit longer. For how long?', options: ['Forever, behind a flag', 'Three more releases', 'One more release, and no further', 'Until the metric shows zero calls'], answer: 2, why: '`KUBE_APISERVER_SERVE_REMOVED_APIS_FOR_ONE_RELEASE` kicks the can one release down the road, and no further.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -109,6 +109,44 @@ export default {
 			'Elevation of privilege : l’URL, c’est une SSRF qui n’attend que de se produire. Résous-la, refuse les plages privées et réservées, connecte-toi seulement aux adresses vérifiées, et revérifie chaque redirection (ou n’en suis aucune).',
 			'Denial of service : un endpoint lent ne doit pas bloquer la file. Des timeouts courts, un plafond de retries, et une file par client ou une limite par client. Information disclosure : n’envoie que les champs que le client a le droit de voir, et ne renvoie jamais tel quel le corps de la réponse de l’endpoint dans ton interface.',
 			'Repudiation : garde un journal de livraison avec l’id du ticket, l’heure, le code de statut et qui a enregistré l’URL, pour que « on ne l’a jamais reçu » et « on ne l’a jamais demandé » aient tous les deux une réponse.'
+		],
+		steps: [
+			{
+				title: 'Dessine les frontières',
+				questions: [
+					{ q: 'Quelles deux parties sont hors de ta frontière de confiance ?', options: ['Ton API et ton worker', 'L’admin du client et l’endpoint du client', 'Le worker et la base de données', 'L’admin du client et ton worker'], answer: 1, why: 'L’admin enregistre l’URL et l’endpoint reçoit le POST. Tu ne fais tourner ni l’un ni l’autre, donc les deux sont dehors.' },
+					{ q: 'Où passe la première frontière de confiance ?', options: ['Entre ton API et le worker', 'Entre le worker et sa file', 'Entre l’admin du client et ton API', 'Entre la base et ses sauvegardes'], answer: 2, why: 'L’URL enregistrée entre là, depuis quelqu’un à qui tu fais moins confiance, donc cette flèche reçoit les questions STRIDE.' },
+					{ q: 'Où passe la deuxième ?', options: ['Entre ton worker et l’endpoint du client', 'Entre l’admin du client et son navigateur', 'Entre deux de tes propres workers', 'Entre ton API et ton load balancer'], answer: 0, why: 'Le POST quitte ton réseau là, et la réponse revient d’un hôte que tu ne contrôles pas.' },
+					{ q: 'Pourquoi le worker rend-il ce design risqué ?', options: ['Il tourne sur une machine plus lente que l’API', 'Il n’a pas accès à la base', 'Il envoie des données que le client a déjà', 'Il est dans ton réseau, et l’URL qu’il appelle est une donnée externe'], answer: 3, why: 'Une donnée externe pilote une requête interne. C’est la forme d’une SSRF.' }
+				]
+			},
+			{
+				title: 'Pose spoofing et tampering',
+				questions: [
+					{ q: 'Spoofing : que le destinataire ne peut-il pas distinguer ?', options: ['Ton POST d’un faux', 'Un nouveau ticket d’un ticket modifié', 'Une réponse lente d’une rapide', 'Ton worker de ton API'], answer: 0, why: 'Quiconque connaît l’URL peut y envoyer un POST. Sans preuve, le destinataire doit croire tout ce qui arrive.' },
+					{ q: 'Qu’est-ce qui permet au destinataire de vérifier qu’un POST vient de toi ?', options: ['L’envoyer depuis une adresse IP fixe', 'Signer chaque corps avec un secret par client, dans un en-tête HMAC', 'Ajouter l’id du ticket dans l’URL', 'Utiliser seulement HTTPS, sans autre vérification'], answer: 1, why: 'Une signature avec un secret que seuls toi et ce client détenez prouve qui a envoyé le corps.' },
+					{ q: 'Tampering : quelqu’un capture un message signé et le renvoie plus tard. Qu’est-ce qui l’arrête ?', options: ['Un secret plus long', 'Une seconde signature avec un autre secret', 'Un horodatage dans les données signées', 'Envoyer chaque ticket deux fois'], answer: 2, why: 'La signature couvre déjà le corps. Un horodatage signé permet au destinataire de refuser un vieux message.' },
+					{ q: 'Quelle mesure couvre ici à la fois spoofing et tampering ?', options: ['Une limite de débit par client', 'Un journal de livraison', 'Des timeouts courts', 'La même signature sur le corps'], answer: 3, why: 'Un corps modifié ne correspond plus à sa signature, et un faux n’en a aucune qui se vérifie.' }
+				]
+			},
+			{
+				title: 'Pose l’élévation de privilèges',
+				questions: [
+					{ q: 'Un client enregistre `http://169.254.169.254/` comme URL de webhook. Quelle lettre de STRIDE est-ce ?', options: ['Repudiation', 'Elevation of privilege', 'Information disclosure seulement', 'Spoofing'], answer: 1, why: 'Une SSRF est une élévation de privilèges : l’URL vient de l’extérieur, mais la requête part de l’intérieur.' },
+					{ q: 'Que fait le worker avec l’hôte avant de se connecter ?', options: ['Il le résout et refuse les adresses privées et réservées', 'Il le compare à une liste de domaines connus comme malveillants', 'Il le pingue pour voir s’il répond', 'Il demande à l’admin du client de le confirmer'], answer: 0, why: 'Discourse fait pareil : résoudre, retirer chaque adresse privée ou réservée, et ne rien récupérer s’il n’en reste aucune.' },
+					{ q: 'Après la vérification, à quelles adresses le worker se connecte-t-il ?', options: ['À ce que renvoie une seconde résolution DNS', 'À la première adresse que choisit l’OS', 'Seulement aux adresses qui ont passé la vérification', 'À n’importe quelle adresse, puisque l’hôte a passé'], answer: 2, why: 'La vérification et la connexion doivent utiliser la même réponse DNS. Discourse passe exactement ces adresses à la couche socket.' },
+					{ q: 'L’endpoint répond par une redirection vers `http://10.0.0.5/admin`. Que fais-tu ?', options: ['La suivre, puisque le premier hôte a passé', 'La suivre, mais sans les en-têtes', 'La suivre une fois, puis arrêter', 'Revérifier la cible, ou ne suivre aucune redirection'], answer: 3, why: 'Chaque redirection est une nouvelle destination. Revérifie-les toutes, ou n’en suis aucune.' }
+				]
+			},
+			{
+				title: 'Pose le reste et note-le',
+				questions: [
+					{ q: 'Denial of service : l’endpoint d’un client met des minutes à répondre. Qu’est-ce qui protège tous les autres ?', options: ['Des timeouts courts, un plafond de retries, et une file ou une limite par client', 'Réessayer jusqu’à ce qu’il réponde', 'Une plus grosse machine pour le worker', 'Envoyer tous les tickets dans un seul POST'], answer: 0, why: 'Un endpoint lent ne doit pas bloquer la file pour tous les autres clients.' },
+					{ q: 'Information disclosure : l’endpoint renvoie une page d’erreur. Qu’affiches-tu dans ton interface ?', options: ['Le corps complet de la réponse, pour aider au débogage', 'Les en-têtes et le corps de la réponse', 'Le code de statut et une erreur courte, jamais le corps brut', 'Rien, et tu abandonnes la livraison'], answer: 2, why: 'Le corps vient de hors de ton contrôle et peut contenir n’importe quoi. Montre un statut, pas la page brute.' },
+					{ q: 'Repudiation : un client dit « on ne l’a jamais reçu ». Qu’est-ce qui te donne une réponse ?', options: ['Les journaux du client lui-même', 'Le ticket lui-même', 'Une copie du secret HMAC', 'Un journal de livraison avec l’id du ticket, l’heure, le code de statut et qui a enregistré l’URL'], answer: 3, why: 'Le journal répond à la fois à « on ne l’a jamais reçu » et à « on ne l’a jamais demandé ».' },
+					{ q: 'Tu ne trouves aucune menace pour une lettre. Qu’écris-tu ?', options: ['Rien : tu sautes la lettre', '« rien trouvé »', 'Une menace d’une autre lettre', 'La lettre avec un point d’interrogation'], answer: 1, why: 'Écrire « rien trouvé » montre que tu as posé la question. Une lettre absente ressemble à une lettre oubliée.' }
+				]
+			}
 		]
 	},
 	quiz: [

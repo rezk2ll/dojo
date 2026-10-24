@@ -105,6 +105,44 @@ class MemoryStoreTest < StoreTest
 			'(d) A **consumer-driven contract**. The email service publishes the fields it reads (a pact or a schema). The order service\'s CI runs its real published message through it. A cheaper first step: the order service writes its captured message to a fixture file, and the email service loads that file instead of a hand-written copy.',
 			'(e) An **end-to-end** test on the built system, with a stub payment provider. Keep it few: it is the slowest of the five.',
 			'If you put (d) in the end-to-end suite, look again: a suite that publishes its own copy of the message stays green.'
+		],
+		steps: [
+			{
+				title: 'Ask who owns each decision',
+				questions: [
+					{ q: 'Who owns (a), the rule that a discount never makes a total negative?', options: ['The email service', 'Both services together', 'The order service alone', 'The payment provider'], answer: 2, why: 'The price rule lives in one place, in the order service, so its own CI can guard it.' },
+					{ q: 'Who owns (d), the fields of `order.placed` that the email service reads?', options: ['The order service alone, since it publishes', 'Both: the order service writes it and the email service reads it', 'The email service alone, since it reads', 'Nobody, since it is only a message'], answer: 1, why: 'Two services agreed on that shape. A shared decision needs a test that puts the two sides together.' },
+					{ q: 'If one service owns a decision alone, where does its test run?', options: ['In that service\'s own CI', 'In a shared end-to-end suite', 'In every consumer\'s CI', 'Only in production monitoring'], answer: 0, why: 'A rule that lives in one service is guarded by one fast test in that service.' },
+					{ q: 'If two services share a decision, where must the test run?', options: ['Only in the consumer\'s CI', 'In a nightly job owned by nobody', 'In the end-to-end suite only', 'Where the change would be made'], answer: 3, why: 'The test has to fail in the CI of the team that is about to break it, before the deploy.' }
+				]
+			},
+			{
+				title: 'Guard what one service owns',
+				questions: [
+					{ q: 'Which test protects (a)?', options: ['An integration test on Postgres', 'A unit test of the price function', 'An end-to-end checkout test', 'A contract test with the email service'], answer: 1, why: 'The price function does no I/O. A unit test with literal carts runs in milliseconds.' },
+					{ q: 'What does the (a) test need as doubles?', options: ['A fake database', 'A stub payment API', 'Nothing: the function does no I/O', 'A hand-written `order.placed` message'], answer: 2, why: 'Pure functions take plain inputs. There is nothing to stand in for.' },
+					{ q: 'Which test protects (b), a retried order saved once?', options: ['An integration test on a real Postgres', 'A unit test with an in-memory store', 'An end-to-end test in the browser', 'A consumer-driven contract'], answer: 0, why: 'The rule lives in a unique index and a transaction, so the test needs the real database.' },
+					{ q: 'In the (b) test, what is a double?', options: ['The Postgres database', 'The order handler', 'The unique index', 'The payment API and the email service'], answer: 3, why: 'Everything the order service does not own is a double. Its database is what the rule depends on, so it stays real.' }
+				]
+			},
+			{
+				title: 'Check the double against the real thing',
+				questions: [
+					{ q: 'What kind of test protects (c), the in-memory repository behaving like Postgres?', options: ['An adapter contract test', 'A unit test of the memory repository alone', 'A consumer-driven contract', 'An end-to-end test'], answer: 0, why: 'A contract test checks a double against the real thing it stands for.' },
+					{ q: 'How is that test built?', options: ['Two separate test files, one per repository', 'One shared set of tests, run against the memory version and against Postgres', 'A comparison of the two source files', 'A test that runs only against Postgres'], answer: 1, why: 'Rails writes `CacheStoreBehavior` once and includes it in the memory, file, Memcached and Redis store tests.' },
+					{ q: 'Where does Postgres come from in that CI run?', options: ['A production replica', 'A shared staging database', 'Docker', 'The memory repository itself'], answer: 2, why: 'The real store must be running in CI. Docker gives each run its own Postgres.' },
+					{ q: 'Rails skips its Redis tests when Redis is not up. What is the risk?', options: ['The memory store tests fail too', 'Redis gets the wrong data', 'The test suite runs twice', 'A missing service can hide as a green run'], answer: 3, why: 'A skip is not a failure. If the real store never starts, the comparison silently never happens.' }
+				]
+			},
+			{
+				title: 'Guard the shared message and the wiring',
+				questions: [
+					{ q: 'Which test protects (d)?', options: ['A consumer-driven contract', 'An end-to-end test', 'A unit test in the email service', 'An integration test in the order service'], answer: 0, why: 'The email service writes down the fields it reads, and the order service\'s CI checks its real message against them.' },
+					{ q: 'What is a cheaper first step for (d)?', options: ['More hand-written messages in the email service', 'A code review rule for renames', 'The order service writes its captured message to a fixture file the email service loads', 'A shared Slack channel between the teams'], answer: 2, why: 'The email service then tests against the real message instead of its own copy.' },
+					{ q: 'Which test protects (e), a paid cart becoming an order and an email?', options: ['A unit test of the cart', 'An end-to-end test on the built system, with a stub payment provider', 'A contract test of the payment API', 'An integration test of the email service'], answer: 1, why: 'Only the built system, driven like a user, shows that the services are wired together.' },
+					{ q: 'Why not put (d) in the end-to-end suite?', options: ['End-to-end tests cannot read messages', 'It would make the suite too fast', 'The email service owns that suite', 'A suite that publishes its own copy of the message stays green'], answer: 3, why: 'If the test uses its own copy, it never compares the producer with the consumer, which is the whole point of (d).' }
+				]
+			}
 		]
 	},
 	quiz: [

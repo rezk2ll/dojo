@@ -126,7 +126,7 @@ export default {
 				title: 'Test `git -C . push`',
 				questions: [
 					{ q: 'Does `git -C . push origin main` match `Bash(git push *)`?', options: ['Yes, it is still a push', 'Yes, Claude Code reads git options', 'No, the rule matches the text `git push`', 'Only in plan mode'], answer: 2, why: 'A Bash rule matches the command text, and `git -C . push` does not start with `git push`.' },
-					{ q: 'No rule matches. What decides what happens?', options: ['The deny list, by default', 'The permission mode', 'The model, from CLAUDE.md', 'The last rule in the file'], answer: 1, why: 'When no rule matches the call, the permission mode decides.' },
+					{ q: 'You want `git -C . push origin main` to ask as well. Which rule do you add?', options: ['`Bash(git push -C *)` in `ask`', '`Bash(git -C . push *)` in `ask`', '`Bash(push *)` in `ask`', 'None: `Bash(git push *)` already covers it'], answer: 1, why: 'A Bash rule matches the command text, so this spelling needs its own rule. Everything before the `*` must match as written.' },
 					{ q: 'In Manual mode, what happens to that push?', options: ['It prompts you', 'It runs with no prompt', 'It is blocked', 'It is saved as a new rule'], answer: 0, why: '`default` runs reads only and asks for the rest.' },
 					{ q: 'Which other push also slips past `Bash(git push *)`?', options: ['`git push origin main`', '`git push --force origin main`', '`git push origin dev`', '`git \'push\' origin main`'], answer: 3, why: 'Quoting the word changes the text, so the rule no longer matches.' }
 				]

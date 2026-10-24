@@ -145,9 +145,9 @@ async with stdio_server() as (read_stream, write_stream):
 				title: 'Map the search',
 				questions: [
 					{ q: 'Which primitive fits "the model searches tickets on its own"?', options: ['A tool', 'A resource', 'A prompt', 'A transport'], answer: 0, why: 'The model decides when to call it, which makes it a tool.' },
-					{ q: 'Which request does the client send to run the search?', options: ['`resources/read`', '`prompts/get`', '`tools/list`', '`tools/call`'], answer: 3, why: '`tools/call` carries the tool name and its arguments.' },
+					{ q: 'The client sends `tools/call` and the ticket search fails on the server. What comes back?', options: ['Nothing: the client waits until it times out', 'A fresh `tools/list` reply', 'A plain text error line on stdout', '`content` blocks that describe the error, with `isError` set'], answer: 3, why: 'A tool call returns `content` blocks and `isError`. Plain text on stdout would break the stdio rule, and the model can read an error result and try again.' },
 					{ q: 'What does that request carry?', options: ['A URI such as `tickets://PROJ-123`', '`name: "search_tickets"` and the query in `arguments`', 'The sprint number only', 'The full list of tools'], answer: 1, why: 'The server matches on `name` and reads the query from `arguments`.' },
-					{ q: 'How does the client learn that `search_tickets` exists?', options: ['From `prompts/list`', 'From the server\'s README', 'From `tools/list`', 'From the model\'s training'], answer: 2, why: 'The client learns the tools at run time from `tools/list`, each with a `name`, a `description` and an `inputSchema`.' }
+					{ q: 'A broad search returns 30,000 tokens of tickets. What does Claude Code do with that result by default?', options: ['It passes all 30,000 tokens to the model', 'It drops the result and retries the search', 'It warns past 10,000 tokens and cuts the output at 25,000', 'It stores the result as a resource'], answer: 2, why: 'Every MCP tool result goes into the context. Claude Code warns above 10,000 tokens and cuts at 25,000 by default, so ask `search_tickets` for fewer, shorter results.' }
 				]
 			},
 			{
@@ -162,9 +162,9 @@ async with stdio_server() as (read_stream, write_stream):
 			{
 				title: 'Map the template and declare',
 				questions: [
-					{ q: 'Which primitive fits the "summarize this sprint" template?', options: ['A tool', 'A resource', 'A prompt', 'A resource template'], answer: 2, why: 'A prompt is a user-controlled template, shown for example as a slash command.' },
+					{ q: 'You run the sprint template for sprint 42. How does 42 reach the server?', options: ['In a URI, like a resource', 'In a tool input that the model writes', 'In the request\'s `arguments`, which fill the template', 'It cannot: templates take no input'], answer: 2, why: 'A prompt can take arguments. The server fills the template with them and returns the text to use.' },
 					{ q: 'How does the client find the available templates?', options: ['With `prompts/list`', 'With `tools/list`', 'With `resources/read`', 'With an `initialize` handshake only'], answer: 0, why: '`prompts/list` returns the prompts the server offers.' },
-					{ q: 'How does the client fetch the sprint template?', options: ['`tools/call` with the sprint number', '`resources/read` with a sprint URI', '`prompts/list` with a filter', '`prompts/get`, with arguments such as the sprint number'], answer: 3, why: '`prompts/get` returns the template, filled with the arguments you pass.' },
+					{ q: 'Under the 2026-07-28 revision, what does each request the client sends to your ticket server carry in `_meta`?', options: ['The full list of the server\'s tools', 'A session id from an `initialize` handshake', 'The user\'s ticket system password', 'The protocol version and the client capabilities'], answer: 3, why: 'In this revision every request carries the protocol version and the client capabilities in `_meta`. Earlier revisions opened a session with an `initialize` handshake.' },
 					{ q: 'What must the server declare so the client knows which requests it answers?', options: ['Only `tools`', 'The `tools`, `resources` and `prompts` capabilities', 'A `readOnlyHint` on every tool', 'Nothing: the client tries each request'], answer: 1, why: 'Each primitive the server offers needs its capability declared.' }
 				]
 			}

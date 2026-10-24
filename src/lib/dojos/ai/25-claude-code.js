@@ -141,7 +141,7 @@ export default {
 				questions: [
 					{ q: 'Which tool call do you expect first?', options: ['`Edit` on the first file', '`npm test` through Bash', '`grep -rn getUser src` through Bash', '`Read` on every file in the repo'], answer: 2, why: 'Claude has to find where `getUser` is used before it can read or change anything.' },
 					{ q: 'In Manual mode, does that `grep` ask you first?', options: ['Yes, every Bash command asks', 'No, `grep` is in the built-in read-only set', 'Only the first time in a session', 'Only when it searches outside `src`'], answer: 1, why: 'A built-in set of read-only commands, `grep` among them, runs with no prompt.' },
-					{ q: 'Do the `Read` calls on the files it lists ask you?', options: ['No, reads inside the working directory never ask', 'Yes, each file asks once', 'Only for test files', 'Yes, unless CLAUDE.md lists the file'], answer: 0, why: 'Reads inside the working directory need no approval.' },
+					{ q: 'Before that `grep` runs, what is already in the context besides your sentence?', options: ['Your CLAUDE.md files, the start of MEMORY.md and the tool definitions', 'Nothing yet: the context starts empty', 'Every file under `src`', 'The JSONL transcripts of your past sessions'], answer: 0, why: 'Before the first model call, the context holds your CLAUDE.md files, the first 200 lines or 25KB of MEMORY.md, the system instructions and the tool definitions.' },
 					{ q: 'What tells Claude which files to read?', options: ['You list them in your message', 'The output of the `grep`', 'Your CLAUDE.md', 'The session JSONL file'], answer: 1, why: 'Claude picks each tool from what the last result showed. You describe the outcome, not the files.' }
 				]
 			},
@@ -160,7 +160,7 @@ export default {
 					{ q: 'Which call checks that the tests still pass after the rename?', options: ['`Glob` for the test files', '`npm test` through Bash', '`Read` on the test file', '`Edit` on the test file'], answer: 1, why: 'The task says the tests must still pass, so Claude runs them.' },
 					{ q: 'Does `npm test` ask you first?', options: ['No, tests only read files', 'No, you already approved the edits', 'Yes, it is not a read-only command', 'Only when a test fails'], answer: 2, why: '`npm test` is not in the read-only set, so in Manual mode it asks.' },
 					{ q: 'The tests fail. What does Claude do next?', options: ['It reads the output and goes back to editing', 'It stops and reports the task done', 'It rewinds the files on its own', 'It opens a new session'], answer: 0, why: 'Verify feeds back into take action: the failure output is the next thing Claude works from.' },
-					{ q: 'When does the loop for this request end?', options: ['After 10 tool calls', 'As soon as the tests pass', 'When the context window is full', 'When the model answers with text and no tool call'], answer: 3, why: 'The model keeps calling tools until it produces a reply with no tool call.' }
+					{ q: 'While `npm test` runs, you type "also update the README" and press `Enter`. When does Claude read it?', options: ['Only after the whole request ends', 'Never: messages typed during a run are dropped', 'Right away, cancelling `npm test`', 'As soon as its current tool calls finish'], answer: 3, why: 'A message sent while Claude works is queued, and Claude reads it once the running tool calls finish. Only `Esc` cancels a tool call.' }
 				]
 			},
 			{
@@ -168,7 +168,7 @@ export default {
 				questions: [
 					{ q: 'The second edit is going wrong while Claude works. What do you press first?', options: ['`Esc` once, to stop the running tool call', '`Enter`, to queue a message', '`Esc` three times', 'Close the terminal'], answer: 0, why: '`Esc` stops Claude and cancels the running tool call.' },
 					{ q: 'How do you bring the files back to the state before that edit?', options: ['Run `claude --resume`', 'Press `Esc` twice and rewind', 'Run `/compact`', 'Start a new session'], answer: 1, why: '`Esc` twice rewinds to an earlier checkpoint.' },
-					{ q: 'What can a rewind not bring back?', options: ['An edit to a local file', 'The checkpoint snapshot', 'An action on a remote system, such as a database', 'A file inside the working directory'], answer: 2, why: 'The docs: actions on databases, APIs or deployments "can\'t be checkpointed".' },
+					{ q: 'You close the terminal before the rename is finished. How do you pick the same session up tomorrow?', options: ['Press `Esc` twice', 'Paste your first message again', 'Run `claude --resume` and pick it', 'Run `/compact`'], answer: 2, why: 'The session is a JSONL file under `~/.claude/projects/`, and `claude --resume` reopens it under the same session ID.' },
 					{ q: 'The files are back. What do you do next?', options: ['Delete the session JSONL file', 'Switch out of Manual mode', 'Start the rename by hand', 'Tell Claude what was wrong'], answer: 3, why: 'The session keeps its history, so Claude can retry with your correction.' }
 				]
 			}

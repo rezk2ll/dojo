@@ -115,7 +115,7 @@ export default {
 				questions: [
 					{ q: 'What is 151,629 × 3.75, the cache write part?', options: ['About 568,609', 'About 454,887', 'About 45,489', 'About 5,430'], answer: 0, why: 'The cache write price is $3.75 per million, not the $3 of plain input.' },
 					{ q: 'What is the output part, 362 × 15?', options: ['1,086', '4,950', '362', '5,430'], answer: 3, why: 'Output costs $15 per million on Sonnet 4.6.' },
-					{ q: 'What does the cold request cost in total?', options: ['About $0.455', 'About $0.574', 'About $0.051', 'About $5.74'], answer: 1, why: '66 + 568,609 + 5,430 ≈ 574,105, divided by 1,000,000.' },
+					{ q: 'Sent as plain input at $3, the source would cost about 454,887. How much extra does the cache write add to the cold request?', options: ['About $0.574', 'About $0.114', 'About $0.0455', 'Nothing: a write costs the same as plain input'], answer: 1, why: '568,609 − 454,887 ≈ 113,722, so about $0.114, 25% more than plain input for the source. Only a later cache hit pays it back.' },
 					{ q: 'What share of the cold cost is the cache write?', options: ['About 99%', 'About 50%', 'About 90%', 'About 1%'], answer: 0, why: '568,609 of 574,105. The question and the answer barely count next to the source.' }
 				]
 			},
@@ -124,7 +124,7 @@ export default {
 				questions: [
 					{ q: 'What is 151,629 × 0.30, the cache read part?', options: ['About 568,609', 'About 4,549', 'About 45,489', 'About 454,887'], answer: 2, why: 'The cache hit price is $0.30 per million.' },
 					{ q: 'What is the output part, 330 × 15?', options: ['4,950', '5,430', '990', '330'], answer: 0, why: 'The warm answer is 330 tokens, a little shorter than the cold one.' },
-					{ q: 'What does the warm request cost in total?', options: ['About $0.574', 'About $0.046', 'About $0.51', 'About $0.051'], answer: 3, why: '66 + 45,489 + 4,950 ≈ 50,505, divided by 1,000,000.' },
+					{ q: 'Against the same request with the source sent as plain input at $3, how much does the cache read save?', options: ['About $0.051', 'About $0.114', 'About $0.574', 'About $0.41'], answer: 3, why: '454,887 − 45,489 ≈ 409,398, so about $0.41 per warm question. One warm request more than pays back the $0.114 extra of the cache write.' },
 					{ q: 'What share of the warm cost is the cache read?', options: ['About 99%', 'About 90%', 'About 10%', 'About 50%'], answer: 1, why: '45,489 of 50,505. Reading 151,629 tokens is still most of the bill, even at the cache price.' }
 				]
 			},

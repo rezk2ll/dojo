@@ -145,8 +145,8 @@ jobs:
 			{
 				title: 'Demande du JSON',
 				questions: [
-					{ q: 'Quels deux flags te donnent un objet qui respecte ton schéma ?', options: ['`--output-format json` et `--json-schema`', '`-p` et `--bare`', '`--json-schema` et `--max-turns`', '`--output-format text` et `jq`'], answer: 0, why: 'Avec ces deux flags, l’exécution renvoie une sortie structurée qui respecte le schéma.' },
-					{ q: 'Où arrive la liste des fautes dans la réponse JSON ?', options: ['Dans `result`, en chaîne à reparser', 'Seule sur stdout, les métadonnées sur stderr', 'Dans `structured_output`', 'Dans un fichier sous `~/.claude`'], answer: 2, why: 'L’objet validé est dans `structured_output`, à côté de métadonnées comme l’ID de session. Le texte brut reste dans `result`.' },
+					{ q: 'Que décrit la racine de ton `--json-schema` ?', options: ['Un objet avec un tableau `typos` obligatoire', 'Un simple tableau de fautes', 'Une chaîne que le script découpe sur les virgules', 'Un booléen qui dit s’il y a des fautes'], answer: 0, why: 'Le schéma de la réponse est `{"type":"object", ... "required":["typos"]}`, et `typos` est un tableau d’objets.' },
+					{ q: 'Le modèle signale une faute sans `line`. Cet objet peut-il arriver dans `structured_output` ?', options: ['Oui : les champs absents sont remplis avec `null`', 'Oui, mais seulement dans `result`', 'Non : `structured_output` respecte le schéma, et `line` est obligatoire', 'Non : l’exécution te demande de corriger'], answer: 2, why: 'La sortie structurée respecte ton schéma, et le schéma met `line` dans `required` pour chaque faute.' },
 					{ q: 'Qu’est-ce que le schéma rend obligatoire pour chaque faute ?', options: ['Seulement `issue`', '`file`, `line` et `issue`', '`file` et `issue`', 'Rien : tous les champs sont facultatifs'], answer: 1, why: 'Le prompt demande `{"file","line","issue"}`, donc le schéma exige les trois.' },
 					{ q: 'Quel type convient à `line` dans le schéma ?', options: ['`string`', '`boolean`', '`array`', '`integer`'], answer: 3, why: 'Un numéro de ligne est un entier, donc la réponse lui donne `"type":"integer"`.' }
 				]
@@ -155,7 +155,7 @@ jobs:
 				title: 'Pose les limites',
 				questions: [
 					{ q: 'Combien de tours `claude -p` permet-il par défaut ?', options: ['3', '10', 'Aucune limite', 'Un par outil'], answer: 2, why: '`--max-turns` n’a pas de limite par défaut, donc une exécution sans plafond peut boucler jusqu’au timeout du job.' },
-					{ q: 'Que se passe-t-il quand l’exécution atteint `--max-turns 3` ?', options: ['Elle sort avec une erreur', 'Elle écrit une réponse finale avec le code 0', 'Elle demande plus de tours', 'Elle continue en mode print'], answer: 0, why: 'La référence CLI dit qu’elle « Exits with an error when the limit is reached ».' },
+					{ q: 'Tu veux aussi plafonner ce que la vérification peut dépenser. Quel flag fait ça ?', options: ['`--max-turns 1`', '`--bare`', '`--max-budget-usd`', '`--output-format json`'], answer: 2, why: '`--max-budget-usd` arrête l’exécution dès que la dépense estimée atteint le montant.' },
 					{ q: 'Quel flag ignore les hooks, plugins, serveurs MCP et CLAUDE.md de la machine de CI ?', options: ['`--max-turns 3`', '`--output-format json`', '`-p`', '`--bare`'], answer: 3, why: 'Le mode bare ignore ce que Claude Code trouverait sinon sur la machine.' },
 					{ q: 'De quoi `--bare` a-t-il besoin dans l’environnement ?', options: ['De ta connexion d’abonnement', 'De `ANTHROPIC_API_KEY`', 'D’un fichier `.mcp.json`', 'D’un fichier `CLAUDE.md`'], answer: 1, why: 'Le mode bare ne lit jamais ta connexion d’abonnement, il lui faut donc une clé d’API.' }
 				]

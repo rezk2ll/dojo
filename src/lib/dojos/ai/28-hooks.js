@@ -131,7 +131,7 @@ def main():
 				questions: [
 					{ q: 'Where in the event JSON is the path of the file Claude wants to edit?', options: ['`tool_input.command`', '`tool_input.file_path`', '`tool_name`', '`hook_event_name`'], answer: 1, why: 'For `Edit` and `Write`, the target path is in `tool_input.file_path`.' },
 					{ q: 'How does the script get that JSON?', options: ['As its first argument, `$1`', 'From an environment variable', 'On stdin, read with `jq`', 'From a file Claude Code writes'], answer: 2, why: 'Each command hook gets the event as JSON on stdin.' },
-					{ q: 'Which exit code makes Claude Code block the edit?', options: ['0', '1', '-1', '2'], answer: 3, why: 'Only exit 2 blocks. Exit 0 means no objection.' },
+					{ q: 'Claude edits `app/migrations_helper.py`. Does the `*migrations/*` test block it?', options: ['Yes, the name contains "migrations"', 'Yes, every `.py` file is checked', 'Only if the file is new', 'No: the path has no `migrations/` with a slash'], answer: 3, why: 'The pattern needs the text `migrations/`. `migrations_helper.py` is a file name, not a directory, so the script exits 0.' },
 					{ q: 'Where does the "Blocked: ... is a migration" message on stderr go?', options: ['To Claude, as the reason for the block', 'Only to your terminal', 'To a log file under `.claude/`', 'Nowhere: stderr is dropped'], answer: 0, why: 'For `PreToolUse`, the hook\'s stderr goes to Claude, which can then write a new migration instead.' }
 				]
 			},
@@ -141,16 +141,16 @@ def main():
 					{ q: 'What do you run on `no-migrations.sh` so the hook can start it?', options: ['`source` on it', '`chmod +x` on it', '`ruff format` on it', 'Nothing: hooks run any file'], answer: 1, why: 'The hook command runs the script directly, so it has to be executable.' },
 					{ q: 'In the `PostToolUse` command, what is `grep \'\\.py$\'` for?', options: ['It skips files that are not Python', 'It finds the migration files', 'It blocks the edit on a match', 'It formats the file'], answer: 0, why: 'The matcher sees every `Edit` and `Write`, so the path filter has to live in the command.' },
 					{ q: 'What does `jq -r \'.tool_input.file_path\'` pass to `ruff format`?', options: ['The whole event JSON', 'The text of the command', 'The path of the edited file', 'The name of the tool'], answer: 2, why: '`jq -r` prints the raw path, and `xargs` hands it to `ruff format`.' },
-					{ q: 'The `PostToolUse` hook exits 2. Can it undo the edit?', options: ['Yes, Claude Code reverts the file', 'Yes, Claude Code asks you first', 'It blocks the next edit instead', 'No: the file is written, and stderr goes to Claude'], answer: 3, why: '`PostToolUse` fires after the tool succeeded. Exit 2 there only shows stderr to Claude.' }
+					{ q: 'A teammate adds a second `PreToolUse` hook on `Edit|Write` that always allows. On a migration edit, `no-migrations.sh` blocks. What happens?', options: ['The edit runs: the allow came from a newer hook', 'You get a prompt to settle the tie', 'The hook listed first in the file wins', 'The edit is blocked: the most restrictive decision wins'], answer: 3, why: 'Matching hooks run in parallel, and when they disagree the order is `deny`, `defer`, `ask`, `allow`.' }
 				]
 			},
 			{
 				title: 'Check the gaps',
 				questions: [
-					{ q: 'The script exits 1 by mistake. What happens to an edit of `migrations/0042_users.py`?', options: ['It is blocked anyway', 'It goes through, and the transcript shows a hook error', 'Claude Code asks you', 'The session stops'], answer: 1, why: 'Any exit code other than 0 and 2 is a non-blocking error, so the tool runs.' },
+					{ q: '`ruff format` takes 30 seconds on a big file. What does that cost?', options: ['Nothing: hooks run in the background', 'The edit waits for it, up to the 10 minute default timeout', 'Claude Code kills it after 5 seconds', 'Claude skips formatting that file'], answer: 1, why: 'A slow hook delays the tool call it is attached to. Command hooks time out after 10 minutes by default.' },
 					{ q: 'Claude runs `sed -i` on a migration through Bash. Does the hook see it?', options: ['Yes, it sees every file change', 'Yes, `sed` counts as `Edit`', 'No: the matcher is `Edit|Write`, not `Bash`', 'Only if the path contains `migrations/`'], answer: 2, why: 'The hook only fires for the tools its matcher names.' },
 					{ q: 'Which addition also covers `sed` and `tee` on migrations?', options: ['An `Edit(migrations/**)` deny rule', 'A second hook that exits 1', 'A line in CLAUDE.md', 'A `PostToolUse` hook on `Bash`'], answer: 0, why: 'That deny rule covers file commands Claude Code recognizes in Bash, such as `sed` and `tee`.' },
-					{ q: 'Someone runs the session with `--dangerously-skip-permissions`. Does the hook still block?', options: ['No, that flag skips every check', 'No, it only logs the decision', 'Only for `Write`, not `Edit`', 'Yes, it blocks in every permission mode'], answer: 3, why: 'A `PreToolUse` hook that exits 2 blocks the call in every mode, `bypassPermissions` included.' }
+					{ q: 'With which rights does `no-migrations.sh` run?', options: ['Inside the sandbox, read-only', 'With the model\'s rights, which you cannot see', 'As a separate user with no home directory', 'With your full user permissions'], answer: 3, why: 'The docs: "Command hooks execute shell commands with your full user permissions." Review a hook script like any code you run.' }
 				]
 			}
 		]

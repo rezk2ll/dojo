@@ -145,8 +145,8 @@ jobs:
 			{
 				title: 'Ask for JSON',
 				questions: [
-					{ q: 'Which two flags give you an object that matches your schema?', options: ['`--output-format json` and `--json-schema`', '`-p` and `--bare`', '`--json-schema` and `--max-turns`', '`--output-format text` and `jq`'], answer: 0, why: 'With both flags, the run returns structured output that matches the schema.' },
-					{ q: 'Where does the typo list land in the JSON response?', options: ['In `result`, as a string to parse again', 'Alone on stdout, metadata on stderr', 'In `structured_output`', 'In a file under `~/.claude`'], answer: 2, why: 'The validated object sits in `structured_output`, next to metadata such as the session ID. The plain text stays in `result`.' },
+					{ q: 'What does the root of your `--json-schema` describe?', options: ['An object with a required `typos` array', 'A bare array of typos', 'A string the script splits on commas', 'A boolean that says whether typos exist'], answer: 0, why: 'The answer\'s schema is `{"type":"object", ... "required":["typos"]}`, and `typos` is an array of objects.' },
+					{ q: 'The model reports a typo with no `line`. Can that object reach `structured_output`?', options: ['Yes: missing fields are filled with `null`', 'Yes, but only in `result`', 'No: `structured_output` matches the schema, and `line` is required', 'No: the run asks you to fix it'], answer: 2, why: 'Structured output matches your schema, and the schema lists `line` in `required` for each typo.' },
 					{ q: 'What does the schema mark as required for each typo?', options: ['Only `issue`', '`file`, `line` and `issue`', '`file` and `issue`', 'Nothing: all fields are optional'], answer: 1, why: 'The prompt asks for `{"file","line","issue"}`, so the schema requires all three.' },
 					{ q: 'Which type fits `line` in the schema?', options: ['`string`', '`boolean`', '`array`', '`integer`'], answer: 3, why: 'A line number is a whole number, so the answer gives it `"type":"integer"`.' }
 				]
@@ -155,7 +155,7 @@ jobs:
 				title: 'Set the limits',
 				questions: [
 					{ q: 'How many turns does `claude -p` allow by default?', options: ['3', '10', 'No limit', 'One per tool'], answer: 2, why: '`--max-turns` has no limit by default, so a run with no cap can loop until the job timeout.' },
-					{ q: 'What happens when the run hits `--max-turns 3`?', options: ['It exits with an error', 'It writes a final answer with exit code 0', 'It asks for more turns', 'It keeps going in print mode'], answer: 0, why: 'The CLI reference says it "Exits with an error when the limit is reached".' },
+					{ q: 'You also want to cap what the check can spend. Which flag does that?', options: ['`--max-turns 1`', '`--bare`', '`--max-budget-usd`', '`--output-format json`'], answer: 2, why: '`--max-budget-usd` stops the run once the estimated spend reaches the amount.' },
 					{ q: 'Which flag skips hooks, plugins, MCP servers and CLAUDE.md on the CI machine?', options: ['`--max-turns 3`', '`--output-format json`', '`-p`', '`--bare`'], answer: 3, why: 'Bare mode skips what Claude Code would otherwise find on the machine.' },
 					{ q: 'What does `--bare` need in the environment?', options: ['Your subscription login', '`ANTHROPIC_API_KEY`', 'A `.mcp.json` file', 'A `CLAUDE.md` file'], answer: 1, why: 'Bare mode never reads your subscription login, so it needs an API key.' }
 				]

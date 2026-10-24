@@ -162,9 +162,9 @@ export default {
 			{
 				title: 'Stop it sooner',
 				questions: [
-					{ q: 'What is the default `max_iteration_per_run` in OpenHands?', options: ['30', '500', '6', 'None: there is no cap'], answer: 1, why: 'It is 500 by default, and 500 steps of a stuck agent are 500 model calls, each resending the history.' },
+					{ q: 'Each extra `run_tests` and `edit` pair costs more than the one before. Why?', options: ['OpenHands raises the price after 3 repeats', 'Each step resends the whole history, which grows with every observation', 'The model thinks longer when it is stuck', 'Repeated tool calls are billed twice'], answer: 1, why: 'Each step resends the whole history, so the input, and the price of the next call, grows with every observation.' },
 					{ q: 'Which `max_iteration_per_run` fits a single test fix better than the default?', options: ['5,000', '500, the default', 'Something like 30', 'No cap, to let it finish'], answer: 2, why: 'A lower cap ends a stuck run long before 500 steps.' },
-					{ q: 'Which setting caps the run in dollars?', options: ['`max_budget_per_run`, off by default', '`max_tokens`', '`max_iterations` in the SDK', '`threshold`'], answer: 0, why: 'Hitting it sets `ERROR` with `MaxBudgetReached`, whatever the model decides.' },
+					{ q: 'The run reaches your cap of 30 steps. Which status does it end with?', options: ['`ERROR`, with the code `MaxIterationsReached`', '`STUCK`', '`FINISHED`', '`PAUSED`'], answer: 0, why: 'The iteration check sets `ERROR` and emits `MaxIterationsReached`. `STUCK` comes only from the stuck detector, and `FINISHED` only from the model.' },
 					{ q: 'How do you make the model less likely to repeat the same edit?', options: ['Raise the temperature', 'Hide the test output', 'Remove the `edit` tool', 'Make `run_tests` return the assertion and the diff'], answer: 3, why: 'New information after each edit gives the model a reason to change its next step.' }
 				]
 			}

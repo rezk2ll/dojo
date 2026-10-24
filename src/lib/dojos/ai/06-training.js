@@ -115,7 +115,7 @@ export default {
 					{ q: 'Which slice builds `y`?', options: ['`data[i:i+block_size]`', '`data[i+1:i+1+block_size]`', '`data[i-1:i-1+block_size]`', '`data[i+block_size]`'], answer: 1, why: 'Line 10 takes the same window shifted one token to the right.' },
 					{ q: 'What is `y`?', options: ['`[30, 40, 50, 60]`', '`[20, 30, 40, 50]`', '`[60]`', '`[40, 50, 60, 10]`'], answer: 0, why: '`data[2:6]` takes indices 2 to 5.' },
 					{ q: 'What is at position 0 of `y`?', options: ['The same token as position 0 of `x`: 20', 'The last token of the window: 60', 'The token after position 0 of `x`: 30', 'A label a person wrote for the window'], answer: 2, why: 'Each position of `y` is the token that follows the same position in `x`.' },
-					{ q: 'Who wrote the targets in `y`?', options: ['Labelers, one target per window', 'A reward model trained on rankings', 'A larger teacher model', 'Nobody: they come from the same text, shifted by one'], answer: 3, why: 'In pretraining, the next token in the text is the target. Written answers only arrive at the SFT step.' }
+					{ q: 'If `get_batch` had drawn `i = 0` instead, what would `y` be?', options: ['`[10, 20, 30, 40]`', '`[30, 40, 50, 60]`', '`[20, 30, 40, 50, 60]`', '`[20, 30, 40, 50]`'], answer: 3, why: '`data[1:5]` takes indices 1 to 4. It is the `x` of the row that starts at `i = 1`: the same tokens serve as input in one row and as targets in another.' }
 				]
 			},
 			{
@@ -132,7 +132,7 @@ export default {
 				questions: [
 					{ q: 'Why does a base model answer a code question with "A. B. C. D."?', options: ['After a question, a quiz page is likely text', 'It was trained on purpose to write quiz options', 'It cannot read code', 'Its `block_size` is too small for the question'], answer: 0, why: 'A base model writes what is likely to come next in its training text.' },
 					{ q: 'Which step from the diagram is the first to stop this?', options: ['More pretraining on web text', 'SFT', 'The reward model', 'Constitutional AI'], answer: 1, why: 'SFT is the first step that shows the model a question followed by a written answer.' },
-					{ q: 'What does InstructGPT’s SFT step train on?', options: ['Rankings of 4 to 9 answers for 33k prompts', 'Rewards on 31k prompts', '16 written principles', 'About 13k prompts with answers written by labelers'], answer: 3, why: 'A team of 40 contractors wrote the wanted answer for each prompt. Rankings and rewards come in the later steps.' },
+					{ q: 'nanoGPT fine-tunes from a pretrained model. Which learning rate does `config/finetune_shakespeare.py` set?', options: ['`6e-4`, the same as `train.py`', '`3e-3`, 5 times the one in `train.py`', 'None: fine-tuning copies the answers without training', '`3e-5`, smaller than the `6e-4` in `train.py`'], answer: 3, why: 'The model already knows the language, so fine-tuning takes smaller steps: `3e-5` in `config/finetune_shakespeare.py` against `6e-4` in `train.py`.' },
 					{ q: 'Which loss does SFT use?', options: ['A ranking loss over pairs of answers', 'A reward from PPO', 'The same next-token loss as pretraining', 'A KL penalty only'], answer: 2, why: 'The nanoGPT README says "Finetuning is no different than training": same loop, a pretrained start and a smaller learning rate.' }
 				]
 			}

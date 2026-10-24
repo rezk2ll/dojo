@@ -118,8 +118,8 @@ print(response2)`,
 			{
 				title: 'Lis la mauvaise réponse',
 				questions: [
-					{ q: 'Quel champ te dit pourquoi le modèle s’est arrêté ?', options: ['`r.usage`', '`r.stop_reason`', '`r.role`', '`r.content[0].type`'], answer: 1, why: 'Chaque réponse réussie porte une `stop_reason` qui dit pourquoi le modèle s’est arrêté.' },
-					{ q: 'Pour un résumé coupé au milieu d’une phrase, que montre `r.stop_reason` ?', options: ['`"end_turn"`', '`"tool_use"`', '`"max_tokens"`', '`"refusal"`'], answer: 2, why: '`max_tokens` veut dire que le texte s’est arrêté à ta limite, souvent au milieu d’une phrase.' },
+					{ q: 'Un résumé que les utilisateurs trouvent complet sort du même code. Que montre sa `r.stop_reason` ?', options: ['`"max_tokens"`', '`"end_turn"`', '`"stop_sequence"`', '`"tool_use"`'], answer: 1, why: '`end_turn` veut dire que le modèle a atteint un point d’arrêt naturel avant la limite de 200 tokens.' },
+					{ q: 'Les résumés de documents courts finissent proprement, ceux des longs sont coupés. Qu’est-ce qui explique la différence ?', options: ['Les longs documents renvoient une erreur HTTP', 'L’API tronque les longs documents en entrée', 'Un long document demande plus de 200 tokens de résumé, donc il atteint la limite', 'Les longs documents donnent une autre `stop_reason` au modèle'], answer: 2, why: '`max_tokens=200` plafonne la sortie, pas l’entrée. Un résumé qui demande plus de place est coupé à la limite.' },
 					{ q: 'Que montre `r.usage.output_tokens` pour ces résumés ?', options: ['200, la limite de la requête', 'Moins de 200, puisque le modèle s’est arrêté tôt', '0, puisque la réponse a échoué', 'La longueur de `doc`'], answer: 0, why: 'Le modèle a utilisé tous les tokens permis et s’est arrêté à `max_tokens=200`.' },
 					{ q: 'Avec quel statut HTTP ces résumés coupés reviennent-ils ?', options: ['400', '500', '429', '200'], answer: 3, why: 'Une stop reason fait partie d’une réponse réussie. Une requête en échec renvoie plutôt un statut 4xx ou 5xx.' }
 				]

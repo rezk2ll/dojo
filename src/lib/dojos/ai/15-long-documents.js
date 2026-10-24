@@ -124,16 +124,16 @@ def summarize_long_document(text, max_tokens=2000):
 				questions: [
 					{ q: 'Which tag holds the three leases together?', options: ['`<quotes>`', '`<documents>`', '`<answer>`', '`<leases>`'], answer: 1, why: 'The docs show `<documents>` holding one `<document index="n">` per file.' },
 					{ q: 'What goes in `<source>` for the second lease?', options: ['The rent you expect', 'The index `2`', '`lease_b.txt`', 'The whole lease text'], answer: 2, why: '`<source>` holds the file name, so the model and you can tell the leases apart.' },
-					{ q: 'Where does the text of each lease go?', options: ['In `<document_content>`', 'In `<source>`', 'In the system prompt', 'In an assistant turn'], answer: 0, why: 'Each `<document>` holds the file name in `<source>` and the text in `<document_content>`.' },
-					{ q: 'Where does the `<documents>` block sit in the user turn?', options: ['At the end, after the question', 'Between two copies of the question', 'In a second user turn', 'At the top'], answer: 3, why: 'The docs put long documents "near the top of your prompt, above your query, instructions, and examples."' }
+					{ q: 'The three leases fit in the window. Can the model still miss the rent clause halfway through lease B?', options: ['Yes: accuracy and recall drop as the token count grows', 'No: everything inside the window is read equally well', 'Only if the leases are PDFs', 'Only on Haiku 5.5'], answer: 0, why: 'The context windows docs call it context rot: "As token count grows, accuracy and recall degrade". That is why the layout and the quotes matter.' },
+					{ q: 'From what input size do the docs give this long document layout advice?', options: ['Only past the 1M-token window', 'From 100,000 tokens', 'For any prompt, even one line', 'From 20k tokens and more'], answer: 3, why: 'The long context tips are for inputs of 20k tokens and more, which three full leases can reach.' }
 				]
 			},
 			{
 				title: 'Ask for quotes, then the rent',
 				questions: [
-					{ q: 'The hook put the question first. Where does it go now?', options: ['After the documents', 'Before the documents, as before', 'In the system prompt', 'Repeated before each lease'], answer: 0, why: 'The docs measured "up to 30 percent" better answers with the query at the end.' },
+					{ q: 'After the quotes, which tag does the instruction ask the rents to go in?', options: ['`<answer>`, one rent per lease', '`<quotes>`, next to the clauses', '`<document_content>`', '`<source>`'], answer: 0, why: 'The instruction asks for quotes first, then "the rent per lease in <answer> tags", so your code can tell the evidence from the result.' },
 					{ q: 'What does the instruction ask for first?', options: ['A summary of each lease', 'The rent per lease in `<answer>` tags', 'The rent clauses copied into `<quotes>` tags, with the source file', 'A count of the clauses in each lease'], answer: 2, why: 'Quotes first, then the answer from those quotes.' },
-					{ q: 'Why ask for quotes before the rents?', options: ['The quotes replace the leases, so input costs less', 'The model focuses on the relevant clauses, and you can check the answer against them', 'Prompt caching works only inside `<quotes>`', 'The API needs quotes for long documents'], answer: 1, why: 'Quoting first "helps Claude focus on the relevant content and ignore the rest of the document", and gives you text to search for.' },
+					{ q: 'Why ask for the source file next to each copied clause?', options: ['The API rejects quotes without a file name', 'So you know which file to search each quote in', 'It lowers the input tokens of the request', 'It turns on the citations feature'], answer: 1, why: 'Three leases can hold similar clauses. With `lease_b.txt` next to the quote, you search the right file when you check lease B.' },
 					{ q: 'A lease might state no rent. What does the instruction say?', options: ['Give the rent of the closest lease', 'Leave that lease out of the answer', 'Write 0 for that lease', 'If a lease states no rent, say so'], answer: 3, why: 'An explicit way out keeps the model from filling the gap with a made-up figure.' }
 				]
 			},

@@ -137,7 +137,7 @@ environment variables in workflow logs.`,
 				questions: [
 					{ q: 'Where do the 200 lines of React rules go?', options: ['`.claude/rules/web.md` with `paths: ["src/web/**"]`', 'Five files pulled in with `@path` imports', '`CLAUDE.local.md`', '`~/.claude/CLAUDE.md`'], answer: 0, why: 'A path-scoped rule holds text that only matters for some files.' },
 					{ q: 'When does that rule file load?', options: ['At launch, with the other files', 'When Claude reads or edits a file under `src/web/`', 'After every `/compact`', 'When you run `/memory`'], answer: 1, why: 'A rule with `paths:` loads only when Claude touches a matching file.' },
-					{ q: 'Why not move them to an imported file such as `@docs/react.md`?', options: ['Imports are capped at 20 lines', 'Imports only work in the user file', 'Imported files also load at launch, so they cost the same context', 'Claude cannot follow an import'], answer: 2, why: 'The docs: imported files "also load at launch". Splitting does not shrink the context.' },
+					{ q: 'Where in `web.md` does `paths: ["src/web/**"]` go?', options: ['In a comment at the end of the file', 'In `.claude/settings.json`, next to the rules', 'In the frontmatter at the top of the file', 'In `CLAUDE.md`, as an import line'], answer: 2, why: 'A path-scoped rule is a Markdown file in `.claude/rules/` with a `paths:` list in its frontmatter.' },
 					{ q: 'After `/compact`, does the React rule file come back?', options: ['Yes, it is read again from disk at once', 'Only when a matching file is touched again', 'No, never again in that session', 'Only if you run `/memory`'], answer: 1, why: 'Only the project root `CLAUDE.md` is re-read after `/compact`. Path rules return when a matching file is touched.' }
 				]
 			},
@@ -156,7 +156,7 @@ environment variables in workflow logs.`,
 					{ q: 'Where does your own staging URL go?', options: ['It stays in `CLAUDE.md`', '`CLAUDE.local.md`, added to `.gitignore`', '`.claude/settings.json`', '`.claude/rules/staging.md`'], answer: 1, why: 'It is yours, not the team\'s, so it goes in the personal file that is not committed.' },
 					{ q: 'When does `CLAUDE.local.md` load?', options: ['Right after `CLAUDE.md` in the same directory', 'Before every other file', 'Only when Claude opens it with a tool', 'Only after `/compact`'], answer: 0, why: 'In each directory, `CLAUDE.local.md` is appended after `CLAUDE.md`.' },
 					{ q: 'Why is the line "Never open `.env`" not enough on its own?', options: ['Claude cannot read dotfiles anyway', 'Lines about files are skipped', 'It sits past line 200, so it never loads', '`CLAUDE.md` is a user message Claude follows with no guarantee'], answer: 3, why: 'Claude tries to follow `CLAUDE.md`, but nothing enforces it.' },
-					{ q: 'What do you add so `.env` stays closed even when Claude ignores the line?', options: ['The same line in capital letters', 'A copy of the line in `CLAUDE.local.md`', 'A `deny` rule such as `Read(./.env)` in `.claude/settings.json`', 'A repeat of the line in `~/.claude/CLAUDE.md`'], answer: 2, why: 'Permission rules are checked by the client before the tool runs, whatever Claude decided.' }
+					{ q: 'Once every block has moved or gone, about how long is `CLAUDE.md`?', options: ['About 330 lines', 'About 200 lines', 'About 25 lines', 'Still 450 lines'], answer: 2, why: 'Only the 20 build and test lines and the `.env` line stay, plus a few headings. The React rules, the layout and the staging URL have left.' }
 				]
 			}
 		]

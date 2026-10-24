@@ -130,7 +130,7 @@ export default {
 				title: 'Count the calls',
 				questions: [
 					{ q: 'With no reference answers, which grading style fits a comparison of A and B?', options: ['A 1 to 5 score for each answer alone', 'Pairwise: both answers in one call', 'Exact match against A', 'ROUGE between A and B'], answer: 1, why: 'To compare two prompts, the chapter shows both answers in one call and asks which is better.' },
-					{ q: 'Why grade each pair twice?', options: ['To average out the API cost', 'Because the first call warms the cache', 'Because judges prefer an answer for its position', 'Because the judge forgets the rubric'], answer: 2, why: 'In the study, Claude-v1 picked the first answer 75.0% of the time. Swapping the order exposes that bias.' },
+					{ q: 'You also add three examples to the judge prompt. In the study, what did that do to the cost of each call?', options: ['Nothing', 'It halved it', 'It made it about 4 times higher', 'It made it about 10 times higher'], answer: 2, why: 'The study saw three examples in the judge prompt make calls 4× more expensive, on top of the doubling from grading both orders.' },
 					{ q: 'How many grading calls do 300 questions need?', options: ['600', '300', '900', '1,200'], answer: 0, why: '300 pairs, each graded in both orders: 300 × 2 = 600 calls.' },
 					{ q: 'What does the judge write before its verdict?', options: ['Nothing: only the verdict', 'A copy of both answers', 'A 1 to 5 confidence score', 'Its explanation'], answer: 3, why: 'The docs advise reasoning before the score, so the explanation comes first and the verdict last.' }
 				]
@@ -138,8 +138,8 @@ export default {
 			{
 				title: 'Define a win',
 				questions: [
-					{ q: 'When does B win a question?', options: ['When the judge prefers it in the first call', 'When the judge prefers it in both orders', 'When the judge prefers it in at least one order', 'When its answer is longer'], answer: 1, why: 'The study\'s method declares a win only when an answer is preferred in both orders.' },
-					{ q: 'In the A,B order the judge picks A. In the B,A order it picks B. What do you record?', options: ['A win for A', 'A win for B', 'A grader error', 'A tie'], answer: 3, why: 'A verdict that follows the position says nothing about the content, so it counts as a tie.' },
+					{ q: 'The judge prefers B in both orders on 120 questions, A in both orders on 60, and the verdict flips on the other 120. What is the tally?', options: ['B 240, A 60', 'B 120, A 60, 120 ties', 'B 180, A 120', 'B 120, A 180'], answer: 1, why: 'Only a preference that holds in both orders is a win, so the 120 flipped questions are ties.' },
+					{ q: 'Most of the 300 questions end as ties. What does that tell you?', options: ['B is much better than A', 'The judge had too few calls', 'A and B gave identical answers', 'On those questions, the judge followed the order, not the content'], answer: 3, why: 'A verdict that flips with the swap says nothing about which answer is better. Many ties mean the judge mostly followed the position.' },
 					{ q: 'What do you report at the end?', options: ['Wins, losses and ties', 'Only the win rate of B', 'The average score of A and B', 'Only the questions B won'], answer: 0, why: 'Ties are real results here: they mark the questions where the judge only followed the order.' },
 					{ q: 'B pads its answers with a reworded copy of its list. What is the risk?', options: ['None: the judge sees the same facts', 'The judge refuses to grade it', 'The judge may be fooled into preferring it', 'The answer fails to parse'], answer: 2, why: 'In the study\'s "repetitive list" test, padding fooled Claude-v1 and GPT-3.5 in 91.3% of cases.' }
 				]
@@ -149,14 +149,14 @@ export default {
 				questions: [
 					{ q: 'A judge reply has no verdict tag. What is it?', options: ['A tie', 'A grader failure', 'A loss for the second answer', 'A win for the first answer'], answer: 1, why: 'The code reads only the verdict tag, so a reply without one is a failure of the grader, not of A or B.' },
 					{ q: 'Where does an API error during grading go?', options: ['Into a separate "grader error" count, then a retry', 'Into the losses of A', 'Into the ties', 'Nowhere: it is dropped silently'], answer: 0, why: 'Folded into a verdict, grader failures would change the score of the prompts you test.' },
-					{ q: 'A grader wraps the call in `except Exception` and returns "incorrect". What can happen?', options: ['The run crashes at the first error', 'The judge retries on its own', 'Errors are counted as ties', 'Every answer fails, with no crash'], answer: 3, why: 'With a prefill that Claude 4.6 and later reject, every call errors, and every answer is stored as failed.' },
+					{ q: 'How does your code find the verdict in a judge reply?', options: ['It reads the first word of the reply', 'It asks a second model to read the reply', 'It reads the explanation and guesses', 'It searches for the verdict tag, as `re.search` does for `<is_correct>`'], answer: 3, why: 'The code reads only the verdict tag and keeps the explanation for people. No tag found means a grader failure.' },
 					{ q: 'Why not count a missing verdict as a loss?', options: ['It would lower the score for a reason that has nothing to do with the answer', 'Losses are not reported', 'The rubric forbids it', 'It would double the calls'], answer: 0, why: 'A grader error says something about the grader, not about the prompt under test.' }
 				]
 			},
 			{
 				title: 'Check the judge',
 				questions: [
-					{ q: 'How do you check the judge before you report "B wins"?', options: ['Ask the judge for its confidence', 'Run it twice and compare its scores', 'People grade a sample by hand and you compare', 'Use the largest model available'], answer: 2, why: 'Only human labels tell you whether the judge measures what people mean by a good answer.' },
+					{ q: 'Which pairs do the two people grade by hand?', options: ['All 300 pairs', 'Only the ties', 'The same random 50 pairs', 'Only the pairs B won'], answer: 2, why: 'Both people grade the same random sample, so you can compare each of them with the judge and with each other.' },
 					{ q: 'Which two agreement rates do you compute?', options: ['Judge with each person, and person with person', 'Judge with itself, and A with B', 'Judge with A, and judge with B', 'Person with A, and person with B'], answer: 0, why: 'The human to human figure is the bar the judge is compared with.' },
 					{ q: 'In the study, how did the best judge compare with experts?', options: ['50% against 81%', '23.8% against 75%', '91.3% against 85%', '85% against 81% between experts'], answer: 3, why: 'GPT-4 agreed with experts on 85% of non-tie votes, and the experts agreed with each other on 81%.' },
 					{ q: 'The judge agrees with people far less than they agree with each other. What do you do?', options: ['Report the result with a warning', 'Fix the rubric first', 'Grade more questions with the same judge', 'Drop the human sample'], answer: 1, why: 'A judge far below the human figure cannot stand in for people, so you fix it before you trust its score.' }

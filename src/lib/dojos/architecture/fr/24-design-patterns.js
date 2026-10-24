@@ -109,6 +109,44 @@ export default {
 			'Laisse `ProviderManager` tel quel. Sa boucle essaie déjà chaque provider qui prend le token, et il publie déjà l’événement de succès, donc chaque listener existant couvre aussi la nouvelle méthode.',
 			'Pas de template method ici : `AbstractUserDetailsAuthenticationProvider` ne prend que les tokens nom d’utilisateur et mot de passe, donc un provider de clé implémente l’interface directement.',
 			'Le risque à nommer : la recherche de la clé, c’est du nouveau code de sécurité. Reprends le soin de `DaoAuthenticationProvider`, qui atténue les attaques temporelles quand un utilisateur n’est pas trouvé, et ne logue jamais la clé.'
+		],
+		steps: [
+			{
+				title: 'Trouve ce qui lit la requête',
+				questions: [
+					{ q: 'Quelle pièce lit le header `X-Api-Key` ?', options: ['Un nouvel `AuthenticationProvider`', '`ProviderManager`', 'Un nouveau filtre dans la chaîne de filtres de sécurité', 'Un listener de `AuthenticationSuccessEvent`'], answer: 2, why: 'Les filtres sont les pièces qui voient la requête HTTP. Les providers ne voient qu’un token.' },
+					{ q: 'Quel pattern suivent les filtres de sécurité ?', options: ['Strategy', 'Chain of responsibility', 'Observer', 'Adapter'], answer: 1, why: 'Chaque filtre fait sa part, puis passe la requête au suivant, ou l’arrête.' },
+					{ q: 'Le filtre a construit un token de clé d’API. À qui le passe-t-il ?', options: ['À l’`AuthenticationManager`', 'Au `UserDetailsService`', 'Seulement au filtre suivant', 'À `PasswordEncoderFactories`'], answer: 0, why: 'Le filtre lit, le manager décide. Vérifier la clé n’est pas le travail du filtre.' },
+					{ q: 'Qu’est-ce que le filtre doit appeler à la fin pour que la requête continue ?', options: ['`publishAuthenticationSuccess`', '`retrieveUser`', '`supports`', '`chain.doFilter`'], answer: 3, why: 'Un filtre qui n’appelle pas `chain.doFilter` arrête la requête là.' }
+				]
+			},
+			{
+				title: 'Trouve ce qui décide',
+				questions: [
+					{ q: 'Quelle pièce décide si la clé est valide ?', options: ['Le nouveau filtre', 'Un nouvel `AuthenticationProvider`', '`FilterChainProxy`', '`DelegatingPasswordEncoder`'], answer: 1, why: 'Le `authenticate` d’un provider va chercher la clé et renvoie un résultat ou échoue.' },
+					{ q: 'Qu’accepte le `supports` du nouveau provider ?', options: ['Toutes les classes de token', 'Seulement les tokens nom d’utilisateur et mot de passe', 'Seulement la classe du token de clé d’API', 'Seulement les JWT'], answer: 2, why: 'Dire « pas pour moi » à tous les autres tokens le tient à l’écart des autres méthodes de connexion.' },
+					{ q: 'Quel pattern est chaque `AuthenticationProvider` ?', options: ['Template method', 'Factory', 'Chain of responsibility', 'Strategy'], answer: 3, why: 'Des implémentations interchangeables d’une même interface, essayées l’une après l’autre par un appelant qui ne nomme jamais leurs classes.' },
+					{ q: 'Comment le nouveau provider rejoint-il les autres ?', options: ['Tu l’enregistres avec les autres providers', 'Tu ajoutes un `if` pour les clés d’API dans `ProviderManager`', 'Tu crées une sous-classe de `ProviderManager`', 'Tu remplaces `DaoAuthenticationProvider`'], answer: 0, why: 'Une nouvelle méthode de connexion, c’est un nouveau provider dans la liste.' }
+				]
+			},
+			{
+				title: 'Dis ce que tu laisses tel quel',
+				questions: [
+					{ q: 'Est-ce que tu modifies `ProviderManager` ?', options: ['Oui : tu ajoutes une branche pour les clés d’API', 'Non : sa boucle essaie déjà chaque provider qui prend le token', 'Oui : tu le places devant les filtres', 'Non, mais tu le copies dans un nouveau manager'], answer: 1, why: 'La boucle de strategy est la raison pour laquelle le nouveau provider ne demande aucun changement ailleurs.' },
+					{ q: 'Comment `ProviderManager` choisit-il un résultat ?', options: ['Il saute les providers dont `supports` dit non et garde le premier résultat non nul', 'Il interroge tous les providers et garde le dernier résultat', 'Il choisit un provider au hasard', 'Il n’appelle que le premier provider de la liste'], answer: 0, why: 'Il s’arrête au premier résultat qui n’est pas nul.' },
+					{ q: 'Un listener écrit une ligne d’audit à chaque connexion réussie. Faut-il le modifier pour les clés d’API ?', options: ['Oui : il ne connaît que les mots de passe', 'Oui : il faut l’enregistrer sur le nouveau filtre', 'Non : `ProviderManager` publie déjà l’événement de succès pour chaque provider', 'Seulement si la clé est un JWT'], answer: 2, why: 'L’événement vient de `ProviderManager`, pas d’un provider : la nouvelle méthode est couverte gratuitement.' },
+					{ q: 'Quel pattern permet à ce listener de marcher sans que `ProviderManager` le connaisse ?', options: ['Adapter', 'Observer', 'Decorator', 'Template method'], answer: 1, why: 'Chaque listener reçoit l’événement, et celui qui le publie ne sait pas qui ils sont.' }
+				]
+			},
+			{
+				title: 'Vérifie ce qui ne colle pas',
+				questions: [
+					{ q: 'Pourquoi ne pas étendre `AbstractUserDetailsAuthenticationProvider` ?', options: ['La classe est `final`', 'Elle ne prend que les tokens nom d’utilisateur et mot de passe', 'Elle n’a pas de méthode `authenticate`', 'Elle ne marche qu’avec les JWT'], answer: 1, why: 'Ses étapes fixes chargent un utilisateur et vérifient un mot de passe. Un token de clé d’API ne passe pas par là.' },
+					{ q: 'Alors comment écris-tu le provider de clé ?', options: ['Tu étends `DaoAuthenticationProvider`', 'Tu enveloppes un `InputStreamReader`', 'Tu implémentes `AuthenticationProvider` directement', 'Tu redéfinis `ProviderManager.authenticate`'], answer: 2, why: 'Aucun template method ne convient, donc tu implémentes l’interface toi-même.' },
+					{ q: 'Quel est le risque à nommer ?', options: ['La recherche de la clé, c’est du nouveau code de sécurité', '`ProviderManager` ralentit avec un provider de plus', 'La chaîne de filtres devient trop longue', 'Les listeners peuvent rater l’événement'], answer: 0, why: 'Du nouveau code qui décide qui entre mérite le plus de soin dans ce changement.' },
+					{ q: 'Quel soin reprends-tu de `DaoAuthenticationProvider` ?', options: ['Mettre chaque clé en cache pour toujours', 'Stocker les clés avec un préfixe `{bcrypt}`', 'Sauter les pré-vérifications pour aller plus vite', 'Atténuer les attaques temporelles en cas d’échec, et ne jamais loguer la clé'], answer: 3, why: '`DaoAuthenticationProvider` atténue les attaques temporelles quand un utilisateur n’est pas trouvé. Une clé dans un log est une clé qui a fuité.' }
+				]
+			}
 		]
 	},
 	quiz: [

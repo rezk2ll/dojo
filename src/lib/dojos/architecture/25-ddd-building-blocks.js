@@ -102,6 +102,44 @@ export default {
 			'Option 1, a small new aggregate: a vet booking keyed by vet and time slot, inserted under a unique index in the same transaction as the visit. The second booking for the same slot fails on the index. Cost: a new table, the visit now references the booking by id, and one transaction now writes two aggregates. You break Vernon\'s rule on purpose, for an invariant that must never break.',
 			'Option 2, accept the race and repair: detect overlapping visits afterwards and call the later client to move. Cost: now and then, a client gets a call to change an appointment.',
 			'Worth asking first: how often do two desks book the same vet at the same minute? If almost never, option 2 may be enough.'
+		],
+		steps: [
+			{
+				title: 'Find where the data lives',
+				questions: [
+					{ q: 'What data does the rule "a vet never has two visits at the same time" need?', options: ['Every visit of that vet', 'The visits of one owner', 'The birth date of the pet', 'Only the vet\'s name'], answer: 0, why: 'To know a slot is free, you must see all the vet\'s visits, whoever owns the pet.' },
+					{ q: 'Where do one vet\'s visits sit today?', options: ['In the vet aggregate', 'In one `Owner` aggregate', 'Spread over many owners\' aggregates', 'Inside `VetRepository`'], answer: 2, why: 'Visits live inside each `Owner`, so one vet\'s visits are in many owners.' },
+					{ q: 'Which rule does the `Owner` root enforce today?', options: ['That the visit is in the future', 'That the pet belongs to this owner', 'That the vet is free', 'That the address is valid'], answer: 1, why: '`Owner.addVisit` refuses a pet that is not one of this owner\'s. The future-date rule sits in the controller.' },
+					{ q: 'What is an invariant?', options: ['A field that never changes', 'A database index', 'A rule checked once a day', 'A rule that must always hold, checked inside the aggregate'], answer: 3, why: 'An aggregate is the unit that keeps its invariants true on every change.' }
+				]
+			},
+			{
+				title: 'Rule out the easy place',
+				questions: [
+					{ q: 'Can `Owner.addVisit` enforce the rule?', options: ['Yes: it already checks the pet', 'No: it only sees this owner\'s visits', 'Yes, because pets load eagerly', 'No: `Owner` has no `addVisit`'], answer: 1, why: 'The other visits of the vet sit in other owners\' aggregates, out of reach.' },
+					{ q: 'What does Vernon\'s rule say?', options: ['Model true invariants inside one consistency boundary, and use eventual consistency between aggregates', 'Put every rule in the controller', 'Make one aggregate per table', 'Always write all aggregates in one transaction'], answer: 0, why: 'One aggregate, one transaction. Between aggregates, things catch up later.' },
+					{ q: 'Why not put the check in the visit controller?', options: ['Controllers cannot read the database', 'Spring forbids checks in controllers', 'A check in a controller only guards that one path', 'A controller check is always too slow'], answer: 2, why: 'Another entry point skips the rule, like the future-date check PetClinic keeps in its controller.' },
+					{ q: 'The chapter lists this kind of rule as a cost of aggregates. Which kind is it?', options: ['A rule about one value object', 'A rule that spans many aggregates', 'A rule inside one entity', 'A rule about how ids are made'], answer: 1, why: '"A vet is never double-booked" across many owners cannot be enforced inside one aggregate.' }
+				]
+			},
+			{
+				title: 'Design option 1',
+				questions: [
+					{ q: 'Option 1 adds a small aggregate, a vet booking. What is its key?', options: ['The vet and the time slot', 'The owner and the pet', 'The pet and the date', 'Only the visit id'], answer: 0, why: 'One row per vet and slot is exactly what the rule is about.' },
+					{ q: 'What stops a second booking for the same slot?', options: ['A check in the controller', 'A nightly job', 'A unique index, in the same transaction as the visit', 'The `Owner` root'], answer: 2, why: 'The second insert for the same vet and slot fails on the index.' },
+					{ q: 'How does the visit refer to the booking?', options: ['By holding the whole booking object', 'By id', 'By the vet\'s name', 'It does not refer to it'], answer: 1, why: 'The visit keeps only the booking\'s id, so the booking stays its own aggregate.' },
+					{ q: 'What do you break on purpose with option 1?', options: ['Value objects must be immutable', 'Entities need an id', 'Repositories return whole aggregates', 'One transaction now writes two aggregates'], answer: 3, why: 'You go against Vernon\'s rule, for an invariant that must never break. It also costs a new table.' }
+				]
+			},
+			{
+				title: 'Weigh option 2 and choose',
+				questions: [
+					{ q: 'What does option 2 do?', options: ['Accept the race, find overlaps afterwards, and call the later client to move', 'Lock every owner while one desk books', 'Refuse every booking for a busy vet', 'Merge all owners into one aggregate'], answer: 0, why: 'It lets the rare clash happen and repairs it by hand.' },
+					{ q: 'What does option 2 cost?', options: ['A new table and a unique index', 'Now and then, a client gets a call to change an appointment', 'A transaction across every owner', 'Nothing at all'], answer: 1, why: 'No new structure, but a real person sometimes has to move a visit.' },
+					{ q: 'What do you ask before you choose?', options: ['How many pets each owner has', 'Which database holds the vets', 'How often two desks book the same vet at the same minute', 'Whether the vets prefer email'], answer: 2, why: 'The cost of option 2 grows with how often the clash happens.' },
+					{ q: 'Two desks almost never book the same vet at the same minute. Which option may be enough?', options: ['Option 1', 'Option 2', 'Neither: put the rule in `Owner`', 'Both at once'], answer: 1, why: 'If the clash is rare, an occasional phone call is cheaper than a new aggregate.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -99,6 +99,44 @@ after_initialize do
 			'Vérifie : des dossiers de premier niveau nommés `controllers/services/repositories` indiquent un partitionnement technique. Des dossiers de premier niveau nommés d’après les zones métier indiquent un partitionnement par domaine.',
 			'Vérifie : au moins une caractéristique a pris un moins. Chaque style en a un, et le jour 1 disait que chaque choix est un compromis.',
 			'Bonus : écris une phrase sur ce qui devrait changer pour passer au style suivant. Tu peux en faire un ADR.'
+		],
+		steps: [
+			{
+				title: 'Lis le code, pas le wiki',
+				questions: [
+					{ q: 'Où regardes-tu pour nommer le style d’un composant ?', options: ['Le code : les dossiers, les unités déployables, comment les parties se parlent', 'La page wiki de l’équipe', 'Le style que l’équipe veut atteindre', 'Le nom du dépôt'], answer: 0, why: 'Le style, c’est ce que fait le code aujourd’hui. Un wiki ou un plan décrit ce que quelqu’un espère.' },
+					{ q: 'Le dossier `app/` de Discourse contient `controllers`, `models`, `serializers` et `jobs`. Quel partitionnement est-ce ?', options: ['Un partitionnement par domaine', 'Un partitionnement technique', 'Un partitionnement par plugin', 'Aucun partitionnement'], answer: 1, why: 'Ces dossiers portent des noms de couches, pas des noms métier.' },
+					{ q: 'Que montreraient des dossiers de premier niveau nommés `topics`, `polls` et `chat` ?', options: ['Un monolithe en couches', 'Des microservices, par définition', 'Un partitionnement par domaine', 'Un pipeline'], answer: 2, why: 'Des dossiers nommés d’après les zones métier veulent dire que le code est découpé par domaine. Ça ne dit rien du nombre d’unités déployables.' },
+					{ q: 'Dans Discourse, les topics, les posts et les utilisateurs vivent chacun dans plusieurs dossiers de couche. Qu’est-ce que ça fait du back end ?', options: ['Un monolithe modulaire', 'Du service-based', 'Des microservices', 'Un monolithe en couches'], answer: 3, why: 'Une seule app Rails découpée par couche technique, c’est un monolithe en couches.' }
+				]
+			},
+			{
+				title: 'Compte les parties et comment elles se parlent',
+				questions: [
+					{ q: 'Que déploie Discourse ?', options: ['Une seule app Rails, lancée en processus web et Sidekiq', 'Une app par plugin', '11 services, un par fonctionnalité', 'Deux apps, une pour les topics et une pour le chat'], answer: 0, why: 'Les workers Sidekiq font tourner la même base de code comme un deuxième type de processus. Ça reste une seule app.' },
+					{ q: 'Comment les plugins de Discourse se branchent-ils sur le cœur ?', options: ['En gRPC', 'Par un broker de messages partagé', 'Par l’API de plugin : `on(event)`, `add_to_serializer`, `add_to_class`', 'En forkant le dépôt'], answer: 2, why: 'Chaque `plugin.rb` appelle l’API de plugin, et ces appels sont le contrat entre le cœur et le plugin.' },
+					{ q: 'Un petit cœur plus 46 plugins qui ajoutent des fonctionnalités. Quel style est-ce ?', options: ['Space-based', 'SOA pilotée par l’orchestration', 'Pipeline', 'Microkernel'], answer: 3, why: 'Un cœur plus des plugins, c’est le style microkernel, aussi appelé architecture à plugins.' },
+					{ q: '`PostCreator` déclenche `:post_created`, et `DiscourseEvent` appelle chaque bloc avant que `create` ne rende la main. Qu’est-ce que c’est ?', options: ['Des événements entre services, par un broker', 'Des événements dans le processus, exécutés en ligne', 'Un appel gRPC direct', 'Un job planifié'], answer: 1, why: '`DiscourseEvent` est un hash de blocs en mémoire. Les handlers tournent à l’intérieur de `create`.' }
+				]
+			},
+			{
+				title: 'Nomme le style',
+				questions: [
+					{ q: 'Quel nom décrit le mieux Discourse ?', options: ['Des microservices', 'Un monolithe en couches avec un microkernel dedans', 'Du pur event-driven', 'Du space-based'], answer: 1, why: 'Une seule app découpée par couche, plus un cœur à plugins. « X avec Y dedans » est le nom honnête.' },
+					{ q: 'Qu’est-ce qui fait d’Online Boutique des microservices, et pas de Discourse ?', options: ['Boutique utilise Redis', 'Boutique a plus de plugins', 'Chaque service de Boutique est construit et déployé à part', 'Discourse n’a pas de base de données'], answer: 2, why: 'Boutique, ce sont 11 services qui se parlent en gRPC, chacun déployé à part. Discourse livre une seule app.' },
+					{ q: 'Ton composant mélange deux styles. Est-ce une erreur ?', options: ['Non : la plupart des vrais systèmes mélangent plusieurs styles', 'Oui : un système doit avoir un seul style', 'Seulement s’il a plus d’une base de données', 'Seulement si les deux styles viennent de livres différents'], answer: 0, why: 'Discourse lui-même est en couches, microkernel et utilise des événements. Le mélange est le cas normal.' },
+					{ q: 'L’équipe parle de « microservices », mais tout se déploie d’un bloc. Qu’écris-tu ?', options: ['Microservices, puisque c’est le plan', 'Rien tant que la migration n’est pas finie', 'Service-based, comme compromis', 'Le style que le code montre aujourd’hui'], answer: 3, why: 'Une seule unité déployable, ce n’est pas des microservices. Nomme-le d’après le code, pas d’après l’objectif.' }
+				]
+			},
+			{
+				title: 'Note-le sur tes caractéristiques',
+				questions: [
+					{ q: 'Discourse tourne comme une app, une base, une transaction autour d’un post. Note « facile à déployer et à déboguer ».', options: ['+', '=', '-', 'Impossible à dire'], answer: 0, why: 'Une seule chose à déployer et à déboguer, c’est le gain principal de ce monolithe.' },
+					{ q: 'Les plugins partagent le processus du cœur et peuvent patcher ses classes. Note « une panne reste dans une seule zone ».', options: ['+', '=', '-', 'Impossible à dire'], answer: 2, why: 'Un plugin lent ou cassé ralentit ou casse tout le monde, et un bug dans une zone peut faire tomber toutes les autres.' },
+					{ q: 'Tes trois notes sont toutes des +. Que dit la vérification ?', options: ['Bien : le style colle parfaitement', 'Regarde encore : chaque style a au moins un moins', 'Ajoute une quatrième caractéristique jusqu’à obtenir un moins', 'Fais voter l’équipe sur les notes'], answer: 1, why: 'Chaque choix est un compromis. Trois + veulent souvent dire que tu as noté l’espoir, pas le code.' },
+					{ q: 'À quoi sert la phrase bonus ?', options: ['Dire ce qui devrait changer pour passer au style suivant, le début d’un ADR', 'Lister chaque fichier à supprimer', 'Défendre le style actuel devant la direction', 'Désigner qui fera la migration'], answer: 0, why: 'Une phrase sur ce qui doit changer, c’est une décision que tu peux écrire et discuter.' }
+				]
+			}
 		]
 	},
 	quiz: [

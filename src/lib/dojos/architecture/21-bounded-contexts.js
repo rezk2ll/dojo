@@ -108,6 +108,44 @@ export default {
 			'Translate: keep the existing visibilities and map the new collection on purpose in `StatusParser#visibility`, probably to `:private`. Only the ACL changes.',
 			'Either way, the other servers decided the change. They are upstream and Mastodon is downstream for incoming posts, so Mastodon has to adapt.',
 			'A good answer names when to revisit the choice: if Mastodon users start asking to post to mutuals, adding the visibility is worth the cost.'
+		],
+		steps: [
+			{
+				title: 'Read what happens today',
+				questions: [
+					{ q: 'A post arrives addressed to the new "only mutual followers" collection. Which branch of `StatusParser#visibility` does it hit?', options: ['The first one: `:public`', 'The second one: `:unlisted`', 'The third one: `:private`', 'The last one: `:direct`'], answer: 3, why: 'The collection is neither public nor the followers collection, so it falls into the last branch, like any address the parser does not recognize.' },
+					{ q: 'The parser returned `:direct`. What may the `Create` handler do next?', options: ['Drop the post', 'Relabel it `:limited`', 'Turn it into `:public`', 'Send it back to the other server'], answer: 1, why: 'The handler may relabel such a post `:limited`. Either way, it still reaches someone.' },
+					{ q: 'What is the risk for the author with today\'s behavior?', options: ['The post may reach fewer people than they meant', 'The post is shown to everyone on the server', 'The post is rejected and retried forever', 'The post arrives without its text'], answer: 0, why: 'The post is not lost, but the fallback picks an audience nobody chose.' },
+					{ q: 'Which part of Mastodon reads the `to` and `cc` lists?', options: ['The home timeline', 'The `Status` model', 'The status parser, in the ACL', 'The `LikeSerializer`'], answer: 2, why: 'Only the anti-corruption layer sees address lists. Code behind it only knows `visibility`.' }
+				]
+			},
+			{
+				title: 'Draw the context map',
+				questions: [
+					{ q: 'For incoming posts, which side is upstream?', options: ['Mastodon', 'The other servers', 'The `toot:` namespace', 'Neither: the two sides are equal'], answer: 1, why: 'The other servers decided the change. For incoming posts they are upstream and Mastodon is downstream.' },
+					{ q: 'What sits at the border between the other servers and Mastodon?', options: ['A shared database', 'A shared kernel both sides edit', 'The published language: ActivityPub and ActivityStreams', 'Mastodon\'s `toot:` extensions'], answer: 2, why: 'ActivityPub and ActivityStreams are the shared, documented format every server speaks at the border.' },
+					{ q: 'Who owns the inbound anti-corruption layer?', options: ['Mastodon, the downstream context', 'The upstream servers', 'The W3C', 'Both sides, half each'], answer: 0, why: 'An anti-corruption layer is a translation owned by the downstream side.' },
+					{ q: 'On this map, what would "conformist" mean for Mastodon?', options: ['It adopts the upstream audience as it is, as a new visibility', 'It maps the new audience to an old one in its ACL', 'It ignores every post sent to the new collection', 'It asks the W3C to change the spec first'], answer: 0, why: 'A conformist takes the upstream model as it is. Here that means a new visibility in Mastodon\'s own model.' }
+				]
+			},
+			{
+				title: 'Weigh the two options',
+				questions: [
+					{ q: 'Mastodon conforms. What does it change first?', options: ['Only `StatusParser#visibility`', 'The `visibility` column of `Status`', 'The `LikeSerializer`', 'The `toot:` namespace'], answer: 1, why: 'Conforming adds a new value to the model itself, starting with the `visibility` column.' },
+					{ q: 'After the new column value, what else must learn it?', options: ['Only the inbox', 'Nothing: the column is enough', 'Every timeline, permission check and serializer', 'Only the outbound serializers'], answer: 2, why: 'Everything that reads `visibility` has to know what the new value means.' },
+					{ q: 'Mastodon translates instead. Which existing visibility is the likely target?', options: ['`:public`', '`:unlisted`', '`:direct`', '`:private`'], answer: 3, why: 'Mutual followers are followers, so `:private` is the closest audience Mastodon already has.' },
+					{ q: 'What cost of conforming does translating avoid?', options: ['Taking on a concept Mastodon users may not need', 'Losing the post entirely', 'Having to stop speaking ActivityPub', 'Forcing the other servers to change code'], answer: 0, why: 'Translating keeps the model as it is. Conforming adds a concept the whole codebase must carry.' }
+				]
+			},
+			{
+				title: 'Say where the code changes',
+				questions: [
+					{ q: 'You choose to translate. Which code changes?', options: ['Every timeline query', 'Only the ACL, in `StatusParser#visibility`', 'The `Status` model and its column', 'The `NoteSerializer`'], answer: 1, why: 'The mapping lives in the parser, so only the ACL changes.' },
+					{ q: 'Why map the collection on purpose instead of keeping today\'s fallback?', options: ['Today it lands in `:direct` by default, not by choice', 'The parser crashes on unknown addresses', 'ActivityPub forbids direct posts', 'Timelines cannot show `:direct` posts'], answer: 0, why: 'The last branch catches every unknown address. A named mapping says what Mastodon actually wants.' },
+					{ q: 'When should you revisit the choice to translate?', options: ['When another server adds a second collection', 'When Mastodon users start asking to post to mutuals', 'When the W3C publishes a new version', 'Never: translating is always cheaper'], answer: 1, why: 'Once Mastodon\'s own users want the concept, adding the visibility is worth its cost.' },
+					{ q: 'Why can timelines stay untouched if you translate?', options: ['They only know `visibility`, never `to` and `cc`', 'They read the raw JSON later', 'The other servers translate for them', 'The factory drops the new collection'], answer: 0, why: 'The ACL keeps the ActivityStreams words at the edge. Timelines, filters and notifications never see them.' }
+				]
+			}
 		]
 	},
 	quiz: [

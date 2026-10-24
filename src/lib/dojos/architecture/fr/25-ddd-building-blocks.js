@@ -102,6 +102,44 @@ export default {
 			'Option 1, un petit aggregate nouveau : une réservation de vétérinaire, avec comme clé le vétérinaire et le créneau, insérée sous un index unique dans la même transaction que la visite. La deuxième réservation sur le même créneau échoue sur l’index. Coût : une nouvelle table, la visite référence maintenant la réservation par id, et une seule transaction écrit désormais deux aggregates. Tu enfreins la règle de Vernon exprès, pour un invariant qui ne doit jamais casser.',
 			'Option 2, accepter la course et réparer : détecter les visites qui se chevauchent après coup et appeler le client arrivé en second pour déplacer son rendez-vous. Coût : de temps en temps, un client reçoit un appel pour changer son rendez-vous.',
 			'À demander d’abord : à quelle fréquence deux postes d’accueil réservent-ils le même vétérinaire à la même minute ? Si c’est presque jamais, l’option 2 peut suffire.'
+		],
+		steps: [
+			{
+				title: 'Trouve où sont les données',
+				questions: [
+					{ q: 'De quelles données la règle « un vétérinaire n’a jamais deux visites à la même heure » a-t-elle besoin ?', options: ['De toutes les visites de ce vétérinaire', 'Des visites d’un seul propriétaire', 'De la date de naissance de l’animal', 'Seulement du nom du vétérinaire'], answer: 0, why: 'Pour savoir qu’un créneau est libre, tu dois voir toutes les visites du vétérinaire, quel que soit le propriétaire de l’animal.' },
+					{ q: 'Où sont les visites d’un même vétérinaire aujourd’hui ?', options: ['Dans l’aggregate du vétérinaire', 'Dans un seul aggregate `Owner`', 'Réparties dans les aggregates de nombreux propriétaires', 'Dans `VetRepository`'], answer: 2, why: 'Les visites vivent dans chaque `Owner` : les visites d’un vétérinaire sont donc chez de nombreux propriétaires.' },
+					{ q: 'Quelle règle la racine `Owner` fait-elle respecter aujourd’hui ?', options: ['Que la visite est dans le futur', 'Que l’animal appartient à ce propriétaire', 'Que le vétérinaire est libre', 'Que l’adresse est valide'], answer: 1, why: '`Owner.addVisit` refuse un animal qui n’est pas à ce propriétaire. La règle de la date future est dans le controller.' },
+					{ q: 'Qu’est-ce qu’un invariant ?', options: ['Un champ qui ne change jamais', 'Un index de base de données', 'Une règle vérifiée une fois par jour', 'Une règle qui doit toujours tenir, vérifiée à l’intérieur de l’aggregate'], answer: 3, why: 'Un aggregate est l’unité qui garde ses invariants vrais à chaque changement.' }
+				]
+			},
+			{
+				title: 'Écarte la place facile',
+				questions: [
+					{ q: 'Est-ce que `Owner.addVisit` peut faire respecter la règle ?', options: ['Oui : elle vérifie déjà l’animal', 'Non : elle ne voit que les visites de ce propriétaire', 'Oui, parce que les animaux sont chargés en eager', 'Non : `Owner` n’a pas de `addVisit`'], answer: 1, why: 'Les autres visites du vétérinaire sont dans les aggregates d’autres propriétaires, hors de portée.' },
+					{ q: 'Que dit la règle de Vernon ?', options: ['Modélise les vrais invariants dans une seule frontière de cohérence, et utilise la cohérence à terme entre aggregates', 'Mets chaque règle dans le controller', 'Fais un aggregate par table', 'Écris toujours tous les aggregates dans une seule transaction'], answer: 0, why: 'Un aggregate, une transaction. Entre aggregates, les choses se rattrapent plus tard.' },
+					{ q: 'Pourquoi ne pas mettre la vérification dans le controller des visites ?', options: ['Les controllers ne peuvent pas lire la base', 'Spring interdit les vérifications dans les controllers', 'Une vérification dans un controller ne protège que ce chemin-là', 'Une vérification dans un controller est toujours trop lente'], answer: 2, why: 'Un autre point d’entrée saute la règle, comme le contrôle de date future que PetClinic garde dans son controller.' },
+					{ q: 'Le chapitre range ce genre de règle parmi les coûts des aggregates. De quel genre s’agit-il ?', options: ['Une règle sur un seul value object', 'Une règle qui couvre plusieurs aggregates', 'Une règle à l’intérieur d’une seule entité', 'Une règle sur la façon de créer les id'], answer: 1, why: '« Un vétérinaire n’est jamais réservé deux fois » sur de nombreux propriétaires ne peut pas être garanti dans un seul aggregate.' }
+				]
+			},
+			{
+				title: 'Conçois l’option 1',
+				questions: [
+					{ q: 'L’option 1 ajoute un petit aggregate, une réservation de vétérinaire. Quelle est sa clé ?', options: ['Le vétérinaire et le créneau', 'Le propriétaire et l’animal', 'L’animal et la date', 'Seulement l’id de la visite'], answer: 0, why: 'Une ligne par vétérinaire et par créneau, c’est exactement le sujet de la règle.' },
+					{ q: 'Qu’est-ce qui bloque une deuxième réservation sur le même créneau ?', options: ['Une vérification dans le controller', 'Un job de nuit', 'Un index unique, dans la même transaction que la visite', 'La racine `Owner`'], answer: 2, why: 'La deuxième insertion pour le même vétérinaire et le même créneau échoue sur l’index.' },
+					{ q: 'Comment la visite référence-t-elle la réservation ?', options: ['En contenant tout l’objet réservation', 'Par id', 'Par le nom du vétérinaire', 'Elle ne la référence pas'], answer: 1, why: 'La visite ne garde que l’id de la réservation : la réservation reste un aggregate à part.' },
+					{ q: 'Qu’enfreins-tu exprès avec l’option 1 ?', options: ['Les value objects doivent être immuables', 'Les entités ont besoin d’un id', 'Les repositories renvoient des aggregates entiers', 'Une seule transaction écrit désormais deux aggregates'], answer: 3, why: 'Tu vas contre la règle de Vernon, pour un invariant qui ne doit jamais casser. Ça coûte aussi une nouvelle table.' }
+				]
+			},
+			{
+				title: 'Pèse l’option 2 et choisis',
+				questions: [
+					{ q: 'Que fait l’option 2 ?', options: ['Accepter la course, repérer les chevauchements après coup, et appeler le client arrivé en second', 'Verrouiller chaque propriétaire pendant qu’un poste réserve', 'Refuser toute réservation pour un vétérinaire occupé', 'Fusionner tous les propriétaires en un seul aggregate'], answer: 0, why: 'Elle laisse le conflit rare arriver et le répare à la main.' },
+					{ q: 'Que coûte l’option 2 ?', options: ['Une nouvelle table et un index unique', 'De temps en temps, un client reçoit un appel pour changer son rendez-vous', 'Une transaction sur tous les propriétaires', 'Rien du tout'], answer: 1, why: 'Pas de nouvelle structure, mais une vraie personne doit parfois déplacer une visite.' },
+					{ q: 'Que demandes-tu avant de choisir ?', options: ['Combien d’animaux a chaque propriétaire', 'Quelle base contient les vétérinaires', 'À quelle fréquence deux postes réservent le même vétérinaire à la même minute', 'Si les vétérinaires préfèrent l’e-mail'], answer: 2, why: 'Le coût de l’option 2 grandit avec la fréquence du conflit.' },
+					{ q: 'Deux postes ne réservent presque jamais le même vétérinaire à la même minute. Quelle option peut suffire ?', options: ['L’option 1', 'L’option 2', 'Aucune : mets la règle dans `Owner`', 'Les deux à la fois'], answer: 1, why: 'Si le conflit est rare, un appel de temps en temps coûte moins cher qu’un nouvel aggregate.' }
+				]
+			}
 		]
 	},
 	quiz: [

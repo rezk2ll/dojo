@@ -90,6 +90,44 @@ export default {
 			'Première correction, tu laisses l’entrée intacte : tu prends une entrée en lecture seule et tu **renvoies** une nouvelle liste, `List<Discount> withLoyalty(List<Discount> in)`. La liste de l’appelant n’est jamais touchée, donc n’importe quelle `List` marche.',
 			'Deuxième correction, tu rétrécis le type : tu acceptes une interface à toi qui n’a que la méthode dont tu as besoin, comme `DiscountSink.add`. Personne ne peut alors passer une liste non modifiable par erreur.',
 			'Chaque correction coûte un type de plus ou une copie de plus. Aujourd’hui, la limite n’est écrite que dans la Javadoc.'
+		],
+		steps: [
+			{
+				title: 'Dis ce qui se passe',
+				questions: [
+					{ q: 'Est-ce que `addDiscounts(List.of(promo))` compile ?', options: ['Non : `List.of` ne renvoie pas une `List`', 'Oui : `List.of` renvoie une `List`', 'Seulement avec un cast explicite', 'Seulement sur de vieilles versions de Java'], answer: 1, why: 'Le type est `List`, le compilateur est content. Le problème attend l’exécution.' },
+					{ q: 'Que se passe-t-il quand `addDiscounts` ajoute la remise fidélité ?', options: ['La remise est ajoutée comme d’habitude', 'L’appel ne fait rien, sans bruit', '`add` lève `UnsupportedOperationException`', 'Java fait une copie et l’ajoute dedans'], answer: 2, why: 'Chaque méthode qui modifie une collection immuable lève `UnsupportedOperationException`.' },
+					{ q: 'Pourquoi `add` lève-t-elle une exception ici ?', options: ['`List.of` renvoie une liste non modifiable', 'La liste est déjà pleine', '`Discount` est une classe immuable', 'Le collègue a oublié d’appeler `new`'], answer: 0, why: '`List.of` renvoie une classe de `ImmutableCollections`, où `add` n’existe que pour lever une exception.' },
+					{ q: 'Ton test passe une `ArrayList`. Est-ce qu’il attrape le bug ?', options: ['Oui : toutes les listes se comportent pareil', 'Non : seul le chemin qui passe `List.of` échoue', 'Oui, tant qu’il tourne en CI', 'Non : les tests ne peuvent pas appeler `add`'], answer: 1, why: 'Une `ArrayList` accepte `add`, donc le test passe. Le bug n’apparaît qu’avec `List.of`.' }
+				]
+			},
+			{
+				title: 'Nomme le principe enfreint',
+				questions: [
+					{ q: 'Deux listes compilent toutes les deux comme `List`. L’une marche, l’autre lève une exception. Quel principe plie ?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 2, why: 'Une implémentation qui lève une exception là où les autres marchent ne peut pas les remplacer. L’appelant doit savoir laquelle il a reçue.' },
+					{ q: '`addDiscounts` a seulement besoin d’ajouter, mais dépend de toute `List`. Quel principe un type plus étroit servirait-il ?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 3, why: 'Un appelant ne devrait pas dépendre de méthodes qu’il n’utilise pas. Un type étroit n’offre que ce dont il a besoin.' },
+					{ q: 'Où la règle « cette liste peut refuser `add` » est-elle écrite aujourd’hui ?', options: ['Dans le type', 'Seulement dans la Javadoc', 'Dans un avertissement du compilateur', 'Dans la classe `Discount`'], answer: 1, why: '`List.add` est documentée comme une « optional operation ». Rien dans le type ne dit quel genre de liste tu tiens.' },
+					{ q: 'Pourquoi les concepteurs de Java ont-ils gardé les opérations optionnelles dans `List` ?', options: ['Découper demanderait une vingtaine d’interfaces et cinq itérateurs', 'Ils n’avaient pas pensé aux listes immuables', 'Les exceptions sont plus rapides que des types en plus', 'La substitution de Liskov n’était pas encore connue'], answer: 0, why: 'La FAQ de conception l’explique : quatre interfaces larges ont été jugées moins chères que vingt étroites.' }
+				]
+			},
+			{
+				title: 'Choisis une correction de conception',
+				questions: [
+					{ q: 'La première correction est `List<Discount> withLoyalty(List<Discount> in)`. Que fait-elle ?', options: ['Elle ajoute à `in` et la renvoie', 'Elle prend une entrée en lecture seule et renvoie une nouvelle liste', 'Elle caste d’abord `in` en `ArrayList`', 'Elle attrape l’exception et réessaie'], answer: 1, why: 'Elle ne touche jamais l’entrée. Elle construit et renvoie une nouvelle liste.' },
+					{ q: 'Après la première correction, quelles listes un appelant peut-il passer ?', options: ['Seulement une `ArrayList`', 'Seulement `List.of`', 'N’importe quelle `List`', 'Seulement une `LinkedList`'], answer: 2, why: 'La méthode ne fait que lire son entrée, et toutes les `List` savent être lues.' },
+					{ q: 'La deuxième correction rétrécit le type. Qu’accepte alors `addDiscounts` ?', options: ['Une `Collection<Discount>`', 'Un `Object`', 'Un tableau de remises', 'Une interface à toi qui n’a que `add`, comme `DiscountSink`'], answer: 3, why: 'Une interface qui n’a que la méthode dont tu as besoin, c’est le type étroit, et il t’appartient.' },
+					{ q: 'Pourquoi la deuxième correction arrête-t-elle l’erreur avant la prod ?', options: ['Personne ne peut passer une liste non modifiable là où un `DiscountSink` est attendu', 'Elle logue un avertissement quand la liste est non modifiable', 'Elle ajoute un test pour `List.of`', 'Elle copie la liste avant d’ajouter'], answer: 0, why: 'La limite passe de la Javadoc au type : le mauvais appel ne rentre plus.' }
+				]
+			},
+			{
+				title: 'Pèse le coût',
+				questions: [
+					{ q: 'Que coûte chaque correction ?', options: ['Rien du tout', 'Un type de plus ou une copie de plus', 'Une réécriture de `OrderService`', 'Un JDK plus récent'], answer: 1, why: 'Une liste renvoyée est une copie. Une interface étroite est un type à écrire et à maintenir.' },
+					{ q: '`java.util.List` ne t’appartient pas. Comment obtiens-tu un type étroit ?', options: ['Tu modifies `List` dans le JDK', 'Tu retires `add` par réflexion', 'Tu l’enveloppes dans un type plus étroit à toi et tu maintiens cet adaptateur', 'Tu demandes à chaque appelant de lire la Javadoc'], answer: 2, why: 'Tu ne peux pas découper une interface qui n’est pas à toi. Tu peux seulement l’envelopper, et maintenir l’enveloppe.' },
+					{ q: 'Quelle correction laisse ton collègue appeler avec `List.of(promo)` ?', options: ['Renvoyer une nouvelle liste', 'Rétrécir vers `DiscountSink`', 'Caster l’entrée en `ArrayList`', 'Supprimer la remise fidélité'], answer: 0, why: 'La première correction ne fait que lire son entrée, donc une liste non modifiable marche très bien.' },
+					{ q: '`AbstractImmutableCollection` redéfinit sept méthodes qui modifient la collection. Qu’est-ce qu’une interface étroite épargne à une implémentation comme elle ?', options: ['Toutes les exceptions du code', 'Le besoin de tests', 'Remplir des méthodes qu’elle ne sait pas faire', 'Les types génériques'], answer: 2, why: 'Avec une interface étroite, une implémentation n’a jamais à remplir des méthodes qu’elle ne sait pas faire.' }
+				]
+			}
 		]
 	},
 	quiz: [

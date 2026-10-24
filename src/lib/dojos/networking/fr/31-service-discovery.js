@@ -133,6 +133,44 @@ func (addrs byPriorityWeight) sort() {
 			'La priorité 10 contient `a`, `b` et `c`, avec des poids de 60 + 20 + 20 = 100. La ligne 21 tire `n` de 0 à 99.',
 			'Triées par poids, les sommes cumulées valent 20 (`b`), 40 (`c`) et 100 (`a`). `a` gagne quand `n` vaut de 40 à 99 : 60 tirages sur 100, donc 60 % des premières tentatives. `b` et `c` en reçoivent 20 % chacun.',
 			'`d` a la priorité 20, un nombre plus grand : il passe après tout le groupe de priorité 10. Un client n’atteint `d` qu’après avoir échoué à se connecter à `a`, `b` et `c`.'
+		],
+		steps: [
+			{
+				title: 'Lis les quatre champs',
+				questions: [
+					{ q: 'Dans `10 60 8080 a.example.com.`, que vaut `10` ?', options: ['Le poids', 'La priorité', 'Le TTL en secondes', 'Le type d’enregistrement'], answer: 1, why: 'Une réponse SRV contient une priorité, un poids, un port et une cible, dans cet ordre. Le premier nombre est la priorité.' },
+					{ q: 'Sur la même ligne, que vaut `60` ?', options: ['La priorité', 'Le port du health check', 'Le poids', 'La part du trafic en pourcentage'], answer: 2, why: 'Le deuxième nombre est le poids. Il ne devient une part qu’une fois divisé par le poids total de son groupe de priorité.' },
+					{ q: 'Que vaut `8080` ?', options: ['Le port auquel le client se connecte', 'Le port du serveur DNS', 'Le poids de l’enregistrement', 'Le TTL de la réponse'], answer: 0, why: 'Le troisième champ est le port. C’est justement ce qu’une simple requête A ne donne pas.' },
+					{ q: 'Que désigne `a.example.com.` ?', options: ['Le nom que le client a demandé', 'La zone DNS qui contient l’enregistrement', 'Le nom du service avec son protocole', 'L’hôte cible auquel le client se connecte'], answer: 3, why: 'Le dernier champ est le nom de l’hôte cible. Le nom demandé était `_api._tcp.example.com`.' }
+				]
+			},
+			{
+				title: 'Groupe par priorité',
+				questions: [
+					{ q: 'Quels enregistrements partagent la priorité que le client essaie en premier ?', options: ['`a`, `b` et `c`', '`d` tout seul', '`a` et `d`', 'Les quatre'], answer: 0, why: 'Le client doit essayer la priorité de plus petit numéro qu’il peut joindre. `a`, `b` et `c` ont tous la priorité 10.' },
+					{ q: 'Pourquoi `d` n’est-il pas en concurrence avec `a`, `b` et `c` ?', options: ['Son poids vaut 0, donc il est ignoré', 'Sa priorité 20 le place dans un groupe suivant', 'Il écoute sur un autre port', 'C’est la dernière ligne de la réponse'], answer: 1, why: 'Les lignes 38 à 43 trient d’abord par priorité. Le poids n’ordonne que les enregistrements d’un même groupe de priorité.' },
+					{ q: 'Quel est le poids total du groupe de priorité 10 ?', options: ['60', '80', '120', '100'], answer: 3, why: '60 + 20 + 20 = 100. Le poids de `d` ne compte pas : il est dans un autre groupe.' },
+					{ q: 'Avec ce total, dans quel intervalle la ligne 21 tire-t-elle `n` ?', options: ['De 1 à 100', 'De 0 à 60', 'De 0 à 99', 'De 0 à 100'], answer: 2, why: '`randIntn(sum)` renvoie un nombre de 0 à `sum - 1`, donc de 0 à 99 ici.' }
+				]
+			},
+			{
+				title: 'Calcule la part de `a`',
+				questions: [
+					{ q: 'Après le tri par poids, quelles sont les sommes cumulées du groupe de priorité 10 ?', options: ['20 (`b`), 40 (`c`), 100 (`a`)', '60 (`a`), 80 (`b`), 100 (`c`)', '20 (`b`), 20 (`c`), 60 (`a`)', '100 (`a`), 40 (`c`), 20 (`b`)'], answer: 0, why: 'Le tri place le plus petit poids en premier : `b` et `c` à 20, puis `a` à 60. En les additionnant, on obtient 20, 40 et 100.' },
+					{ q: 'Pour quelles valeurs de `n` `a` gagne-t-il le premier tirage ?', options: ['De 0 à 59', 'De 40 à 99', 'De 60 à 99', 'De 40 à 100'], answer: 1, why: '`a` est choisi quand sa somme cumulée, 100, est la première à dépasser `n`. C’est le cas dès que `n` vaut 40 ou plus.' },
+					{ q: 'Quelle part des premières tentatives va donc vers `a` ?', options: ['33 %, une sur trois', '50 %', '60 %', '75 %'], answer: 2, why: 'De 40 à 99, cela fait 60 valeurs sur 100. La part vaut le poids divisé par le poids total du groupe.' },
+					{ q: 'Quelle part va vers `b` ?', options: ['40 %', '0 %, il passe après `a`', '33 %', '20 %'], answer: 3, why: '`b` gagne quand `n` vaut de 0 à 19 : 20 tirages sur 100. `c` reçoit les mêmes 20 %.' }
+				]
+			},
+			{
+				title: 'Place `d`',
+				questions: [
+					{ q: 'Où `d` finit-il dans la liste ordonnée ?', options: ['En premier, parce que son poids vaut 0', 'Après tout le groupe de priorité 10', 'À une place au hasard parmi les quatre', 'Entre `a` et `b`'], answer: 1, why: 'La priorité 20 est un nombre plus grand que 10 : tout le groupe 10 passe avant.' },
+					{ q: 'Quand `d` reçoit-il du trafic ?', options: ['Seulement après un échec de connexion à `a`, `b` et `c`', 'Sur 0 % des premières tentatives, mais 25 % des relances', 'Chaque fois que le tirage renvoie 0', 'Seulement quand la réponse DNS est en cache'], answer: 0, why: 'La RFC dit qu’un client doit essayer la priorité de plus petit numéro qu’il peut joindre. `d` sert de secours quand ce groupe est injoignable.' },
+					{ q: 'Le poids 0 de `d` change-t-il quelque chose ici ?', options: ['Oui : un poids 0 le retire de la réponse', 'Oui : un poids 0 en fait le premier choix', 'Non : la priorité gagne, et un poids 0 vaut 50 %', 'Non : `d` est seul dans son groupe, le poids n’ordonne rien'], answer: 3, why: 'Le poids n’ordonne que les enregistrements de même priorité. Avec un seul enregistrement dans le groupe, il n’y a rien à ordonner.' },
+					{ q: 'Tu ajoutes `20 10 8080 e.example.com.`. Lequel de `d` et `e` passe en premier dans le groupe 20 ?', options: ['`d`, parce qu’il était avant dans la réponse', 'L’un ou l’autre, une fois sur deux', '`e`, parce qu’un poids 0 finit en dernier dans son groupe', '`d`, parce que le plus petit poids gagne'], answer: 2, why: 'Un enregistrement de poids 0 n’ajoute rien à la somme cumulée : il ne passe jamais le test de la ligne 24 tant que `sum > 0`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -170,6 +208,29 @@ func (addrs byPriorityWeight) sort() {
 			why: 'Le nom d’un Service normal se résout uniquement en sa cluster IP. L’appelant se connecte à cette adresse unique, et les règles de proxy du nœud choisissent un Pod : c’est la découverte côté serveur.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Inscrire deux instances dans un Consul local, les relire en enregistrements SRV, et voir un health check en échec en retirer une.',
+		steps: [
+			'Lance un agent Consul en mode dev : `docker run -d --name consul-lab -p 8500:8500 -p 8600:8600/udp hashicorp/consul:1.20 agent -dev -client=0.0.0.0`.',
+			'Inscris deux instances de `web` avec un check TTL : `curl -X PUT localhost:8500/v1/agent/service/register -d \'{"ID":"web1","Name":"web","Address":"10.0.2.15","Port":8080,"Check":{"TTL":"10m"}}\'`, puis la même chose avec `"ID":"web2"` et `"Address":"10.0.2.16"`.',
+			'Interroge tout de suite : `dig @127.0.0.1 -p 8600 web.service.consul SRV +short`. Note ce qui revient.',
+			'Déclare les deux checks comme passants : `curl -X PUT localhost:8500/v1/agent/check/pass/service:web1`, puis la même chose pour `service:web2`. Relance le `dig`, puis une fois de plus sans `SRV`.',
+			'Fais échouer le premier : `curl -X PUT localhost:8500/v1/agent/check/fail/service:web1`, et relance le `dig` SRV. Nettoie avec `docker rm -f consul-lab`.'
+		],
+		done: [
+			'Avant qu’un check passe, le `dig` SRV n’affiche rien.',
+			'Une fois les deux passants, il affiche deux lignes de la forme `1 1 8080 <cible>`.',
+			'Le `dig` simple sans `SRV` affiche `10.0.2.15` et `10.0.2.16`, sans port.',
+			'Après l’échec, le `dig` SRV n’affiche plus qu’une ligne.'
+		],
+		solution: [
+			'La première réponse vide est le comportement par défaut de Consul : un nouveau check démarre en critical, donc une instance n’entre dans les réponses qu’après son premier check passant.',
+			'`dig @127.0.0.1 -p 8600 web.service.consul SRV` sans `+short` montre la colonne TTL à `0` : aucun résolveur ne garde la réponse en cache.',
+			'Les cibles SRV ressemblent à `0a00020f.addr.dc1.consul.` : c’est 10.0.2.15 en hexadécimal. Le port 8080 n’est que dans la réponse SRV, pas dans la réponse A.',
+			'Personne n’a modifié de fichier de config quand `web1` a échoué. La requête suivante l’a simplement laissé de côté.'
+		]
+	},
 	recall: {
 		q: 'Dans la réponse SRV `10 60 8080 a.example.com.`, que sont 10 et 60, et quels enregistrements un client essaie-t-il en premier ?',
 		a: '10 est la priorité et 60 le poids. Le client essaie d’abord la priorité au plus petit numéro. Dans une même priorité, il choisit selon le poids : 60 sur un total de 100 donne 60 % des premiers choix.'

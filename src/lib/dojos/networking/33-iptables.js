@@ -132,6 +132,44 @@ export default {
 			'`psql` from 203.0.113.9: the source rule does not match, the next one does. The host sends an RST, and `psql` fails at once with "Connection refused".',
 			'`curl` to port 8080: no rule matches, so the policy `drop` applies. The SYN gets no answer, the client resends it, and with default settings `connect()` fails after 131 seconds.',
 			'`ping` from 10.1.2.3: no rule accepts ICMP echo requests, so the policy drops them. `ping` prints no replies and reports 100% packet loss, even though the host is up.'
+		],
+		steps: [
+			{
+				title: 'Read the chain',
+				questions: [
+					{ q: 'In what order does this chain check its rules?', options: ['Most specific rule first', 'All rules, and the last match wins', 'Top to bottom, and the first verdict wins', 'Accept rules first, then reject rules'], answer: 2, why: 'Rules run top to bottom. The first `accept`, `drop` or `reject` ends the chain for that packet.' },
+					{ q: 'When does `policy drop` apply?', options: ['To a packet that matches no rule', 'To every packet, before the rules', 'Only to packets from outside 10.0.0.0/8', 'Only to ICMP packets'], answer: 0, why: 'The policy is the verdict for a packet that reaches the end of the chain without a verdict.' },
+					{ q: 'What is `ct state established,related accept` for?', options: ['It lets every new SYN in', 'It accepts the later packets of a connection already let in', 'It accepts only loopback traffic', 'It logs connections before the other rules'], answer: 1, why: 'Connection tracking knows the session. Once the first packet is accepted, the rest of the session matches this rule.' },
+					{ q: 'What does `reject with tcp reset` send back?', options: ['Nothing at all', 'An ICMP port unreachable', 'A SYN-ACK, then a FIN', 'A TCP RST, then it drops the packet'], answer: 3, why: 'Reject sends an error back and then drops. With `tcp reset`, the error is a TCP RST.' }
+				]
+			},
+			{
+				title: 'Trace `psql` from 10.1.2.3',
+				questions: [
+					{ q: 'Which rule matches the first SYN to port 5432?', options: ['`ip saddr 10.0.0.0/8 tcp dport 5432 accept`', '`tcp dport 5432 reject with tcp reset`', '`ct state established,related accept`', 'None: the policy drops it'], answer: 0, why: '10.1.2.3 is inside 10.0.0.0/8, and this rule sits above the reject rule, so it wins.' },
+					{ q: 'Why does the reject rule never see this SYN?', options: ['Reject rules only apply to UDP', 'The accept above it already ended the chain', 'It runs at another hook', 'The policy runs before it'], answer: 1, why: 'The first verdict wins. Once the SYN is accepted, no later rule runs for it.' },
+					{ q: 'Which rule lets the rest of the session through?', options: ['`tcp dport 22 accept`', '`iifname "lo" accept`', '`ct state established,related accept`', 'The `policy drop` line'], answer: 2, why: 'After the handshake, conntrack marks the session as established, and the first rule accepts it.' },
+					{ q: 'What does the user see?', options: ['"Connection refused"', 'A hang, then a timeout', 'An ICMP unreachable message', 'It connects to the database'], answer: 3, why: 'The connection is accepted, so `psql` reaches the database and connects.' }
+				]
+			},
+			{
+				title: 'Trace `psql` from 203.0.113.9',
+				questions: [
+					{ q: 'Which rule matches the SYN?', options: ['`ip saddr 10.0.0.0/8 tcp dport 5432 accept`', '`tcp dport 5432 reject with tcp reset`', '`ct state established,related accept`', 'None: the policy drops it'], answer: 1, why: 'The source is outside 10.0.0.0/8, so the accept rule does not match. The next rule on port 5432 does.' },
+					{ q: 'What does the host send back?', options: ['A TCP RST', 'Nothing', 'An ICMP echo reply', 'A SYN-ACK'], answer: 0, why: '`reject with tcp reset` answers the SYN with an RST.' },
+					{ q: 'How fast does `psql` fail?', options: ['After 131 seconds', 'After its own connect timeout', 'At once, within one round trip', 'Never: it keeps retrying'], answer: 2, why: 'The kernel turns an RST in `SYN_SENT` into `ECONNREFUSED`, so `connect()` fails right away.' },
+					{ q: 'Which message does the user read?', options: ['"Connection timed out"', '"No route to host"', '"Host is down"', '"Connection refused"'], answer: 3, why: '`ECONNREFUSED` is the error the client prints as "Connection refused".' }
+				]
+			},
+			{
+				title: 'Trace `curl` to 8080 and `ping`',
+				questions: [
+					{ q: 'Which rule matches the `curl` SYN to port 8080?', options: ['`tcp dport 5432 reject with tcp reset`', 'None, so `policy drop` applies', '`tcp dport 22 accept`', '`ct state established,related accept`'], answer: 1, why: 'No rule mentions port 8080. The packet reaches the end of the chain and gets the policy.' },
+					{ q: 'What does the `curl` client see?', options: ['No answer: it resends the SYN and fails after 131 s by default', '"Connection refused" at once', 'An HTTP 403 page', 'An ICMP port unreachable after one try'], answer: 0, why: 'A dropped SYN gets no reply. With the default `tcp_syn_retries` of 6, the kernel gives up after 131 seconds.' },
+					{ q: 'What happens to `ping` from 10.1.2.3?', options: ['It works: 10.0.0.0/8 is trusted', 'It gets ICMP port unreachable', 'It reports 100% packet loss', 'It gets a TCP RST'], answer: 2, why: 'The 10.0.0.0/8 rule covers only TCP port 5432. No rule accepts ICMP echo requests, so the policy drops them.' },
+					{ q: 'The host is up. What does `ping` make it look like?', options: ['A host that refuses connections', 'A host with a slow network', 'A host behind a load balancer', 'A dead host or a lost route'], answer: 3, why: 'A drop sends nothing back. From the client side, nothing tells it a firewall rule matched.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -169,6 +207,28 @@ export default {
 			why: 'In nftables, accept ends the current base chain and the packet moves on to the next one at the same hook. Docker\'s chain runs after yours, and its drop ends the evaluation of the whole ruleset.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Load the task\'s ruleset into a container, then see accept, reject and drop from three clients.',
+		steps: [
+			'Create a network: `docker network create --subnet 10.98.0.0/24 fwlab`.',
+			'Start the "database" with two listeners: `docker run -d --name fw-db --network fwlab --ip 10.98.0.5 --cap-add NET_ADMIN nicolaka/netshoot:v0.13 sh -c \'python3 -m http.server 5432 & python3 -m http.server 8080\'`.',
+			'Load the ruleset, with 10.98.0.10 as the only trusted source: `docker exec fw-db nft \'add table inet host { chain input { type filter hook input priority filter; policy drop; ct state established,related accept; iifname "lo" accept; ip saddr 10.98.0.10 tcp dport 5432 accept; tcp dport 5432 reject with tcp reset; }; }\'`.',
+			'From the trusted address: `docker run --rm --network fwlab --ip 10.98.0.10 nicolaka/netshoot:v0.13 curl -sS -o /dev/null -w \'%{http_code}\\n\' http://10.98.0.5:5432/`.',
+			'From an untrusted address, run the same `curl` with `--ip 10.98.0.20`. Then, still from 10.98.0.20, try port 8080 with `--connect-timeout 5` added. Last, from 10.98.0.10: `ping -c 3 -W 1 10.98.0.5`. Clean up with `docker rm -f fw-db && docker network rm fwlab`.'
+		],
+		done: [
+			'From 10.98.0.10, port 5432 prints `200`.',
+			'From 10.98.0.20, port 5432 fails at once: `curl: (7) Failed to connect ... after 0 ms`.',
+			'From 10.98.0.20, port 8080 fails only when the 5 s timeout runs out: `curl: (28) ... Timeout was reached`.',
+			'`ping` reports `100% packet loss`, although the container is running.'
+		],
+		solution: [
+			'`docker exec fw-db nft list table inet host` prints the chain back, one rule per line, in the order they run.',
+			'Exit code 7 after 0 ms is the RST from `reject with tcp reset`. Exit code 28 after 5 s is the dropped SYN: without `--connect-timeout`, the kernel would retry until 131 s.',
+			'To see the difference flip, run `docker exec fw-db nft delete table inet host`, then step 3 again with `tcp dport 5432 drop` as the last rule. Port 5432 from 10.98.0.20, with `--connect-timeout 5`, now ends in `curl: (28)` too.'
+		]
+	},
 	recall: {
 		q: 'A client connects to a filtered TCP port. What does it see when the rule is `drop`, and when it is `reject with tcp reset`?',
 		a: 'With drop, nothing comes back: the kernel resends the SYN 6 times and gives up after 131 seconds. With tcp reset, an RST arrives in SYN_SENT and `connect()` fails at once with ECONNREFUSED, "Connection refused".'

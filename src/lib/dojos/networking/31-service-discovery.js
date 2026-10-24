@@ -133,6 +133,44 @@ func (addrs byPriorityWeight) sort() {
 			'Priority 10 holds `a`, `b` and `c`, with weights 60 + 20 + 20 = 100. Line 21 draws `n` from 0 to 99.',
 			'Sorted by weight, the running sums are 20 (`b`), 40 (`c`) and 100 (`a`). `a` wins when `n` is 40 to 99: 60 draws out of 100, so 60% of first attempts. `b` and `c` get 20% each.',
 			'`d` has priority 20, a higher number, so it sits after the whole priority 10 group. A client reaches `d` only after it has failed to connect to `a`, `b` and `c`.'
+		],
+		steps: [
+			{
+				title: 'Read the four fields',
+				questions: [
+					{ q: 'In `10 60 8080 a.example.com.`, what is `10`?', options: ['The weight', 'The priority', 'The TTL in seconds', 'The record type'], answer: 1, why: 'An SRV answer holds a priority, a weight, a port and a target, in that order. The first number is the priority.' },
+					{ q: 'In the same line, what is `60`?', options: ['The priority', 'The port of the health check', 'The weight', 'The share of traffic in percent'], answer: 2, why: 'The second number is the weight. It only becomes a share once you divide it by the total weight of its priority group.' },
+					{ q: 'What is `8080`?', options: ['The port the client connects to', 'The DNS server port', 'The weight of the record', 'The TTL of the answer'], answer: 0, why: 'The third field is the port. That is what a plain A lookup cannot give you.' },
+					{ q: 'What is `a.example.com.`?', options: ['The name the client queried', 'The DNS zone that holds the record', 'The service name with its protocol', 'The target host the client connects to'], answer: 3, why: 'The last field is the target host name. The query name was `_api._tcp.example.com`.' }
+				]
+			},
+			{
+				title: 'Group by priority',
+				questions: [
+					{ q: 'Which records share the priority the client tries first?', options: ['`a`, `b` and `c`', '`d` alone', '`a` and `d`', 'All four'], answer: 0, why: 'The client must try the lowest-numbered priority it can reach. `a`, `b` and `c` all carry priority 10.' },
+					{ q: 'Why does `d` not compete with `a`, `b` and `c`?', options: ['Its weight is 0, so it is skipped', 'Its priority 20 puts it in a later group', 'It listens on another port', 'It is the last line of the answer'], answer: 1, why: 'Lines 38 to 43 sort by priority first. Weight only orders records inside the same priority group.' },
+					{ q: 'What is the total weight of the priority 10 group?', options: ['60', '80', '120', '100'], answer: 3, why: '60 + 20 + 20 = 100. The weight of `d` does not count, because it is in another group.' },
+					{ q: 'With that total, what range does line 21 draw `n` from?', options: ['1 to 100', '0 to 60', '0 to 99', '0 to 100'], answer: 2, why: '`randIntn(sum)` returns a number from 0 to `sum - 1`, so 0 to 99 here.' }
+				]
+			},
+			{
+				title: 'Work out the share of `a`',
+				questions: [
+					{ q: 'After the sort by weight, what are the running sums in the priority 10 group?', options: ['20 (`b`), 40 (`c`), 100 (`a`)', '60 (`a`), 80 (`b`), 100 (`c`)', '20 (`b`), 20 (`c`), 60 (`a`)', '100 (`a`), 40 (`c`), 20 (`b`)'], answer: 0, why: 'The sort puts the lowest weight first: `b` and `c` at 20, then `a` at 60. Adding them up gives 20, 40 and 100.' },
+					{ q: 'For which values of `n` does `a` win the first draw?', options: ['0 to 59', '40 to 99', '60 to 99', '40 to 100'], answer: 1, why: '`a` is chosen when its running sum, 100, is the first one above `n`. That happens when `n` is 40 or more.' },
+					{ q: 'So what share of first attempts goes to `a`?', options: ['33%, one in three', '50%', '60%', '75%'], answer: 2, why: '40 to 99 is 60 values out of 100. The share equals the weight divided by the total weight of the group.' },
+					{ q: 'What share goes to `b`?', options: ['40%', '0%, it comes after `a`', '33%', '20%'], answer: 3, why: '`b` wins when `n` is 0 to 19: 20 draws out of 100. `c` gets the same 20%.' }
+				]
+			},
+			{
+				title: 'Place `d`',
+				questions: [
+					{ q: 'Where does `d` end up in the ordered list?', options: ['First, because its weight is 0', 'After the whole priority 10 group', 'In a random place among the four', 'Between `a` and `b`'], answer: 1, why: 'Priority 20 is a higher number than 10, so the whole group of 10 comes before it.' },
+					{ q: 'When does `d` get any traffic?', options: ['Only after the client failed to connect to `a`, `b` and `c`', 'On 0% of first attempts, but 25% of retries', 'Whenever the random draw returns 0', 'Only when the DNS answer is cached'], answer: 0, why: 'The RFC says a client must try the lowest-numbered priority it can reach. `d` is a backup for when that group is unreachable.' },
+					{ q: 'Does the weight 0 of `d` change anything here?', options: ['Yes: weight 0 removes it from the answer', 'Yes: weight 0 makes it the first choice', 'No: priority wins, and weight 0 means 50%', 'No: `d` is alone in its group, so weight orders nothing'], answer: 3, why: 'Weight only orders records that share a priority. With one record in the group, there is nothing to order.' },
+					{ q: 'You add `20 10 8080 e.example.com.`. Which of `d` and `e` comes first in group 20?', options: ['`d`, because it was in the answer first', 'Either one, half the time each', '`e`, because a weight 0 record ends up last in its group', '`d`, because a lower weight wins'], answer: 2, why: 'A weight 0 record adds nothing to the running sum, so it never passes the test on line 24 while `sum > 0`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -170,6 +208,29 @@ func (addrs byPriorityWeight) sort() {
 			why: 'A normal Service name resolves to its cluster IP only. The caller connects to that one address and the node\'s proxy rules pick a backend Pod, which is server-side discovery.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Register two instances in a local Consul, read them back as SRV records, and watch a failing health check drop one.',
+		steps: [
+			'Start a Consul dev agent: `docker run -d --name consul-lab -p 8500:8500 -p 8600:8600/udp hashicorp/consul:1.20 agent -dev -client=0.0.0.0`.',
+			'Register two instances of `web` with a TTL check: `curl -X PUT localhost:8500/v1/agent/service/register -d \'{"ID":"web1","Name":"web","Address":"10.0.2.15","Port":8080,"Check":{"TTL":"10m"}}\'`, then the same with `"ID":"web2"` and `"Address":"10.0.2.16"`.',
+			'Query right away: `dig @127.0.0.1 -p 8600 web.service.consul SRV +short`. Note what comes back.',
+			'Report both checks as passing: `curl -X PUT localhost:8500/v1/agent/check/pass/service:web1`, and the same for `service:web2`. Run the `dig` again, then once more without `SRV`.',
+			'Fail the first one: `curl -X PUT localhost:8500/v1/agent/check/fail/service:web1`, and run the SRV `dig` again. Clean up with `docker rm -f consul-lab`.'
+		],
+		done: [
+			'Before any check passes, the SRV `dig` prints nothing.',
+			'After both pass, it prints two lines of the form `1 1 8080 <target>`.',
+			'The plain `dig` without `SRV` prints `10.0.2.15` and `10.0.2.16`, with no port.',
+			'After the fail, the SRV `dig` prints one line only.'
+		],
+		solution: [
+			'The empty first answer is the Consul default: a new check starts critical, so an instance joins the answers only after its first passing check.',
+			'`dig @127.0.0.1 -p 8600 web.service.consul SRV` without `+short` shows the TTL column at `0`, so no resolver caches the answer.',
+			'The SRV targets look like `0a00020f.addr.dc1.consul.`: that is 10.0.2.15 in hex. The port 8080 is only in the SRV answer, not in the A answer.',
+			'Nobody edited a config file when `web1` failed. The next query just left it out.'
+		]
+	},
 	recall: {
 		q: 'In the SRV answer `10 60 8080 a.example.com.`, what are 10 and 60, and which records does a client try first?',
 		a: '10 is the priority and 60 the weight. The client tries the lowest priority number first. Within one priority it picks by weight, so 60 out of a total of 100 means 60% of first picks.'

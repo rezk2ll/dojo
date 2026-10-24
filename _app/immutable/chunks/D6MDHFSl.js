@@ -1,0 +1,1 @@
+var e=Math.tan(Math.PI/6),t=(t,n)=>({X:t-n,Y:(t+n)*e});function n(t,n,r,i){let a=i*e,o=n-r,s=e=>e.map(e=>e.join(`,`)).join(` `);return{top:s([[t,o-a],[t+i,o],[t,o+a],[t-i,o]]),left:s([[t-i,o],[t,o+a],[t,n+a],[t-i,n]]),right:s([[t,o+a],[t+i,o],[t+i,n],[t,n+a]])}}export{n,t as r,e as t};

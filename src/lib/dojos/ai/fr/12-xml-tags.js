@@ -112,6 +112,44 @@ export default {
 			'Mets le bloc document en premier et la consigne après. La doc place les longs documents "near the top of your prompt, above your query, instructions, and examples."',
 			'Termine par une consigne comme "Write the summary inside <summary> tags.", puis lis le texte entre `<summary>` et `</summary>`. L’original finit sur un `<summary>` ouvert dans le texte user et ne demande jamais la balise fermante que ton code chercherait.',
 			'La phrase de rôle sur l’analyste juridique peut rester dans le prompt système (jour 11).'
+		],
+		steps: [
+			{
+				title: 'Lis le prompt d’origine',
+				questions: [
+					{ q: 'Dans `basic_summarize`, qu’est-ce qui marque le début et la fin du document ?', options: ['Rien : `{text}` est coincé entre des phrases simples', 'Une balise `<document>` autour de `{text}`', 'Une ligne de tirets avant et après `{text}`', 'Un message user séparé pour `{text}`'], answer: 0, why: 'La consigne, le document et l’amorce du résumé s’enchaînent sans aucune balise entre eux.' },
+					{ q: 'Où l’original place-t-il la consigne par rapport au document ?', options: ['Après le document', 'Avant le document', 'Seulement dans le prompt système', 'Dans la balise `<summary>`'], answer: 1, why: '"Summarize the following text..." vient d’abord, puis `{text}`.' },
+					{ q: 'Comment se termine le prompt d’origine ?', options: ['Par "Write the summary inside <summary> tags."', 'Par une paire fermée `<summary></summary>`', 'Sur un `<summary>` ouvert, sans demander la balise fermante', 'Sans aucune balise'], answer: 2, why: 'Il finit sur "Here is the summary of the legal document: <summary>" et ne demande jamais `</summary>`.' },
+					{ q: 'Pourquoi la doc veut-elle une balise par type de contenu ?', options: ['Les balises coûtent moins de tokens que du texte simple', 'L’API refuse le texte hors balises', 'Le modèle saute tout texte hors balises', 'Envelopper chaque type dans sa balise "reduces misinterpretation"'], answer: 3, why: 'Un nom sur chaque bloc permet au modèle de distinguer le document de la consigne.' }
+				]
+			},
+			{
+				title: 'Enveloppe le document',
+				questions: [
+					{ q: 'Quelle balise entoure tout le document ?', options: ['`<summary>`', '`<text>`', '`<document>`', '`<legal>`'], answer: 2, why: '`<document>` est le nom de balise que la doc utilise pour un document.' },
+					{ q: 'Où va le nom de fichier `sublease.txt` ?', options: ['Dans `<source>`', 'Dans `<document_content>`', 'Dans la balise `<summary>`', 'Dans le prompt système'], answer: 0, why: 'La doc met le nom de fichier dans `<source>`, à côté du texte.' },
+					{ q: 'Où va `{text}` ?', options: ['Dans `<source>`', 'Dans `<document_content>`', 'Juste après la balise fermante `</document>`', 'Dans la phrase de rôle'], answer: 1, why: 'Le texte du document va dans `<document_content>`, à l’intérieur de `<document>`.' },
+					{ q: 'Plus tard, tu résumes trois fichiers d’un coup. Qu’est-ce qui contient les trois blocs `<document index="n">` ?', options: ['`<examples>`', '`<summary>`', '`<categories>`', '`<documents>`'], answer: 3, why: 'La section sur les longs contextes montre `<documents>` contenant un `<document index="n">` par fichier.' }
+				]
+			},
+			{
+				title: 'Mets le document en premier',
+				questions: [
+					{ q: 'Où va le bloc document maintenant ?', options: ['Au-dessus de la consigne', 'Sous la consigne', 'Au milieu de la consigne', 'Dans une seconde requête'], answer: 0, why: 'La doc place les longs documents "near the top of your prompt, above your query, instructions, and examples."' },
+					{ q: 'Après ce déplacement, par quoi commence le texte user ?', options: ['La consigne "Summarize the following text..."', 'La balise `<summary>` ouverte', 'Le rôle d’analyste juridique', 'Le bloc `<document>`'], answer: 3, why: 'Le document vient d’abord, la consigne après.' },
+					{ q: 'D’un document à l’autre, qu’est-ce qui change dans ton nouveau prompt ?', options: ['La consigne et les noms de balises', 'Seulement le texte dans le bloc `<document>`', 'Le nom de la balise de sortie', 'La phrase de rôle'], answer: 1, why: 'Comme dans le classeur du cookbook, la consigne reste fixe et seul le bloc balisé change.' },
+					{ q: 'Dans le classeur du cookbook, où va le texte du jour ?', options: ['Dans `<example>`', 'Dans `<category>`', 'Dans `<ticket>`', 'Dans `<label>`'], answer: 2, why: 'Le ticket du jour est dans `<ticket>`, à part des anciens tickets rangés dans `<example>`.' }
+				]
+			},
+			{
+				title: 'Nomme la balise de sortie',
+				questions: [
+					{ q: 'Comment termines-tu le nouveau prompt ?', options: ['"Here is the summary of the legal document: <summary>"', 'Par "Write the summary inside <summary> tags."', 'Par "Respond with bullet points only."', 'Par une paire vide `<summary></summary>`'], answer: 1, why: 'Une consigne qui nomme la balise demande au modèle la balise ouvrante et la fermante.' },
+					{ q: 'Que lit ton code dans la réponse ?', options: ['Le texte entre `<summary>` et `</summary>`', 'La dernière ligne de la réponse', 'Tout ce qui suit le mot "summary"', 'Le texte dans `<document_content>`'], answer: 0, why: 'Une balise de sortie ramène l’analyse à une seule recherche de cette balise.' },
+					{ q: 'Tu analyses comme `transform.py`. La réponse n’a pas de `<summary>`. Que se passe-t-il ?', options: ['Tu obtiens une chaîne vide', 'Tu obtiens la première puce', 'L’API redemande au modèle', 'Le `[1]` lève une erreur et le `except` renvoie toute la réponse'], answer: 3, why: '`split` renvoie une liste d’un seul élément, donc `[1]` lève une `IndexError`, et le `except` renvoie `output` tel quel.' },
+					{ q: 'Où va "You are a legal analyst..." ?', options: ['Dans `<document>`', 'Dans `<summary>`', 'Dans le prompt système', 'Après la consigne, à la fin'], answer: 2, why: 'Un rôle vaut pour toute la session, il peut donc rester dans le prompt système (jour 11).' }
+				]
+			}
 		]
 	},
 	quiz: [

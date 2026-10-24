@@ -106,6 +106,44 @@ print(parsed_message.parsed_output)  # Order(product_name='Green Tea', price=5.5
 			'Écris `total: float = Field(ge=0)` et `currency: Literal["EUR", "USD"]`. L’API reçoit `total` comme simple nombre avec `{minimum: 0}` dans sa description, et le SDK vérifie `ge=0` sur la réponse. `notes` est facultatif, donc il sort après les champs obligatoires.',
 			'Relance sur `ValidationError`, une fois, en ajoutant le texte de l’erreur au tour user. Relance sur `stop_reason: "max_tokens"` avec un `max_tokens` plus grand, comme le dit la doc.',
 			'Ne renvoie pas la même requête sur `stop_reason: "refusal"` : journalise-la et regarde le prompt. Compare `currency` sans tenir compte de la casse, comme la doc le conseille pour les enums.'
+		],
+		steps: [
+			{
+				title: 'Trouve ce qui casse',
+				questions: [
+					{ q: 'Que fait Opus 5.5 de `tool_choice: {"type": "tool", "name": "record_invoice"}` ?', options: ['Il appelle l’outil mais saute la vérification du schéma', 'Il répond en texte et ignore `tool_choice`', 'Il rejette la requête avec une erreur 400, à chaque fois', 'Il appelle l’outil après un bloc thinking'], answer: 2, why: 'Opus 5.5 rejette l’usage forcé d’outil à chaque requête avec une erreur 400.' },
+					{ q: 'Passer à `tool_choice: {"type": "any"}` aiderait-il ?', options: ['Non : Opus 5.5 le rejette aussi avec une erreur 400', 'Oui : il force un outil, sans le nommer', 'Oui, mais seulement avec `strict: true`', 'Oui : l’API le transforme en `auto`'], answer: 0, why: '`{"type": "any"}` et `{"type": "tool", ...}` forcent tous les deux un outil, et les deux sont rejetés.' },
+					{ q: 'Si tu gardes l’outil, quel `tool_choice` envoies-tu ?', options: ['`{"type": "none"}`', '`{"type": "auto"}`, avec `strict: true` sur l’outil', '`{"type": "any"}`, avec `strict: true` sur l’outil', 'Pas de champ `tools` du tout'], answer: 1, why: 'La doc indique `auto` avec strict tool use pour garder un outil sur ces modèles.' },
+					{ q: 'Quel est l’autre chemin vers le même JSON ?', options: ['Demander du JSON dans le prompt et appeler `json.loads`', 'Mettre le schéma dans le prompt système', 'Baisser `temperature` à 0', '`messages.parse` avec une classe pydantic `Invoice`'], answer: 3, why: 'Les sorties structurées placent le schéma dans `output_config.format`, et le SDK analyse la réponse dans ta classe.' }
+				]
+			},
+			{
+				title: 'Écris le schéma',
+				questions: [
+					{ q: 'Comment écris-tu `currency` ?', options: ['`currency: str`', '`currency: Literal["EUR", "USD"]`', '`currency: str = Field(max_length=3)`', '`currency: Optional[str]`'], answer: 1, why: 'Un `Literal` donne les deux valeurs permises, que le schéma envoie sous forme d’`enum`.' },
+					{ q: 'Comment écris-tu `total` ?', options: ['`total: float = Field(ge=0)`', '`total: str`', '`total: int`', '`total: float = Field(gt=100)`'], answer: 0, why: 'Un nombre, au moins 0, comme le demande l’exercice.' },
+					{ q: '`notes` est facultatif. Où arrive-t-il dans la sortie ?', options: ['En premier, avant `vendor`', 'Nulle part : les champs facultatifs disparaissent', 'Dans un second bloc de texte', 'Après les champs obligatoires'], answer: 3, why: 'Les champs facultatifs sortent après les champs obligatoires.' },
+					{ q: 'Qu’ajoute le SDK à chaque objet avant d’envoyer le schéma ?', options: ['`required: []`', '`strict: true`', '`additionalProperties: false`', 'Un `title` par valeur d’enum'], answer: 2, why: 'Le SDK réécrit le schéma pour l’API et donne à chaque objet `additionalProperties: false`.' }
+				]
+			},
+			{
+				title: 'Suis `total >= 0`',
+				questions: [
+					{ q: 'Que reçoit l’API pour `total` ?', options: ['`{"type": "number", "minimum": 0}`, tel quel', 'Un simple nombre, avec `{minimum: 0}` dans sa description', 'Rien : le SDK lève une erreur avant l’envoi', 'Une chaîne, car l’argent est du texte'], answer: 1, why: '`transform_schema` ne garde que les clés que l’API accepte et déplace le reste dans la description.' },
+					{ q: 'Le décodage contraint empêche-t-il un `total` négatif ?', options: ['Oui : la grammaire contient le minimum', 'Oui, mais seulement avec `strict: true`', 'Seulement sur Opus 5.5', 'Non : le modèle *pourrait* seulement suivre la description'], answer: 3, why: 'L’API ne voit jamais `minimum` comme une contrainte. Le commentaire de `_transform.py` dit que le modèle "*might* follow them."' },
+					{ q: 'Qui vérifie `ge=0`, alors ?', options: ['Le SDK, avec `validate_json` et ta classe d’origine', 'L’API, après le décodage', 'Personne : la vérification est perdue', 'Le modèle, dans son bloc thinking'], answer: 0, why: '`parse_text` lance `adapted_type.validate_json(text)` avec la classe que tu as écrite, contraintes comprises.' },
+					{ q: 'La réponse contient `"total": -5`. Que reçoit ton code ?', options: ['Un `Invoice` avec `total` mis à 0', 'Une erreur 400 de l’API', 'Une `ValidationError` pydantic', 'Une `JSONDecodeError`'], answer: 2, why: 'Le JSON est valide pour le schéma envoyé, mais échoue sur `ge=0` quand le SDK le valide.' }
+				]
+			},
+			{
+				title: 'Décide quand relancer',
+				questions: [
+					{ q: 'Le SDK lève `ValidationError`. Que fais-tu ?', options: ['Relancer jusqu’à ce que ça passe', 'Relancer une fois, avec le texte de l’erreur ajouté au tour user', 'Borner la valeur et continuer', 'Revenir au `tool_choice` forcé'], answer: 1, why: 'Une relance avec l’erreur dit au modèle ce qu’il a raté. Relancer sans fin ne fait que repayer.' },
+					{ q: 'La réponse a `stop_reason: "max_tokens"`. Que fais-tu ?', options: ['L’analyser : le JSON est toujours complet', 'Fermer toi-même les accolades ouvertes', 'Abandonner la facture', 'Relancer avec un `max_tokens` plus grand'], answer: 3, why: 'La sortie peut être coupée. La doc dit de relancer avec un `max_tokens` plus grand.' },
+					{ q: 'La réponse a `stop_reason: "refusal"`. Que fais-tu ?', options: ['La journaliser et regarder le prompt, sans renvoyer la même requête', 'Renvoyer la même requête tout de suite', 'Analyser le texte comme un `Invoice`', 'Augmenter `max_tokens`'], answer: 0, why: 'Un refus renvoie un 200 et une sortie qui peut ne pas suivre ton schéma. Regarde le prompt avant d’en payer un autre.' },
+					{ q: 'Comment compares-tu la valeur de `currency` dans ton code ?', options: ['Octet pour octet avec `"EUR"`', 'Sur sa première lettre seulement', 'Sans tenir compte de la casse', 'Pas du tout : les enums sont garanties'], answer: 2, why: 'L’API ne garantit pas la casse des valeurs d’`enum`, comme la doc le signale.' }
+				]
+			}
 		]
 	},
 	quiz: [

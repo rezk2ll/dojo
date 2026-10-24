@@ -130,6 +130,44 @@ export default {
 			'User turn: (3) and (5). The next question brings a different trace and a different README section. Aider does the same with files: they go in a user message, never in `main_sys`.',
 			'Mid-conversation system message: (6). It starts to apply at turn 30. Appending `{"role": "system"}` there keeps the cache for turns 1 to 29.',
 			'On a model without mid-conversation system messages, such as Sonnet 5, put (6) in the next user turn as text from your app, or edit `system` and accept one cache miss.'
+		],
+		steps: [
+			{
+				title: 'Find what holds all session',
+				questions: [
+					{ q: 'Where does (1), "You are the support assistant for the acme CLI.", go?', options: ['The `system` field', 'The user turn', 'A mid-conversation system message', 'A tool definition'], answer: 0, why: 'It is a role. It holds from the first turn to the last, so it belongs in `system`.' },
+					{ q: 'Where does (4), "Never promise a refund.", go?', options: ['The user turn, next to each question', 'A mid-conversation system message', 'The `system` field', 'A final assistant message'], answer: 2, why: 'A rule for the whole session, written once, applies to every turn.' },
+					{ q: 'Why does it matter that (1), (2) and (4) stay byte for byte the same?', options: ['They stay in the cached prefix, so later turns hit the cache', 'The API rejects a `system` field that changes', 'The model reads `system` only on the first request', 'Two identical `system` fields are merged into one'], answer: 0, why: 'The docs say the system prompt "is part of the stable prefix, so subsequent turns hit the cache".' },
+					{ q: 'In what order does prompt caching read the prefix?', options: ['`messages`, `system`, then `tools`', '`system`, `tools`, then `messages`', '`tools`, `system`, then `messages`', '`tools`, `messages`, then `system`'], answer: 2, why: 'The cache order is `tools`, `system`, then `messages`, so a stable `system` sits early in the prefix.' }
+				]
+			},
+			{
+				title: 'Sort what changes each question',
+				questions: [
+					{ q: 'Where does (3), the stack trace the user pasted, go?', options: ['The `system` field', 'The user turn', 'A mid-conversation system message', 'The `metadata` field'], answer: 1, why: 'The next question brings a different trace. Text that changes on each request goes in the user turn.' },
+					{ q: 'Where does (5), the README section your code fetched, go?', options: ['The user turn', 'The `system` field, since docs rarely change', 'A mid-conversation system message', 'A tool definition'], answer: 0, why: 'Your code fetched it for this question. The next question needs a different section.' },
+					{ q: 'What happens if you put (5) in `system`?', options: ['The model treats it as the user question', 'The API drops long text from `system`', 'Nothing: `system` is not part of the cache', '`system` changes each request, so the cache misses'], answer: 3, why: 'A change to `system` changes the start of the prompt and invalidates the cache for everything after it.' },
+					{ q: 'How does aider send the files you add?', options: ['Inside `main_sys`, after the role line', 'As a user message that starts "I have *added these files to the chat*"', 'As a mid-conversation system message', 'As a tool result'], answer: 1, why: 'Aider keeps files out of `main_sys` because they change between requests.' }
+				]
+			},
+			{
+				title: 'Place the turn 30 change',
+				questions: [
+					{ q: 'Where does (6), the move to the free plan at turn 30, go?', options: ['An edit to the `system` field at turn 30', 'The user turn, as if the user asked it', 'A `{"role": "system"}` message appended at turn 30', 'Nowhere: the API is stateless'], answer: 2, why: 'It starts to apply partway through, which is what a mid-conversation system message is for.' },
+					{ q: 'Why not just edit `system` at turn 30?', options: ['Editing `system` invalidates the cache for everything that follows', 'The API refuses changes to `system` after turn 1', 'The model reads only the first `system` it sees', 'An edit to `system` applies only to the next reply'], answer: 0, why: 'The docs warn that editing `system` at turn 30 "invalidates the cache for everything that follows".' },
+					{ q: 'What does appending the system message at turn 30 keep?', options: ['A cached copy of the reply at turn 30', 'The cached prefix for turns 1 to 29', 'The cache for the `tools` field only', 'The user turn from turn 29 only'], answer: 1, why: 'The earlier prefix stays unchanged, so turns 1 to 29 keep their cache.' },
+					{ q: 'The API is stateless. What does your code send at turn 31?', options: ['Only the newest user turn', 'The `system` field and the newest user turn', 'Only the system message from turn 30', 'The same `system` and the whole `messages` array, turn 30 message included'], answer: 3, why: 'Your code sends the whole array, and the same `system`, on every request.' }
+				]
+			},
+			{
+				title: 'Plan for older models',
+				questions: [
+					{ q: 'Which model do the docs leave out of the mid-conversation system message list?', options: ['Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Sonnet 5'], answer: 3, why: 'The docs list Opus 5.5, Sonnet 5.5 and Haiku 5.5, among others, and not Sonnet 5.' },
+					{ q: 'On Sonnet 5, what is one way to deliver (6)?', options: ['In the next user turn, as text from your app', 'As `role: "system"` anyway', 'In the `metadata` field', 'Drop it: the bot cannot learn mid-session'], answer: 0, why: 'The user turn takes text that starts to matter now, without touching the cached `system`.' },
+					{ q: 'What is the other way on Sonnet 5, and its cost?', options: ['Start a new conversation with no history', 'Edit `system` and accept one cache miss', 'Edit `system` for free, since caching is off', 'Add a tool whose description holds the rule'], answer: 1, why: 'Editing `system` works on any model. You pay with one cache miss for the turns that follow.' },
+					{ q: 'Whatever you do with (6), which pieces stay unchanged in `system`?', options: ['Only (1)', '(3) and (5)', '(1), (2) and (4)', '(1), (2), (4) and (5)'], answer: 2, why: 'The role, the language rule and the refund rule hold for the whole session.' }
+				]
+			}
 		]
 	},
 	quiz: [

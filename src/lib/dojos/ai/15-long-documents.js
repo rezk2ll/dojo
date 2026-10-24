@@ -117,6 +117,44 @@ def summarize_long_document(text, max_tokens=2000):
 			'After the documents: "Find the clauses that state the monthly rent in each lease and copy them into <quotes> tags, with the source file. Then give the rent per lease in <answer> tags. If a lease states no rent, say so."',
 			'To check lease B: search the copied quote in `lease_b.txt`. If it is not there word for word, the answer is not grounded. With `citations.enabled=true` on plain text documents, the API returns character indices into the document, so your code can check the span itself.',
 			'Before sending, run the token counting API on the request. If the count is under the 1M-token window of Sonnet 5.5, send one request and skip chunking.'
+		],
+		steps: [
+			{
+				title: 'Lay out the leases',
+				questions: [
+					{ q: 'Which tag holds the three leases together?', options: ['`<quotes>`', '`<documents>`', '`<answer>`', '`<leases>`'], answer: 1, why: 'The docs show `<documents>` holding one `<document index="n">` per file.' },
+					{ q: 'What goes in `<source>` for the second lease?', options: ['The rent you expect', 'The index `2`', '`lease_b.txt`', 'The whole lease text'], answer: 2, why: '`<source>` holds the file name, so the model and you can tell the leases apart.' },
+					{ q: 'Where does the text of each lease go?', options: ['In `<document_content>`', 'In `<source>`', 'In the system prompt', 'In an assistant turn'], answer: 0, why: 'Each `<document>` holds the file name in `<source>` and the text in `<document_content>`.' },
+					{ q: 'Where does the `<documents>` block sit in the user turn?', options: ['At the end, after the question', 'Between two copies of the question', 'In a second user turn', 'At the top'], answer: 3, why: 'The docs put long documents "near the top of your prompt, above your query, instructions, and examples."' }
+				]
+			},
+			{
+				title: 'Ask for quotes, then the rent',
+				questions: [
+					{ q: 'The hook put the question first. Where does it go now?', options: ['After the documents', 'Before the documents, as before', 'In the system prompt', 'Repeated before each lease'], answer: 0, why: 'The docs measured "up to 30 percent" better answers with the query at the end.' },
+					{ q: 'What does the instruction ask for first?', options: ['A summary of each lease', 'The rent per lease in `<answer>` tags', 'The rent clauses copied into `<quotes>` tags, with the source file', 'A count of the clauses in each lease'], answer: 2, why: 'Quotes first, then the answer from those quotes.' },
+					{ q: 'Why ask for quotes before the rents?', options: ['The quotes replace the leases, so input costs less', 'The model focuses on the relevant clauses, and you can check the answer against them', 'Prompt caching works only inside `<quotes>`', 'The API needs quotes for long documents'], answer: 1, why: 'Quoting first "helps Claude focus on the relevant content and ignore the rest of the document", and gives you text to search for.' },
+					{ q: 'A lease might state no rent. What does the instruction say?', options: ['Give the rent of the closest lease', 'Leave that lease out of the answer', 'Write 0 for that lease', 'If a lease states no rent, say so'], answer: 3, why: 'An explicit way out keeps the model from filling the gap with a made-up figure.' }
+				]
+			},
+			{
+				title: 'Check lease B',
+				questions: [
+					{ q: 'How do you check the rent the model gives for lease B?', options: ['Search the copied quote in `lease_b.txt`', 'Ask the model if it is sure', 'Compare it with the rents of A and C', 'Send the same request again'], answer: 0, why: 'The quote is a claim about the file. The file can confirm it.' },
+					{ q: 'The quote is not in `lease_b.txt` word for word. What does that tell you?', options: ['The file has an encoding problem', 'The answer for lease B is not grounded', 'The rent is right, only the wording changed', 'Lease B states no rent'], answer: 1, why: 'A quote that the source does not contain does not support the answer.' },
+					{ q: 'With `citations.enabled=true` on plain text documents, what does the API return?', options: ['A score for each claim', 'Only the file name of each source', 'Character indices into the document', 'A copy of the whole document'], answer: 2, why: 'Your code can then check the cited span itself.' },
+					{ q: 'Does the `cited_text` field add to your output tokens?', options: ['Yes, it doubles them', 'Yes, at the input rate', 'Only on Haiku 5.5', 'No, it does not count toward output tokens'], answer: 3, why: 'Citations add a little input, but `cited_text` does not count toward output tokens.' }
+				]
+			},
+			{
+				title: 'Decide on chunking',
+				questions: [
+					{ q: 'What do you run before sending?', options: ['A first request with one lease', 'The token counting API on the request', 'A word count of the three files', 'The cookbook\'s `chunk_text`'], answer: 1, why: 'The token counting API tells you the size before you send.' },
+					{ q: 'How large is the Sonnet 5.5 context window?', options: ['1M tokens', '100,000 tokens', '200,000 characters', '2,000 characters'], answer: 0, why: 'Opus 5.5, Sonnet 5.5 and Haiku 5.5 have a 1M-token window.' },
+					{ q: 'The count is under the window. What do you do?', options: ['Chunk anyway, to be safe', 'Send one lease per request', 'Summarize each lease first', 'Send one request, with no chunking'], answer: 3, why: 'One request lets the model compare the three leases directly.' },
+					{ q: 'Why avoid the cookbook\'s 2,000-character chunking here?', options: ['Chunking costs more output tokens', 'The cuts ignore sentences, and a summary of summaries keeps only what each first summary kept', 'Chunks must be sent to `claude-haiku-4-5`', 'Chunking only works on PDFs'], answer: 1, why: 'A rent clause can be split in two, and a figure a chunk summary left out cannot come back.' }
+				]
+			}
 		]
 	},
 	quiz: [

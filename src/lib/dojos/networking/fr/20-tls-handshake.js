@@ -123,6 +123,44 @@ func hostnameInSNI(name string) string {
 			'Essai B : l’alerte 40 est `handshake_failure`, que la RFC 8446 définit comme "unable to negotiate an acceptable set of security parameters". Aucune suite n’a été choisie. Sans SNI, ce serveur n’a pas de certificat à proposer.',
 			'Temps : le SYN part à 0 ms, le SYN-ACK revient à 40. Le ClientHello part à 40, et l’envoi du serveur avec son Finished arrive à 80. Le client envoie son Finished et le `GET` à 80, et le premier octet de réponse arrive au plus tôt à 120 ms.',
 			'Avec un HelloRetryRequest, le client envoie un deuxième ClientHello à 80 ms. L’envoi du serveur arrive alors à 120, la requête part à 120, et la réponse arrive au plus tôt à 160 ms.'
+		],
+		steps: [
+			{
+				title: 'Lis l’essai A',
+				questions: [
+					{ q: 'Que t’apprend `Server Temp Key: X25519, 253 bits` ?', options: ['La clé du certificat est en X25519', 'L’échange de clés a utilisé le groupe X25519', 'La clé de session fait 253 bits', 'Le serveur a demandé un nouvel essai'], answer: 1, why: 'C’est le groupe que le serveur a choisi parmi les key shares du client, et les deux côtés en ont tiré le secret.' },
+					{ q: 'Que t’apprend `Verification: OK` ?', options: ['La chaîne de certificats a été validée contre le magasin de confiance', 'Le serveur a vérifié le certificat du client', 'Les messages Finished concordent', 'La suite de chiffrement est autorisée'], answer: 0, why: 'Le client a vérifié la chaîne de certificats du serveur et son nom par rapport à ce qu’il juge fiable.' },
+					{ q: 'Dans `New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384`, quelle partie est la suite de chiffrement ?', options: ['`New`', '`TLSv1.3`', '`SHA384` seul', '`TLS_AES_256_GCM_SHA384`'], answer: 3, why: 'La session tourne en TLS 1.3 avec la suite AES 256 GCM, `TLS_AES_256_GCM_SHA384`.' },
+					{ q: 'Quel message a porté le certificat dans l’essai A ?', options: ['Le ClientHello', 'Le ServerHello, en clair', 'Un message chiffré après le ServerHello', 'Le Finished du client'], answer: 2, why: 'RFC 8446 : "All handshake messages after the ServerHello are now encrypted", certificat compris.' }
+				]
+			},
+			{
+				title: 'Lis l’essai B',
+				questions: [
+					{ q: 'Qu’a changé `-noservername` dans le ClientHello ?', options: ['Il a retiré TLS 1.3 de la liste', 'Il a laissé de côté l’extension `server_name`', 'Il a retiré le key share', 'Il a envoyé le nom en clair deux fois'], answer: 1, why: 'L’essai B n’envoie pas de SNI : le serveur ne sait pas quel hôte le client veut.' },
+					{ q: 'Qu’est-ce que l’alerte 40 ?', options: ['`handshake_failure`', '`bad_certificate`', '`unrecognized_name`', '`decode_error`'], answer: 0, why: 'La RFC 8446 définit `handshake_failure` comme "unable to negotiate an acceptable set of security parameters".' },
+					{ q: 'Pourquoi `New, (NONE), Cipher is (NONE)` apparaît-il ?', options: ['Le serveur a choisi un chiffrement nul', 'TLS 1.3 cache le nom de la suite', 'Le client a refusé la suite', 'Aucune suite n’a jamais été choisie'], answer: 3, why: 'La poignée de main s’est arrêtée à l’alerte, avant tout accord sur les paramètres.' },
+					{ q: 'Pourquoi ce serveur échoue-t-il sans SNI ?', options: ['Il ne parle que TLS 1.2', 'Il refuse les clients IPv4', 'Il choisit le certificat par nom, et n’en a aucun à proposer', 'Le key share du client était trop court'], answer: 2, why: 'Une IP sert plusieurs sites. Sans nom dans le ClientHello, le serveur n’a aucun certificat à choisir.' }
+				]
+			},
+			{
+				title: 'Chronomètre la poignée de main complète',
+				questions: [
+					{ q: 'L’aller-retour prend 40 ms. Quand le ClientHello peut-il partir ?', options: ['À 0 ms, avec le SYN', 'À 40 ms, après le SYN-ACK', 'À 80 ms', 'À 20 ms, au milieu de la poignée de main TCP'], answer: 1, why: 'TCP demande un aller-retour avant que le ClientHello puisse partir.' },
+					{ q: 'Quand l’envoi du serveur avec son Finished arrive-t-il ?', options: ['À 80 ms', 'À 40 ms', 'À 120 ms', 'À 60 ms'], answer: 0, why: 'Un aller-retour de plus après le ClientHello : 40 + 40 = 80 ms.' },
+					{ q: 'Pourquoi le `GET` peut-il partir à 80 ms avec le Finished du client ?', options: ['TLS 1.3 envoie les requêtes en clair', 'Le serveur a déjà acquitté la requête', 'Le ClientHello portait un key share : les clés existent après le ServerHello', 'La poignée de main TCP porte la requête'], answer: 2, why: 'Les deux côtés ont calculé le secret à partir des key shares : le client peut chiffrer sa requête tout de suite.' },
+					{ q: 'Quand le premier octet de la réponse peut-il arriver ?', options: ['À 80 ms', 'À 160 ms', 'À 40 ms', 'À 120 ms'], answer: 3, why: 'La requête part à 80 ms et la réponse demande un aller-retour de plus : 120 ms au plus tôt.' }
+				]
+			},
+			{
+				title: 'Ajoute un HelloRetryRequest',
+				questions: [
+					{ q: 'Quand un serveur envoie-t-il un HelloRetryRequest ?', options: ['Il n’accepte aucun des groupes des key shares du client', 'Le SNI manque', 'Le certificat a expiré', 'Le client ne propose que TLS 1.2'], answer: 0, why: 'Si le serveur n’accepte aucun des groupes proposés, il demande d’abord un nouveau key share au client.' },
+					{ q: 'Quand le deuxième ClientHello part-il ?', options: ['À 40 ms', 'À 80 ms', 'À 120 ms', 'À 160 ms'], answer: 1, why: 'Le HelloRetryRequest revient à 80 ms : le deuxième ClientHello part à ce moment.' },
+					{ q: 'Quand le premier octet de réponse arrive-t-il maintenant ?', options: ['À 120 ms', 'À 200 ms', 'À 160 ms', 'À 140 ms'], answer: 2, why: 'Envoi du serveur à 120, requête à 120, réponse au plus tôt à 160 ms.' },
+					{ q: 'Combien d’allers-retours le nouvel essai ajoute-t-il ?', options: ['Aucun', 'Deux', 'Un demi', 'Un'], answer: 3, why: 'Le client doit envoyer un deuxième ClientHello et attendre la réponse : un aller-retour de plus, 40 ms ici.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ func hostnameInSNI(name string) string {
 			why: 'La RFC 8446 chiffre chaque message de la poignée de main après le ServerHello : le certificat et EncryptedExtensions sont cachés. Le ClientHello et le ServerHello passent en clair, et le ClientHello porte `server_name` et les protocoles ALPN.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Héberger un site qui choisit son certificat par SNI, puis voir la poignée de main réussir avec le nom et échouer sans.',
+		steps: [
+			'Crée un dossier et un certificat jetable : `mkdir -p ~/tls-lab && cd ~/tls-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 -subj /CN=shop.test`.',
+			'Crée `sni.conf` avec une ligne chacun : `server {`, `listen 443 ssl default_server;`, `ssl_reject_handshake on;`, `}`, `server {`, `listen 443 ssl;`, `server_name shop.test;`, `ssl_certificate /lab/cert.pem;`, `ssl_certificate_key /lab/key.pem;`, `}`. Le premier bloc refuse toute poignée de main avec un nom inconnu ou sans nom.',
+			'Lance nginx : `docker run -d --rm --name tls-lab -v "$PWD":/lab -v "$PWD/sni.conf":/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine`.',
+			'Définis un `openssl s_client` qui partage le réseau de nginx : `s() { docker run --rm -i --network container:tls-lab nicolaka/netshoot:v0.13 openssl s_client -connect 127.0.0.1:443 "$@" </dev/null 2>&1; }`.',
+			'Lance-le de trois façons et garde les lignes clés : `s -servername shop.test | grep -E "Temp Key|^New|subject="`, puis `s -noservername | grep -E "alert|^New"`, puis `s -servername shop.test -groups P-256 | grep -E "Temp Key|^New"`.'
+		],
+		done: [
+			'Avec `-servername shop.test` : `subject=CN=shop.test`, `Server Temp Key: X25519, 253 bits` et `New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384`.',
+			'Avec `-noservername` : une erreur qui finit par `SSL alert number 112`, et `New, (NONE), Cipher is (NONE)`.',
+			'Avec `-groups P-256` : `Server Temp Key: ECDH, prime256v1, 256 bits`.'
+		],
+		solution: [
+			'Avec le SNI, nginx trouve le bloc `shop.test` et son certificat, et la poignée de main se termine en TLS 1.3 comme l’essai A.',
+			'Sans SNI, le bloc par défaut refuse. nginx envoie l’alerte 112, `unrecognized_name`, là où example.org envoie 40, `handshake_failure` : l’alerte change d’un serveur à l’autre, la cause est la même. Aucune suite n’est choisie.',
+			'`-groups P-256` fait proposer ce seul groupe au client : son key share est en P-256, et le serveur le prend. Arrête le lab avec `docker stop tls-lab`.'
+		]
+	},
 	recall: {
 		q: 'Que porte un ClientHello TLS 1.3 qui permet de finir la poignée de main en un aller-retour, et que se passe-t-il quand il n’a pas de SNI ?',
 		a: 'Un `key_share`, par exemple X25519 : les deux côtés dérivent les clés dès le ServerHello. Sans `server_name`, un serveur qui héberge plusieurs noms ne peut pas choisir de certificat : example.org a répondu par l’alerte 40, `handshake_failure`.'

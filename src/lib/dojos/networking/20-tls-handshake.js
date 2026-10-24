@@ -123,6 +123,44 @@ func hostnameInSNI(name string) string {
 			'Run B: alert 40 is `handshake_failure`, which RFC 8446 defines as "unable to negotiate an acceptable set of security parameters". No cipher was chosen. Without SNI this server has no certificate to offer.',
 			'Timing: SYN out at 0 ms, SYN-ACK back at 40. The ClientHello goes out at 40, and the server flight with Finished arrives at 80. The client sends Finished and the `GET` at 80, and the first response byte arrives at 120 ms at the earliest.',
 			'With a HelloRetryRequest the client sends a second ClientHello after 80 ms. The server flight then arrives at 120, the request leaves at 120, and the response arrives at 160 ms at the earliest.'
+		],
+		steps: [
+			{
+				title: 'Read run A',
+				questions: [
+					{ q: 'What does `Server Temp Key: X25519, 253 bits` tell you?', options: ['The certificate key is X25519', 'The key exchange used the X25519 group', 'The session key is 253 bits long', 'The server asked for a retry'], answer: 1, why: 'It is the group the server picked from the client\'s key shares, and both sides derived the secret from it.' },
+					{ q: 'What does `Verification: OK` tell you?', options: ['The certificate chain verified against the trust store', 'The server checked the client\'s certificate', 'The Finished messages matched', 'The cipher suite is allowed'], answer: 0, why: 'The client checked the server certificate chain and its name against what it trusts.' },
+					{ q: 'Which part of `New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384` is the cipher suite?', options: ['`New`', '`TLSv1.3`', '`SHA384` alone', '`TLS_AES_256_GCM_SHA384`'], answer: 3, why: 'The session runs TLS 1.3 with the AES 256 GCM suite, `TLS_AES_256_GCM_SHA384`.' },
+					{ q: 'Which message carried the certificate in run A?', options: ['The ClientHello', 'The ServerHello, in clear text', 'An encrypted message after the ServerHello', 'The client Finished'], answer: 2, why: 'RFC 8446: "All handshake messages after the ServerHello are now encrypted", the certificate included.' }
+				]
+			},
+			{
+				title: 'Read run B',
+				questions: [
+					{ q: 'What did `-noservername` change in the ClientHello?', options: ['It dropped TLS 1.3 from the list', 'It left out the `server_name` extension', 'It removed the key share', 'It sent the name in clear text twice'], answer: 1, why: 'Run B sends no SNI, so the server does not learn which host the client wants.' },
+					{ q: 'What is alert 40?', options: ['`handshake_failure`', '`bad_certificate`', '`unrecognized_name`', '`decode_error`'], answer: 0, why: 'RFC 8446 defines `handshake_failure` as "unable to negotiate an acceptable set of security parameters".' },
+					{ q: 'Why does `New, (NONE), Cipher is (NONE)` appear?', options: ['The server chose a null cipher', 'TLS 1.3 hides the cipher name', 'The client refused the cipher', 'No cipher was ever chosen'], answer: 3, why: 'The handshake stopped at the alert, before any parameters were agreed.' },
+					{ q: 'Why does this server fail without SNI?', options: ['It only speaks TLS 1.2', 'It refuses IPv4 clients', 'It picks the certificate by name, and has none to offer', 'The client\'s key share was too short'], answer: 2, why: 'One IP serves many sites. With no name in the ClientHello, the server has no certificate to choose.' }
+				]
+			},
+			{
+				title: 'Time the full handshake',
+				questions: [
+					{ q: 'The round trip is 40 ms. When can the ClientHello leave?', options: ['At 0 ms, with the SYN', 'At 40 ms, after the SYN-ACK', 'At 80 ms', 'At 20 ms, halfway through the TCP handshake'], answer: 1, why: 'TCP needs one round trip before the ClientHello can go.' },
+					{ q: 'When does the server flight with Finished arrive?', options: ['At 80 ms', 'At 40 ms', 'At 120 ms', 'At 60 ms'], answer: 0, why: 'One more round trip after the ClientHello: 40 + 40 = 80 ms.' },
+					{ q: 'Why can the `GET` leave at 80 ms with the client Finished?', options: ['TLS 1.3 sends requests in clear text', 'The server already acknowledged the request', 'The ClientHello carried a key share, so keys exist after the ServerHello', 'The TCP handshake carries the request'], answer: 2, why: 'Both sides computed the secret from the key shares, so the client can encrypt its request right away.' },
+					{ q: 'When can the first byte of the response arrive?', options: ['At 80 ms', 'At 160 ms', 'At 40 ms', 'At 120 ms'], answer: 3, why: 'The request leaves at 80 ms and the answer needs one more round trip: 120 ms at the earliest.' }
+				]
+			},
+			{
+				title: 'Add a HelloRetryRequest',
+				questions: [
+					{ q: 'When does a server send a HelloRetryRequest?', options: ['It accepts none of the client\'s key share groups', 'The SNI is missing', 'The certificate has expired', 'The client offered only TLS 1.2'], answer: 0, why: 'If the server accepts none of the offered groups, it asks the client for a new key share first.' },
+					{ q: 'When does the second ClientHello leave?', options: ['At 40 ms', 'At 80 ms', 'At 120 ms', 'At 160 ms'], answer: 1, why: 'The HelloRetryRequest comes back at 80 ms, so the second ClientHello leaves then.' },
+					{ q: 'When does the first response byte arrive now?', options: ['At 120 ms', 'At 200 ms', 'At 160 ms', 'At 140 ms'], answer: 2, why: 'Server flight at 120, request out at 120, response at 160 ms at the earliest.' },
+					{ q: 'How many round trips does the retry add?', options: ['None', 'Two', 'Half of one', 'One'], answer: 3, why: 'The client has to send a second ClientHello and wait for the answer: one extra round trip, 40 ms here.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -160,6 +198,27 @@ func hostnameInSNI(name string) string {
 			why: 'RFC 8446 encrypts every handshake message after the ServerHello, so the certificate and EncryptedExtensions are hidden. The ClientHello and ServerHello go in clear text, and the ClientHello carries `server_name` and the ALPN protocols.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Host a site that picks its certificate by SNI, then watch the handshake succeed with the name and fail without it.',
+		steps: [
+			'Make a folder and a throwaway certificate: `mkdir -p ~/tls-lab && cd ~/tls-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 -subj /CN=shop.test`.',
+			'Create `sni.conf` with one line each: `server {`, `listen 443 ssl default_server;`, `ssl_reject_handshake on;`, `}`, `server {`, `listen 443 ssl;`, `server_name shop.test;`, `ssl_certificate /lab/cert.pem;`, `ssl_certificate_key /lab/key.pem;`, `}`. The first block refuses any handshake with an unknown name or no name.',
+			'Start nginx: `docker run -d --rm --name tls-lab -v "$PWD":/lab -v "$PWD/sni.conf":/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine`.',
+			'Define an `openssl s_client` that shares nginx\'s network: `s() { docker run --rm -i --network container:tls-lab nicolaka/netshoot:v0.13 openssl s_client -connect 127.0.0.1:443 "$@" </dev/null 2>&1; }`.',
+			'Run it three ways and keep the key lines: `s -servername shop.test | grep -E "Temp Key|^New|subject="`, then `s -noservername | grep -E "alert|^New"`, then `s -servername shop.test -groups P-256 | grep -E "Temp Key|^New"`.'
+		],
+		done: [
+			'With `-servername shop.test`: `subject=CN=shop.test`, `Server Temp Key: X25519, 253 bits` and `New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384`.',
+			'With `-noservername`: an error ending in `SSL alert number 112`, and `New, (NONE), Cipher is (NONE)`.',
+			'With `-groups P-256`: `Server Temp Key: ECDH, prime256v1, 256 bits`.'
+		],
+		solution: [
+			'With SNI, nginx finds the `shop.test` block and its certificate, and the handshake completes in TLS 1.3 like run A.',
+			'Without SNI, the default block refuses. nginx sends alert 112, `unrecognized_name`, where example.org sends 40, `handshake_failure`: the alert differs by server, the cause is the same. No cipher is chosen.',
+			'`-groups P-256` makes the client offer only that group, so its key share is P-256 and the server takes it. Stop the lab with `docker stop tls-lab`.'
+		]
+	},
 	recall: {
 		q: 'What does a TLS 1.3 ClientHello carry that lets the handshake finish in one round trip, and what happens when it has no SNI?',
 		a: 'A `key_share`, for example X25519, so both sides derive keys right after the ServerHello. Without `server_name`, a server that hosts many names cannot choose a certificate: example.org answered alert 40, `handshake_failure`.'

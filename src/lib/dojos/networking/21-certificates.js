@@ -141,6 +141,44 @@ candidateLoop:
 			'The leaf at position 0 breaks it: NotAfter is Apr 12 23:59:59 2015, and openssl reports `num=10:certificate has expired` at `depth=0`. The fix is a new leaf certificate.',
 			'Certificate 2 expired on May 30 2020, but openssl did not use it. At `depth=2`, openssl used the self-signed `COMODO RSA Certification Authority` from `/etc/ssl/certs/COMODO_RSA_Certification_Authority.pem`, valid until Jan 18 2038.',
 			'The server sent a version of `COMODO RSA Certification Authority` signed by `AddTrust External CA Root`. The client found a root with the same subject in its trust store and stopped there, so the expired cross-sign never entered the chain.'
+		],
+		steps: [
+			{
+				title: 'Read what the server sent',
+				questions: [
+					{ q: 'Which certificate in the server list is the leaf?', options: ['Certificate 0, `*.badssl.com`', 'Certificate 2, `COMODO RSA Certification Authority`', 'Certificate 1, the Domain Validation CA', '`AddTrust External CA Root`, the last issuer named'], answer: 0, why: 'RFC 8446 says the sender\'s certificate MUST come first. Position 0 is the one that holds the host names.' },
+					{ q: 'What is certificate 1, `COMODO RSA Domain Validation Secure Server CA`?', options: ['A root the client already has on disk', 'An intermediate between the leaf and a root', 'A second leaf for another host name', 'A copy of the leaf with newer dates'], answer: 1, why: 'Each following certificate should certify the one before it. Certificate 1 is the CA that signed the leaf, and the server must send it.' },
+					{ q: 'Which two certificates in the list have a NotAfter in the past?', options: ['0 and 1', '1 and 2', '0 and 2', 'Only 2'], answer: 2, why: 'Certificate 0 ended on Apr 12 2015 and certificate 2 on May 30 2020. Certificate 1 is valid until Feb 11 2029.' },
+					{ q: 'Certificate 2 is `COMODO RSA Certification Authority` issued by `AddTrust External CA Root`. What is it?', options: ['A cross-signed copy of a CA certificate', 'A self-signed root from the trust store', 'A leaf for the host `addtrust.com`', 'A second intermediate the leaf needs'], answer: 0, why: 'The same subject exists as a self-signed root. This copy is signed by an older root, which is what a cross-sign is.' }
+				]
+			},
+			{
+				title: 'Read the chain openssl built',
+				questions: [
+					{ q: 'What do the `depth=` lines show?', options: ['The order the server sent the certificates in', 'The chain openssl built, from the leaf at depth 0 upward', 'How many TLS records each certificate took', 'The certificates the client downloaded from the CA'], answer: 1, why: 'The `depth=` lines are the chain the client built. It can differ from the list the server sent.' },
+					{ q: 'At `depth=2`, where did `COMODO RSA Certification Authority` come from?', options: ['Certificate 2 in the server list', 'A download from the CA during the handshake', 'The trust store, `/etc/ssl/certs/COMODO_RSA_Certification_Authority.pem`', 'A cache of intermediates seen on earlier visits'], answer: 2, why: 'openssl used the self-signed copy on disk, valid until Jan 18 2038, not the copy the server sent.' },
+					{ q: 'How does a client pick the parent of a certificate?', options: ['It takes the next certificate in the server list, whatever it is', 'It finds one whose subject equals the child\'s issuer, then checks the signature', 'It picks the candidate with the latest NotAfter', 'It matches the host name against each candidate\'s SAN'], answer: 1, why: 'The parent\'s subject must equal the child\'s issuer, and the parent\'s public key must verify the child\'s signature.' },
+					{ q: 'Which copy of `COMODO RSA Certification Authority` sits in the trust store?', options: ['A self-signed one, valid until Jan 18 2038', 'One signed by AddTrust, valid until May 30 2020', 'One signed by the Domain Validation CA', 'An unsigned one, since roots carry no signature'], answer: 0, why: 'The trust store holds roots, and a root signs itself. The AddTrust-signed copy came from the server.' }
+				]
+			},
+			{
+				title: 'Find what breaks it',
+				questions: [
+					{ q: 'At which depth does openssl report `num=10:certificate has expired`?', options: ['`depth=2`', '`depth=1`', '`depth=0`', 'At every depth'], answer: 2, why: 'The error line follows `depth=0 ... *.badssl.com`, the leaf.' },
+					{ q: 'So which certificate breaks verification?', options: ['Certificate 2, the expired cross-sign', 'The leaf `*.badssl.com`, expired since Apr 12 2015', 'Certificate 1, the intermediate', '`AddTrust External CA Root`, the oldest one'], answer: 1, why: 'The only expiry error is at depth 0. The leaf\'s NotAfter is Apr 12 23:59:59 2015.' },
+					{ q: 'Which check rejects an expired certificate?', options: ['The match of the host name against the SAN list', 'The signature check with the parent\'s public key', 'The comparison of NotBefore and NotAfter with the current time', 'The SNI check the server does on the ClientHello'], answer: 2, why: 'A clock past NotAfter fails the date check. The signature and the SAN can be fine and the certificate still fails.' },
+					{ q: 'What fixes the error?', options: ['A new leaf certificate', 'Removing certificate 2 from the server list', 'Adding `AddTrust External CA Root` to the trust store', 'Turning off SNI in the client'], answer: 0, why: 'The leaf itself has expired. Nothing else in the chain can make an expired leaf valid.' }
+				]
+			},
+			{
+				title: 'Explain why the other is harmless',
+				questions: [
+					{ q: 'Did certificate 2 enter the chain openssl built?', options: ['Yes, at depth 2', 'Yes, at depth 3, above the root', 'No: the walk stopped at a root with the same subject', 'No: openssl reads only the first two certificates'], answer: 2, why: 'The client found `COMODO RSA Certification Authority` as a root in its trust store, so it never needed the server\'s copy.' },
+					{ q: 'Why does the walk stop at `COMODO RSA Certification Authority`?', options: ['It is a root in the trust store, so the chain is closed', 'A chain may hold three certificates at most', 'openssl does not know `AddTrust External CA Root`', 'The server marked it as the last certificate'], answer: 0, why: 'A chain ends when the parent is a trusted root. Go\'s `buildChains` does the same: it closes the chain when the candidate is a root.' },
+					{ q: 'The server stops sending certificate 2. Does this client\'s result change?', options: ['Yes, verification passes', 'No: the client never used it, and the leaf is still expired', 'Yes, verification now fails at depth 1', 'No, but the intermediate is now rejected'], answer: 1, why: 'Certificate 2 was not in the built chain, so removing it changes nothing. The leaf still fails.' },
+					{ q: 'Which sentence sums up the task?', options: ['Two expired certificates means two separate fixes', 'An expired certificate anywhere in the server list fails the handshake', 'Expiry is checked on the leaf only, never on CA certificates', 'Only the chain the client builds is checked, and here the leaf in it has expired'], answer: 3, why: 'The client checks the certificates in the chain it built. The expired cross-sign was sent but never used.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -178,6 +216,27 @@ candidateLoop:
 			why: 'A root is trusted only because it is already in the client\'s trust store. RFC 8446 says a certificate that specifies a trust anchor "MAY be omitted from the chain". Go\'s `buildChains` looks for roots in `opts.Roots`, the local pool.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a three-level chain on your laptop, serve it without and then with the intermediate, and watch the client fail and then pass.',
+		steps: [
+			'Make a folder and a root CA. You need OpenSSL 3 (on macOS, `brew install openssl`): `mkdir -p ~/chain-lab && cd ~/chain-lab`, then `openssl req -x509 -newkey rsa:2048 -nodes -keyout root.key -out root.pem -days 30 -subj "/CN=Lab Root"`.',
+			'Make the intermediate and sign it with the root: `openssl req -newkey rsa:2048 -nodes -keyout mid.key -out mid.csr -subj "/CN=Lab Intermediate"`, then `printf "basicConstraints=critical,CA:TRUE\\nkeyUsage=critical,keyCertSign\\n" > ca.ext`, then `openssl x509 -req -in mid.csr -CA root.pem -CAkey root.key -CAcreateserial -out mid.pem -days 30 -extfile ca.ext`.',
+			'Make the leaf for `localhost` and sign it with the intermediate: `openssl req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"`, then `printf "subjectAltName=DNS:localhost\\n" > leaf.ext`, then `openssl x509 -req -in leaf.csr -CA mid.pem -CAkey mid.key -CAcreateserial -out leaf.pem -days 30 -extfile leaf.ext`.',
+			'Serve the leaf alone: `openssl s_server -accept 8443 -cert leaf.pem -key leaf.key -www -quiet`. In a second terminal, in the same folder, run `curl --cacert root.pem https://localhost:8443/` and `openssl s_client -connect localhost:8443 -CAfile root.pem </dev/null 2>&1 | grep -E "depth|verify error|Verify return"`.',
+			'Stop the server with Ctrl+C and start it again with the intermediate: add `-cert_chain mid.pem` to the same command. Run the same two client commands, then `curl --cacert root.pem https://127.0.0.1:8443/`.'
+		],
+		done: [
+			'With the leaf alone, curl fails with `(60) SSL certificate problem: unable to get local issuer certificate`, and s_client shows `verify error:num=20` at `depth=0`.',
+			'With `-cert_chain mid.pem`, s_client shows `depth=2 CN = Lab Root`, `depth=1 CN = Lab Intermediate`, `depth=0 CN = localhost` and `Verify return code: 0 (ok)`, and curl prints the s_server page.',
+			'`curl --cacert root.pem https://127.0.0.1:8443/` fails with `no alternative certificate subject name matches target host name \'127.0.0.1\'`.'
+		],
+		solution: [
+			'The trust store in this lab is only `root.pem`. With the leaf alone, the client has no certificate whose subject is `Lab Intermediate`, so the walk stops at depth 0.',
+			'`-cert_chain mid.pem` makes the server send the intermediate after the leaf. In nginx, the same fix is a `ssl_certificate` file built with `cat leaf.pem mid.pem > chained.pem`.',
+			'The leaf\'s SAN list holds only `DNS:localhost`. The client matches the name it dialed against that list, so `127.0.0.1` fails even with a full chain.'
+		]
+	},
 	recall: {
 		q: 'curl says `unable to get local issuer certificate`. What is the client missing, and what goes in the file nginx\'s `ssl_certificate` points to?',
 		a: 'The client cannot find the issuer of the leaf, usually an intermediate the server did not send. The file must hold the leaf first, then the intermediates: `cat www.example.com.crt bundle.crt > www.example.com.chained.crt`.'

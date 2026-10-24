@@ -98,6 +98,44 @@ export default {
 			'(b) QUIC sur le port UDP 50781, l’exemple de la section 3.1.1 de la RFC 9114. Sans `ma`, la RFC 7838 dit que l’offre "is considered fresh for 24 hours" : le navigateur peut donc aussi la garder 24 heures.',
 			'(c) Cette réponse ne propose pas HTTP/3, le navigateur n’apprend rien et reste en TCP. La RFC 9114 dit quand même qu’un client "MAY attempt" QUIC directement sur le port de l’URL.',
 			'Derrière le blocage UDP, la tentative QUIC vers le site (a) ne reçoit aucune réponse. Le client se rabat sur TCP comme le demande la RFC 9114 : les pages se chargent en HTTP/2, après le temps perdu sur la tentative ratée.'
+		],
+		steps: [
+			{
+				title: 'Lis l’offre (a)',
+				questions: [
+					{ q: 'Que désigne `h3` dans `alt-svc: h3=":443"` ?', options: ['HTTP/2 sur TLS', 'HTTP/3, sur QUIC en UDP', 'Un troisième serveur pour le même site', 'HTTP/1.1 avec trois connexions'], answer: 1, why: '`h3` est le jeton ALPN de HTTP/3, qui tourne sur QUIC en UDP.' },
+					{ q: 'Quel port le navigateur essaie-t-il ?', options: ['TCP 443', 'UDP 80', 'UDP 443', 'TCP 8443'], answer: 2, why: '`":443"` sans hôte veut dire le même hôte sur le port 443, et HTTP/3 passe par UDP.' },
+					{ q: 'Combien de temps le navigateur peut-il garder l’offre ?', options: ['86 400 secondes, 24 heures', '443 secondes', 'Jusqu’à la fermeture de l’onglet', 'Une seule requête'], answer: 0, why: '`ma=86400` est le nombre de secondes pendant lequel l’offre reste fraîche.' },
+					{ q: 'Qu’est-ce qui a apporté cette offre au navigateur ?', options: ['Une réponse DNS', 'Un paquet Initial QUIC', 'Un ServerHello TLS', 'Une réponse HTTP sur TCP'], answer: 3, why: 'Dans l’accroche, `alt-svc` revient sur un `HTTP/2 200` en TCP port 443. Le navigateur peut s’en servir pour sa connexion suivante.' }
+				]
+			},
+			{
+				title: 'Lis l’offre (b)',
+				questions: [
+					{ q: 'Où pointe l’offre (b) ?', options: ['Le port UDP 443', 'Le port UDP 50781 du même hôte', 'Le port TCP 50781', 'Un autre hôte nommé 50781'], answer: 1, why: '`h3=":50781"` garde l’hôte et change le port. C’est l’exemple de la section 3.1.1 de la RFC 9114.' },
+					{ q: 'L’offre (b) n’a pas de `ma`. Combien de temps reste-t-elle fraîche ?', options: ['24 heures, la valeur par défaut de la RFC 7838', 'Zéro : elle doit servir tout de suite', 'Toujours, jusqu’à la prochaine offre', '86 400 jours'], answer: 0, why: 'RFC 7838 : sans `ma`, l’offre "is considered fresh for 24 hours".' },
+					{ q: 'Les offres (a) et (b) disent toutes deux `h3`. Qu’est-ce qui change entre elles ?', options: ['Le protocole : (b) est en HTTP/2', 'L’hôte : (b) pointe vers un autre site', 'Le port UDP, et rien d’autre en pratique', 'Le transport : (b) passe par TCP'], answer: 2, why: '(a) dit UDP 443 pour 86 400 secondes, (b) dit UDP 50781 avec les 24 heures par défaut : la même durée.' },
+					{ q: 'Quelle erreur commettrait-on en lisant (b) ?', options: ['Tenter QUIC sur UDP 50781', 'Considérer l’offre fraîche pendant 24 heures', 'Garder TCP en repli', 'Attendre de `h3` qu’il passe en TCP 50781'], answer: 3, why: 'HTTP/3 tourne toujours sur QUIC en UDP. Le port change, pas le transport.' }
+				]
+			},
+			{
+				title: 'Lis (c), l’en-tête absent',
+				questions: [
+					{ q: 'Le site (c) n’envoie pas d’`alt-svc`. Qu’apprend le navigateur ?', options: ['Que le site interdit HTTP/3', 'Rien de nouveau : aucune offre n’est faite', 'Que HTTP/3 tourne sur UDP 443', 'Que le site ne parle que HTTP/1.1'], answer: 1, why: 'La réponse ne propose pas HTTP/3 : le navigateur reste en TCP.' },
+					{ q: 'Le navigateur peut-il quand même tenter QUIC sur (c) ?', options: ['Oui : la RFC 9114 dit qu’un client "MAY attempt" sur le port de l’URL', 'Non : sans Alt-Svc, QUIC est interdit', 'Seulement après 24 heures', 'Seulement en 0-RTT'], answer: 0, why: 'Une offre Alt-Svc est un moyen d’apprendre HTTP/3, pas le seul.' },
+					{ q: 'Pourquoi un site envoie-t-il Alt-Svc sur une réponse HTTP/2 ?', options: ['HTTP/2 ne peut pas porter la page', 'Pour fermer la connexion TCP', 'Le client se connecte d’abord en TCP, et y apprend l’existence de l’UDP', 'Pour prouver le certificat TLS'], answer: 2, why: 'Un navigateur commence en TCP, où il joint toujours le site, et passe à QUIC une fois prévenu.' },
+					{ q: 'À partir de quand compte la valeur `ma` ?', options: ['Du démarrage du navigateur', 'Du premier paquet QUIC', 'Du TTL DNS', 'De la génération de la réponse'], answer: 3, why: 'L’offre reste fraîche `ma` secondes après la génération de la réponse.' }
+				]
+			},
+			{
+				title: 'Bloque l’UDP',
+				questions: [
+					{ q: 'Le pare-feu du bureau jette l’UDP sortant. Qu’arrive-t-il à la tentative QUIC vers (a) ?', options: ['Elle ne reçoit aucune réponse', 'Elle reçoit un HTTP 403', 'Le pare-feu la bascule en TCP', 'Elle se connecte plus lentement'], answer: 0, why: 'QUIC tourne sur UDP : le paquet Initial est jeté et rien ne revient.' },
+					{ q: 'Que dit la RFC 9114 au client de faire ensuite ?', options: ['Réessayer QUIC jusqu’à ce que ça marche', 'Tenter les versions de HTTP sur TCP', 'Afficher une page d’erreur', 'Descendre la taille des paquets sous 1200 octets'], answer: 1, why: '"Clients SHOULD attempt to use TCP-based versions of HTTP" quand QUIC ne se connecte pas.' },
+					{ q: 'Que voient les utilisateurs sur le site (a) ?', options: ['Une page cassée', 'Un avertissement de certificat', 'Les pages se chargent en HTTP/2, après le délai de la tentative ratée', 'Les pages se chargent quand même en HTTP/3'], answer: 2, why: 'Le repli garde le site en marche. Le seul coût est le temps passé sur la tentative QUIC ratée.' },
+					{ q: 'Baisser la taille des paquets ferait-il passer QUIC sur un chemin qui ne porte que des datagrammes de 1000 octets ?', options: ['Oui, QUIC s’adapte à toute taille', 'Oui, avec le 0-RTT', 'Seulement sur le port 443', 'Non : QUIC est interdit sous 1200 octets'], answer: 3, why: 'RFC 9000 : "QUIC MUST NOT be used if the network path cannot support a maximum datagram size of at least 1200 bytes".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -135,6 +173,27 @@ export default {
 			why: 'QUIC range les données des trames STREAM par ID de stream et par offset, et ordonne les octets stream par stream. Seul le stream 0 attend la retransmission. Sous HTTP/2, TCP retiendrait tous les streams derrière le trou.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Servir HTTP/3 depuis un nginx local, lire son offre Alt-Svc en HTTP/2, et voir curl se rabattre sur TCP quand aucun écouteur QUIC ne répond.',
+		steps: [
+			'Crée un dossier et un certificat jetable : `mkdir -p ~/h3-lab && cd ~/h3-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 -subj /CN=localhost`.',
+			'Crée `h3.conf` avec une ligne chacun : `server {`, `listen 443 ssl;`, `listen 443 quic reuseport;`, `listen 8443 ssl;`, `http2 on;`, `ssl_certificate /lab/cert.pem;`, `ssl_certificate_key /lab/key.pem;`, `add_header Alt-Svc \'h3=":443"; ma=86400\';`, `root /usr/share/nginx/html;`, `}`. Le port 443 parle TCP et UDP, le 8443 seulement TCP.',
+			'Lance nginx : `docker run -d --rm --name h3-lab -v "$PWD":/lab -v "$PWD/h3.conf":/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine`.',
+			'Définis un curl qui gère HTTP/3 et partage le réseau de nginx : `c() { docker run --rm --network container:h3-lab alpine/curl-http3@sha256:b0cb55696adcaf5714958926a28ce78a5fa72f6a4aa8df2ec5b72f1cde8038e3 curl -sk "$@"; }`. Lis l’offre en HTTP/2 : `c -I --http2 https://localhost/`.',
+			'Prends l’offre : `c -o /dev/null -w "%{http_version}\\n" --http3-only https://localhost/`. Essaie ensuite un port sans écouteur UDP, d’abord avec `--http3-only`, puis avec `--http3` : `c -o /dev/null -w "%{http_version} %{errormsg}\\n" --http3-only https://localhost:8443/` et `c -o /dev/null -w "%{http_version}\\n" --http3 https://localhost:8443/`.'
+		],
+		done: [
+			'L’étape 4 montre `HTTP/2 200` et `alt-svc: h3=":443"; ma=86400`.',
+			'`--http3-only https://localhost/` affiche `3`.',
+			'Sur le port 8443, `--http3-only` affiche `0` et une erreur QUIC, alors que `--http3` affiche `2`.'
+		],
+		solution: [
+			'nginx parle QUIC sur UDP 443 et l’annonce dans `alt-svc` sur ses réponses TCP, comme example.org dans l’accroche.',
+			'Le port 8443 n’a pas d’écouteur UDP. `--http3-only` n’a rien vers quoi se replier, et `--http3` se rabat sur TCP, comme le demande la RFC 9114. Ici, le noyau refuse le paquet UDP tout de suite. Derrière un pare-feu qui jette l’UDP en silence, la tentative QUIC attendrait d’abord un timeout.',
+			'Arrête le lab avec `docker stop h3-lab`.'
+		]
+	},
 	recall: {
 		q: 'Qu’est-ce que QUIC change pour HTTP par rapport à HTTP/2 sur TCP ? Donne le transport et deux effets.',
 		a: 'HTTP/3 passe par QUIC sur UDP, souvent le port 443. Une perte ne bloque que le stream qui a perdu des données, et une connexion survit à un changement d’adresse parce que les paquets portent un connection ID. La poignée de main met aussi TLS 1.3 en place en un aller-retour.'

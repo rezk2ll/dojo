@@ -141,6 +141,44 @@ candidateLoop:
 			'C’est la feuille, en position 0 : son NotAfter est le 12 avril 2015 à 23:59:59, et openssl signale `num=10:certificate has expired` à `depth=0`. Il faut un nouveau certificat feuille.',
 			'Le certificat 2 a expiré le 30 mai 2020, mais openssl ne s’en est pas servi. À `depth=2`, openssl a pris le `COMODO RSA Certification Authority` autosigné de `/etc/ssl/certs/COMODO_RSA_Certification_Authority.pem`, valide jusqu’au 18 janvier 2038.',
 			'Le serveur a envoyé une copie de `COMODO RSA Certification Authority` signée par `AddTrust External CA Root`. Le client a trouvé une racine de même sujet dans son magasin de confiance et s’est arrêté là : la contresignature expirée n’est jamais entrée dans la chaîne.'
+		],
+		steps: [
+			{
+				title: 'Lis ce que le serveur a envoyé',
+				questions: [
+					{ q: 'Quel certificat de la liste du serveur est la feuille ?', options: ['Le certificat 0, `*.badssl.com`', 'Le certificat 2, `COMODO RSA Certification Authority`', 'Le certificat 1, l’AC Domain Validation', '`AddTrust External CA Root`, le dernier émetteur cité'], answer: 0, why: 'La RFC 8446 impose que le certificat de l’expéditeur arrive en premier. La position 0 est celle qui porte les noms d’hôte.' },
+					{ q: 'Qu’est-ce que le certificat 1, `COMODO RSA Domain Validation Secure Server CA` ?', options: ['Une racine que le client a déjà sur disque', 'Un intermédiaire entre la feuille et une racine', 'Une deuxième feuille pour un autre nom d’hôte', 'Une copie de la feuille avec des dates plus récentes'], answer: 1, why: 'Chaque certificat suivant devrait certifier celui d’avant. Le certificat 1 est l’AC qui a signé la feuille, et le serveur doit l’envoyer.' },
+					{ q: 'Quels deux certificats de la liste ont un NotAfter dans le passé ?', options: ['0 et 1', '1 et 2', '0 et 2', 'Seulement 2'], answer: 2, why: 'Le certificat 0 a pris fin le 12 avril 2015 et le certificat 2 le 30 mai 2020. Le certificat 1 est valide jusqu’au 11 février 2029.' },
+					{ q: 'Le certificat 2 est `COMODO RSA Certification Authority` émis par `AddTrust External CA Root`. Qu’est-ce que c’est ?', options: ['Une copie contresignée d’un certificat d’AC', 'Une racine autosignée du magasin de confiance', 'Une feuille pour l’hôte `addtrust.com`', 'Un second intermédiaire dont la feuille a besoin'], answer: 0, why: 'Le même sujet existe en racine autosignée. Cette copie est signée par une racine plus ancienne : c’est une contresignature.' }
+				]
+			},
+			{
+				title: 'Lis la chaîne construite par openssl',
+				questions: [
+					{ q: 'Que montrent les lignes `depth=` ?', options: ['L’ordre dans lequel le serveur a envoyé les certificats', 'La chaîne qu’openssl a construite, de la feuille en profondeur 0 vers le haut', 'Le nombre d’enregistrements TLS de chaque certificat', 'Les certificats que le client a téléchargés chez l’AC'], answer: 1, why: 'Les lignes `depth=` sont la chaîne construite par le client. Elle peut différer de la liste envoyée par le serveur.' },
+					{ q: 'À `depth=2`, d’où vient `COMODO RSA Certification Authority` ?', options: ['Du certificat 2 de la liste du serveur', 'D’un téléchargement chez l’AC pendant la poignée de main', 'Du magasin de confiance, `/etc/ssl/certs/COMODO_RSA_Certification_Authority.pem`', 'D’un cache d’intermédiaires vus lors de visites précédentes'], answer: 2, why: 'openssl a pris la copie autosignée sur disque, valide jusqu’au 18 janvier 2038, et pas celle envoyée par le serveur.' },
+					{ q: 'Comment un client choisit-il le parent d’un certificat ?', options: ['Il prend le certificat suivant de la liste, quel qu’il soit', 'Il cherche celui dont le sujet égale l’émetteur de l’enfant, puis vérifie la signature', 'Il prend le candidat au NotAfter le plus lointain', 'Il compare le nom d’hôte au SAN de chaque candidat'], answer: 1, why: 'Le sujet du parent doit égaler l’émetteur de l’enfant, et la clé publique du parent doit vérifier la signature de l’enfant.' },
+					{ q: 'Quelle copie de `COMODO RSA Certification Authority` se trouve dans le magasin de confiance ?', options: ['Une copie autosignée, valide jusqu’au 18 janvier 2038', 'Une copie signée par AddTrust, valide jusqu’au 30 mai 2020', 'Une copie signée par l’AC Domain Validation', 'Une copie sans signature, car les racines n’en ont pas'], answer: 0, why: 'Le magasin de confiance contient des racines, et une racine se signe elle-même. La copie signée par AddTrust vient du serveur.' }
+				]
+			},
+			{
+				title: 'Trouve ce qui casse',
+				questions: [
+					{ q: 'À quelle profondeur openssl signale-t-il `num=10:certificate has expired` ?', options: ['`depth=2`', '`depth=1`', '`depth=0`', 'À toutes les profondeurs'], answer: 2, why: 'La ligne d’erreur suit `depth=0 ... *.badssl.com`, la feuille.' },
+					{ q: 'Quel certificat fait donc échouer la vérification ?', options: ['Le certificat 2, la contresignature expirée', 'La feuille `*.badssl.com`, expirée depuis le 12 avril 2015', 'Le certificat 1, l’intermédiaire', '`AddTrust External CA Root`, le plus ancien'], answer: 1, why: 'La seule erreur d’expiration est à la profondeur 0. Le NotAfter de la feuille est le 12 avril 2015 à 23:59:59.' },
+					{ q: 'Quelle vérification rejette un certificat expiré ?', options: ['La comparaison du nom d’hôte avec la liste SAN', 'La vérification de signature avec la clé publique du parent', 'La comparaison de NotBefore et NotAfter avec l’heure actuelle', 'Le contrôle SNI que fait le serveur sur le ClientHello'], answer: 2, why: 'Une horloge au-delà de NotAfter fait échouer le contrôle des dates. La signature et le SAN peuvent être bons, le certificat échoue quand même.' },
+					{ q: 'Qu’est-ce qui corrige l’erreur ?', options: ['Un nouveau certificat feuille', 'Retirer le certificat 2 de la liste du serveur', 'Ajouter `AddTrust External CA Root` au magasin de confiance', 'Désactiver le SNI dans le client'], answer: 0, why: 'C’est la feuille elle-même qui a expiré. Rien d’autre dans la chaîne ne peut rendre valide une feuille expirée.' }
+				]
+			},
+			{
+				title: 'Explique pourquoi l’autre ne gêne pas',
+				questions: [
+					{ q: 'Le certificat 2 est-il entré dans la chaîne construite par openssl ?', options: ['Oui, à la profondeur 2', 'Oui, à la profondeur 3, au-dessus de la racine', 'Non : la remontée s’est arrêtée à une racine de même sujet', 'Non : openssl ne lit que les deux premiers certificats'], answer: 2, why: 'Le client a trouvé `COMODO RSA Certification Authority` comme racine dans son magasin de confiance, il n’a donc jamais eu besoin de la copie du serveur.' },
+					{ q: 'Pourquoi la remontée s’arrête-t-elle à `COMODO RSA Certification Authority` ?', options: ['C’est une racine du magasin de confiance, donc la chaîne est close', 'Une chaîne contient au plus trois certificats', 'openssl ne connaît pas `AddTrust External CA Root`', 'Le serveur l’a marqué comme dernier certificat'], answer: 0, why: 'Une chaîne s’arrête quand le parent est une racine de confiance. Le `buildChains` de Go fait pareil : il clôt la chaîne quand le candidat est une racine.' },
+					{ q: 'Le serveur n’envoie plus le certificat 2. Le résultat change-t-il pour ce client ?', options: ['Oui, la vérification passe', 'Non : le client ne s’en servait pas, et la feuille est toujours expirée', 'Oui, la vérification échoue maintenant à la profondeur 1', 'Non, mais l’intermédiaire est désormais rejeté'], answer: 1, why: 'Le certificat 2 n’était pas dans la chaîne construite, le retirer ne change rien. La feuille échoue toujours.' },
+					{ q: 'Quelle phrase résume la tâche ?', options: ['Deux certificats expirés, donc deux corrections distinctes', 'Un certificat expiré n’importe où dans la liste du serveur fait échouer la poignée de main', 'L’expiration n’est vérifiée que sur la feuille, jamais sur les certificats d’AC', 'Seule la chaîne construite par le client est vérifiée, et la feuille y est expirée'], answer: 3, why: 'Le client vérifie les certificats de la chaîne qu’il a construite. La contresignature expirée a été envoyée mais jamais utilisée.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -178,6 +216,27 @@ candidateLoop:
 			why: 'Une racine n’est fiable que parce qu’elle est déjà dans le magasin de confiance du client. RFC 8446 dit qu’un certificat qui désigne une ancre de confiance « MAY be omitted from the chain ». `buildChains` de Go cherche les racines dans `opts.Roots`, le pool local.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Construire une chaîne à trois niveaux sur ton portable, la servir sans puis avec l’intermédiaire, et voir le client échouer puis réussir.',
+		steps: [
+			'Crée un dossier et une CA racine. Il te faut OpenSSL 3 (sur macOS, `brew install openssl`) : `mkdir -p ~/chain-lab && cd ~/chain-lab`, puis `openssl req -x509 -newkey rsa:2048 -nodes -keyout root.key -out root.pem -days 30 -subj "/CN=Lab Root"`.',
+			'Crée l’intermédiaire et signe-le avec la racine : `openssl req -newkey rsa:2048 -nodes -keyout mid.key -out mid.csr -subj "/CN=Lab Intermediate"`, puis `printf "basicConstraints=critical,CA:TRUE\\nkeyUsage=critical,keyCertSign\\n" > ca.ext`, puis `openssl x509 -req -in mid.csr -CA root.pem -CAkey root.key -CAcreateserial -out mid.pem -days 30 -extfile ca.ext`.',
+			'Crée la feuille pour `localhost` et signe-la avec l’intermédiaire : `openssl req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"`, puis `printf "subjectAltName=DNS:localhost\\n" > leaf.ext`, puis `openssl x509 -req -in leaf.csr -CA mid.pem -CAkey mid.key -CAcreateserial -out leaf.pem -days 30 -extfile leaf.ext`.',
+			'Sers la feuille seule : `openssl s_server -accept 8443 -cert leaf.pem -key leaf.key -www -quiet`. Dans un second terminal, dans le même dossier, lance `curl --cacert root.pem https://localhost:8443/` et `openssl s_client -connect localhost:8443 -CAfile root.pem </dev/null 2>&1 | grep -E "depth|verify error|Verify return"`.',
+			'Arrête le serveur avec Ctrl+C et relance-le avec l’intermédiaire : ajoute `-cert_chain mid.pem` à la même commande. Relance les deux commandes client, puis `curl --cacert root.pem https://127.0.0.1:8443/`.'
+		],
+		done: [
+			'Avec la feuille seule, curl échoue avec `(60) SSL certificate problem: unable to get local issuer certificate`, et s_client affiche `verify error:num=20` à `depth=0`.',
+			'Avec `-cert_chain mid.pem`, s_client affiche `depth=2 CN = Lab Root`, `depth=1 CN = Lab Intermediate`, `depth=0 CN = localhost` et `Verify return code: 0 (ok)`, et curl affiche la page de s_server.',
+			'`curl --cacert root.pem https://127.0.0.1:8443/` échoue avec `no alternative certificate subject name matches target host name \'127.0.0.1\'`.'
+		],
+		solution: [
+			'Dans ce lab, le magasin de confiance se limite à `root.pem`. Avec la feuille seule, le client n’a aucun certificat de sujet `Lab Intermediate`, donc la remontée s’arrête à la profondeur 0.',
+			'`-cert_chain mid.pem` fait envoyer l’intermédiaire après la feuille. Dans nginx, la même correction est un fichier `ssl_certificate` construit avec `cat leaf.pem mid.pem > chained.pem`.',
+			'La liste SAN de la feuille ne contient que `DNS:localhost`. Le client compare le nom qu’il a appelé à cette liste, donc `127.0.0.1` échoue même avec une chaîne complète.'
+		]
+	},
 	recall: {
 		q: 'curl affiche `unable to get local issuer certificate`. Que manque-t-il au client, et que doit contenir le fichier pointé par `ssl_certificate` dans nginx ?',
 		a: 'Le client ne trouve pas l’émetteur de la feuille, en général un intermédiaire que le serveur n’a pas envoyé. Le fichier doit contenir la feuille d’abord, puis les intermédiaires : `cat www.example.com.crt bundle.crt > www.example.com.chained.crt`.'

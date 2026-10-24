@@ -107,6 +107,44 @@ export default {
 			'Hollow test: `pytest.raises(Exception)` accepts that `TypeError`, so CI stays green while every valid date also fails. Expect `ValueError` instead, and add a test that `parse_date("2024-02-01")` returns `date(2024, 2, 1)`.',
 			'Proof: in a Python shell, `parse_date("2024-02-01")` raises the same `TypeError`. The test passes whether the code is right or broken, so it checks nothing.',
 			'Scope: the three reformatted modules are not part of the issue, so ask for them in a separate PR. The real fix is shorter: on Python 3.12, `date.fromisoformat("2024-02-30")` already raises `ValueError: day is out of range for month`.'
+		],
+		steps: [
+			{
+				title: 'Read the file list',
+				questions: [
+					{ q: 'The issue is about `parse_date`. Which files should the diff touch?', options: ['`dates.py` and its test', '`dates.py`, its test and three reformatted modules', 'Every module that imports `dates.py`', 'Only the test file'], answer: 0, why: 'A fix for one function needs a reason for every other file it touches.' },
+					{ q: 'What do you call the three reformatted modules?', options: ['A hollow test', 'An invented API', 'Scope creep', 'A required cleanup'], answer: 2, why: 'Changes the task did not ask for, such as reformatted files, are scope creep.' },
+					{ q: 'What do you ask for those three modules?', options: ['Revert them and send them in a separate PR', 'Keep them, since CI is green', 'Reformat the rest of the repo too', 'Add tests for the formatting'], answer: 0, why: 'They are not part of the issue, and a diff limited to the task stays small enough to read line by line.' },
+					{ q: 'Why do the Claude docs say to watch for extra files?', options: ['Extra files slow down CI', 'Git cannot merge more than five files', 'Reviewers are paid per file', 'Claude Opus 4.5 and 4.6 tend to overengineer and create extra files'], answer: 3, why: 'The docs say Claude Opus 4.5 and 4.6 "have a tendency to overengineer by creating extra files".' }
+				]
+			},
+			{
+				title: 'Check the new call',
+				questions: [
+					{ q: 'Does `date.fromisoformat()` accept `strict=True` on Python 3.12?', options: ['Yes, since Python 3.11', 'No: it takes no keyword arguments', 'Yes, but only on dates', 'Only with `from __future__ import strict`'], answer: 1, why: 'The keyword does not exist, so this is an invented API.' },
+					{ q: 'What does the new line do with a valid date such as `"2024-02-01"`?', options: ['Returns `date(2024, 2, 1)`', 'Returns `None`', 'Raises `TypeError`', 'Raises `ValueError`'], answer: 2, why: 'The call fails on the keyword argument before it reads the string, so every input raises.' },
+					{ q: 'How do you check a new keyword argument in a review?', options: ['Trust it if the code reads well', 'Find its definition or its docs page', 'Ask the agent if it exists', 'Wait for users to report it'], answer: 1, why: 'For each new import, function, keyword argument or package, find its definition or docs page.' },
+					{ q: 'What does `date.fromisoformat("2024-02-30")` already do on Python 3.12?', options: ['Returns a date in March', 'Returns `None`', 'Raises `TypeError`', 'Raises `ValueError: day is out of range for month`'], answer: 3, why: 'The real fix is shorter: the standard call already rejects that date.' }
+				]
+			},
+			{
+				title: 'Test the test',
+				questions: [
+					{ q: 'Which exceptions does `pytest.raises(Exception)` accept?', options: ['Any subclass of `Exception`, including `TypeError`', 'Only `ValueError`', 'Only exceptions raised by `parse_date`', 'None until you name one'], answer: 0, why: 'Almost every error class inherits from `Exception`, so the test passes on the `TypeError` too.' },
+					{ q: 'Why is CI green?', options: ['The test checks the right behavior', 'CI skipped the new test', 'The `TypeError` satisfies `pytest.raises(Exception)`', 'Python 3.12 accepts `strict=True`'], answer: 2, why: 'The test expects any error, and the broken call raises one for every input.' },
+					{ q: 'How do you prove the test is hollow?', options: ['Read the test name', 'Run `parse_date("2024-02-01")` and see the same `TypeError`', 'Ask the agent to explain it', 'Run CI a second time'], answer: 1, why: 'A valid date fails the same way, so the test passes whether the code is right or broken.' },
+					{ q: 'What is the general way to check a test that guards a fix?', options: ['Count its assertions', 'Run it twice', 'Rename it', 'Undo the fix and run it: it must fail'], answer: 3, why: 'A test that stays green with the fix removed has not tested the fix.' }
+				]
+			},
+			{
+				title: 'Write the review',
+				questions: [
+					{ q: 'Which exception should the test expect?', options: ['`ValueError`', '`TypeError`', '`Exception`', '`KeyError`'], answer: 0, why: '`ValueError: day is out of range for month` is what the real fix raises for `"2024-02-30"`.' },
+					{ q: 'Which test do you also ask for?', options: ['One that `parse_date` raises on every input', 'One that `parse_date("2024-02-01")` returns `date(2024, 2, 1)`', 'One that checks the formatting of the three modules', 'One that `strict=True` is accepted'], answer: 1, why: 'A test on a valid date fails as long as the invented keyword is there.' },
+					{ q: 'The agent wrote "all tests pass". What do the Claude Code docs say to ask for?', options: ['A longer explanation', 'A second agent to agree', 'Evidence: the command it ran and what it returned', 'Nothing more: green is enough'], answer: 2, why: '"Have Claude show evidence rather than asserting success."' },
+					{ q: 'You ask a reviewer agent for gaps in this PR. What do the docs warn?', options: ['It never finds gaps in agent code', 'It needs the writing session to run', 'It only reads the test files', 'It will usually report some, even when the work is sound'], answer: 3, why: 'The docs suggest flagging only gaps that affect correctness or the stated requirements.' }
+				]
+			}
 		]
 	},
 	quiz: [

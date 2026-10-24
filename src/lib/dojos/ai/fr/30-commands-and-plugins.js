@@ -100,6 +100,44 @@ Based on the above changes:
 			'`/triage 1234` met `1234` à la place de `$0`. Les deux commandes `gh` tournent sans demande, pendant ce tour seulement.',
 			'Arborescence du plugin : `triage-tools/.claude-plugin/plugin.json` avec `{ "name": "triage-tools", "version": "1.0.0" }`, `triage-tools/commands/triage.md` et `triage-tools/commands/triage-week.md`.',
 			'Une fois installé, les commandes se lancent avec `/triage-tools:triage 1234` et `/triage-tools:triage-week`. Ajoute le plugin à un `.claude-plugin/marketplace.json` avec `"source": "./triage-tools"`, et l’équipe l’installe avec `/plugin install triage-tools@<marketplace>`.'
+		],
+		steps: [
+			{
+				title: 'Écris le fichier de commande',
+				questions: [
+					{ q: 'Quel fichier te donne `/triage` ?', options: ['`.claude/triage.md`', '`.claude/commands/triage.md`', '`.claude/commands/triage/run.md`', '`.claude/commands/triage.json`'], answer: 1, why: 'Le nom de la commande vient du nom du fichier dans `.claude/commands/`. Un sous-dossier donnerait `/triage:run`.' },
+					{ q: 'Comment `1234` arrive-t-il dans le corps du fichier ?', options: ['Par une ligne `` !`1234` ``', 'Par une variable d’environnement `ISSUE`', 'Par `$0`, ou `$ARGUMENTS`', 'Claude te le demande'], answer: 2, why: 'Les arguments arrivent dans le fichier par `$ARGUMENTS` ou `$0`.' },
+					{ q: 'Quel `allowed-tools` laisse tourner les deux étapes `gh`, et aucune autre commande `gh` ?', options: ['`Bash(gh issue view *) Bash(gh issue edit *)`', '`Bash(gh *)`', '`Bash(git push:*)`', '`Read`'], answer: 0, why: 'Une entrée par commande dont la tâche a besoin. `Bash(gh *)` laisserait aussi passer `gh pr merge`.' },
+					{ q: 'Combien de temps dure cette autorisation ?', options: ['Pour le reste de la session', 'Jusqu’à la mise à jour du plugin', 'Pour toujours, une fois validée', 'Pendant ce tour seulement'], answer: 3, why: '`allowed-tools` laisse les commandes listées tourner sans demande pendant le tour qui lance la commande.' }
+				]
+			},
+			{
+				title: 'Lance-la une fois',
+				questions: [
+					{ q: 'Tu tapes `/triage 1234`. Qu’est-ce qui remplace `$0` ?', options: ['`/triage`', '`1234`', 'Le titre de l’issue', 'Rien tant que Claude n’appelle pas `gh`'], answer: 1, why: 'Le premier argument après le nom de la commande remplit `$0`.' },
+					{ q: 'Si le fichier avait une ligne `` !`git status` ``, quand `git` tournerait-il ?', options: ['Avant que Claude lise le fichier, avec la sortie à la place de la ligne', 'Quand Claude décide d’appeler l’outil Bash', 'Une fois au démarrage, en cache pour la session', 'Jamais : Claude la lit comme du texte'], answer: 0, why: 'L’injection de contexte lance d’abord chaque `` !`command` ``, donc Claude reçoit la sortie, pas la commande.' },
+					{ q: 'Pendant `/triage`, Claude tente `gh issue close 1234`. Que se passe-t-il ?', options: ['Elle tourne, puisque `gh issue` est autorisé', 'Le fichier de commande la bloque', 'Elle passe par les règles de permission habituelles', 'La commande s’arrête sur une erreur'], answer: 2, why: 'Une commande que la liste `allowed-tools` ne couvre pas passe quand même par les règles de permission.' },
+					{ q: 'Tu fais une faute de frappe dans une entrée de `allowed-tools`. Que vois-tu ?', options: ['Une erreur au chargement du fichier', 'Un avertissement dans `/context`', 'La commande refuse de tourner', 'Aucune erreur : la commande demande, c’est tout'], answer: 3, why: 'Comme le montre `git checkout --branch:*`, une entrée fausse échoue sans bruit et la commande retombe sur une demande.' }
+				]
+			},
+			{
+				title: 'Range-la dans un plugin',
+				questions: [
+					{ q: 'Où va le manifeste du plugin ?', options: ['`triage-tools/.claude-plugin/plugin.json`', '`triage-tools/plugin.json`', '`triage-tools/.claude/settings.json`', '`.claude-plugin/marketplace.json`'], answer: 0, why: 'Un plugin est un dossier avec un manifeste dans `.claude-plugin/plugin.json`.' },
+					{ q: 'Que met la réponse dans ce manifeste ?', options: ['La liste des fichiers de commande', '`"name": "triage-tools"` et `"version": "1.0.0"`', 'Le `allowed-tools` de chaque commande', 'L’URL de la marketplace'], answer: 1, why: 'Le manifeste nomme le plugin et sa version. Le plugin `commit-commands` fait pareil.' },
+					{ q: 'Où vont `triage.md` et `triage-week.md` dans le plugin ?', options: ['`triage-tools/.claude/commands/`', '`triage-tools/.claude-plugin/`', '`triage-tools/commands/`', '`triage-tools/skills/`'], answer: 2, why: 'Dans un plugin, les commandes vivent dans `commands/<file>.md`.' },
+					{ q: 'En plus des commandes, que peut contenir le plugin ?', options: ['Seulement d’autres commandes', 'Seulement un `settings.json`', 'Seulement des fichiers `CLAUDE.md`', 'Des skills, des agents, des hooks et des serveurs MCP'], answer: 3, why: 'Un plugin installe d’un bloc des commandes, des skills, des agents, des hooks et des serveurs MCP.' }
+				]
+			},
+			{
+				title: 'Nomme les commandes et livre',
+				questions: [
+					{ q: 'Une fois installé, que tapes-tu pour trier l’issue 1234 ?', options: ['`/triage 1234`', '`/triage-tools:triage 1234`', '`/triage-tools/triage 1234`', '`/plugin triage 1234`'], answer: 1, why: 'Les commandes d’un plugin prennent le nom du plugin en préfixe.' },
+					{ q: 'Quel modèle donne le nom d’une commande de plugin ?', options: ['`/<file>`', '`/<file>:<plugin>`', '`/<plugin>:<file>`', '`/<marketplace>:<file>`'], answer: 2, why: '`commands/<file>.md` dans un plugin se lance avec `/<plugin>:<file>`.' },
+					{ q: 'Comment l’équipe installe-t-elle le plugin ?', options: ['`/plugin install triage-tools@<marketplace>`', 'En copiant les fichiers dans `.claude/commands/`', 'Par un `git clone` du dossier du plugin', 'Par `npm install triage-tools`'], answer: 0, why: 'Tu le listes dans un `marketplace.json` avec `"source": "./triage-tools"`, et l’équipe l’installe depuis cette marketplace.' },
+					{ q: 'Activé mais pas utilisé dans une session, que coûte le plugin ?', options: ['Rien tant qu’aucune commande ne tourne', 'Le texte complet des deux commandes à chaque tour', 'Une ligne qui nomme le plugin', 'Le nom et la description de chaque commande que Claude peut invoquer, à chaque tour'], answer: 3, why: 'Ces noms et descriptions restent dans le contexte pour que Claude sache qu’elles existent. Le texte complet ne se charge qu’à l’usage.' }
+				]
+			}
 		]
 	},
 	quiz: [

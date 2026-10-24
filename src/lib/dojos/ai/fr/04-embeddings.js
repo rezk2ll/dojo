@@ -93,6 +93,44 @@ export default {
 			'a · c = -9 - 16 = -25, donc `cos_sim(a, c)` = -25 / 25 = -1. Les deux vecteurs vont en sens opposé.',
 			'10a = (30, 40), de longueur 50. a · 10a = 90 + 160 = 250, et 250 / (5 × 50) = 1. Multiplier un vecteur ne change pas son cosinus.',
 			'`cos_sim` compare des directions après `normalize_embeddings`. La longueur du vecteur ne compte pas : une note courte peut obtenir un score aussi haut qu’une longue page.'
+		],
+		steps: [
+			{
+				title: 'Calcule `cos_sim(a, b)`',
+				questions: [
+					{ q: 'Que vaut le produit scalaire a · b, avec a = (3, 4) et b = (4, 3) ?', options: ['24', '25', '7', '0'], answer: 0, why: '3 × 4 + 4 × 3 = 12 + 12 = 24.' },
+					{ q: 'Quelle est la longueur de a = (3, 4) ?', options: ['7', '5', '25', '12'], answer: 1, why: 'La racine carrée de 3 × 3 + 4 × 4 = 25 vaut 5. b a la même longueur.' },
+					{ q: 'Que vaut `cos_sim(a, b)` ?', options: ['24', '1', '0.5', '0.96'], answer: 3, why: 'Le produit scalaire divisé par les deux longueurs : 24 / (5 × 5) = 0.96.' },
+					{ q: 'Que t’apprend 0.96 sur a et b ?', options: ['Ils vont presque dans le même sens', 'Ils sont à angle droit', 'Ils ont des longueurs différentes', 'Ils vont en sens opposé'], answer: 0, why: 'Un cosinus proche de 1 veut dire un petit angle entre les deux vecteurs.' }
+				]
+			},
+			{
+				title: 'Calcule `cos_sim(a, c)`',
+				questions: [
+					{ q: 'Que vaut a · c, avec c = (-3, -4) ?', options: ['25', '-25', '-7', '0'], answer: 1, why: '3 × -3 + 4 × -4 = -9 - 16 = -25.' },
+					{ q: 'Quelle est la longueur de c ?', options: ['5', '-5', '-25', '7'], answer: 0, why: 'Une longueur n’est jamais négative : (-3)² + (-4)² = 25, dont la racine vaut 5.' },
+					{ q: 'Que vaut `cos_sim(a, c)` ?', options: ['0', '1', '-1', '-0.96'], answer: 2, why: '-25 / (5 × 5) = -1, la valeur la plus basse qu’un cosinus puisse prendre.' },
+					{ q: 'Que veut dire -1 ?', options: ['Les vecteurs sont à angle droit', 'Le score est une erreur', 'Les textes n’ont rien en commun', 'Les vecteurs vont en sens opposé'], answer: 3, why: 'c est a retourné. 0 voudrait dire angle droit ; -1 veut dire exactement opposé.' }
+				]
+			},
+			{
+				title: 'Multiplie a par 10',
+				questions: [
+					{ q: 'Que vaut 10a, et quelle est sa longueur ?', options: ['(30, 40), longueur 50', '(30, 40), longueur 5', '(13, 14), longueur 19', '(30, 40), longueur 70'], answer: 0, why: 'Chaque coordonnée est multipliée par 10, et la longueur aussi : 5 × 10.' },
+					{ q: 'Que vaut a · 10a ?', options: ['25', '2500', '250', '50'], answer: 2, why: '3 × 30 + 4 × 40 = 90 + 160 = 250.' },
+					{ q: 'Que vaut `cos_sim(a, 10a)` ?', options: ['1', '10', '0.1', '0.5'], answer: 0, why: '250 / (5 × 50) = 1. Les deux vecteurs vont dans le même sens.' },
+					{ q: 'Rendre un vecteur 10 fois plus long, qu’est-ce que ça change à son cosinus avec un autre ?', options: ['Ça le multiplie par 10', 'Rien : le cosinus reste le même', 'Ça le divise par 10', 'Ça inverse son signe'], answer: 1, why: 'La longueur apparaît des deux côtés de la division et s’annule.' }
+				]
+			},
+			{
+				title: 'Explique ce que ça change pour une recherche',
+				questions: [
+					{ q: 'Après `normalize_embeddings`, que compare `cos_sim` ?', options: ['La direction seulement', 'La longueur seulement', 'La longueur et la direction', 'Le nombre de mots'], answer: 0, why: 'Normaliser donne une longueur de 1 à chaque vecteur : il ne reste que la direction à comparer.' },
+					{ q: 'Une note courte et une longue page parlent du même sujet. La longue page a-t-elle un meilleur score parce qu’elle est plus longue ?', options: ['Oui : son vecteur est plus long', 'Non : la longueur ne joue aucun rôle, une note courte peut faire aussi bien qu’une longue page', 'Non : la note courte a toujours un meilleur score', 'Oui : une longue page a toujours un score de 1'], answer: 1, why: 'La longueur du vecteur ne joue aucun rôle dans `cos_sim`, comme le montre `cos_sim(a, 10a)` = 1.' },
+					{ q: 'Que fait `normalize_embeddings` à chaque vecteur ?', options: ['Il arrondit chaque valeur sur 8 bits', 'Il trie les vecteurs par longueur', 'Il divise le vecteur par sa longueur', 'Il coupe le vecteur à 256 nombres'], answer: 2, why: 'Il appelle `torch.nn.functional.normalize(embeddings, p=2, dim=-1)`, ce qui donne une longueur de 1 à chaque vecteur.' },
+					{ q: 'La longue page dépasse 256 word pieces. Que fait `all-MiniLM-L6-v2` de la fin ?', options: ['Il encode la fin dans un second vecteur', 'Il allonge le vecteur pour la faire tenir', 'Il mélange la fin dans le premier vecteur', 'Il la coupe : la fin n’est jamais vue'], answer: 3, why: 'Par défaut, une entrée de plus de 256 word pieces est tronquée. Découpe les longues pages en morceaux avant l’encodage.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -107,6 +107,44 @@ Structure your response for maximum clarity and usefulness. Always include speci
 			'Corps : « Lance la commande de tests du projet. Réponds avec le nom de chaque test en échec, son fichier et la première ligne d’erreur, rien sur les tests qui passent. » Le subagent reçoit ce corps comme prompt système, avec des détails d’environnement comme le répertoire de travail.',
 			'Sans `Edit` ni `Write` dans `tools`, l’agent ne peut pas modifier de fichier avec ces outils. `Bash` reste, parce que l’agent doit lancer les tests. Une commande shell peut encore écrire un fichier, alors le corps dit quoi faire et rien de plus.',
 			'La règle sur `git push` va dans `permissions.deny` de `.claude/settings.json`, sous la forme `Bash(git push *)`. La même entrée dans `disallowedTools` retirerait tout l’outil `Bash`, alors qu’une règle deny des réglages s’applique à la conversation principale et aux subagents.'
+		],
+		steps: [
+			{
+				title: 'Écris le frontmatter',
+				questions: [
+					{ q: 'Quels champs du frontmatter un fichier d’agent exige-t-il au minimum ?', options: ['`name` et `tools`', '`name` et `description`', '`description` et `model`', '`name` seul'], answer: 1, why: 'Seuls `name` et `description` sont obligatoires. Un fichier qui a un `name` sans `description` est ignoré.' },
+					{ q: 'Quel champ Claude lit-il pour décider de déléguer à `test-runner` ?', options: ['`name`', '`tools`', '`description`', 'La première ligne du corps'], answer: 2, why: 'Claude compare ta demande et le contexte avec la `description` de chaque fichier d’agent.' },
+					{ q: 'Tu veux que Claude délègue après chaque changement de code. Qu’ajoutes-tu à la description ?', options: ['« Use proactively after code changes »', 'La liste complète des commandes de test', 'Une ligne `model: haiku`', 'Une note qui interdit de pousser'], answer: 0, why: 'La doc conseille « use proactively » dans la description pour encourager la délégation.' },
+					{ q: 'Pourquoi garder la description courte ?', options: ['Claude ne lit que ses dix premiers mots', 'Le YAML ne tient pas les longues chaînes', 'Une longue description devient le prompt système', 'Chaque description prend de la place dans le contexte principal'], answer: 3, why: 'Chaque description de subagent est dans la conversation principale, et Claude Code avertit au-delà de 15 000 tokens de descriptions personnalisées.' }
+				]
+			},
+			{
+				title: 'Choisis les outils',
+				questions: [
+					{ q: 'Quelle ligne `tools` convient à un test runner qui ne doit pas modifier de fichiers ?', options: ['`Read, Edit, Write, Bash`', '`Read, Grep, Glob`', '`Read, Grep, Glob, Bash`', '`Bash` seul'], answer: 2, why: 'Il lui faut `Bash` pour lancer les tests, et sans `Edit` ni `Write`, il ne modifie rien avec ces outils.' },
+					{ q: 'Quel genre de liste est le champ `tools` ?', options: ['Une liste d’autorisation', 'Une liste d’interdiction', 'Une liste d’outils qui demandent la permission', 'Une indication que Claude peut ignorer'], answer: 0, why: 'Le subagent ne reçoit que les outils listés. `disallowedTools` est la liste d’interdiction.' },
+					{ q: '`Bash` reste dans la liste. Que peut encore faire l’agent avec ?', options: ['Rien : `Bash` sans `Write` est en lecture seule', 'Te poser une question avec `AskUserQuestion`', 'Se reprendre lui-même avec `SendMessage`', 'Écrire un fichier par une commande shell'], answer: 3, why: 'Une commande shell peut encore écrire un fichier, alors le corps dit quoi faire et rien de plus.' },
+					{ q: 'Le test runner peut-il s’arrêter en cours pour te demander quelle suite tu voulais ?', options: ['Oui, avec `AskUserQuestion`', 'Non : cet outil n’arrive jamais à un subagent', 'Oui, si `Bash` est dans ses outils', 'Seulement en arrière-plan'], answer: 1, why: 'Certains outils, comme `AskUserQuestion` et `EnterPlanMode`, n’arrivent jamais à un subagent.' }
+				]
+			},
+			{
+				title: 'Écris le prompt système',
+				questions: [
+					{ q: 'Où va le prompt système dans le fichier d’agent ?', options: ['Dans un champ `prompt` du frontmatter', 'Dans `.claude/settings.json`', 'Dans le corps après le `---` de fermeture', 'Dans le message de délégation'], answer: 2, why: 'Le corps après le `---` de fermeture est le prompt système du subagent.' },
+					{ q: 'Que doivent demander les deux lignes à l’agent ?', options: ['Chaque test en échec, son fichier et la première ligne d’erreur, rien sur les tests qui passent', 'Tout le log de tests, pour ne rien perdre', 'Un résumé de chaque test, réussi ou non', 'Un patch qui corrige le premier échec'], answer: 0, why: 'Les 2 000 lignes restent chez le subagent, et ta conversation ne reçoit que les échecs.' },
+					{ q: 'En plus de ce corps, que reçoit le subagent dans son prompt système ?', options: ['Le prompt système de Claude Code', 'Des détails d’environnement comme le répertoire de travail', 'Tout l’historique de ta conversation', 'Chaque fichier lu par la conversation principale'], answer: 1, why: 'Le subagent reçoit le corps avec des détails d’environnement, pas le prompt système de Claude Code.' },
+					{ q: 'Plus tôt dans le chat, tu as dit « ignore `vendor/` ». Le subagent le sait-il ?', options: ['Oui, il lit toute la conversation', 'Oui, les règles tapées dans le chat vont à chaque subagent', 'Non, et il n’y a aucun moyen de le lui dire', 'Seulement si Claude le met dans le message de délégation'], answer: 3, why: 'Le subagent lit le message de délégation à la place de ton historique.' }
+				]
+			},
+			{
+				title: 'Place la règle sur git push',
+				questions: [
+					{ q: 'Tu ajoutes `disallowedTools: Bash(git push *)`. Que se passe-t-il ?', options: ['Seul `git push` est bloqué', 'Tout l’outil `Bash` est retiré', 'L’entrée est ignorée', '`git push` demande d’abord la permission'], answer: 1, why: 'Dans `disallowedTools`, une entrée avec une précision retire quand même tout l’outil, et l’agent ne peut plus lancer les tests.' },
+					{ q: 'Où va la règle sur `git push` à la place ?', options: ['Dans le corps de l’agent, en une phrase', 'Dans le champ `tools`', 'Dans `permissions.deny` de `.claude/settings.json`', 'Dans le champ `description`'], answer: 2, why: 'Une règle deny des réglages bloque cette seule commande et garde `Bash`.' },
+					{ q: 'Comment écris-tu l’entrée deny ?', options: ['`Bash(git push *)`', '`git push`', '`Bash`', '`deny: push`'], answer: 0, why: 'L’entrée nomme l’outil et le motif de commande, donc seules les commandes qui correspondent sont bloquées.' },
+					{ q: 'À qui s’applique la règle deny des réglages ?', options: ['Au seul subagent test-runner', 'À la seule conversation principale', 'Aux seuls subagents en arrière-plan', 'À la conversation principale et aux subagents'], answer: 3, why: 'Une règle deny des réglages s’applique aux deux, donc le push est bloqué, quel que soit celui qui le tente.' }
+				]
+			}
 		]
 	},
 	quiz: [

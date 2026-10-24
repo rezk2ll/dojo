@@ -112,6 +112,44 @@ export default {
 			'Put the document block first and the instruction after it. The docs ask for long documents "near the top of your prompt, above your query, instructions, and examples."',
 			'End with an instruction such as "Write the summary inside <summary> tags.", then read the text between `<summary>` and `</summary>`. The original ends on an open `<summary>` in the user text and never asks for the closing tag your code would search for.',
 			'The role sentence about a legal analyst can stay in the system prompt (day 11).'
+		],
+		steps: [
+			{
+				title: 'Read the original prompt',
+				questions: [
+					{ q: 'In `basic_summarize`, what marks where the document starts and ends?', options: ['Nothing: `{text}` sits between plain sentences', 'A `<document>` tag around `{text}`', 'A line of dashes before and after `{text}`', 'A separate user message for `{text}`'], answer: 0, why: 'The instruction, the document and the summary prompt run together with no tag between them.' },
+					{ q: 'Where does the original put the instruction compared to the document?', options: ['After the document', 'Before the document', 'In the system prompt only', 'Inside the `<summary>` tag'], answer: 1, why: '"Summarize the following text..." comes first, then `{text}`.' },
+					{ q: 'How does the original prompt end?', options: ['With "Write the summary inside <summary> tags."', 'On a closed `<summary></summary>` pair', 'On an open `<summary>`, with no request for the closing tag', 'With no tag at all'], answer: 2, why: 'It ends on "Here is the summary of the legal document: <summary>" and never asks for `</summary>`.' },
+					{ q: 'Why do the docs want one tag per kind of content?', options: ['Tags cost fewer tokens than plain text', 'The API rejects text outside tags', 'The model skips any text outside tags', 'Wrapping each type in its own tag "reduces misinterpretation"'], answer: 3, why: 'A name on each block lets the model tell the document from the instructions.' }
+				]
+			},
+			{
+				title: 'Wrap the document',
+				questions: [
+					{ q: 'Which tag goes around the whole document?', options: ['`<summary>`', '`<text>`', '`<document>`', '`<legal>`'], answer: 2, why: '`<document>` is the tag name the docs use for a document.' },
+					{ q: 'Where does the file name `sublease.txt` go?', options: ['In `<source>`', 'In `<document_content>`', 'In the `<summary>` tag', 'In the system prompt'], answer: 0, why: 'The docs put the file name in `<source>`, next to the text.' },
+					{ q: 'Where does `{text}` go?', options: ['In `<source>`', 'In `<document_content>`', 'Right after the closing `</document>`', 'In the role sentence'], answer: 1, why: 'The document text sits in `<document_content>`, inside `<document>`.' },
+					{ q: 'Later you summarize three files at once. What holds the three `<document index="n">` blocks?', options: ['`<examples>`', '`<summary>`', '`<categories>`', '`<documents>`'], answer: 3, why: 'The long context section shows `<documents>` holding one `<document index="n">` per file.' }
+				]
+			},
+			{
+				title: 'Put the document first',
+				questions: [
+					{ q: 'Where does the document block go now?', options: ['Above the instruction', 'Below the instruction', 'In the middle of the instruction', 'In a second request'], answer: 0, why: 'The docs ask for long documents "near the top of your prompt, above your query, instructions, and examples."' },
+					{ q: 'After the move, what does the user text start with?', options: ['The instruction "Summarize the following text..."', 'The open `<summary>` tag', 'The legal analyst role', 'The `<document>` block'], answer: 3, why: 'The document comes first, the instruction after it.' },
+					{ q: 'From one document to the next, what changes in your new prompt?', options: ['The instruction and the tag names', 'Only the text inside the `<document>` block', 'The output tag name', 'The role sentence'], answer: 1, why: 'Like in the cookbook classifier, the instruction stays fixed and only the tagged block changes.' },
+					{ q: 'In the cookbook classifier, where does today\'s text go?', options: ['In `<example>`', 'In `<category>`', 'In `<ticket>`', 'In `<label>`'], answer: 2, why: 'Today\'s ticket sits in `<ticket>`, apart from the past tickets in `<example>`.' }
+				]
+			},
+			{
+				title: 'Name the output tag',
+				questions: [
+					{ q: 'How do you end the new prompt?', options: ['"Here is the summary of the legal document: <summary>"', 'With "Write the summary inside <summary> tags."', 'With "Respond with bullet points only."', 'With an empty `<summary></summary>` pair'], answer: 1, why: 'An instruction that names the tag asks the model for both the opening and the closing tag.' },
+					{ q: 'What does your code read from the reply?', options: ['The text between `<summary>` and `</summary>`', 'The last line of the reply', 'Everything after the word "summary"', 'The text inside `<document_content>`'], answer: 0, why: 'One output tag turns parsing into one search for that tag.' },
+					{ q: 'You parse like `transform.py`. The reply has no `<summary>`. What happens?', options: ['You get an empty string', 'You get the first bullet point', 'The API asks the model again', 'The `[1]` raises, and the `except` returns the whole reply'], answer: 3, why: '`split` returns a list of one item, so `[1]` raises an `IndexError`, and the `except` returns `output` unchanged.' },
+					{ q: 'Where does "You are a legal analyst..." go?', options: ['Inside `<document>`', 'Inside `<summary>`', 'In the system prompt', 'After the instruction, at the end'], answer: 2, why: 'A role holds for the whole session, so it can stay in the system prompt (day 11).' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -117,6 +117,44 @@ export default {
 			'Test a balanced set: 2 `bug` and 2 `feature` examples, then reorder them a few times (for example `bug`, `feature`, `bug`, `feature` and the reverse). Pick examples that differ in length and wording, as the docs ask.',
 			'Run each version on the same 100 tickets and record accuracy and the count of `bug` answers. A good version gives close to 60 `bug` answers, and its accuracy changes little when you shuffle the order.',
 			'If the fixed set keeps failing, retrieve the 4 labeled tickets nearest to each input, like `rag_classify` does with 5.'
+		],
+		steps: [
+			{
+				title: 'Read the numbers',
+				questions: [
+					{ q: 'How many `bug` answers would a perfect model give on this eval set?', options: ['60', '85', '25', '100'], answer: 0, why: '60 of the 100 tickets are bugs.' },
+					{ q: 'By how much does the model over-predict `bug`?', options: ['15 tickets', '25 tickets', '40 tickets', '85 tickets'], answer: 1, why: '85 `bug` answers for 60 real bugs: 25 too many.' },
+					{ q: 'How many of the 4 examples are `bug`, and where?', options: ['3, the first three', '2, in the middle', '1, the last one', 'None of them'], answer: 2, why: 'The order is `feature`, `feature`, `feature`, `bug`.' },
+					{ q: 'Most examples are `feature`. Which way would majority label bias push the answers?', options: ['Toward `feature`', 'Toward `bug`', 'Toward a balance', 'Toward refusals'], answer: 0, why: 'Majority label bias favours the label seen most in the examples. You see the opposite, so something else is winning.' }
+				]
+			},
+			{
+				title: 'Name the bias',
+				questions: [
+					{ q: 'Which bias fits 85 `bug` answers?', options: ['Majority label bias: most examples are `feature`', 'Context rot from a long prompt', 'A hallucinated label', 'Recency bias: the last example is `bug`'], answer: 3, why: 'The model repeats the answer of the example placed last.' },
+					{ q: 'Which result from the 2021 study looks like this?', options: ['Positive, Positive, Positive, Negative gave nearly 90% Negative answers', 'Reordering the examples had no effect', 'More examples always raised accuracy', 'The model refused when the examples disagreed'], answer: 0, why: 'Same shape: three of one label, then one of the other, and the last one wins.' },
+					{ q: 'In that study, which bias won?', options: ['Majority label bias beat recency bias', 'Recency bias beat majority label bias', 'The two cancelled out', 'Neither showed up with only 4 examples'], answer: 1, why: 'The last example outweighed the other three.' },
+					{ q: 'In the same study, how far did accuracy move only by reordering the same examples?', options: ['Less than 1 point', 'From 74% to 94%', 'From 54% to 93%', 'From 85% to 90%'], answer: 2, why: 'Order alone can make or break a few-shot prompt. 74% to 94% is the cookbook’s retrieval result, not the order effect.' }
+				]
+			},
+			{
+				title: 'Write the change',
+				questions: [
+					{ q: 'How many of each label go in the new set?', options: ['2 `bug` and 2 `feature`', '3 `bug` and 1 `feature`', '4 `feature`', '1 `bug` first, then 3 `feature`'], answer: 0, why: 'A balanced set takes away the pull of the majority label.' },
+					{ q: 'Which order do you test?', options: ['Only `feature`, `feature`, `bug`, `bug`', 'Only the first order you write', '`bug` last, since bugs are the majority', 'Several, such as `bug`, `feature`, `bug`, `feature` and the reverse'], answer: 3, why: 'One order cannot show a recency effect. Comparing a few orders can.' },
+					{ q: 'What should the examples look like?', options: ['All the same length and wording', 'Different in length and wording', 'Copied from the eval set', 'As short as possible'], answer: 1, why: 'The docs ask for examples that "vary enough that Claude doesn\'t pick up unintended patterns".' },
+					{ q: 'How do you mark the examples in the prompt?', options: ['As a bulleted list among the instructions', 'In capital letters', 'Wrapped in `<example>` tags', 'After the final question, with no tags'], answer: 2, why: 'Tags let Claude "distinguish them from instructions".' }
+				]
+			},
+			{
+				title: 'Measure it',
+				questions: [
+					{ q: 'What do you run each version on?', options: ['The same 100 tickets', 'A new random set each time', 'One tricky ticket', 'The 4 examples themselves'], answer: 0, why: 'The same eval set makes the versions comparable. One input cannot show a bias.' },
+					{ q: 'Which two numbers do you record for each version?', options: ['Latency and cost', 'Accuracy and the count of `bug` answers', 'Prompt length and output length', 'Number of examples and temperature'], answer: 1, why: 'Accuracy says how good it is. The `bug` count shows whether the bias is gone.' },
+					{ q: 'What does a good version show?', options: ['85 `bug` answers, as before', '100 `bug` answers', 'Exactly 50 `bug` answers', 'Close to 60 `bug` answers, and accuracy that barely moves when you shuffle the order'], answer: 3, why: 'The real share of bugs is 60. A stable accuracy across orders means order no longer drives the answer.' },
+					{ q: 'The fixed set keeps failing. What do you try next?', options: ['Add 20 more `bug` examples', 'Remove every example', 'Retrieve the 4 labeled tickets nearest to each input', 'Raise the temperature'], answer: 2, why: 'Retrieved examples match each input, as `rag_classify` does with 5. That took the cookbook from 74% to 94%.' }
+				]
+			}
 		]
 	},
 	quiz: [

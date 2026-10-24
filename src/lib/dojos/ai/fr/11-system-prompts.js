@@ -130,6 +130,44 @@ export default {
 			'Tour utilisateur : (3) et (5). La question suivante apportera une autre trace et une autre section du README. Aider fait pareil avec les fichiers : un message user, jamais `main_sys`.',
 			'Message système en cours de conversation : (6). La règle commence au tour 30. Un `{"role": "system"}` ajouté à cet endroit garde le cache des tours 1 à 29.',
 			'Sur un modèle sans messages système en cours de conversation, comme Sonnet 5, mets (6) dans le prochain tour user, en texte venant de ton appli, ou modifie `system` et accepte un défaut de cache.'
+		],
+		steps: [
+			{
+				title: 'Repère ce qui vaut toute la session',
+				questions: [
+					{ q: 'Où va (1), "You are the support assistant for the acme CLI." ?', options: ['Le champ `system`', 'Le tour utilisateur', 'Un message système en cours de conversation', 'Une définition d’outil'], answer: 0, why: 'C’est un rôle. Il vaut du premier au dernier tour, donc il va dans `system`.' },
+					{ q: 'Où va (4), "Never promise a refund." ?', options: ['Le tour utilisateur, à côté de chaque question', 'Un message système en cours de conversation', 'Le champ `system`', 'Un dernier message de l’assistant'], answer: 2, why: 'Une règle pour toute la session, écrite une fois, vaut pour tous les tours.' },
+					{ q: 'Pourquoi est-ce important que (1), (2) et (4) restent identiques octet pour octet ?', options: ['Ils restent dans le préfixe en cache, donc les tours suivants tapent dans le cache', 'L’API refuse un champ `system` qui change', 'Le modèle ne lit `system` qu’à la première requête', 'Deux champs `system` identiques sont fusionnés en un seul'], answer: 0, why: 'La doc indique que le prompt système "is part of the stable prefix, so subsequent turns hit the cache".' },
+					{ q: 'Dans quel ordre le cache de prompt lit-il le préfixe ?', options: ['`messages`, `system`, puis `tools`', '`system`, `tools`, puis `messages`', '`tools`, `system`, puis `messages`', '`tools`, `messages`, puis `system`'], answer: 2, why: 'L’ordre du cache est `tools`, `system`, puis `messages` : un `system` stable se trouve tôt dans le préfixe.' }
+				]
+			},
+			{
+				title: 'Range ce qui change à chaque question',
+				questions: [
+					{ q: 'Où va (3), la stack trace collée par l’utilisateur ?', options: ['Le champ `system`', 'Le tour utilisateur', 'Un message système en cours de conversation', 'Le champ `metadata`'], answer: 1, why: 'La question suivante apportera une autre trace. Ce qui change à chaque requête va dans le tour utilisateur.' },
+					{ q: 'Où va (5), la section du README récupérée par ton code ?', options: ['Le tour utilisateur', 'Le champ `system`, car la doc change peu', 'Un message système en cours de conversation', 'Une définition d’outil'], answer: 0, why: 'Ton code l’a récupérée pour cette question. La question suivante demandera une autre section.' },
+					{ q: 'Que se passe-t-il si tu mets (5) dans `system` ?', options: ['Le modèle la prend pour la question de l’utilisateur', 'L’API retire les longs textes de `system`', 'Rien : `system` ne fait pas partie du cache', '`system` change à chaque requête, donc le cache rate'], answer: 3, why: 'Modifier `system` change le début du prompt et invalide le cache pour tout ce qui suit.' },
+					{ q: 'Comment aider envoie-t-il les fichiers que tu ajoutes ?', options: ['Dans `main_sys`, après la ligne de rôle', 'Dans un message user qui commence par "I have *added these files to the chat*"', 'Dans un message système en cours de conversation', 'Dans un résultat d’outil'], answer: 1, why: 'Aider garde les fichiers hors de `main_sys`, car ils changent d’une requête à l’autre.' }
+				]
+			},
+			{
+				title: 'Place le changement du tour 30',
+				questions: [
+					{ q: 'Où va (6), le passage au plan gratuit au tour 30 ?', options: ['Une modification du champ `system` au tour 30', 'Le tour utilisateur, comme si l’utilisateur le demandait', 'Un message `{"role": "system"}` ajouté au tour 30', 'Nulle part : l’API ne garde aucun état'], answer: 2, why: 'La règle commence en cours de route : c’est le rôle d’un message système en cours de conversation.' },
+					{ q: 'Pourquoi ne pas simplement modifier `system` au tour 30 ?', options: ['Modifier `system` invalide le cache pour tout ce qui suit', 'L’API refuse toute modification de `system` après le tour 1', 'Le modèle ne lit que le premier `system` qu’il voit', 'Une modification de `system` ne vaut que pour la réponse suivante'], answer: 0, why: 'La doc prévient que modifier `system` au tour 30 "invalidates the cache for everything that follows".' },
+					{ q: 'Que garde le message système ajouté au tour 30 ?', options: ['Une copie en cache de la réponse du tour 30', 'Le préfixe en cache des tours 1 à 29', 'Le cache du champ `tools` seulement', 'Seulement le tour utilisateur du tour 29'], answer: 1, why: 'Le préfixe d’avant ne change pas, donc les tours 1 à 29 gardent leur cache.' },
+					{ q: 'L’API ne garde aucun état. Qu’envoie ton code au tour 31 ?', options: ['Seulement le dernier tour utilisateur', 'Le champ `system` et le dernier tour utilisateur', 'Seulement le message système du tour 30', 'Le même `system` et tout le tableau `messages`, message du tour 30 compris'], answer: 3, why: 'Ton code renvoie tout le tableau, et le même `system`, à chaque requête.' }
+				]
+			},
+			{
+				title: 'Prévois les modèles plus anciens',
+				questions: [
+					{ q: 'Quel modèle la doc ne liste-t-elle pas pour les messages système en cours de conversation ?', options: ['Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Sonnet 5'], answer: 3, why: 'La doc liste Opus 5.5, Sonnet 5.5 et Haiku 5.5, entre autres, mais pas Sonnet 5.' },
+					{ q: 'Sur Sonnet 5, comment transmettre (6) ?', options: ['Dans le prochain tour user, en texte venant de ton appli', 'En `role: "system"` quand même', 'Dans le champ `metadata`', 'Laisse tomber : le bot ne peut rien apprendre en cours de session'], answer: 0, why: 'Le tour utilisateur accueille un texte qui compte à partir de maintenant, sans toucher au `system` en cache.' },
+					{ q: 'Quelle est l’autre solution sur Sonnet 5, et son coût ?', options: ['Repartir d’une conversation vide, sans historique', 'Modifier `system` et accepter un défaut de cache', 'Modifier `system` gratuitement, car le cache est désactivé', 'Ajouter un outil dont la description porte la règle'], answer: 1, why: 'Modifier `system` marche sur tous les modèles. Tu le paies d’un défaut de cache pour les tours suivants.' },
+					{ q: 'Quoi que tu fasses de (6), quels textes restent inchangés dans `system` ?', options: ['Seulement (1)', '(3) et (5)', '(1), (2) et (4)', '(1), (2), (4) et (5)'], answer: 2, why: 'Le rôle, la règle de langue et la règle sur les remboursements valent pour toute la session.' }
+				]
+			}
 		]
 	},
 	quiz: [

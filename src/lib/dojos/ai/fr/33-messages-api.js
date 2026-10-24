@@ -113,6 +113,44 @@ print(response2)`,
 			'Assemble les blocs texte au lieu de prendre l’index 0 : `text = "".join(b.text for b in r.content if b.type == "text")`.',
 			'Puis teste la stop reason : `if r.stop_reason == "max_tokens": raise SummaryTooLong(r.usage.output_tokens)`, ou monte `max_tokens`, ou renvoie le texte partiel comme tour `assistant` suivi d’un tour user qui demande la suite.',
 			'La doc des stop reasons montre ce dernier schéma : jusqu’à 3 appels, chacun avec `"Please continue from where you left off."`, tant que `stop_reason` vaut `max_tokens`.'
+		],
+		steps: [
+			{
+				title: 'Lis la mauvaise réponse',
+				questions: [
+					{ q: 'Quel champ te dit pourquoi le modèle s’est arrêté ?', options: ['`r.usage`', '`r.stop_reason`', '`r.role`', '`r.content[0].type`'], answer: 1, why: 'Chaque réponse réussie porte une `stop_reason` qui dit pourquoi le modèle s’est arrêté.' },
+					{ q: 'Pour un résumé coupé au milieu d’une phrase, que montre `r.stop_reason` ?', options: ['`"end_turn"`', '`"tool_use"`', '`"max_tokens"`', '`"refusal"`'], answer: 2, why: '`max_tokens` veut dire que le texte s’est arrêté à ta limite, souvent au milieu d’une phrase.' },
+					{ q: 'Que montre `r.usage.output_tokens` pour ces résumés ?', options: ['200, la limite de la requête', 'Moins de 200, puisque le modèle s’est arrêté tôt', '0, puisque la réponse a échoué', 'La longueur de `doc`'], answer: 0, why: 'Le modèle a utilisé tous les tokens permis et s’est arrêté à `max_tokens=200`.' },
+					{ q: 'Avec quel statut HTTP ces résumés coupés reviennent-ils ?', options: ['400', '500', '429', '200'], answer: 3, why: 'Une stop reason fait partie d’une réponse réussie. Une requête en échec renvoie plutôt un statut 4xx ou 5xx.' }
+				]
+			},
+			{
+				title: 'Explique la cause',
+				questions: [
+					{ q: 'Que fixe `max_tokens=200` ?', options: ['Le nombre maximal de tokens que le modèle peut générer pour cette réponse', 'Le nombre maximal de tokens du document en entrée', 'La longueur exacte de chaque réponse', 'La taille de la fenêtre de contexte'], answer: 0, why: 'Le modèle peut s’arrêter avant, et s’arrête à `max_tokens` au plus tard.' },
+					{ q: 'Pourquoi le code ne remarque-t-il pas la coupure ?', options: ['Le SDK cache `stop_reason`', 'L’API renvoie une erreur que le code ignore', 'Il ne teste jamais `r.stop_reason`', 'La coupure arrive après l’envoi de la réponse'], answer: 2, why: 'Une réponse coupée ressemble à une réponse complète tant que tu ne lis pas la stop reason.' },
+					{ q: 'Qu’est-ce que `r.content` ?', options: ['Une simple chaîne', 'L’historique de la requête', 'Un tableau de blocs de contenu', 'Le prompt `system` renvoyé tel quel'], answer: 2, why: 'La réponse est un message `assistant`, et son `content` est un tableau de blocs.' },
+					{ q: 'Pourquoi `r.content[0].text` est-il fragile ?', options: ['L’index 0 est toujours un bloc `thinking`', 'La réponse peut contenir plusieurs blocs, pas tous de type `text`', '`text` n’est rempli que si `stop_reason` vaut `end_turn`', 'Le SDK inverse l’ordre des blocs'], answer: 1, why: 'Un bloc de contenu a un `type` comme `text`, `tool_use` ou `thinking`, donc le code doit garder les blocs texte et les assembler.' }
+				]
+			},
+			{
+				title: 'Assemble le texte',
+				questions: [
+					{ q: 'Quelle ligne construit le résumé à partir de la réponse ?', options: ['`text = r.content[-1].text`', '`text = str(r.content)`', '`text = r.content[0].text.strip()`', '`text = "".join(b.text for b in r.content if b.type == "text")`'], answer: 3, why: 'Elle garde chaque bloc `text` et ignore les autres types.' },
+					{ q: 'Pourquoi filtrer sur `b.type == "text"` ?', options: ['Les autres types de blocs n’ont pas de champ `text` à assembler', 'Les blocs texte arrivent dans le désordre', 'L’API renvoie chaque bloc en double', 'Ça rend l’appel moins cher'], answer: 0, why: 'Des blocs comme `tool_use` ou `thinking` portent d’autres champs, pas le texte du résumé.' },
+					{ q: 'Une fois assemblé, le résumé est-il sûr à renvoyer ?', options: ['Oui, l’assemblage répare la coupure', 'Oui, s’il finit par un point', 'Pas encore : teste d’abord la stop reason', 'Seulement si `output_tokens` est sous 1024'], answer: 2, why: 'L’assemblage règle le problème d’index. La coupure reste là quand `stop_reason` vaut `max_tokens`.' },
+					{ q: 'Dans la requête, une simple chaîne en `content` est un raccourci pour quoi ?', options: ['Un prompt `system`', 'Un seul bloc `text`', 'Un tour `assistant`', 'Une liste de messages'], answer: 1, why: 'L’API lit une simple chaîne comme un seul bloc `text`.' }
+				]
+			},
+			{
+				title: 'Gère la coupure',
+				questions: [
+					{ q: 'Quelle condition attrape un résumé coupé ?', options: ['`if r.stop_reason == "end_turn":`', '`if not r.content:`', '`if r.usage.input_tokens > 200:`', '`if r.stop_reason == "max_tokens":`'], answer: 3, why: 'C’est la stop reason avec laquelle revient une réponse coupée.' },
+					{ q: 'Quelle correction la réponse cite-t-elle ?', options: ['Relancer la même requête avec un backoff', 'Monter `max_tokens`', 'Baisser `max_tokens` pour échouer plus vite', 'Supprimer la dernière phrase et renvoyer le reste'], answer: 1, why: 'Une limite plus haute laisse au résumé la place de finir. Une relance avec la même limite peut la toucher encore.' },
+					{ q: 'Comment demandes-tu au modèle de continuer un résumé coupé ?', options: ['Renvoie le texte partiel comme tour `assistant`, puis un tour user qui demande la suite', 'Renvoie la même requête, puisque l’API se souvient de la coupure', 'Passe l’`id` de la réponse dans l’appel suivant', 'Mets « continue » dans le champ `system`'], answer: 0, why: 'L’API est sans état, donc ton code renvoie la réponse partielle dans l’historique, puis le nouveau tour user.' },
+					{ q: 'Dans la doc des stop reasons, combien d’appels cette boucle de suite permet-elle ?', options: ['1', 'Jusqu’à 3', 'Jusqu’à 10', 'Aucune limite'], answer: 1, why: 'La doc boucle jusqu’à 3 appels, chacun avec `"Please continue from where you left off."`.' }
+				]
+			}
 		]
 	},
 	quiz: [

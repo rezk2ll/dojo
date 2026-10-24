@@ -95,6 +95,44 @@ To do this, follow these steps precisely:
 			'Context: "The reply is posted as a comment on the pull request and read by its author, who knows the code but has not seen the CI log."',
 			'Format: "For each test, write the test name, the file and line from the diff, and one sentence on why. Use a numbered list, at most 5 items." Done: "If the failure is not caused by the diff, such as a network timeout, say so and stop."',
 			'Golden rule check: a colleague can now answer "what do I produce, for whom, in what shape, and when do I stop" from the prompt alone.'
+		],
+		steps: [
+			{
+				title: 'Name the action',
+				questions: [
+					{ q: 'What is wrong with "tell me what\'s up"?', options: ['It names no clear action and no unit of work', 'It is too polite for a bot', 'It is too short for the model to read', 'It uses a contraction'], answer: 0, why: 'A colleague would not know what to produce. The model has the same problem.' },
+					{ q: 'Which instruction line works best?', options: ['"Look carefully at the failing tests."', '"Can you suggest why the tests fail?"', '"For each failing test in the log below, find the line of the diff most likely to have caused the failure."', '"Explain everything about this CI run."'], answer: 2, why: 'It has a verb, "find", a unit of work and a clear result: one line of the diff.' },
+					{ q: 'What is the unit of work in that instruction?', options: ['One failing test', 'The whole log', 'One commit', 'One file of the diff'], answer: 0, why: '"For each failing test" sets the scope. The model does not generalize an instruction from one item to another on its own.' },
+					{ q: 'Why not write "Can you suggest why the tests fail?"', options: ['Questions are not allowed in a prompt', 'The model follows the verb, so you get suggestions instead of a finding', 'It costs more input tokens', 'It makes the model refuse'], answer: 1, why: 'Current Claude models are trained for precise instruction following. "Suggest" gets suggestions.' }
+				]
+			},
+			{
+				title: 'Add the context',
+				questions: [
+					{ q: 'Who reads the bot’s output?', options: ['The CI bot itself', 'A release manager', 'Whoever reads the CI log', 'The developer who opened the pull request'], answer: 3, why: 'The task says so. The model cannot guess it, so it goes in the prompt.' },
+					{ q: 'Which context line fits?', options: ['"The reply is posted as a comment on the pull request and read by its author, who knows the code but has not seen the CI log."', '"You are an expert in CI."', '"Be very careful with this."', '"This is very important."'], answer: 0, why: 'Context is what the model cannot guess: who reads the result and where it goes.' },
+					{ q: 'Why say that the author has not seen the CI log?', options: ['So the model hides the log from them', 'So the reply carries the details from the log the author lacks', 'So the model writes in capital letters', 'So the prompt gets longer'], answer: 1, why: 'The author knows the code. What they are missing is the log, so the reply has to bring it.' },
+					{ q: 'Why give the reason behind a rule instead of the bare rule?', options: ['Longer prompts always score higher', 'Capital letters make the model ignore rules', 'The model can generalize from the explanation', 'The model only follows rules with "since"'], answer: 2, why: 'The guide: "Claude is smart enough to generalize from the explanation."' }
+				]
+			},
+			{
+				title: 'Set the format and the end',
+				questions: [
+					{ q: 'Which format line leaves the model no shape to guess?', options: ['"For each test, write the test name, the file and line from the diff, and one sentence on why."', '"Format the reply nicely."', '"Use whatever format fits best."', '"Be thorough in your reply."'], answer: 0, why: 'One fixed shape per test leaves the model no format to guess.' },
+					{ q: 'Why add a cap such as "at most 5 items" to the list?', options: ['The API rejects longer lists', 'It tells the model the maximum size of the result', 'It makes the model find exactly 5 causes', 'A model cannot count past 5'], answer: 1, why: 'A limit, like "up to 3" in `dedupe.md`, tells the model the maximum size of the result.' },
+					{ q: 'The failure is a network timeout, not the diff. What should the bot do?', options: ['Find the closest line in the diff anyway', 'Say so and stop', 'Retry the tests until they pass', 'Post the whole log'], answer: 1, why: 'The prompt has to say when the task is done, including when the right output is no finding.' },
+					{ q: 'Why write the stop condition in the prompt?', options: ['It makes the reply arrive faster', 'The API requires one', 'It stops the work before the bot posts a wrong comment', 'It lowers the temperature'], answer: 2, why: 'The model "does not infer requests you didn\'t make". `dedupe.md` does the same with "do not proceed".' }
+				]
+			},
+			{
+				title: 'Run the golden rule',
+				questions: [
+					{ q: 'What is the golden rule?', options: ['Have a colleague with minimal context follow the prompt', 'Put the key rule in the last sentence', 'Write each rule in capital letters', 'Keep every prompt under 100 tokens'], answer: 0, why: '"If they\'d be confused, Claude will be too."' },
+					{ q: 'The colleague asks "which tests?" What does that tell you?', options: ['The colleague lacks the skills', 'The model will know anyway', 'The prompt is too long', 'A line is missing from the prompt'], answer: 3, why: 'Each question the colleague asks is a line missing from the prompt.' },
+					{ q: 'Which four questions should the prompt alone answer?', options: ['Which model, which temperature, which tools, which budget', 'What do I produce, for whom, in what shape, and when do I stop', 'Who wrote it, when, why and where', 'How long, how fast, how cheap and how safe'], answer: 1, why: 'Action, context, format and done: one line for each.' },
+					{ q: 'The new prompt is longer. What does that cost?', options: ['Nothing at all', 'The model follows long prompts less well', 'Input tokens on every call', 'Twice the output tokens'], answer: 2, why: 'On a job run 200,000 times a month, 100 extra tokens are 20 million more input tokens. Weigh that against wrong comments.' }
+				]
+			}
 		]
 	},
 	quiz: [

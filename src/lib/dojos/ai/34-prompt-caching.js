@@ -117,6 +117,44 @@ write_time = time.time() - start
 			'Each request pays a write: 20,000 × $3.75 per million = $0.075. Without `cache_control` it would pay $0.06. The broken cache costs 25% more than no cache.',
 			'Fix: move the time out of `system` and into the user message, after the breakpoint, and keep `cache_control` on the policy block. The policy text is then the same on every request.',
 			'Within 5 minutes of a previous request, each one then reads the policy for 20,000 × $0.30 per million = $0.006, and `cache_read_input_tokens` shows 20000.'
+		],
+		steps: [
+			{
+				title: 'Read the usage',
+				questions: [
+					{ q: '`cache_creation_input_tokens: 20000` on a response means what?', options: ['The request read 20,000 tokens from the cache', 'The request wrote a 20,000-token prefix to the cache', 'The cache is full and refused the prefix', 'The policy is under the minimum length'], answer: 1, why: 'A cache write shows as `cache_creation_input_tokens`. A read shows as `cache_read_input_tokens`.' },
+					{ q: 'Every response shows `cache_read_input_tokens: 0`. What does that tell you?', options: ['No request ever found an earlier entry', 'Caching is turned off for the account', 'The reads are free, so they show as 0', 'The TTL is set to 1 hour'], answer: 0, why: 'Every request writes and none reads, so each one misses the entry the last one stored.' },
+					{ q: 'Is the policy long enough to be cached on Claude Sonnet 4.6?', options: ['No, the minimum is 32,000 tokens', 'Only with the 1 hour TTL', 'Yes: 20,000 is above the 1,024-token minimum', 'Only with a top-level `cache_control`'], answer: 2, why: 'A prefix under 1,024 tokens is never cached on Claude Sonnet 4.6. This one is well above it, and the writes prove it is stored.' },
+					{ q: 'In which order does the API build the prefix?', options: ['`messages`, then `system`, then `tools`', '`system`, then `messages`, then `tools`', '`system`, then `tools`, then `messages`', '`tools`, then `system`, then `messages`'], answer: 3, why: 'The prefix runs from the start of `tools` to the block with the breakpoint.' }
+				]
+			},
+			{
+				title: 'Find the cause',
+				questions: [
+					{ q: 'Where does "Current time: 14:02:31" sit in the prefix?', options: ['After the breakpoint, outside the cache', 'At its very start, inside the cached part', 'In the user message', 'In the tool definitions'], answer: 1, why: 'It is the first line of `system`, before the policy and before the breakpoint.' },
+					{ q: 'Why does the timestamp break the cache?', options: ['It changes the hash on every request', 'Timestamps are not allowed in `system`', 'It makes the prompt too long', 'It turns off `cache_control`'], answer: 0, why: '"Changing any block at or before the breakpoint produces a different hash on the next request."' },
+					{ q: 'How often does that first line change?', options: ['Every 5 minutes', 'Once a day', 'Every second', 'Only when the policy changes'], answer: 2, why: 'A clock to the second gives a new prefix each request, so no lookup finds an earlier entry.' },
+					{ q: 'Does the API return an error when no read ever happens?', options: ['Yes, a 400 on the second request', 'Yes, a warning in `stop_reason`', 'Only after 4 breakpoints', 'No: the usage fields are the only sign'], answer: 3, why: 'A cache miss is not an error. You see it in `cache_creation_input_tokens` and `cache_read_input_tokens`.' }
+				]
+			},
+			{
+				title: 'Compare the cost',
+				questions: [
+					{ q: 'At $3.75 per million for 5 minute writes, what does each request pay for the policy?', options: ['$0.006', '$0.06', '$0.075', '$0.75'], answer: 2, why: '20,000 × $3.75 per million is $0.075.' },
+					{ q: 'At the $3 per million base input price, what would it pay with no caching?', options: ['$0.06', '$0.075', '$0.006', '$0.6'], answer: 0, why: '20,000 × $3 per million is $0.06.' },
+					{ q: 'How does the broken cache compare with no cache?', options: ['It costs the same', 'It costs 10% less', 'It costs 90% less', 'It costs 25% more'], answer: 3, why: 'A write costs 1.25 times the base input price, and here every request pays one.' },
+					{ q: 'What would a cache read of the policy cost at $0.30 per million?', options: ['$0.06', '$0.006', '$0.0006', '$0.03'], answer: 1, why: '20,000 × $0.30 per million is $0.006, a tenth of the base price.' }
+				]
+			},
+			{
+				title: 'Fix the prefix',
+				questions: [
+					{ q: 'Where does the time go?', options: ['At the end of `system`, before the breakpoint', 'In a tool description', 'In the user message, after the breakpoint', 'Nowhere: the bot cannot know the time'], answer: 2, why: 'After the breakpoint it no longer changes the hash, so the policy prefix stays the same.' },
+					{ q: 'Where does `cache_control` stay?', options: ['On the policy block in `system`', 'On the user message', 'On the first tool', 'Removed entirely'], answer: 0, why: 'The breakpoint on the policy block makes the 20,000 tokens the cached prefix.' },
+					{ q: 'After the fix, a request comes 3 minutes after the last one. What does `usage` show?', options: ['`cache_creation_input_tokens: 20000`', 'Both cache fields at 0', '`input_tokens: 20000`', '`cache_read_input_tokens: 20000`'], answer: 3, why: 'Within 5 minutes of a previous request, the policy comes from the cache.' },
+					{ q: 'A request arrives every minute, all day. Does the entry expire every 5 minutes?', options: ['Yes, after 5 minutes from the first write', 'No: each read refreshes it at no extra cost', 'Yes, unless you pay for the 1 hour TTL', 'No: entries never expire'], answer: 1, why: 'Each read restarts the 5 minutes, so a steady stream of requests keeps the entry alive.' }
+				]
+			}
 		]
 	},
 	quiz: [

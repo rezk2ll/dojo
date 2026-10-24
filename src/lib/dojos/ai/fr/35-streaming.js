@@ -121,6 +121,44 @@ asyncio.run(main())`,
 			'Garde un buffer par bloc : sur `content_block_delta` avec `input_json_delta`, fais `bufs[event["index"]] += event["delta"]["partial_json"]`.',
 			'Sur `content_block_stop` pour cet index, analyse une seule fois : `args = json.loads(bufs[event["index"]] or "{}")`. Le premier delta de l’exemple de la doc est une chaîne vide, le buffer peut donc démarrer vide.',
 			'Avec le SDK Python, tu obtiens le même résultat avec `block.input` sur le bloc `tool_use` de `await stream.get_final_message()`, déjà analysé.'
+		],
+		steps: [
+			{
+				title: 'Explique le plantage',
+				questions: [
+					{ q: 'Qu’est-ce que `partial_json` dans un `input_json_delta` ?', options: ['L’entrée complète de l’outil, renvoyée à chaque fois', 'Un fragment de l’entrée de l’outil, sous forme de chaîne', 'Un dict Python déjà analysé des nouvelles clés', 'Le nom de l’outil et son schéma'], answer: 1, why: 'La doc appelle les deltas des « partial JSON strings » : des morceaux d’un seul texte JSON.' },
+					{ q: 'Pourquoi `json.loads(\'{"location":\')` lève-t-il une erreur ?', options: ['`location` n’est pas un paramètre connu', 'Le SDK attend des octets, pas une chaîne', '`{"location":` seul n’est pas du JSON valide', 'Le nom de l’outil manque'], answer: 2, why: 'Le morceau s’arrête après la clé. La valeur et l’accolade fermante arrivent dans des deltas suivants.' },
+					{ q: 'Quand l’entrée de l’outil est-elle du JSON valide ?', options: ['Une fois que `content_block_stop` arrive pour son bloc', 'À `content_block_start`, qui porte `input: {}`', 'Après le premier delta non vide', 'À `message_start`'], answer: 0, why: 'L’entrée n’est complète que quand son bloc se ferme.' },
+					{ q: 'Quel type a le `tool_use.input` final ?', options: ['Une chaîne', 'Une liste de deltas', 'Un nombre', 'Toujours un objet'], answer: 3, why: 'La doc dit que le `tool_use.input` final « is always an *object* », même si les deltas sont des chaînes.' }
+				]
+			},
+			{
+				title: 'Accumule les morceaux',
+				questions: [
+					{ q: 'Combien de buffers gardes-tu ?', options: ['Un pour tout le stream', 'Un par bloc de contenu, indexé par `index`', 'Un par type d’événement', 'Aucun : tu analyses chaque delta seul'], answer: 1, why: 'Une réponse peut contenir plusieurs blocs, et `index` te dit à quel bloc appartient chaque delta.' },
+					{ q: 'Que veut dire l’index de bloc ?', options: ['La position du bloc dans le tableau `content` final', 'Le nombre de deltas reçus jusqu’ici', 'L’ordre de l’événement dans le stream', 'L’identifiant de l’outil'], answer: 0, why: 'L’index 1 est le deuxième bloc du message final, ici le bloc `tool_use` après le texte.' },
+					{ q: 'Quelle ligne remplit le buffer à chaque `input_json_delta` ?', options: ['`bufs[event["index"]] = event["delta"]["partial_json"]`', '`bufs.append(json.loads(event["delta"]["partial_json"]))`', '`bufs[event["index"]] += event["delta"]["partial_json"]`', '`bufs[event["type"]] += event["delta"]`'], answer: 2, why: 'Ajouter chaque morceau de chaîne reconstruit le texte JSON complet de ce bloc.' },
+					{ q: 'Un événement `ping` arrive entre deux deltas. Qu’en fais-tu ?', options: ['Tu vides les buffers', 'Tu le traites comme la fin du bloc', 'Tu l’ajoutes au buffer', 'Tu l’ignores'], answer: 3, why: 'Un nombre quelconque d’événements `ping` peut s’intercaler entre les autres. Seuls les deltas d’un bloc vont dans son buffer.' }
+				]
+			},
+			{
+				title: 'Analyse à la fin',
+				questions: [
+					{ q: 'Sur quel événement appelles-tu `json.loads` ?', options: ['`content_block_stop` pour cet index', '`message_delta`', 'Chaque `content_block_delta`', '`content_block_start`'], answer: 0, why: 'C’est l’événement qui dit que le dernier morceau de ce bloc est arrivé.' },
+					{ q: 'Pourquoi écrire `json.loads(bufs[event["index"]] or "{}")` ?', options: ['Pour fusionner l’entrée avec des valeurs par défaut', 'Pour sauter les outils sans schéma', 'Parce que `json.loads` ne lit pas les objets', 'Parce qu’un buffer peut rester vide, et `""` n’est pas du JSON valide'], answer: 3, why: 'Le premier delta de l’exemple de la doc est une chaîne vide, donc un buffer peut démarrer vide, et `json.loads("")` lève une erreur.' },
+					{ q: 'Combien de fois analyses-tu chaque entrée d’outil ?', options: ['Une fois par delta', 'Une fois, quand le bloc se ferme', 'Deux fois : au début et à la fin', 'Une fois par `ping`'], answer: 1, why: 'Analyser une seule fois le buffer complet évite le plantage sur les fragments.' },
+					{ q: 'Un `content_block_stop` arrive. Comment sais-tu quel buffer analyser ?', options: ['Tu prends le dernier buffer rempli', 'Tu lis le nom de l’outil dans l’événement', 'Tu prends son champ `index`', 'Tu prends son champ `type`'], answer: 2, why: 'Chaque événement de bloc porte l’`index` de son bloc, la même clé que celle qui a servi à remplir le buffer.' }
+				]
+			},
+			{
+				title: 'Passe par le SDK',
+				questions: [
+					{ q: 'Avec le SDK Python, où est l’entrée analysée une fois le stream fini ?', options: ['Dans le dernier événement `input_json`', '`block.input` sur le bloc `tool_use` de `await stream.get_final_message()`', '`event.partial_json` du dernier delta', 'Dans `message_delta.usage`'], answer: 1, why: 'Le message final contient le bloc `tool_use` complet, déjà analysé.' },
+					{ q: 'Que contient `event.snapshot` sur un événement `input_json` du SDK ?', options: ['L’entrée analysée jusqu’ici, en objet Python', 'Seulement le nouveau morceau de chaîne', 'La ligne SSE brute', 'Le résultat de l’outil'], answer: 0, why: '`event.partial_json` est le nouveau morceau, et `event.snapshot` l’entrée accumulée et analysée jusqu’ici.' },
+					{ q: 'Quand le code doit-il vraiment lancer `get_weather` ?', options: ['Au premier événement `input_json`', 'Dès que `content_block_start` nomme l’outil', 'À chaque snapshot, pour montrer des résultats en direct', 'Après la fin du stream, à partir du bloc `tool_use` complet'], answer: 3, why: 'La boucle de l’exemple affiche l’entrée mais ne lance l’outil qu’à partir du message final, puis envoie un `tool_result`.' },
+					{ q: 'Un événement `error` comme `overloaded_error` arrive en plein stream. À quoi correspond-il en général ?', options: ['À un HTTP 400', 'À une réponse terminée', 'À un HTTP 529', 'À un arrêt `max_tokens`'], answer: 2, why: 'La doc dit qu’il « would normally correspond to an HTTP 529 ».' }
+				]
+			}
 		]
 	},
 	quiz: [

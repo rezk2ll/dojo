@@ -99,6 +99,44 @@ export default {
 			'À froid : 22 × 3 = 66, plus 151 629 × 3,75 ≈ 568 609, plus 362 × 15 = 5 430. Total ≈ 574 105 / 1 000 000 ≈ 0,574 $. L’écriture en cache en fait 99 %.',
 			'À chaud : 22 × 3 = 66, plus 151 629 × 0,30 ≈ 45 489, plus 330 × 15 = 4 950. Total ≈ 50 505 / 1 000 000 ≈ 0,051 $. La lecture en cache en fait encore environ 90 %.',
 			'La sortie pèse peu dans les deux factures parce que la réponse est courte. Un prompt de 300 tokens avec une réponse de 4 000 tokens inverserait tout : la sortie ferait 98 % du coût à ces prix.'
+		],
+		steps: [
+			{
+				title: 'Lis les champs de `usage`',
+				questions: [
+					{ q: 'Combien de tokens d’entrée la requête à froid a-t-elle au total ?', options: ['22', '151 629', '151 651', '152 013'], answer: 2, why: 'L’entrée totale est la somme de `input_tokens`, `cache_creation_input_tokens` et `cache_read_input_tokens` : 22 + 151 629.' },
+					{ q: 'Pourquoi `input_tokens` ne vaut-il que 22 ?', options: ['La source est comptée dans les champs du cache', 'L’API a jeté la source pour économiser des tokens', 'Seule la question est facturée, toujours', 'La source était trop longue et a été tronquée'], answer: 0, why: 'La source était marquée avec `cache_control` : ses 151 629 tokens apparaissent comme une écriture en cache, pas comme une entrée simple.' },
+					{ q: 'Quel prix s’applique à `cache_creation_input_tokens` ?', options: ['3 $ par million, l’entrée simple', '3,75 $ par million, une écriture en cache de 5 minutes', '0,30 $ par million, une lecture en cache', '15 $ par million, la sortie'], answer: 1, why: 'Écrire en cache coûte plus cher qu’un token d’entrée simple sur Sonnet 4.6.' },
+					{ q: 'Quel prix s’applique à `cache_read_input_tokens` ?', options: ['3 $ par million', '3,75 $ par million', '0,30 $ par million', '15 $ par million'], answer: 2, why: 'Une lecture en cache coûte un dixième du prix d’entrée simple sur Sonnet 4.6.' }
+				]
+			},
+			{
+				title: 'Calcule le prix de la requête à froid',
+				questions: [
+					{ q: 'Combien font 151 629 × 3,75, la part écriture en cache ?', options: ['Environ 568 609', 'Environ 454 887', 'Environ 45 489', 'Environ 5 430'], answer: 0, why: 'L’écriture en cache coûte 3,75 $ par million, pas les 3 $ de l’entrée simple.' },
+					{ q: 'Combien fait la part sortie, 362 × 15 ?', options: ['1 086', '4 950', '362', '5 430'], answer: 3, why: 'La sortie coûte 15 $ par million sur Sonnet 4.6.' },
+					{ q: 'Combien coûte la requête à froid au total ?', options: ['Environ 0,455 $', 'Environ 0,574 $', 'Environ 0,051 $', 'Environ 5,74 $'], answer: 1, why: '66 + 568 609 + 5 430 ≈ 574 105, divisé par 1 000 000.' },
+					{ q: 'Quelle part du coût à froid revient à l’écriture en cache ?', options: ['Environ 99 %', 'Environ 50 %', 'Environ 90 %', 'Environ 1 %'], answer: 0, why: '568 609 sur 574 105. La question et la réponse comptent à peine à côté de la source.' }
+				]
+			},
+			{
+				title: 'Calcule le prix de la requête à chaud',
+				questions: [
+					{ q: 'Combien font 151 629 × 0,30, la part lecture en cache ?', options: ['Environ 568 609', 'Environ 4 549', 'Environ 45 489', 'Environ 454 887'], answer: 2, why: 'La lecture en cache coûte 0,30 $ par million.' },
+					{ q: 'Combien fait la part sortie, 330 × 15 ?', options: ['4 950', '5 430', '990', '330'], answer: 0, why: 'La réponse à chaud fait 330 tokens, un peu moins que celle à froid.' },
+					{ q: 'Combien coûte la requête à chaud au total ?', options: ['Environ 0,574 $', 'Environ 0,046 $', 'Environ 0,51 $', 'Environ 0,051 $'], answer: 3, why: '66 + 45 489 + 4 950 ≈ 50 505, divisé par 1 000 000.' },
+					{ q: 'Quelle part du coût à chaud revient à la lecture en cache ?', options: ['Environ 99 %', 'Environ 90 %', 'Environ 10 %', 'Environ 50 %'], answer: 1, why: '45 489 sur 50 505. Lire 151 629 tokens reste l’essentiel de la facture, même au prix du cache.' }
+				]
+			},
+			{
+				title: 'Dis ce qui coûte le plus',
+				questions: [
+					{ q: 'Qu’est-ce qui coûte le plus dans la requête à froid ?', options: ['L’écriture de la source en cache', 'Les 362 tokens de sortie', 'La question de 22 tokens', 'Les 20,87 secondes de TTFT'], answer: 0, why: 'Elle fait 99 % de la facture à froid.' },
+					{ q: 'Qu’est-ce qui coûte le plus dans la requête à chaud ?', options: ['Les 330 tokens de sortie', 'La lecture de la source en cache', 'La question de 22 tokens', 'Une nouvelle écriture en cache'], answer: 1, why: 'À environ 90 % de la facture, la lecture en cache dépasse encore la sortie.' },
+					{ q: 'Pourquoi la sortie pèse-t-elle peu dans les deux factures ?', options: ['Les tokens de sortie coûtent moins cher que ceux d’entrée', 'Les tokens de sortie sont mis en cache aussi', 'La réponse est courte', '`max_tokens` plafonne le prix de la sortie'], answer: 2, why: 'Un token de sortie coûte 5 fois un token d’entrée simple, mais il n’y en a qu’environ 350 contre 151 629 de source.' },
+					{ q: 'Un prompt de 300 tokens reçoit une réponse de 4 000 tokens à ces prix. Quelle part du coût revient à la sortie ?', options: ['Environ 50 %', 'Environ 10 %', 'Environ 75 %', 'Environ 98 %'], answer: 3, why: '4 000 × 15 = 60 000 contre 300 × 3 = 900. Une longue réponse fait basculer la facture vers la sortie.' }
+				]
+			}
 		]
 	},
 	quiz: [

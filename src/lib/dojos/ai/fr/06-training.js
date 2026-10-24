@@ -98,6 +98,44 @@ export default {
 			'`x = [20, 30, 40, 50]` et `y = [30, 40, 50, 60]`. Chaque position de `y` contient le token qui suit la même position dans `x`.',
 			'La perte note 4 prédictions pour cette ligne : après `20` prédire `30`, après `20 30` prédire `40`, et ainsi de suite jusqu’à `60`.',
 			'Le SFT est la première étape utile : le modèle s’entraîne sur environ 13k prompts accompagnés de réponses écrites, donc après une question, une réponse est la suite probable. Le RLHF s’entraîne ensuite sur des classements de ces réponses.'
+		],
+		steps: [
+			{
+				title: 'Découpe `x`',
+				questions: [
+					{ q: 'Quelle tranche construit `x` ?', options: ['`data[i:i+block_size]`', '`data[i+1:i+1+block_size]`', '`data[0:block_size]`', '`data[i:i+block_size+1]`'], answer: 0, why: 'La ligne 9 découpe `block_size` tokens à partir du point de départ tiré au hasard, `i`.' },
+					{ q: 'Avec `i = 1`, où commence `x` ?', options: ['À l’index 0, token 10', 'À l’index 1, token 10', 'À l’index 1, token 20', 'À l’index 2, token 30'], answer: 2, why: 'Python compte à partir de 0 : l’index 1 de `[10, 20, 30, 40, 50, 60]` vaut 20.' },
+					{ q: 'Que vaut `x` ?', options: ['`[10, 20, 30, 40]`', '`[20, 30, 40, 50]`', '`[30, 40, 50, 60]`', '`[20, 30, 40, 50, 60]`'], answer: 1, why: '`data[1:5]` prend les index 1 à 4 : quatre tokens, un `block_size`.' },
+					{ q: 'Pourquoi `get_batch` ne pourrait-il jamais tirer `i = 3` sur ces données ?', options: ['Les points de départ doivent être impairs', 'L’index 3 marque la fin d’un document', '`block_size` doit diviser `i`', '`torch.randint(len(data) - block_size, ...)` ne tire que 0 ou 1'], answer: 3, why: '6 - 4 font 2 : le départ est sous 2. Il reste ainsi la place pour `y`, un token plus à droite.' }
+				]
+			},
+			{
+				title: 'Découpe `y`',
+				questions: [
+					{ q: 'Quelle tranche construit `y` ?', options: ['`data[i:i+block_size]`', '`data[i+1:i+1+block_size]`', '`data[i-1:i-1+block_size]`', '`data[i+block_size]`'], answer: 1, why: 'La ligne 10 prend la même fenêtre, décalée d’un token vers la droite.' },
+					{ q: 'Que vaut `y` ?', options: ['`[30, 40, 50, 60]`', '`[20, 30, 40, 50]`', '`[60]`', '`[40, 50, 60, 10]`'], answer: 0, why: '`data[2:6]` prend les index 2 à 5.' },
+					{ q: 'Que contient la position 0 de `y` ?', options: ['Le même token que la position 0 de `x` : 20', 'Le dernier token de la fenêtre : 60', 'Le token qui suit la position 0 de `x` : 30', 'Une étiquette écrite par une personne pour la fenêtre'], answer: 2, why: 'Chaque position de `y` contient le token qui suit la même position dans `x`.' },
+					{ q: 'Qui a écrit les cibles de `y` ?', options: ['Des annotateurs, une cible par fenêtre', 'Un modèle de récompense entraîné sur des classements', 'Un modèle enseignant plus gros', 'Personne : elles viennent du même texte, décalé d’un token'], answer: 3, why: 'Au pré-entraînement, la cible est le token suivant du texte. Les réponses écrites n’arrivent qu’à l’étape SFT.' }
+				]
+			},
+			{
+				title: 'Compte les prédictions',
+				questions: [
+					{ q: 'Combien de prédictions de token suivant la perte note-t-elle pour cette ligne ?', options: ['1', '4', '6', '5'], answer: 1, why: 'Chaque position de la fenêtre sert d’exemple d’entraînement, et la fenêtre contient 4 tokens.' },
+					{ q: 'Quelle est la première prédiction ?', options: ['Après `20`, prédire `30`', 'Après `10`, prédire `20`', 'Après `20 30 40 50`, prédire `60`', 'Après `30`, prédire `40`'], answer: 0, why: 'La position 0 de `x` vaut 20, et la position 0 de `y` vaut 30.' },
+					{ q: 'Que voit le modèle pour la dernière prédiction ?', options: ['Seulement `50`, pour prédire `60`', '`20 30 40 50`, pour prédire `60`', '`10 20 30 40 50`, pour prédire `60`', '`60`, pour prédire la ligne suivante'], answer: 1, why: 'Chaque prédiction s’appuie sur les tokens de la fenêtre jusqu’à sa position : après `20 30` prédire `40`, et ainsi de suite jusqu’à `60`.' },
+					{ q: 'Quelle fonction note les prédictions face à `y` ?', options: ['`torch.randint`', '`np.memmap`', '`F.cross_entropy`', '`torch.stack`'], answer: 2, why: 'Le modèle compare ses prédictions à `y` avec `F.cross_entropy`, dans `model.py`.' }
+				]
+			},
+			{
+				title: 'Choisis l’étape d’entraînement',
+				questions: [
+					{ q: 'Pourquoi un modèle de base répond-il à une question de code par « A. B. C. D. » ?', options: ['Après une question, une page de QCM est une suite probable', 'Il a été entraîné exprès à écrire des choix de QCM', 'Il ne sait pas lire le code', 'Son `block_size` est trop petit pour la question'], answer: 0, why: 'Un modèle de base écrit ce qui a des chances de suivre dans ses textes d’entraînement.' },
+					{ q: 'Quelle étape du schéma est la première à l’empêcher ?', options: ['Plus de pré-entraînement sur du texte du web', 'Le SFT', 'Le modèle de récompense', 'Constitutional AI'], answer: 1, why: 'Le SFT est la première étape qui montre au modèle une question suivie d’une réponse écrite.' },
+					{ q: 'Sur quoi s’entraîne l’étape SFT d’InstructGPT ?', options: ['Des classements de 4 à 9 réponses pour 33k prompts', 'Des récompenses sur 31k prompts', '16 principes écrits', 'Environ 13k prompts avec des réponses écrites par les annotateurs'], answer: 3, why: 'Une équipe de 40 prestataires a écrit la réponse attendue pour chaque prompt. Classements et récompenses viennent aux étapes suivantes.' },
+					{ q: 'Quelle perte le SFT utilise-t-il ?', options: ['Une perte de classement sur des paires de réponses', 'Une récompense venue de PPO', 'La même perte sur le token suivant qu’au pré-entraînement', 'Une pénalité KL seule'], answer: 2, why: 'Le README de nanoGPT dit "Finetuning is no different than training" : même boucle, un modèle pré-entraîné au départ et un learning rate plus petit.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -103,6 +103,44 @@ for block in response.content:
 			'Retire les réglages `temperature`. Sur Sonnet 5.5, toute `temperature` différente de la valeur par défaut renvoie une erreur 400, et cette valeur est `1.0` : 0, 0.2, 0.4, 0.6 et 0.8 échouent tous.',
 			'Fais tourner le jeu de test en effort `low` et `medium` en plus du `high` par défaut. La doc de l’effort réserve `low` aux "Simpler tasks that need the best speed and lowest costs", et une étiquette de ticket tient en une courte chaîne. Pour supprimer toute réflexion préalable, Sonnet 5.5 accepte `thinking: {"type": "between_tools"}` jusqu’à `high`.',
 			'Note `usage.output_tokens` et `usage.output_tokens_details.thinking_tokens` à chaque passage, à côté de la part d’étiquettes correctes. Garde l’effort le plus bas qui conserve le score.'
+		],
+		steps: [
+			{
+				title: 'Retire le scratchpad',
+				questions: [
+					{ q: 'Sur Sonnet 5.5, que peut-il arriver à un prompt qui demande un `<scratchpad>` avant la réponse ?', options: ['Le scratchpad passe gratuitement dans le bloc thinking', 'Il peut être refusé avec `stop_details.category: "reasoning_extraction"`', 'L’API renvoie une erreur 400 pour toute balise XML', 'Il marche exactement comme sur `claude-haiku-4-5`'], answer: 1, why: 'La doc des refus cite une section scratchpad remplie avant la réponse parmi les causes courantes de `reasoning_extraction`.' },
+					{ q: 'Quelle partie du format de réponse gardes-tu ?', options: ['`<scratchpad>`', '`<response>` autour du scratchpad', '`<category>`', 'Aucune : tu analyses le texte brut'], answer: 2, why: 'Ton code a toujours besoin de l’étiquette, et c’est dans `<category>` qu’il la lit.' },
+					{ q: 'Où Sonnet 5.5 réfléchit-il une fois le scratchpad retiré ?', options: ['Dans des blocs thinking, par défaut', 'Dans la balise `<response>`', 'Nulle part : il répond sans réfléchir', 'Dans une seconde requête qu’il s’envoie'], answer: 0, why: 'Sonnet 5.5 réfléchit déjà dans des blocs thinking par défaut, donc le scratchpad n’apporte rien.' },
+					{ q: 'Tu veux lire le raisonnement sur Sonnet 5.5. Que règles-tu ?', options: ['`budget_tokens: 1024`', 'Une balise `<scratchpad>` dans la réponse', '`display: "raw"`', '`display: "summarized"`'], answer: 3, why: 'Sur Sonnet 5.5, `display` vaut `"omitted"` par défaut. Avec `"summarized"`, tu obtiens un résumé, jamais le raisonnement brut.' }
+				]
+			},
+			{
+				title: 'Retire les températures',
+				questions: [
+					{ q: 'Que fait Sonnet 5.5 avec `temperature: 0.2` ?', options: ['Il renvoie une erreur 400', 'Il l’arrondit à 0', 'Il l’ignore et prend 1.0', 'Il l’accepte, comme Haiku 4.5'], answer: 0, why: 'Sur Sonnet 5.5, toute `temperature` différente de la valeur par défaut renvoie une erreur 400.' },
+					{ q: 'Parmi les cinq valeurs de test, de 0 à 0.8, lesquelles marchent encore ?', options: ['Seulement 0', 'De 0 à 0.4', 'Aucune', 'Les cinq'], answer: 2, why: 'La valeur par défaut est `1.0` : 0, 0.2, 0.4, 0.6 et 0.8 échouent tous.' },
+					{ q: 'Quelle est la `temperature` par défaut sur Sonnet 5.5 ?', options: ['0', '`1.0`', '0.5', 'Il n’y en a pas'], answer: 1, why: 'La valeur par défaut est `1.0`, et c’est la seule acceptée.' },
+					{ q: 'Que fais-tu alors dans `promptfooconfig.yaml` ?', options: ['Tu mets tous les passages à 0', 'Tu ne gardes que le passage à 0.8', 'Tu les remplaces par `top_p`', 'Tu retires les réglages `temperature`'], answer: 3, why: 'Sans ce réglage, chaque requête prend la valeur par défaut et n’échoue plus.' }
+				]
+			},
+			{
+				title: 'Choisis les niveaux d’effort',
+				questions: [
+					{ q: 'Quel effort Sonnet 5.5 utilise-t-il sur l’API Claude si tu n’en donnes aucun ?', options: ['`low`', '`medium`', '`high`', '`max`'], answer: 2, why: '`high` est la valeur par défaut de Sonnet 5.5. Le régler "produces exactly the same behavior as omitting the `effort` parameter entirely."' },
+					{ q: 'Quels niveaux testes-tu à côté de la valeur par défaut ?', options: ['`low` et `medium`', '`max` seulement', '`high` et `max`', 'Aucun : la valeur par défaut est toujours la moins chère'], answer: 0, why: 'Un effort plus bas peut garder le score sur une réponse courte et dépenser moins de tokens.' },
+					{ q: 'Pourquoi `low` est-il un bon candidat pour ce classeur ?', options: ['Il coupe la réflexion à chaque requête', 'C’est le seul niveau que Sonnet 5.5 accepte', 'Il retire le coût de la réflexion de la facture', 'La doc le réserve aux "Simpler tasks that need the best speed and lowest costs"'], answer: 3, why: 'Une étiquette de ticket tient en une courte chaîne : c’est le genre de tâche simple visée par `low`.' },
+					{ q: 'Tu ne veux aucune réflexion préalable. Qu’accepte Sonnet 5.5 ?', options: ['`budget_tokens: 0`', '`thinking: {"type": "between_tools"}` jusqu’à `high`', 'Une ligne de prompt "Answer directly without thinking"', '`temperature: 0`'], answer: 1, why: 'Sonnet 5.5 accepte `between_tools` jusqu’à `high`. `budget_tokens` renvoie une erreur 400 à partir de Claude 4.7, et dans les tests d’Anthropic, une ligne de prompt "didn’t stop it from thinking" sur Haiku 5.5.' }
+				]
+			},
+			{
+				title: 'Mesure le coût',
+				questions: [
+					{ q: 'Quels deux nombres notes-tu à chaque passage ?', options: ['`usage.output_tokens` et `usage.output_tokens_details.thinking_tokens`', '`usage.input_tokens` et `max_tokens`', 'La longueur du champ `thinking` et celle de la réponse', '`stop_reason` et le niveau d’effort'], answer: 0, why: '`output_tokens` est le total facturé, et `thinking_tokens` montre la part partie dans le raisonnement.' },
+					{ q: 'La réflexion est masquée avec `display: "omitted"`. Est-elle facturée ?', options: ['Non : la réflexion masquée est gratuite', 'Seulement à moitié', 'Oui, en entier, en tokens de sortie', 'Seulement en streaming'], answer: 2, why: '`display` ne change que ce que tu vois. Masquer réduit la latence, pas le coût.' },
+					{ q: 'Comment estimes-tu les tokens du seul texte de la réponse ?', options: ['`thinking_tokens - output_tokens`', '`output_tokens - thinking_tokens`', '`output_tokens` seul', 'En comptant les mots du champ `thinking`'], answer: 1, why: '`thinking_tokens` compte le raisonnement brut dans le total facturé, donc le reste correspond à peu près à la réponse.' },
+					{ q: 'Comment choisis-tu l’effort final ?', options: ['Le plus haut, par prudence', 'La valeur par défaut, puisqu’elle est testée', 'Celui qui a le plus de tokens de réflexion', 'Le plus bas qui garde la part d’étiquettes correctes'], answer: 3, why: 'Tu notes le coût à côté du score, et tu gardes le passage le moins cher qui ne perd pas en justesse.' }
+				]
+			}
 		]
 	},
 	quiz: [

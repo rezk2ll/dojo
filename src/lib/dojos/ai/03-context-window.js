@@ -119,6 +119,44 @@ export default {
 			'The tail limit is 8,192 // 2 = 4,096. The loop keeps older messages while the tail stays under 4,096, so the last 10 (3,900 tokens) stay word for word, plus message 30 if it is under 196 tokens.',
 			'The older messages, including the "4 spaces" rule, go to `summarize_all`. aider sends one user message starting "I spoke to you previously about a number of things." followed by the tail.',
 			'To keep the rule: put it in `CONVENTIONS.md` and load it with `/read CONVENTIONS.md`. aider rebuilds read-only files into every request apart from the summarised history. Or repeat the rule in your current message.'
+		],
+		steps: [
+			{
+				title: 'Compute the history limit',
+				questions: [
+					{ q: 'What is `max_chat_history_tokens` for a model with a 200,000 input limit?', options: ['12,500', '8,192', '1,024', '200,000'], answer: 1, why: '`min(max(200000 / 16, 1024), 8192)`: 200,000 / 16 is 12,500, and the `min` caps it at 8,192.' },
+					{ q: 'Why is the limit not 12,500, which is 200,000 / 16?', options: ['aider rounds down to a power of two', 'The `max` raises it to 1,024', 'The `min` caps the result at 8,192', 'The output tokens are taken off first'], answer: 2, why: 'The formula clamps the result between 1,024 and 8,192. 12,500 is above the cap.' },
+					{ q: 'The history is 12,000 tokens. What does aider do with it?', options: ['It returns the history untouched', 'It starts summarising, since 12,000 is over 8,192', 'It gets a 400 "prompt is too long" error', 'It drops the 4 oldest messages'], answer: 1, why: 'Lines 39 and 40 only return the history untouched while it fits in `self.max_tokens`.' },
+					{ q: 'Would a 6,000-token history be summarised?', options: ['No: it fits under 8,192, so it is returned untouched', 'Yes: every history gets summarised', 'Yes: it is over the 4,096 tail limit', 'Only if it has more than 4 messages'], answer: 0, why: 'The check `total <= self.max_tokens` comes first. Under the limit, nothing changes.' }
+				]
+			},
+			{
+				title: 'Find the tail',
+				questions: [
+					{ q: 'What is the tail limit?', options: ['4,096', '8,192', '6,000', '3,900'], answer: 0, why: '`half_max_tokens = self.max_tokens // 2`, so 8,192 // 2.' },
+					{ q: 'In which order does the loop look at messages?', options: ['From message 1 forwards', 'From the middle outwards', 'Largest message first', 'From the newest message backwards'], answer: 3, why: '`range(len(sized) - 1, -1, -1)` starts at the last message and walks back.' },
+					{ q: 'Do the last 10 messages, 3,900 tokens, stay word for word?', options: ['No: they get summarised with the rest', 'Yes: 3,900 is under 4,096', 'Only the last 4, set by `min_split`', 'No: the tail must be exactly 4,096'], answer: 1, why: 'The loop keeps adding messages while the tail stays under `half_max_tokens`.' },
+					{ q: 'When does message 30 also join the tail?', options: ['If it is under 196 tokens', 'If it is an assistant message', 'Never: the tail is always 10 messages', 'If it is under 4,096 tokens'], answer: 0, why: '4,096 minus 3,900 leaves 196. Message 30 fits only if the tail stays under 4,096 with it.' }
+				]
+			},
+			{
+				title: 'Say what aider sends',
+				questions: [
+					{ q: 'Where does the "4 spaces" rule from message 1 end up?', options: ['In the head, sent to `summarize_all`', 'In the tail, kept word for word', 'In the system prompt', 'Deleted, with no summary at all'], answer: 0, why: 'Message 1 is far older than the tail, so it is in the head that gets summarised.' },
+					{ q: 'What does aider’s `summarize` prompt ask for?', options: ['Every rule copied word for word', 'Only the code blocks from each message', '"less detail about older parts and more detail about the most recent messages"', 'The same detail for every message'], answer: 2, why: 'The prompt favours recent messages. A rule from message 1 is in the part that gets the least detail.' },
+					{ q: 'How does the summary appear in the next request?', options: ['As one user message starting "I spoke to you previously about a number of things."', 'As an extra system prompt', 'As a tool result', 'As a comment at the top of the edited file'], answer: 0, why: 'aider sends that user message, then the tail word for word.' },
+					{ q: 'Why might the model now write tabs?', options: ['The API rejects requests that contain old rules', 'The rule survives only if the summary repeats it', 'The tail always overrides the head', 'aider strips formatting rules on purpose'], answer: 1, why: 'A summary keeps what the summarising model judged important. A formatting rule can be dropped without any error.' }
+				]
+			},
+			{
+				title: 'Keep the rule in force',
+				questions: [
+					{ q: 'Which way keeps the rule in every request, whatever the summary says?', options: ['Write it again in message 1 with "important"', 'Put it in `CONVENTIONS.md` and load it with `/read CONVENTIONS.md`', 'Raise the model’s `max_input_tokens`', 'Ask the model to remember it'], answer: 1, why: 'This is the way the aider docs give for coding conventions.' },
+					{ q: 'Why does a read-only file survive the summary?', options: ['The summarising model never shortens files', 'The API caches files between turns', 'Read-only files are part of the model’s training data', 'aider rebuilds read-only files into every request, apart from the summarised history'], answer: 3, why: 'The file is not part of the chat history, so `summarize_all` never touches it.' },
+					{ q: 'What is a second way to keep the rule?', options: ['Repeat it in your current message', 'Lower the temperature', 'Switch to a model with a 1M-token window', 'Turn on prompt caching'], answer: 0, why: 'A bigger window does not help: aider caps history at 8,192 tokens. Caching changes the price, not what counts.' },
+					{ q: 'Why does repeating the rule in your current message work?', options: ['The API only reads the last message', 'Repeated rules get extra weight from training', 'The newest messages stay word for word in the tail', 'aider marks repeated text as read-only'], answer: 2, why: 'The tail is kept as is, and "Lost in the Middle" found models use information at the end of the context well.' }
+				]
+			}
 		]
 	},
 	quiz: [

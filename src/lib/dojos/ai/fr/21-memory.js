@@ -126,6 +126,44 @@ export default {
 			'Claude Code met les quatre fichiers bout à bout. Aucun ne remplace un autre, donc un conflit entre deux d’entre eux, c’est à toi de le régler : la doc prévient que Claude "may pick one arbitrarily".',
 			'`src/billing/CLAUDE.md` est sous le répertoire de travail, il n’est donc pas chargé au lancement. Il se charge la première fois que Claude lit, écrit ou modifie un fichier dans `src/billing/`.',
 			'Lance `/context` pour vérifier : les fichiers du lancement apparaissent sous Memory files. Celui de billing n’y est pas tant qu’il n’est pas chargé, puis une ligne `Loaded` avec son chemin s’affiche dans le terminal.'
+		],
+		steps: [
+			{
+				title: 'Liste ce qui se charge au lancement',
+				questions: [
+					{ q: '`~/.claude/CLAUDE.md` est-il dans le contexte au lancement ?', options: ['Oui, c’est le fichier de portée utilisateur', 'Non, seuls les fichiers du dépôt se chargent', 'Seulement après que `/memory` l’a ouvert', 'Seulement si le dépôt n’a aucun CLAUDE.md'], answer: 0, why: 'Le fichier de portée utilisateur se charge au début de chaque session, quel que soit le dépôt.' },
+					{ q: 'Tu lances dans `~/work/shop/api`. `~/work/CLAUDE.md`, deux niveaux au-dessus, est-il chargé ?', options: ['Non, seul le fichier du répertoire de travail se charge', 'Oui, le fichier de chaque répertoire parent se charge au lancement', 'Seulement s’il fait moins de 200 lignes', 'Seulement quand Claude modifie un fichier dans `~/work`'], answer: 1, why: 'Claude Code lit les CLAUDE.md de ton répertoire de travail **et de chaque répertoire au-dessus**.' },
+					{ q: '`~/work/shop/api/CLAUDE.local.md` est-il chargé au lancement ?', options: ['Non, les fichiers `.local` sont lus à la demande', 'Seulement si la mémoire automatique est active', 'Oui, il est dans le répertoire de travail', 'Non, Claude Code ignore les fichiers `.local`'], answer: 2, why: 'Il est dans le répertoire d’où tu as lancé Claude, donc il fait partie du lot du lancement, lu en dernier.' },
+					{ q: 'Combien des cinq fichiers sont dans le contexte au lancement ?', options: ['Cinq', 'Quatre', 'Un', 'Trois'], answer: 1, why: 'Le fichier utilisateur et les trois fichiers de `~/work` jusqu’à `api`. Celui de billing attend.' }
+				]
+			},
+			{
+				title: 'Mets-les dans l’ordre',
+				questions: [
+					{ q: 'Quel fichier est lu en premier ?', options: ['`~/work/shop/api/CLAUDE.local.md`', '`~/work/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`~/work/shop/CLAUDE.md`'], answer: 2, why: 'Le fichier de portée utilisateur passe en premier, puis l’arborescence du projet.' },
+					{ q: 'Dans quel sens la doc range-t-elle l’arborescence du projet ?', options: ['Du répertoire de travail jusqu’à la racine', 'De la racine du système de fichiers jusqu’au répertoire de travail', 'Par ordre alphabétique des chemins', 'Par taille de fichier, du plus petit au plus gros'], answer: 1, why: 'La doc dit "from the filesystem root down to your working directory".' },
+					{ q: 'Quel fichier du projet est lu en dernier ?', options: ['`~/work/CLAUDE.md`', '`~/work/shop/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`~/work/shop/api/CLAUDE.local.md`'], answer: 3, why: 'Le fichier le plus proche de l’endroit où tu as lancé Claude est lu en dernier.' },
+					{ q: 'Quel fichier vient juste après `~/work/CLAUDE.md` ?', options: ['`~/work/shop/CLAUDE.md`', '`~/.claude/CLAUDE.md`', '`src/billing/CLAUDE.md`', '`~/work/shop/api/CLAUDE.local.md`'], answer: 0, why: 'En descendant l’arborescence, `shop` est le répertoire qui suit `work`.' }
+				]
+			},
+			{
+				title: 'Règle un conflit',
+				questions: [
+					{ q: 'Comment Claude Code combine-t-il les quatre fichiers du lancement ?', options: ['Il ne garde que le fichier le plus proche', 'Il les met bout à bout, aucun ne remplace un autre', 'Il les fusionne et retire les lignes en double', 'Il ne garde que le fichier de portée utilisateur'], answer: 1, why: 'Les quatre arrivent dans le contexte, l’un après l’autre.' },
+					{ q: '`~/work/CLAUDE.md` dit « use npm » et `~/work/shop/CLAUDE.md` dit « use pnpm ». Que fait Claude d’après la doc ?', options: ['Il suit toujours le fichier lu en dernier', 'Il suit toujours le fichier utilisateur', 'Il s’arrête et te demande à chaque fois', 'Il peut en choisir un au hasard'], answer: 3, why: 'Rien ne tranche à ta place. La doc prévient que Claude "may pick one arbitrarily".' },
+					{ q: 'Qui règle ce conflit ?', options: ['Toi, en modifiant les fichiers pour qu’ils s’accordent', 'Claude Code, au prochain `/compact`', 'L’API, qui retire la règle la plus ancienne', 'La mémoire automatique, qui garde la plus récente'], answer: 0, why: 'Comme aucun fichier n’en remplace un autre, le conflit, c’est à toi de le régler.' },
+					{ q: 'Il te faut une règle qui bloque une action à coup sûr. Vers quoi renvoie la doc ?', options: ['Un CLAUDE.md plus long avec la règle en gras', 'Une ligne dans `MEMORY.md`', 'Un hook PreToolUse', 'Retaper la règle dans le chat'], answer: 2, why: 'CLAUDE.md est "context, not enforced configuration". C’est un hook PreToolUse qui bloque.' }
+				]
+			},
+			{
+				title: 'Situe le fichier de billing et vérifie',
+				questions: [
+					{ q: 'Pourquoi `src/billing/CLAUDE.md` n’est-il pas chargé au lancement ?', options: ['Il est sous le répertoire de travail', 'Il dépasse la cible de 200 lignes', 'C’est un fichier `.local`', 'Les fichiers des sous-dossiers ne se chargent jamais'], answer: 0, why: 'Les fichiers au-dessus du répertoire de travail se chargent au lancement. Ceux en dessous attendent.' },
+					{ q: 'Quand le fichier de billing se charge-t-il ?', options: ['Au prochain `/compact`', 'Quand tu lances `/memory`', 'La première fois que Claude lit, écrit ou modifie un fichier dans `src/billing/`', 'Au début de la session suivante'], answer: 2, why: 'Un fichier sous le répertoire de travail se charge quand Claude touche pour la première fois un fichier de son dossier.' },
+					{ q: 'Tu lances `/context` juste après le lancement. Où sont les quatre fichiers ?', options: ['Dans l’index de mémoire automatique `MEMORY.md`', 'Sous Memory files', 'Dans le terminal, en lignes `Loaded`', 'Nulle part : `/context` ne compte que les tokens'], answer: 1, why: '`/context` liste sous Memory files les fichiers chargés au lancement.' },
+					{ q: 'Claude modifie ensuite un fichier dans `src/billing/`. Qu’est-ce qui montre que le fichier de billing est chargé ?', options: ['Une nouvelle entrée dans `MEMORY.md`', 'Une demande d’approbation du fichier', 'Rien : le chargement est silencieux', 'Une ligne `Loaded` avec son chemin dans le terminal'], answer: 3, why: 'Quand il se charge, le terminal affiche une ligne `Loaded` avec son chemin.' }
+				]
+			}
 		]
 	},
 	quiz: [

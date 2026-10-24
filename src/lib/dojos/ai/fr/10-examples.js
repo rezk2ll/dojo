@@ -117,6 +117,44 @@ export default {
 			'Teste un jeu équilibré : 2 exemples `bug` et 2 `feature`, puis change l’ordre plusieurs fois (par exemple `bug`, `feature`, `bug`, `feature` et l’inverse). Choisis des exemples de longueurs et de formulations différentes, comme le demande la doc.',
 			'Lance chaque version sur les mêmes 100 tickets et note la précision et le nombre de réponses `bug`. Une bonne version donne près de 60 réponses `bug`, et sa précision bouge peu quand tu mélanges l’ordre.',
 			'Si le jeu fixe échoue encore, récupère pour chaque entrée les 4 tickets étiquetés les plus proches, comme `rag_classify` le fait avec 5.'
+		],
+		steps: [
+			{
+				title: 'Lis les chiffres',
+				questions: [
+					{ q: 'Combien de réponses `bug` un modèle parfait donnerait-il sur ce jeu d’évaluation ?', options: ['60', '85', '25', '100'], answer: 0, why: '60 des 100 tickets sont des bugs.' },
+					{ q: 'De combien le modèle prédit-il trop de `bug` ?', options: ['15 tickets', '25 tickets', '40 tickets', '85 tickets'], answer: 1, why: '85 réponses `bug` pour 60 vrais bugs : 25 de trop.' },
+					{ q: 'Combien des 4 exemples sont des `bug`, et où ?', options: ['3, les trois premiers', '2, au milieu', '1, le dernier', 'Aucun'], answer: 2, why: 'L’ordre est `feature`, `feature`, `feature`, `bug`.' },
+					{ q: 'La plupart des exemples sont des `feature`. Vers où le biais de l’étiquette majoritaire pousserait-il les réponses ?', options: ['Vers `feature`', 'Vers `bug`', 'Vers un équilibre', 'Vers des refus'], answer: 0, why: 'Le biais de l’étiquette majoritaire favorise l’étiquette la plus fréquente dans les exemples. Tu vois l’inverse : autre chose l’emporte.' }
+				]
+			},
+			{
+				title: 'Nomme le biais',
+				questions: [
+					{ q: 'Quel biais explique 85 réponses `bug` ?', options: ['Le biais de l’étiquette majoritaire : la plupart des exemples sont des `feature`', 'Du context rot dû à un long prompt', 'Une étiquette hallucinée', 'Le biais de récence : le dernier exemple est un `bug`'], answer: 3, why: 'Le modèle répète la réponse de l’exemple placé en dernier.' },
+					{ q: 'Quel résultat de l’étude de 2021 ressemble à ça ?', options: ['Positive, Positive, Positive, Negative a donné près de 90 % de réponses Negative', 'Réordonner les exemples n’a rien changé', 'Plus d’exemples a toujours amélioré la précision', 'Le modèle refusait quand les exemples se contredisaient'], answer: 0, why: 'Même forme : trois d’une étiquette, puis une de l’autre, et la dernière gagne.' },
+					{ q: 'Dans cette étude, quel biais l’a emporté ?', options: ['Le biais de l’étiquette majoritaire sur le biais de récence', 'Le biais de récence sur le biais de l’étiquette majoritaire', 'Les deux se sont annulés', 'Aucun n’est apparu avec seulement 4 exemples'], answer: 1, why: 'Le dernier exemple a pesé plus lourd que les trois autres.' },
+					{ q: 'Dans la même étude, de combien la précision a-t-elle bougé rien qu’en réordonnant les mêmes exemples ?', options: ['Moins d’un point', 'De 74 % à 94 %', 'De 54 % à 93 %', 'De 85 % à 90 %'], answer: 2, why: 'L’ordre seul peut faire ou défaire un prompt few-shot. 74 % à 94 %, c’est le résultat de la récupération dans le cookbook, pas l’effet de l’ordre.' }
+				]
+			},
+			{
+				title: 'Écris le changement',
+				questions: [
+					{ q: 'Combien de chaque étiquette dans le nouveau jeu ?', options: ['2 `bug` et 2 `feature`', '3 `bug` et 1 `feature`', '4 `feature`', '1 `bug` d’abord, puis 3 `feature`'], answer: 0, why: 'Un jeu équilibré retire l’attrait de l’étiquette majoritaire.' },
+					{ q: 'Quel ordre testes-tu ?', options: ['Seulement `feature`, `feature`, `bug`, `bug`', 'Seulement le premier ordre que tu écris', '`bug` en dernier, puisque les bugs sont majoritaires', 'Plusieurs, comme `bug`, `feature`, `bug`, `feature` et l’inverse'], answer: 3, why: 'Un seul ordre ne montre pas un effet de récence. Comparer quelques ordres, si.' },
+					{ q: 'À quoi doivent ressembler les exemples ?', options: ['Tous de même longueur et de même formulation', 'Différents en longueur et en formulation', 'Copiés du jeu d’évaluation', 'Aussi courts que possible'], answer: 1, why: 'La doc demande des exemples qui "vary enough that Claude doesn\'t pick up unintended patterns".' },
+					{ q: 'Comment marques-tu les exemples dans le prompt ?', options: ['En liste à puces au milieu des consignes', 'En majuscules', 'Dans des balises `<example>`', 'Après la question finale, sans balises'], answer: 2, why: 'Les balises permettent à Claude de "distinguish them from instructions".' }
+				]
+			},
+			{
+				title: 'Mesure-le',
+				questions: [
+					{ q: 'Sur quoi lances-tu chaque version ?', options: ['Les mêmes 100 tickets', 'Un nouveau jeu au hasard à chaque fois', 'Un seul ticket difficile', 'Les 4 exemples eux-mêmes'], answer: 0, why: 'Le même jeu d’évaluation rend les versions comparables. Une seule entrée ne montre pas un biais.' },
+					{ q: 'Quels deux chiffres notes-tu pour chaque version ?', options: ['La latence et le coût', 'La précision et le nombre de réponses `bug`', 'La longueur du prompt et celle de la sortie', 'Le nombre d’exemples et la température'], answer: 1, why: 'La précision dit si c’est bon. Le nombre de `bug` montre si le biais a disparu.' },
+					{ q: 'Que montre une bonne version ?', options: ['85 réponses `bug`, comme avant', '100 réponses `bug`', 'Exactement 50 réponses `bug`', 'Près de 60 réponses `bug`, et une précision qui bouge à peine quand tu mélanges l’ordre'], answer: 3, why: 'La vraie part de bugs est 60. Une précision stable d’un ordre à l’autre veut dire que l’ordre ne dicte plus la réponse.' },
+					{ q: 'Le jeu fixe échoue encore. Qu’essaies-tu ensuite ?', options: ['Ajouter 20 exemples `bug` de plus', 'Retirer tous les exemples', 'Récupérer pour chaque entrée les 4 tickets étiquetés les plus proches', 'Monter la température'], answer: 2, why: 'Les exemples récupérés collent à chaque entrée, comme `rag_classify` avec 5. C’est ce qui a fait passer le cookbook de 74 % à 94 %.' }
+				]
+			}
 		]
 	},
 	quiz: [

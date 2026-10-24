@@ -120,6 +120,44 @@ export default {
 			'Context to prepend, written by the model from the whole manual: "This chunk is from the Model X200 router manual, section on the DNS cache timeout setting." It names the product and the setting the chunk is about.',
 			'BM25 finds "E-4012", because it matches exact strings; an embedding search may only find chunks about errors in general. Run both and merge the results with rank fusion.',
 			'Send the retrieved chunks as `search_result` blocks with the manual\'s URL as `source`, so the answer cites the page a user can open.'
+		],
+		steps: [
+			{
+				title: 'Check that you need RAG',
+				questions: [
+					{ q: 'Under what size does Anthropic\'s post say to put the whole knowledge base in the prompt?', options: ['20,000 tokens', '1 million tokens', '200,000 tokens, about 500 pages', '3 million tokens'], answer: 2, why: 'Below that, you skip RAG and use prompt caching to cut the cost.' },
+					{ q: 'Your manuals are 3 million tokens. What follows?', options: ['RAG is needed', 'Put them all in the prompt with caching', 'Fine-tune a model on them', 'Send one manual per request'], answer: 0, why: '3 million tokens is far above the 200,000 token limit.' },
+					{ q: 'What is the first step above that limit?', options: ['Write one summary per manual', 'Split the documents into chunks', 'Raise `max_tokens`', 'Drop the older manuals'], answer: 1, why: 'Chunks are what you index and retrieve.' },
+					{ q: 'How long is a chunk, usually?', options: ['One whole manual', 'Exactly 20 tokens', 'One page of 2,000 words', 'No more than a few hundred tokens'], answer: 3, why: 'A chunk is a piece of a document, indexed and retrieved on its own.' }
+				]
+			},
+			{
+				title: 'Write the context',
+				questions: [
+					{ q: 'What does "Restart the device after changing this value." leave out?', options: ['The product and the setting it is about', 'The verb', 'The error code only', 'Nothing: it is complete'], answer: 0, why: 'Like the ACME chunk, it never names what the user searches for.' },
+					{ q: 'Which context do you prepend?', options: ['"Restart the device."', '"This chunk is important."', '"This chunk is from the Model X200 router manual, section on the DNS cache timeout setting."', '"Answer only with the succinct context and nothing else."'], answer: 2, why: 'It names the product and the setting the chunk is about.' },
+					{ q: 'What does the model read to write that context?', options: ['Only the chunk', 'The user\'s question', 'The 20 retrieved chunks', 'The whole manual'], answer: 3, why: 'The model needs the whole document to say which product and setting a chunk is about.' },
+					{ q: 'Where does the context go?', options: ['Only into the BM25 index', 'In front of the chunk, for both the embeddings and the BM25 index', 'In the system prompt at query time', 'After the chunk, in the answer'], answer: 1, why: 'The context comes first, then the original chunk, and that combined text is indexed.' }
+				]
+			},
+			{
+				title: 'Find "E-4012"',
+				questions: [
+					{ q: 'Which part of the retrieval finds "E-4012"?', options: ['The embedding search', 'BM25', 'The reranker alone', 'The model writing the answer'], answer: 1, why: 'BM25 matches exact strings, like an error code.' },
+					{ q: 'What may the embedding search return for "X200 error E-4012"?', options: ['Chunks about errors in general', 'Nothing at all', 'Only the exact chunk', 'Chunks from the ACME filings'], answer: 0, why: 'Embeddings capture meaning and can miss an exact identifier.' },
+					{ q: 'What do you do with the two searches?', options: ['Keep only BM25', 'Keep only the embeddings', 'Run the embeddings only when BM25 finds nothing', 'Run both and merge the lists with rank fusion'], answer: 3, why: 'Each search finds what the other misses.' },
+					{ q: 'In Anthropic\'s tests, what came after the fusion?', options: ['A second BM25 pass', 'A summary of each chunk', 'A reranker that scored the top 150 chunks and kept 20', 'A larger embedding model'], answer: 2, why: 'With the reranker on top, missed chunks fell to 1.9%.' }
+				]
+			},
+			{
+				title: 'Send the chunks with sources',
+				questions: [
+					{ q: 'Which block type do you send the chunks in?', options: ['`document`', '`tool_use`', '`thinking`', '`search_result`'], answer: 3, why: 'With citations enabled, each claim then points back to the chunk it came from.' },
+					{ q: 'What goes in `source`?', options: ['The chunk number', 'The manual\'s URL', 'The error code', 'The model name'], answer: 1, why: 'The answer then cites a page the user can open.' },
+					{ q: 'What does a citation in the answer hold?', options: ['The `source` and `title` you sent, and the `cited_text`', 'A confidence score per sentence', 'Only a chunk number', 'A link the API finds in the chunk'], answer: 0, why: 'A `search_result_location` citation copies `source` and `title` and adds `cited_text`.' },
+					{ q: 'Why not send 100 chunks to be safe?', options: ['The API caps a request at 20 blocks', 'Citations stop working past 20', '"More information can be distracting for models"', 'BM25 only ranks 20 chunks'], answer: 2, why: 'The post warns that passing more chunks is no fix.' }
+				]
+			}
 		]
 	},
 	quiz: [

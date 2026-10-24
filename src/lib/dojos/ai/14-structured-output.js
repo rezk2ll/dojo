@@ -106,6 +106,44 @@ print(parsed_message.parsed_output)  # Order(product_name='Green Tea', price=5.5
 			'Write `total: float = Field(ge=0)` and `currency: Literal["EUR", "USD"]`. The API gets `total` as a plain number with `{minimum: 0}` in its description, and the SDK checks `ge=0` on the reply. `notes` is optional, so it comes after the required fields in the output.',
 			'Retry on `ValidationError`, once, with the error text added to the user turn. Retry on `stop_reason: "max_tokens"` with a higher `max_tokens`, as the docs say.',
 			'Do not resend the same request on `stop_reason: "refusal"`: log it and look at the prompt. Compare `currency` case-insensitively, as the docs advise for enums.'
+		],
+		steps: [
+			{
+				title: 'Find what breaks',
+				questions: [
+					{ q: 'What does Opus 5.5 do with `tool_choice: {"type": "tool", "name": "record_invoice"}`?', options: ['It calls the tool but skips the schema check', 'It answers in plain text and ignores `tool_choice`', 'It rejects the request with a 400 error, every time', 'It calls the tool after a thinking block'], answer: 2, why: 'Opus 5.5 rejects forced tool use on every request with a 400 error.' },
+					{ q: 'Would switching to `tool_choice: {"type": "any"}` help?', options: ['No: Opus 5.5 rejects it with a 400 error too', 'Yes: it forces some tool, not a named one', 'Yes, but only with `strict: true`', 'Yes: the API turns it into `auto`'], answer: 0, why: 'Both `{"type": "any"}` and `{"type": "tool", ...}` are forced tool use, and both are rejected.' },
+					{ q: 'If you keep the tool, which `tool_choice` do you send?', options: ['`{"type": "none"}`', '`{"type": "auto"}`, with `strict: true` on the tool', '`{"type": "any"}`, with `strict: true` on the tool', 'No `tools` field at all'], answer: 1, why: 'The docs point to `auto` with strict tool use as the way to keep a tool on these models.' },
+					{ q: 'What is the other path to the same JSON?', options: ['Ask for JSON in the prompt and call `json.loads`', 'Put the schema in the system prompt', 'Lower `temperature` to 0', '`messages.parse` with a pydantic `Invoice` class'], answer: 3, why: 'Structured outputs put the schema in `output_config.format`, and the SDK parses the reply into your class.' }
+				]
+			},
+			{
+				title: 'Write the schema',
+				questions: [
+					{ q: 'How do you write `currency`?', options: ['`currency: str`', '`currency: Literal["EUR", "USD"]`', '`currency: str = Field(max_length=3)`', '`currency: Optional[str]`'], answer: 1, why: 'A `Literal` gives the two allowed values, so the schema sends them as an `enum`.' },
+					{ q: 'How do you write `total`?', options: ['`total: float = Field(ge=0)`', '`total: str`', '`total: int`', '`total: float = Field(gt=100)`'], answer: 0, why: 'A number, at least 0, as the task asks.' },
+					{ q: '`notes` is optional. Where does it land in the output?', options: ['First, before `vendor`', 'Nowhere: optional fields are dropped', 'In a second text block', 'After the required fields'], answer: 3, why: 'Optional fields come after the required ones in the output.' },
+					{ q: 'What does the SDK add to every object before it sends the schema?', options: ['`required: []`', '`strict: true`', '`additionalProperties: false`', 'A `title` per enum value'], answer: 2, why: 'The SDK rewrites the schema for the API and gives every object `additionalProperties: false`.' }
+				]
+			},
+			{
+				title: 'Follow `total >= 0`',
+				questions: [
+					{ q: 'What does the API receive for `total`?', options: ['`{"type": "number", "minimum": 0}`, as written', 'A plain number, with `{minimum: 0}` in its description', 'Nothing: the SDK raises before sending', 'A string, since money is text'], answer: 1, why: '`transform_schema` keeps only the keys the API supports and moves the rest into the description.' },
+					{ q: 'Does constrained decoding stop a negative `total`?', options: ['Yes: the grammar has the minimum', 'Yes, but only with `strict: true`', 'Only on Opus 5.5', 'No: the model only *might* follow the description'], answer: 3, why: 'The API never sees `minimum` as a constraint. The comment in `_transform.py` says the model "*might* follow them."' },
+					{ q: 'Who checks `ge=0`, then?', options: ['The SDK, with `validate_json` and your original class', 'The API, after decoding', 'Nobody: the check is lost', 'The model, in its thinking block'], answer: 0, why: '`parse_text` runs `adapted_type.validate_json(text)` with the class you wrote, constraints included.' },
+					{ q: 'The reply has `"total": -5`. What does your code get?', options: ['An `Invoice` with `total` set to 0', 'A 400 error from the API', 'A pydantic `ValidationError`', 'A `JSONDecodeError`'], answer: 2, why: 'The JSON is valid for the sent schema, but fails `ge=0` when the SDK validates it.' }
+				]
+			},
+			{
+				title: 'Decide when to retry',
+				questions: [
+					{ q: 'The SDK raises `ValidationError`. What do you do?', options: ['Retry forever until it passes', 'Retry once, with the error text added to the user turn', 'Clamp the value and move on', 'Switch back to forced `tool_choice`'], answer: 1, why: 'One retry with the error gives the model what it got wrong. Endless retries just pay again.' },
+					{ q: 'The response has `stop_reason: "max_tokens"`. What do you do?', options: ['Parse it: the JSON is always complete', 'Close the open brackets yourself', 'Drop the invoice', 'Retry with a higher `max_tokens`'], answer: 3, why: 'The output may be cut off. The docs say to retry with a higher `max_tokens`.' },
+					{ q: 'The response has `stop_reason: "refusal"`. What do you do?', options: ['Log it and look at the prompt, without resending the same request', 'Resend the same request right away', 'Parse the text as an `Invoice`', 'Raise `max_tokens`'], answer: 0, why: 'A refusal returns a 200 and output that may not match your schema. Look at the prompt before you pay for another one.' },
+					{ q: 'How do you compare the `currency` value in your code?', options: ['Byte for byte with `"EUR"`', 'By its first letter only', 'Case-insensitively', 'Not at all: enums are guaranteed'], answer: 2, why: 'The API does not guarantee the capitalization of `enum` values, as the docs warn.' }
+				]
+			}
 		]
 	},
 	quiz: [

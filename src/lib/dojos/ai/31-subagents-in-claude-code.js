@@ -107,6 +107,44 @@ Structure your response for maximum clarity and usefulness. Always include speci
 			'Body: "Run the project test command. Reply with each failing test name, its file and the first error line, and nothing about passing tests." The subagent gets this body as its system prompt, plus environment details such as the working directory.',
 			'Leaving `Edit` and `Write` out of `tools` blocks file edits through those tools. `Bash` stays, because the agent has to run the tests. A shell command can still write a file, so the body says what to do and nothing more.',
 			'The `git push` rule goes in `permissions.deny` in `.claude/settings.json` as `Bash(git push *)`. The same entry in `disallowedTools` would remove the whole `Bash` tool, and a settings deny rule applies to the main conversation and to subagents.'
+		],
+		steps: [
+			{
+				title: 'Write the frontmatter',
+				questions: [
+					{ q: 'Which frontmatter fields does an agent file need at minimum?', options: ['`name` and `tools`', '`name` and `description`', '`description` and `model`', '`name` alone'], answer: 1, why: 'Only `name` and `description` are required. A file with a `name` but no `description` is skipped.' },
+					{ q: 'Which field does Claude read to decide when to delegate to `test-runner`?', options: ['`name`', '`tools`', '`description`', 'The first line of the body'], answer: 2, why: 'Claude compares your request and the context with the `description` of each agent file.' },
+					{ q: 'You want Claude to delegate after every code change. What do you add to the description?', options: ['"Use proactively after code changes"', 'The full list of test commands', 'A `model: haiku` line', 'A note that it must never push'], answer: 0, why: 'The docs suggest "use proactively" in the description to encourage delegation.' },
+					{ q: 'Why keep the description short?', options: ['Claude only reads its first ten words', 'YAML cannot hold long strings', 'A long description becomes the system prompt', 'Every description takes room in the main context'], answer: 3, why: 'Every subagent description sits in the main conversation, and Claude Code warns above 15,000 tokens of custom descriptions.' }
+				]
+			},
+			{
+				title: 'Pick the tools',
+				questions: [
+					{ q: 'Which `tools` line fits a test runner that must not edit files?', options: ['`Read, Edit, Write, Bash`', '`Read, Grep, Glob`', '`Read, Grep, Glob, Bash`', '`Bash` alone'], answer: 2, why: 'It needs `Bash` to run the tests, and leaving out `Edit` and `Write` blocks edits through those tools.' },
+					{ q: 'What kind of list is the `tools` field?', options: ['An allowlist', 'A denylist', 'A list of tools that ask for permission', 'A hint Claude may ignore'], answer: 0, why: 'The subagent gets only the tools you list. `disallowedTools` is the denylist.' },
+					{ q: '`Bash` stays in the list. What can the agent still do with it?', options: ['Nothing: `Bash` without `Write` is read-only', 'Ask you a question with `AskUserQuestion`', 'Resume itself with `SendMessage`', 'Write a file through a shell command'], answer: 3, why: 'A shell command can still write a file, so the body says what to do and nothing more.' },
+					{ q: 'Can the test runner stop mid-run to ask you which suite you meant?', options: ['Yes, through `AskUserQuestion`', 'No: that tool never reaches a subagent', 'Yes, if `Bash` is in its tools', 'Only when it runs in the background'], answer: 1, why: 'Some tools, such as `AskUserQuestion` and `EnterPlanMode`, never reach a subagent.' }
+				]
+			},
+			{
+				title: 'Write the system prompt',
+				questions: [
+					{ q: 'Where does the system prompt go in the agent file?', options: ['In a `prompt` field of the frontmatter', 'In `.claude/settings.json`', 'In the body after the closing `---`', 'In the delegation message'], answer: 2, why: 'The body after the closing `---` is the subagent system prompt.' },
+					{ q: 'What should the two lines ask the agent to return?', options: ['Each failing test, its file and the first error line, nothing on passing tests', 'The full test log, so nothing is lost', 'A summary of every test, passing or failing', 'A patch that fixes the first failure'], answer: 0, why: 'The 2,000 lines stay with the subagent, and your conversation gets the failures alone.' },
+					{ q: 'Besides this body, what does the subagent get in its system prompt?', options: ['The Claude Code system prompt', 'Environment details such as the working directory', 'Your whole conversation history', 'Every file the main conversation read'], answer: 1, why: 'The subagent gets the body plus environment details, not the Claude Code system prompt.' },
+					{ q: 'Earlier in the chat you said "ignore `vendor/`". Does the subagent know?', options: ['Yes, it reads the whole conversation', 'Yes, rules typed in chat go to every subagent', 'No, and there is no way to tell it', 'Only if Claude puts it in the delegation message'], answer: 3, why: 'The subagent reads the delegation message instead of your history.' }
+				]
+			},
+			{
+				title: 'Place the git push rule',
+				questions: [
+					{ q: 'You add `disallowedTools: Bash(git push *)`. What happens?', options: ['Only `git push` is blocked', 'The whole `Bash` tool is removed', 'The entry is ignored', '`git push` asks for permission first'], answer: 1, why: 'In `disallowedTools`, an entry with a specifier still removes the whole tool, and the agent can no longer run the tests.' },
+					{ q: 'Where does the `git push` rule go instead?', options: ['In the agent body, as a sentence', 'In the `tools` field', 'In `permissions.deny` in `.claude/settings.json`', 'In the `description` field'], answer: 2, why: 'A settings deny rule blocks that one command and keeps `Bash`.' },
+					{ q: 'How do you write the deny entry?', options: ['`Bash(git push *)`', '`git push`', '`Bash`', '`deny: push`'], answer: 0, why: 'The entry names the tool and the command pattern, so only matching commands are blocked.' },
+					{ q: 'Who does the settings deny rule apply to?', options: ['Only the test-runner subagent', 'Only the main conversation', 'Only background subagents', 'The main conversation and subagents'], answer: 3, why: 'A settings deny rule applies to both, so the push is blocked whoever tries it.' }
+				]
+			}
 		]
 	},
 	quiz: [

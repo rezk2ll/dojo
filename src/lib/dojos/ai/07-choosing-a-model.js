@@ -92,6 +92,44 @@ export default {
 			'Opus 5.5: 196/200 = 98%. One ticket costs (500 × 4 + 10 × 20) / 1,000,000 = $0.0022. Per 1,000 correct tickets: 0.0022 × 1000 / 0.98 ≈ $2.24, about 37 times more.',
 			'Before picking, read the 16 tickets Haiku 5.5 got wrong. If they land in a queue where a person re-sorts them in a minute, Haiku 5.5 wins. If a wrong queue means a missed outage report, Opus 5.5 makes 12 fewer errors per 200 tickets for about $2.18 more per 1,000 correct tickets.',
 			'These numbers count only the 10 visible output tokens. Opus 5.5 runs adaptive thinking always on, so measure the real `usage` of a few calls before you trust the estimate.'
+		],
+		steps: [
+			{
+				title: 'Compute accuracy',
+				questions: [
+					{ q: 'What is Haiku 5.5’s accuracy?', options: ['92%', '84%', '98%', '96%'], answer: 0, why: '184 / 200 = 0.92.' },
+					{ q: 'What is Opus 5.5’s accuracy?', options: ['96%', '92%', '98%', '94%'], answer: 2, why: '196 / 200 = 0.98.' },
+					{ q: 'How many tickets did Haiku 5.5 put in the wrong queue?', options: ['4', '16', '12', '8'], answer: 1, why: '200 - 184 = 16. Those 16 tickets are what you read before you pick.' },
+					{ q: 'How many more errors per 200 tickets does Haiku 5.5 make than Opus 5.5?', options: ['16', '4', '6', '12'], answer: 3, why: 'Haiku 5.5 misses 16 and Opus 5.5 misses 4.' }
+				]
+			},
+			{
+				title: 'Price one ticket',
+				questions: [
+					{ q: 'How do you price one ticket?', options: ['(500 × input price + 10 × output price) / 1,000,000', '(500 + 10) × input price / 1,000,000', '500 × input price / 1,000', '(input price + output price) × 510'], answer: 0, why: 'Prices are per million tokens, and input and output tokens have different prices.' },
+					{ q: 'What does one ticket cost on Haiku 5.5?', options: ['$0.00005', '$0.000055', '$0.055', '$0.0022'], answer: 1, why: '(500 × 0.10 + 10 × 0.50) / 1,000,000 = 55 / 1,000,000.' },
+					{ q: 'What does one ticket cost on Opus 5.5?', options: ['$0.002', '$2.20', '$0.0022', '$0.000055'], answer: 2, why: '(500 × 4 + 10 × 20) / 1,000,000 = 2,200 / 1,000,000.' },
+					{ q: 'Which part of the price do the 500 input tokens drive?', options: ['Most of it: 10 output tokens add little', 'None: only output is billed', 'Half of it, on every model', 'All of it: output is free'], answer: 0, why: 'On Haiku 5.5, input is 50 of the 55 millionths of a dollar. Output tokens cost more each, but there are only 10.' }
+				]
+			},
+			{
+				title: 'Price 1,000 correct tickets',
+				questions: [
+					{ q: 'How do you turn the price per ticket into a price per correct ticket?', options: ['Multiply it by the accuracy', 'Subtract the cost of the wrong tickets', 'Divide it by the accuracy', 'Divide the accuracy by it'], answer: 2, why: 'You pay for every ticket, right or wrong. Dividing by the share you got right spreads the cost of the misses over the hits.' },
+					{ q: 'What do 1,000 correct tickets cost on Haiku 5.5?', options: ['About $0.06', 'About $0.055', 'About $0.05', 'About $2.24'], answer: 0, why: '0.000055 × 1000 / 0.92 ≈ $0.06.' },
+					{ q: 'What do 1,000 correct tickets cost on Opus 5.5?', options: ['About $2.20', 'About $2.24', 'About $0.06', 'About $22.40'], answer: 1, why: '0.0022 × 1000 / 0.98 ≈ $2.24.' },
+					{ q: 'How many times more does Opus 5.5 cost per correct ticket?', options: ['About 40 times', 'About 2 times', 'About 20 times', 'About 37 times'], answer: 3, why: '$2.24 against $0.06. The token prices are 40 times apart, and the better accuracy closes a little of that gap.' }
+				]
+			},
+			{
+				title: 'Check before you pick',
+				questions: [
+					{ q: 'What do you read before picking a model?', options: ['The 16 tickets Haiku 5.5 got wrong', 'The vendor’s benchmark scores', 'The 196 tickets Opus 5.5 got right', 'The pricing page once more'], answer: 0, why: 'The cost of a miss depends on where the ticket lands. Only the misses tell you that.' },
+					{ q: 'The misses land in a queue where a person re-sorts them in a minute. Which model do you pick?', options: ['Opus 5.5', 'Haiku 5.5', 'Fable 5.1', 'Sonnet 5.5, to split the difference'], answer: 1, why: 'A cheap fix for each miss makes the 37 times lower price win.' },
+					{ q: 'A wrong queue means a missed outage report. What does Opus 5.5 buy you?', options: ['16 fewer errors for $2.24 more', 'No errors at all', '12 fewer errors per 200 tickets, for about $2.18 more per 1,000 correct tickets', 'Lower latency on each ticket'], answer: 2, why: '16 - 4 = 12 fewer misses, and $2.24 - $0.06 = $2.18. Whether that is worth it depends on what a miss costs.' },
+					{ q: 'Why measure the real `usage` of a few calls before you trust these numbers?', options: ['Opus 5.5 runs adaptive thinking always on, so it bills more than the 10 visible output tokens', 'Prices on the pricing page change every day', '`usage` tells you which queue the model picked', 'The eval set is too small to trust'], answer: 0, why: 'The estimate only counts the 10 visible output tokens. Thinking tokens are billed too.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -119,6 +119,44 @@ export default {
 			'`encode("aaaab")` renvoie `[256, 256, 98]`. La première fusion change les quatre 97 en deux 256. Aucune fusion n’a été apprise pour (256, 256) ni pour (256, 98), donc l’encodage s’arrête à 3 tokens.',
 			'`encode("abac")` renvoie `[97, 98, 97, 99]`. Ce texte se trouve dans la chaîne d’entraînement, mais aucune fusion ne couvre « ab » ou « ac » : chaque octet reste un token.',
 			'Un « a » de plus a fait passer 1 token à 3. Les vrais tokenizers montrent le même effet : dans `cl100k_base`, "strawberry" fait 3 tokens en début de ligne et 1 seul après une espace.'
+		],
+		steps: [
+			{
+				title: 'Retrouve les fusions apprises',
+				questions: [
+					{ q: 'Combien de fusions `train("aaabdaaabac", 259)` apprend-il ?', options: ['3', '259', '256', '11'], answer: 0, why: '`num_merges = vocab_size - 256` : 259 donne 3 fusions par-dessus les 256 identifiants d’octet.' },
+					{ q: 'Quelle paire devient l’identifiant 256 ?', options: ['(97, 98), « ab »', '(97, 97), « aa »', '(98, 100), « bd »', '(97, 99), « ac »'], answer: 1, why: '« aa » apparaît 4 fois dans le texte d’entraînement, plus que toute autre paire : il reçoit le premier nouvel identifiant.' },
+					{ q: 'Que construit la fusion 2 ?', options: ['257 = (256, 97), « aaa »', '257 = (100, 256), « daa »', '257 = (256, 256), « aaaa »', '257 = (256, 98), « aab »'], answer: 0, why: 'L’entraînement recompte les paires sur la nouvelle liste, 256 97 98 100 256 97 98 97 99. « aa » suivi de « a » apparaît deux fois et devient 257, comme dans le diagramme.' },
+					{ q: 'Que construit la fusion 3 ?', options: ['258 = (98, 100), « bd »', '258 = (97, 99), « ac »', '258 = (257, 98), « aaab »', '258 = (256, 97), « aaa »'], answer: 2, why: '« aaa » suivi de « b » vient ensuite. Puis l’entraînement s’arrête : on a demandé 3 fusions.' }
+				]
+			},
+			{
+				title: 'Prédis `encode("aaab")`',
+				questions: [
+					{ q: 'De quelle liste d’identifiants part `encode("aaab")` ?', options: ['[256, 97, 98]', '[97, 97, 97, 98]', '[258]', '[97, 98]'], answer: 1, why: 'L’encodage part des octets UTF-8 bruts, comme l’entraînement. Chacun des 4 caractères fait un octet.' },
+					{ q: 'Dans quel ordre `encode` applique-t-il les fusions ?', options: ['La paire la plus fréquente de l’entrée d’abord', 'Première apprise, première appliquée : 256, puis 257, puis 258', 'Le token le plus long d’abord : 258, puis 257, puis 256', 'De gauche à droite, la première paire venue'], answer: 1, why: '`min(... self.merges.get(p, float("inf")))` prend la paire au plus petit numéro de fusion : les fusions rejouent l’ordre de l’entraînement.' },
+					{ q: 'Que vaut la liste après la fusion 1 ?', options: ['[256, 97, 98]', '[97, 256, 98]', '[257, 98]', '[256, 256]'], answer: 0, why: 'Les deux premiers 97 deviennent 256. Le troisième « a » et le « b » restent des octets pour l’instant.' },
+					{ q: 'Que renvoie `encode("aaab")` ?', options: ['[257, 98]', '[256, 97, 98]', '[258]', '[97, 97, 97, 98]'], answer: 2, why: '256 97 98 devient 257 98, puis 258. Un seul token pour 4 caractères.' }
+				]
+			},
+			{
+				title: 'Prédis `encode("aaaab")`',
+				questions: [
+					{ q: 'Que fait la fusion 1 sur `[97, 97, 97, 97, 98]` ?', options: ['[256, 97, 97, 98]', '[256, 256, 98]', '[257, 97, 98]', '[97, 97, 256, 98]'], answer: 1, why: 'Chaque « aa » de la liste est remplacé, sans chevauchement. Quatre 97 deviennent deux 256.' },
+					{ q: 'Pourquoi la fusion 2 ne peut-elle pas s’appliquer ensuite ?', options: ['Elle demande (256, 97), et aucun 97 ne suit plus un 256', 'Elle ne tourne qu’à l’entraînement, jamais dans `encode`', 'Elle demande un texte qui commence par « b »', 'L’encodage s’arrête toujours après la première fusion'], answer: 0, why: 'La fusion 2 joint un 256 et un 97. La fusion 1 a déjà pris les deux 97.' },
+					{ q: 'Que renvoie `encode("aaaab")` ?', options: ['[97, 258]', '[256, 256, 98]', '[257, 97, 98]', '[256, 258]'], answer: 1, why: 'Aucune fusion n’a été apprise pour (256, 256) ni pour (256, 98) : l’encodage s’arrête à 3 tokens.' },
+					{ q: 'Qu’est-ce qui arrête `encode` ?', options: ['La liste fait moins de 4 identifiants', 'Chaque fusion a été essayée une fois', 'La liste ne contient que des identifiants au-dessus de 255', 'Aucune paire de la liste ne correspond à une fusion apprise'], answer: 3, why: '`if pair not in self.merges: break` termine la boucle quand il ne reste aucune paire apprise.' }
+				]
+			},
+			{
+				title: 'Explique les résultats',
+				questions: [
+					{ q: 'Que renvoie `encode("abac")` ?', options: ['[257, 99]', '[256, 97, 99]', '[97, 98, 97, 99]', '[258]'], answer: 2, why: 'Chaque octet reste un token : aucune des paires apprises n’apparaît dans « abac ».' },
+					{ q: '« abac » se trouve dans le texte d’entraînement. Pourquoi ses octets ne fusionnent-ils pas ?', options: ['Aucune fusion apprise ne couvre « ab » ou « ac »', 'Le tokenizer ne fusionne qu’en début de chaîne', 'L’encodage saute le texte déjà vu à l’entraînement', 'Seules les paires d’une même lettre peuvent fusionner'], answer: 0, why: 'Seules 3 fusions ont été apprises, et aucune n’est « ab » ou « ac ». Avoir vu le texte à l’entraînement ne suffit pas.' },
+					{ q: 'Un « a » de plus a fait passer « aaab » de 1 token à 3. Qu’est-ce que ça montre ?', options: ['Un texte plus long prend toujours moins de tokens', 'Les lettres répétées forment toujours un seul token', 'Le tokenizer compte des caractères, pas des paires', 'Un petit changement du texte peut beaucoup changer les tokens'], answer: 3, why: 'Les tokens suivent les fusions apprises, pas les lettres. Un caractère peut casser une chaîne de fusions.' },
+					{ q: 'Comment `cl100k_base` découpe-t-il "strawberry" ?', options: ['1 token partout où il apparaît', '10 tokens, un par lettre', '3 tokens après une espace, 1 en début de ligne', '1 token après une espace, 3 en début de ligne'], answer: 3, why: '" strawberry" avec son espace devant est l’identifiant 73700. En début de ligne, il fait "str", "aw", "berry".' }
+				]
+			}
 		]
 	},
 	quiz: [

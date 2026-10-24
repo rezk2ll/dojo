@@ -105,6 +105,44 @@ export default {
 			'`custom_id`: the review id, such as `review-000123`. It matches `^[a-zA-Z0-9_-]{1,64}$`, and it lets you write each label back to the right row whatever order the results come in.',
 			'Cost: input is 250,000 × 400 = 100 million tokens, so $200 at $2 or $100 at $1. Output is 250,000 × 10 = 2.5 million tokens, so $25 at $10 or $12.50 at $5. Total $225 without batches, $112.50 with them.',
 			'Collection: poll each batch until `ended`, stream its results, and save each `succeeded` label by `custom_id`. Fix and resend `invalid_request_error` results. Put the other errors and every `expired` request into a new batch.'
+		],
+		steps: [
+			{
+				title: 'Split into batches',
+				questions: [
+					{ q: 'How many requests can one Message Batch hold at most?', options: ['10,000', '100,000', '250,000', '1,000,000'], answer: 1, why: 'A batch holds up to 100,000 requests, or 256 MB.' },
+					{ q: 'How many batches do 250,000 reviews need at least?', options: ['One', 'Two', 'Three', 'Five'], answer: 2, why: '250,000 is more than twice the limit, so three batches, for example 100,000, 100,000 and 50,000.' },
+					{ q: 'Besides the request count, what limit must each batch respect?', options: ['256 MB', '64 requests per second', '1 hour of processing', '10 output tokens per request'], answer: 0, why: 'The batch limit is 100,000 requests or 256 MB, whichever comes first.' },
+					{ q: 'Why is a batch a good fit for this job?', options: ['It streams each label as it comes', 'It answers faster than live calls', 'It needs no `params` per request', 'Nobody needs the labels before tomorrow'], answer: 3, why: 'Most batches end within 1 hour, and any request can take up to 24 hours. The job can wait.' }
+				]
+			},
+			{
+				title: 'Name each request',
+				questions: [
+					{ q: 'Which `custom_id` fits each request?', options: ['The position of the review in the file', '`review-000123`, the review id', 'A random UUID made at submit time', 'The review text itself'], answer: 1, why: 'The review id already points at the row, so each label goes straight back to it. A random UUID would need a second table to find the review.' },
+					{ q: 'Which pattern must a `custom_id` match?', options: ['`^[a-zA-Z0-9_-]{1,64}$`', '`^[0-9]+$`', 'Any string up to 256 characters', '`^[a-z]{1,16}$`'], answer: 0, why: '1 to 64 letters, digits, hyphens or underscores.' },
+					{ q: 'Why not match results by their line number?', options: ['The file has no line numbers', 'Lines are sorted by result type', 'Results can come back in any order', 'Each batch file is reversed'], answer: 2, why: '"Results are not guaranteed to be in the same order as requests." The `custom_id` is the only link.' },
+					{ q: 'What do you store before you submit?', options: ['Nothing: the results carry the input', 'The message `id` of each request', 'The line number of each request', 'Your inputs in a dict keyed by `custom_id`'], answer: 3, why: 'Each result line holds the `custom_id`, and you look it up in your own table.' }
+				]
+			},
+			{
+				title: 'Estimate the cost',
+				questions: [
+					{ q: 'How many input tokens is the whole job?', options: ['100 million', '10 million', '2.5 million', '1 billion'], answer: 0, why: '250,000 × 400 is 100 million input tokens.' },
+					{ q: 'At $2 per million input and $10 per million output, what is the cost without batches?', options: ['$200', '$112.50', '$250', '$225'], answer: 3, why: '$200 for 100 million input tokens plus $25 for 2.5 million output tokens.' },
+					{ q: 'At the batch prices of $1 and $5 per million, what is the cost?', options: ['$100', '$112.50', '$125', '$225'], answer: 1, why: '$100 for input plus $12.50 for output. All batch usage is charged at 50% of the standard prices.' },
+					{ q: 'Which results are billed?', options: ['All of them', '`succeeded` and `errored`', 'Only `succeeded`', 'Only the ones you download'], answer: 2, why: 'Errored, canceled and expired requests cost nothing.' }
+				]
+			},
+			{
+				title: 'Collect the results',
+				questions: [
+					{ q: 'When can you call `results()` on a batch?', options: ['When `processing_status` is `ended`', 'As soon as `create` returns', 'When `request_counts.processing` drops by half', 'Only after 24 hours'], answer: 0, why: 'Before `ended`, `results_url` is empty and the SDK raises `AnthropicError`.' },
+					{ q: 'How do you read the results file?', options: ['Download it whole, then parse it', 'Stream it line by line', 'Ask the API for one result at a time', 'Open it in the console'], answer: 1, why: 'The docs recommend streaming "because of the potentially large size of the results".' },
+					{ q: 'A result is `errored` with `invalid_request_error`. What do you do?', options: ['Resend it as it is', 'Drop it, since it is not billed', 'Wait for it to turn `succeeded`', 'Fix the request body, then resend it'], answer: 3, why: 'The body itself is wrong, so sending it again unchanged fails again.' },
+					{ q: 'What do you do with `expired` requests?', options: ['Fix their `params` first', 'Nothing: they will run in the next 24 hours', 'Put them in a new batch as they are', 'Pay for them and ignore them'], answer: 2, why: 'They never reached the model, so they can go in a new batch unchanged.' }
+				]
+			}
 		]
 	},
 	quiz: [

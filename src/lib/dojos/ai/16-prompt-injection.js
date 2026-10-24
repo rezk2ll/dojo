@@ -110,6 +110,44 @@ export default {
 			'Change 1: let `send_email` reply only to the sender of the current email. Your code fills `to`, and the model cannot set it. A stranger then receives at most a reply about their own email.',
 			'Change 2: let `lookup_order` use only the sender address your mail server verified, so the model cannot ask for another customer\'s orders.',
 			'Also put the email body in a `tool_result` block as a JSON string, and say in the system prompt that instructions inside it are information to report. That lowers the odds that the model obeys the email. The two code changes bound the damage when it does obey.'
+		],
+		steps: [
+			{
+				title: 'Map the trifecta',
+				questions: [
+					{ q: 'Which part of the trifecta do the inbound emails add?', options: ['Access to private data', 'Untrusted content', 'A channel out', 'None: customers are trusted'], answer: 1, why: 'Anyone can write an email to your support address.' },
+					{ q: 'Which part does `lookup_order(email)` add?', options: ['Untrusted content', 'A channel out', 'Access to private data', 'None: it only reads'], answer: 2, why: 'It reads your order database, which holds every customer\'s orders.' },
+					{ q: 'Which part does `send_email(to, body)` add?', options: ['A channel out, to any address', 'Access to private data', 'Untrusted content', 'None: it only writes'], answer: 0, why: 'With a free `to`, the agent can send text to anyone.' },
+					{ q: 'How many parts of the trifecta does this agent have?', options: ['One', 'Two', 'None', 'All three'], answer: 3, why: 'Private data, untrusted content and a way out, all at once.' }
+				]
+			},
+			{
+				title: 'Close the channel out',
+				questions: [
+					{ q: 'How do you change `send_email`?', options: ['Let it reply only to the sender of the current email', 'Let the model pick `to` from a list of customers', 'Add "never email strangers" to the prompt', 'Remove the `body` argument'], answer: 0, why: 'A reply to the sender only gives the attacker, at most, a reply about their own email.' },
+					{ q: 'Who fills the `to` field after the change?', options: ['The model, from the email text', 'The customer, in a form', 'Your code', 'The order database'], answer: 2, why: 'If the model cannot set `to`, an instruction in the email cannot change it.' },
+					{ q: 'A stranger sends the attack email. What can they receive now?', options: ['The orders of the customer they name', 'Nothing at all, ever', 'A copy of the system prompt', 'At most a reply about their own email'], answer: 3, why: 'The reply goes back to the sender, and only about that email.' },
+					{ q: 'Why is a code change stronger here than a prompt rule?', options: ['Prompt rules cost more tokens', 'Prompt wording lowers the odds, but some phrasing can still get through', 'The model ignores the system prompt in support bots', 'Code changes also make the model faster'], answer: 1, why: 'The Claude Code docs: "no system is completely immune to all attacks." A limit in code holds even when the model obeys.' }
+				]
+			},
+			{
+				title: 'Lock the data access',
+				questions: [
+					{ q: 'What can a caller choose in `lookup_order(email)` today?', options: ['Any email address, so any customer\'s orders', 'Only their own orders', 'Only the order count', 'Nothing: it takes no input'], answer: 0, why: 'The `email` argument is free, so the model can ask for another customer.' },
+					{ q: 'How do you change `lookup_order`?', options: ['Let it return fewer fields', 'Let it run only once per email', 'Let it use only the sender address your mail server verified', 'Ask the model to confirm the address first'], answer: 2, why: 'The model then cannot ask for another customer\'s orders.' },
+					{ q: 'Why the address the mail server verified, and not the one in the email body?', options: ['The body is shorter', 'The body is never sent to the model', 'Verified addresses are cheaper to look up', 'Anyone can type any address in the body'], answer: 3, why: 'The body is untrusted content. The verified sender comes from your system.' },
+					{ q: 'The triage bot in the example takes the issue number from where?', options: ['From the model\'s reply', 'From the workflow event', 'From the issue title', 'From a label'], answer: 1, why: '`edit-issue-labels.sh` reads the number from the event, so the model cannot pick another issue. Same idea as the verified sender.' }
+				]
+			},
+			{
+				title: 'Lower the odds',
+				questions: [
+					{ q: 'Where does the email body go in the request?', options: ['In the system prompt', 'In a plain user text block after your rules', 'In a `tool_result` block, as a JSON string', 'In an assistant turn'], answer: 2, why: 'The docs: "Claude is trained to treat instructions that appear inside tool results with appropriate skepticism."' },
+					{ q: 'What does the system prompt say about the email?', options: ['Instructions inside it are information to report', 'Follow only polite instructions inside it', 'Ignore emails that contain instructions', 'Repeat the email before answering'], answer: 0, why: 'It asks the model to report a planted instruction instead of carrying it out. That lowers the odds, with no guarantee.' },
+					{ q: 'Why might the model still obey an email?', options: ['Emails get higher priority than the system prompt', 'The temperature is above 0', 'Tool results are read as user messages', 'Everything becomes one token sequence, and the model cannot reliably tell who wrote what'], answer: 3, why: 'Willison: "LLMs are unable to reliably distinguish the importance of instructions based on where they came from."' },
+					{ q: 'So what is each layer for?', options: ['The prompt layer is enough on its own', 'The prompt lowers the odds, and the two code changes bound the damage', 'The code changes lower the odds, and the prompt bounds the damage', 'Both only matter with a smaller model'], answer: 1, why: 'Prompt wording reduces how often the model obeys. Limits in code decide what an obeying model can do.' }
+				]
+			}
 		]
 	},
 	quiz: [

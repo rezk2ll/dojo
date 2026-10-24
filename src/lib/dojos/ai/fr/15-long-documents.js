@@ -117,6 +117,44 @@ def summarize_long_document(text, max_tokens=2000):
 			'Après les documents : "Find the clauses that state the monthly rent in each lease and copy them into <quotes> tags, with the source file. Then give the rent per lease in <answer> tags. If a lease states no rent, say so."',
 			'Pour vérifier le contrat B : cherche la citation recopiée dans `lease_b.txt`. Si elle n’y est pas mot pour mot, la réponse n’est pas fondée sur le texte. Avec `citations.enabled=true` sur des documents texte, l’API renvoie des indices de caractères dans le document, et ton code peut vérifier le passage lui-même.',
 			'Avant l’envoi, passe la requête à l’API de comptage de tokens. Si le total est sous la fenêtre de 1M tokens de Sonnet 5.5, envoie une seule requête, sans découpage.'
+		],
+		steps: [
+			{
+				title: 'Dispose les contrats',
+				questions: [
+					{ q: 'Quelle balise regroupe les trois contrats ?', options: ['`<quotes>`', '`<documents>`', '`<answer>`', '`<leases>`'], answer: 1, why: 'La doc montre `<documents>` contenant un `<document index="n">` par fichier.' },
+					{ q: 'Que mets-tu dans `<source>` pour le deuxième contrat ?', options: ['Le loyer que tu attends', 'L’indice `2`', '`lease_b.txt`', 'Tout le texte du contrat'], answer: 2, why: '`<source>` contient le nom du fichier, pour que le modèle et toi distinguiez les contrats.' },
+					{ q: 'Où va le texte de chaque contrat ?', options: ['Dans `<document_content>`', 'Dans `<source>`', 'Dans le prompt système', 'Dans un tour assistant'], answer: 0, why: 'Chaque `<document>` contient le nom du fichier dans `<source>` et le texte dans `<document_content>`.' },
+					{ q: 'Où se place le bloc `<documents>` dans le tour user ?', options: ['À la fin, après la question', 'Entre deux copies de la question', 'Dans un second tour user', 'En haut'], answer: 3, why: 'La doc place les longs documents "near the top of your prompt, above your query, instructions, and examples."' }
+				]
+			},
+			{
+				title: 'Demande les citations, puis le loyer',
+				questions: [
+					{ q: 'L’introduction posait la question en premier. Où va-t-elle maintenant ?', options: ['Après les documents', 'Avant les documents, comme avant', 'Dans le prompt système', 'Répétée avant chaque contrat'], answer: 0, why: 'La doc a mesuré des réponses meilleures "up to 30 percent" avec la question à la fin.' },
+					{ q: 'Que demande la consigne en premier ?', options: ['Un résumé de chaque contrat', 'Le loyer de chaque contrat dans des balises `<answer>`', 'Les clauses de loyer recopiées dans des balises `<quotes>`, avec le fichier source', 'Le nombre de clauses de chaque contrat'], answer: 2, why: 'D’abord les citations, puis la réponse tirée de ces citations.' },
+					{ q: 'Pourquoi demander les citations avant les loyers ?', options: ['Les citations remplacent les contrats, donc l’entrée coûte moins', 'Le modèle se concentre sur les clauses utiles, et tu peux vérifier la réponse avec elles', 'Le cache de prompt ne marche que dans `<quotes>`', 'L’API exige des citations pour les longs documents'], answer: 1, why: 'Citer d’abord "helps Claude focus on the relevant content and ignore the rest of the document", et te donne un texte à rechercher.' },
+					{ q: 'Un contrat peut ne pas indiquer de loyer. Que dit la consigne ?', options: ['Donne le loyer du contrat le plus proche', 'Laisse ce contrat hors de la réponse', 'Écris 0 pour ce contrat', 'Si un contrat n’indique pas de loyer, dis-le'], answer: 3, why: 'Une porte de sortie explicite évite que le modèle comble le vide avec un chiffre inventé.' }
+				]
+			},
+			{
+				title: 'Vérifie le contrat B',
+				questions: [
+					{ q: 'Comment vérifies-tu le loyer que le modèle donne pour le contrat B ?', options: ['Chercher la citation recopiée dans `lease_b.txt`', 'Demander au modèle s’il est sûr', 'Le comparer aux loyers de A et C', 'Renvoyer la même requête'], answer: 0, why: 'La citation est une affirmation sur le fichier. Le fichier peut la confirmer.' },
+					{ q: 'La citation n’est pas mot pour mot dans `lease_b.txt`. Qu’est-ce que ça t’apprend ?', options: ['Le fichier a un problème d’encodage', 'La réponse pour le contrat B n’est pas fondée sur le texte', 'Le loyer est juste, seule la formulation change', 'Le contrat B n’indique pas de loyer'], answer: 1, why: 'Une citation absente de la source n’appuie pas la réponse.' },
+					{ q: 'Avec `citations.enabled=true` sur des documents texte, que renvoie l’API ?', options: ['Un score pour chaque affirmation', 'Seulement le nom de fichier de chaque source', 'Des indices de caractères dans le document', 'Une copie de tout le document'], answer: 2, why: 'Ton code peut alors vérifier lui-même le passage cité.' },
+					{ q: 'Le champ `cited_text` s’ajoute-t-il à tes tokens de sortie ?', options: ['Oui, il les double', 'Oui, au tarif de l’entrée', 'Seulement sur Haiku 5.5', 'Non, il ne compte pas dans les tokens de sortie'], answer: 3, why: 'Les citations ajoutent un peu d’entrée, mais `cited_text` ne compte pas dans les tokens de sortie.' }
+				]
+			},
+			{
+				title: 'Décide du découpage',
+				questions: [
+					{ q: 'Que lances-tu avant l’envoi ?', options: ['Une première requête avec un seul contrat', 'L’API de comptage de tokens sur la requête', 'Un comptage de mots des trois fichiers', 'Le `chunk_text` du cookbook'], answer: 1, why: 'L’API de comptage de tokens te donne la taille avant l’envoi.' },
+					{ q: 'Quelle est la taille de la fenêtre de contexte de Sonnet 5.5 ?', options: ['1M tokens', '100 000 tokens', '200 000 caractères', '2 000 caractères'], answer: 0, why: 'Opus 5.5, Sonnet 5.5 et Haiku 5.5 ont une fenêtre de 1M tokens.' },
+					{ q: 'Le total est sous la fenêtre. Que fais-tu ?', options: ['Découper quand même, par prudence', 'Envoyer un contrat par requête', 'Résumer d’abord chaque contrat', 'Envoyer une seule requête, sans découpage'], answer: 3, why: 'Une seule requête permet au modèle de comparer directement les trois contrats.' },
+					{ q: 'Pourquoi éviter ici le découpage du cookbook en morceaux de 2 000 caractères ?', options: ['Le découpage coûte plus de tokens de sortie', 'Les coupes ignorent les phrases, et un résumé de résumés ne garde que ce que chaque premier résumé a gardé', 'Les morceaux doivent aller à `claude-haiku-4-5`', 'Le découpage ne marche que sur les PDF'], answer: 1, why: 'Une clause de loyer peut être coupée en deux, et un chiffre oublié par un résumé de morceau ne revient pas.' }
+				]
+			}
 		]
 	},
 	quiz: [

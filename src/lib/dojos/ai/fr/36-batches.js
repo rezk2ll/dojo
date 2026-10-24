@@ -105,6 +105,44 @@ export default {
 			'`custom_id` : l’identifiant de l’avis, comme `review-000123`. Il respecte `^[a-zA-Z0-9_-]{1,64}$` et permet de réécrire chaque étiquette sur la bonne ligne, quel que soit l’ordre des résultats.',
 			'Coût : l’entrée fait 250 000 × 400 = 100 millions de tokens, soit 200 $ à 2 $ ou 100 $ à 1 $. La sortie fait 250 000 × 10 = 2,5 millions de tokens, soit 25 $ à 10 $ ou 12,50 $ à 5 $. Total : 225 $ sans lots, 112,50 $ avec.',
 			'Collecte : interroge chaque lot jusqu’à `ended`, lis ses résultats en streaming et enregistre chaque étiquette `succeeded` par `custom_id`. Corrige et renvoie les résultats `invalid_request_error`. Mets les autres erreurs et chaque requête `expired` dans un nouveau lot.'
+		],
+		steps: [
+			{
+				title: 'Découpe en lots',
+				questions: [
+					{ q: 'Combien de requêtes un Message Batch peut-il contenir au plus ?', options: ['10 000', '100 000', '250 000', '1 000 000'], answer: 1, why: 'Un lot contient jusqu’à 100 000 requêtes, ou 256 MB.' },
+					{ q: 'Combien de lots faut-il au moins pour 250 000 avis ?', options: ['Un', 'Deux', 'Trois', 'Cinq'], answer: 2, why: '250 000 dépasse deux fois la limite, donc trois lots, par exemple 100 000, 100 000 et 50 000.' },
+					{ q: 'En plus du nombre de requêtes, quelle limite chaque lot doit-il respecter ?', options: ['256 MB', '64 requêtes par seconde', '1 heure de traitement', '10 tokens de sortie par requête'], answer: 0, why: 'La limite d’un lot est de 100 000 requêtes ou 256 MB, selon ce qui arrive en premier.' },
+					{ q: 'Pourquoi un lot convient-il à ce travail ?', options: ['Il envoie chaque étiquette en streaming', 'Il répond plus vite que les appels directs', 'Il n’a pas besoin de `params` par requête', 'Personne n’a besoin des étiquettes avant demain'], answer: 3, why: 'La plupart des lots finissent en moins d’une heure, et une requête peut prendre jusqu’à 24 heures. Le travail peut attendre.' }
+				]
+			},
+			{
+				title: 'Nomme chaque requête',
+				questions: [
+					{ q: 'Quel `custom_id` convient à chaque requête ?', options: ['La position de l’avis dans le fichier', '`review-000123`, l’identifiant de l’avis', 'Un UUID aléatoire créé à l’envoi', 'Le texte de l’avis lui-même'], answer: 1, why: 'L’identifiant de l’avis désigne déjà la ligne, donc chaque étiquette y retourne directement. Un UUID aléatoire demanderait une seconde table pour retrouver l’avis.' },
+					{ q: 'Quel motif un `custom_id` doit-il respecter ?', options: ['`^[a-zA-Z0-9_-]{1,64}$`', '`^[0-9]+$`', 'N’importe quelle chaîne jusqu’à 256 caractères', '`^[a-z]{1,16}$`'], answer: 0, why: 'De 1 à 64 lettres, chiffres, tirets ou underscores.' },
+					{ q: 'Pourquoi ne pas associer les résultats par numéro de ligne ?', options: ['Le fichier n’a pas de numéros de ligne', 'Les lignes sont triées par type de résultat', 'Les résultats peuvent revenir dans n’importe quel ordre', 'Chaque fichier de lot est inversé'], answer: 2, why: '« Results are not guaranteed to be in the same order as requests. » Le `custom_id` est le seul lien.' },
+					{ q: 'Que stockes-tu avant l’envoi ?', options: ['Rien : les résultats portent l’entrée', 'L’`id` de message de chaque requête', 'Le numéro de ligne de chaque requête', 'Tes entrées dans un dict indexé par `custom_id`'], answer: 3, why: 'Chaque ligne de résultat contient le `custom_id`, et tu le cherches dans ta propre table.' }
+				]
+			},
+			{
+				title: 'Estime le coût',
+				questions: [
+					{ q: 'Combien de tokens d’entrée fait tout le travail ?', options: ['100 millions', '10 millions', '2,5 millions', '1 milliard'], answer: 0, why: '250 000 × 400 font 100 millions de tokens d’entrée.' },
+					{ q: 'À 2 $ par million en entrée et 10 $ par million en sortie, combien coûte le travail sans lots ?', options: ['200 $', '112,50 $', '250 $', '225 $'], answer: 3, why: '200 $ pour 100 millions de tokens d’entrée, plus 25 $ pour 2,5 millions de tokens de sortie.' },
+					{ q: 'Aux prix des lots, 1 $ et 5 $ par million, combien coûte-t-il ?', options: ['100 $', '112,50 $', '125 $', '225 $'], answer: 1, why: '100 $ pour l’entrée plus 12,50 $ pour la sortie. Tout l’usage en lot est facturé à 50 % des prix standard.' },
+					{ q: 'Quels résultats sont facturés ?', options: ['Tous', '`succeeded` et `errored`', 'Seulement `succeeded`', 'Seulement ceux que tu télécharges'], answer: 2, why: 'Les requêtes en erreur, annulées ou expirées ne coûtent rien.' }
+				]
+			},
+			{
+				title: 'Collecte les résultats',
+				questions: [
+					{ q: 'Quand peux-tu appeler `results()` sur un lot ?', options: ['Quand `processing_status` vaut `ended`', 'Dès que `create` répond', 'Quand `request_counts.processing` a baissé de moitié', 'Seulement après 24 heures'], answer: 0, why: 'Avant `ended`, `results_url` est vide et le SDK lève `AnthropicError`.' },
+					{ q: 'Comment lis-tu le fichier de résultats ?', options: ['Tu le télécharges en entier, puis tu l’analyses', 'En streaming, ligne par ligne', 'Tu demandes à l’API un résultat à la fois', 'Tu l’ouvres dans la console'], answer: 1, why: 'La doc conseille le streaming « because of the potentially large size of the results ».' },
+					{ q: 'Un résultat est `errored` avec `invalid_request_error`. Que fais-tu ?', options: ['Tu le renvoies tel quel', 'Tu l’abandonnes, puisqu’il n’est pas facturé', 'Tu attends qu’il passe en `succeeded`', 'Tu corriges le corps de la requête, puis tu la renvoies'], answer: 3, why: 'Le corps lui-même est faux, donc le renvoyer tel quel échoue encore.' },
+					{ q: 'Que fais-tu des requêtes `expired` ?', options: ['Tu corriges d’abord leurs `params`', 'Rien : elles tourneront dans les 24 heures suivantes', 'Tu les mets telles quelles dans un nouveau lot', 'Tu les paies et tu les ignores'], answer: 2, why: 'Elles n’ont jamais atteint le modèle, donc elles peuvent repartir telles quelles dans un nouveau lot.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -106,6 +106,44 @@ for page in reader.pages:
 			'En-tête : `name: release`, `description: Cut a release: bump the version, update CHANGELOG.md, tag and publish to npm. Use when the user asks to release or publish.`, `disable-model-invocation: true`.',
 			'`disable-model-invocation: true` réserve `npm publish` au moment où tu tapes `/release`. La description sort aussi de la liste, donc le skill ne coûte aucun contexte tant que tu ne le lances pas.',
 			'En option : `allowed-tools: Bash(npm version *) Bash(git tag *)` laisse ces commandes tourner sans demande, pendant le tour de `/release` seulement. `npm publish` reste en dehors et demande toujours. Supprime les 180 lignes de `CLAUDE.md`.'
+		],
+		steps: [
+			{
+				title: 'Organise le dossier',
+				questions: [
+					{ q: 'Où vit le skill de release ?', options: ['Dans `.claude/release.md`', 'Sous un titre `## Release` dans `CLAUDE.md`', 'Dans `.claude/skills/release/SKILL.md`', 'Dans `.claude/rules/release.md`'], answer: 2, why: 'Un skill est un dossier sous `.claude/skills/` qui contient un fichier `SKILL.md`.' },
+					{ q: 'Où vont les 120 lignes de format du changelog ?', options: ['Dans `changelog-format.md`, à côté de `SKILL.md`', 'Dans le corps de `SKILL.md`', 'Elles restent dans `CLAUDE.md`', 'Dans le champ `description`'], answer: 0, why: 'Claude n’en a besoin que pendant l’écriture du changelog, donc elles vont dans un fichier à part.' },
+					{ q: 'Quand `changelog-format.md` se charge-t-il ?', options: ['Au début de la session', 'Seulement quand Claude l’ouvre', 'En même temps que le corps de `SKILL.md`', 'Jamais : Claude ne peut pas le lire'], answer: 1, why: 'Les fichiers à côté de `SKILL.md` forment le troisième niveau : ils ne coûtent rien tant que Claude ne les ouvre pas.' },
+					{ q: 'Comment Claude sait-il qu’il doit l’ouvrir ?', options: ['Par une ligne d’import `@changelog-format.md`', 'Par un champ `paths:` dans l’en-tête', 'Claude Code ouvre tous les fichiers du dossier', '`SKILL.md` dit « Avant d’écrire CHANGELOG.md, lis changelog-format.md »'], answer: 3, why: 'Le corps renvoie vers le fichier, comme le skill pdf le fait avec « read FORMS.md ».' }
+				]
+			},
+			{
+				title: 'Écris l’en-tête',
+				questions: [
+					{ q: 'Quel `name` te donne la commande `/release` ?', options: ['`SKILL`', '`release`', '`release-procedure.md`', '`CLAUDE.release`'], answer: 1, why: 'Le skill de `.claude/skills/release/` s’appelle `release`, et tu le lances en tapant `/release`.' },
+					{ q: 'Que met-on dans la `description` ?', options: ['Les 40 lignes d’étapes', 'Le numéro de version actuel', 'Ce que fait le skill et quand s’en servir', 'Les termes de la licence'], answer: 2, why: 'La description est ce que Claude lit pour décider quand un skill s’applique.' },
+					{ q: 'Dans la liste, où sont coupés la `description` et le `when_to_use` de chaque entrée ?', options: ['À 500 lignes', 'À 5 000 tokens', 'À 1 % de la fenêtre de contexte', 'À 1 536 caractères'], answer: 3, why: 'Chaque entrée est coupée à 1 536 caractères. Le 1 %, c’est le budget de toute la liste.' },
+					{ q: 'Quel champ réserve `npm publish` à toi seul ?', options: ['`disable-model-invocation: true`', '`allowed-tools: Bash(npm publish *)`', '`license`', '`when_to_use`'], answer: 0, why: 'Avec ce champ, toi seul peux lancer le skill.' }
+				]
+			},
+			{
+				title: 'Garde la publication en main',
+				questions: [
+					{ q: 'Avec `disable-model-invocation: true`, qui peut lancer le skill ?', options: ['Claude, quand le code a l’air prêt', 'Toi et Claude', 'Toi seul, en tapant `/release`', 'Personne avant un redémarrage'], answer: 2, why: 'Claude ne peut pas l’invoquer. Tu le lances avec la commande slash.' },
+					{ q: 'Que devient sa description dans la liste des skills ?', options: ['Elle se charge en entier', 'Elle reste hors du contexte', 'Elle est coupée à 1 536 caractères', 'Elle part dans `CLAUDE.md`'], answer: 1, why: 'Avec ce champ, la description reste hors du contexte.' },
+					{ q: 'Tu réponds « looks good, ship it » sans commande slash. Que fait Claude ?', options: ['Il lance le skill de release', 'Il recopie les étapes en Bash et les lance', 'Il lit `SKILL.md` et demande avant chaque étape', 'Il ne peut pas lancer le skill et propose `/release`'], answer: 3, why: 'Avec ce champ, Claude ne peut pas invoquer le skill. S’il essaie quand même, Claude Code bloque l’appel et lui dit de ne pas refaire les étapes autrement.' },
+					{ q: 'Avec ce champ, combien de contexte le skill prend-il avant que tu tapes `/release` ?', options: ['Aucun', 'Une ligne de description', 'Les 40 lignes d’étapes', 'Les 180 lignes'], answer: 0, why: 'La description est hors de la liste, donc rien ne se charge avant que tu le lances.' }
+				]
+			},
+			{
+				title: 'Donne les outils, puis fais le ménage',
+				questions: [
+					{ q: 'Que fait `allowed-tools: Bash(npm version *) Bash(git tag *)` ?', options: ['Il autorise ces commandes pour le reste de la session', 'Il les laisse tourner sans demande pendant le tour de `/release`', 'Il les enregistre dans `.claude/settings.local.json`', 'Il interdit tous les autres outils'], answer: 1, why: 'L’autorisation vaut pendant le tour qui invoque le skill.' },
+					{ q: '`npm publish` demande-t-il encore pendant `/release` ?', options: ['Non, le skill approuve toutes les étapes', 'Non, `npm version` le couvre', 'Oui, il n’est pas dans `allowed-tools`', 'Seulement à la première release'], answer: 2, why: 'Le laisser dehors garde une demande sur l’étape qu’on ne peut pas défaire.' },
+					{ q: 'Après la release, tu envoies un autre message, et Claude lance `git tag`. Demande-t-il ?', options: ['Oui, l’autorisation tombe quand tu envoies ton message suivant', 'Non, l’autorisation dure jusqu’à la fin de la session', 'Non, le texte du skill est encore dans le contexte', 'Seulement si le tag existe déjà'], answer: 0, why: 'Le texte du skill reste dans le contexte, mais l’autorisation `allowed-tools` s’arrête avec le tour.' },
+					{ q: 'Quelle est la dernière étape du déménagement ?', options: ['Garder les 180 lignes en secours', 'Importer le skill depuis `CLAUDE.md`', 'Déplacer les lignes dans `CLAUDE.local.md`', 'Supprimer les 180 lignes de `CLAUDE.md`'], answer: 3, why: 'Laissées en place, elles se chargeraient encore à chaque session, et c’est ce que le déménagement devait éviter.' }
+				]
+			}
 		]
 	},
 	quiz: [

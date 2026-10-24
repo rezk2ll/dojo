@@ -121,6 +121,44 @@ environment variables in workflow logs.`,
 			'Déplace les 200 lignes React dans `.claude/rules/web.md` avec `paths: ["src/web/**"]`. Elles ne se chargent plus que quand Claude lit ou modifie un fichier de `src/web/`.',
 			'Supprime les 120 lignes d’arborescence. Claude peut lister les dossiers lui-même, et la doc cite l’arborescence parmi ce que `/doctor` propose de couper.',
 			'Mets l’URL de staging dans `CLAUDE.local.md` et ajoute ce fichier au `.gitignore`. Pour `.env`, garde la ligne et ajoute une règle `deny` comme `Read(./.env)` dans `.claude/settings.json`, que le client applique. Le fichier tombe à environ 25 lignes.'
+		],
+		steps: [
+			{
+				title: 'Garde ce qu’il faut à chaque session',
+				questions: [
+					{ q: 'Où vont les 20 lignes de commandes de build et de test ?', options: ['Dans `.claude/rules/build.md`', 'Elles restent dans `CLAUDE.md`', 'Hors du fichier : Claude peut les deviner', 'Dans `CLAUDE.local.md`'], answer: 1, why: 'Il en faut à chaque session, et c’est le rôle du `CLAUDE.md` du projet.' },
+					{ q: 'Pourquoi ces lignes restent-elles ?', options: ['Claude en a besoin à chaque session et ne peut pas toujours les deviner', 'C’est le bloc le plus long du fichier', 'Un fichier de règles ne peut pas contenir de commandes', 'La CI les lit dans `CLAUDE.md`'], answer: 0, why: 'Une commande que Claude se tromperait à deviner vaut une ligne à chaque session.' },
+					{ q: 'Comment la doc veut-elle qu’une consigne soit écrite ?', options: ['La plus courte possible, comme « Test your changes »', 'En majuscules, pour qu’elle ressorte', 'Assez concrète pour se vérifier, comme « Run `npm test` before committing »', 'Comme un lien vers une page de wiki'], answer: 2, why: 'La doc demande des consignes "concrete enough to verify".' },
+					{ q: 'Quelle taille la doc vise-t-elle pour un `CLAUDE.md` ?', options: ['Moins de 450 lignes', 'Moins de 25 lignes', 'Moins de 1 000 lignes', 'Moins de 200 lignes'], answer: 3, why: 'La doc vise "under 200 lines per CLAUDE.md file".' }
+				]
+			},
+			{
+				title: 'Cible les règles React',
+				questions: [
+					{ q: 'Où vont les 200 lignes de règles React ?', options: ['Dans `.claude/rules/web.md` avec `paths: ["src/web/**"]`', 'Dans cinq fichiers insérés par des imports `@path`', 'Dans `CLAUDE.local.md`', 'Dans `~/.claude/CLAUDE.md`'], answer: 0, why: 'Une règle à chemins porte un texte qui ne concerne que certains fichiers.' },
+					{ q: 'Quand ce fichier de règle se charge-t-il ?', options: ['Au lancement, avec les autres fichiers', 'Quand Claude lit ou modifie un fichier de `src/web/`', 'Après chaque `/compact`', 'Quand tu lances `/memory`'], answer: 1, why: 'Une règle avec `paths:` ne se charge que quand Claude touche un fichier qui correspond.' },
+					{ q: 'Pourquoi ne pas les mettre dans un fichier importé comme `@docs/react.md` ?', options: ['Les imports sont plafonnés à 20 lignes', 'Les imports ne marchent que dans le fichier utilisateur', 'Les fichiers importés se chargent aussi au lancement, donc ils coûtent le même contexte', 'Claude ne sait pas suivre un import'], answer: 2, why: 'La doc : les fichiers importés "also load at launch". Découper ne réduit pas le contexte.' },
+					{ q: 'Après `/compact`, le fichier de règles React revient-il ?', options: ['Oui, il est relu tout de suite depuis le disque', 'Seulement quand un fichier qui correspond est de nouveau touché', 'Non, plus jamais dans cette session', 'Seulement si tu lances `/memory`'], answer: 1, why: 'Après `/compact`, seul le `CLAUDE.md` racine du projet est relu. Les règles à chemins reviennent quand un fichier qui correspond est touché.' }
+				]
+			},
+			{
+				title: 'Coupe ce que Claude sait lire seul',
+				questions: [
+					{ q: 'Que fais-tu des 120 lignes d’arborescence ?', options: ['Tu les gardes dans `CLAUDE.md`', 'Tu les mets dans une règle à chemins', 'Tu les importes depuis un fichier à part', 'Tu les supprimes'], answer: 3, why: 'Elles coûtent du contexte à chaque session et ne disent rien que Claude ne puisse trouver.' },
+					{ q: 'Pourquoi peuvent-elles partir ?', options: ['Une arborescence casse le parseur Markdown', 'Claude peut lister les dossiers lui-même', 'Une arborescence doit rester privée', 'Tout bloc de plus de 100 lignes est ignoré'], answer: 1, why: 'Claude lit le code et liste les dossiers avec ses propres outils.' },
+					{ q: 'Quelle commande, d’après la doc, propose de couper l’arborescence ?', options: ['`/doctor`', '`/compact`', '`/memory`', '`/context`'], answer: 0, why: 'La doc cite l’arborescence parmi ce que `/doctor` propose de couper.' },
+					{ q: 'Pourquoi un fichier plus court compte-t-il, au-delà des tokens ?', options: ['Claude Code refuse les fichiers de plus de 200 lignes', 'Git refuse les gros fichiers Markdown', 'Un fichier plus long "reduce adherence"', 'Les imports cessent de marcher après 200 lignes'], answer: 2, why: 'La doc : "Longer files consume more context and reduce adherence".' }
+				]
+			},
+			{
+				title: 'Déplace le perso et le critique',
+				questions: [
+					{ q: 'Où va ton URL de staging perso ?', options: ['Elle reste dans `CLAUDE.md`', 'Dans `CLAUDE.local.md`, ajouté au `.gitignore`', 'Dans `.claude/settings.json`', 'Dans `.claude/rules/staging.md`'], answer: 1, why: 'Elle est à toi, pas à l’équipe, donc elle va dans le fichier perso qui n’est pas commité.' },
+					{ q: 'Quand `CLAUDE.local.md` se charge-t-il ?', options: ['Juste après le `CLAUDE.md` du même dossier', 'Avant tous les autres fichiers', 'Seulement quand Claude l’ouvre avec un outil', 'Seulement après `/compact`'], answer: 0, why: 'Dans chaque dossier, `CLAUDE.local.md` s’ajoute après `CLAUDE.md`.' },
+					{ q: 'Pourquoi la ligne « N’ouvre jamais `.env` » ne suffit-elle pas seule ?', options: ['Claude ne sait pas lire les fichiers cachés', 'Les lignes qui parlent de fichiers sont sautées', 'Elle est après la ligne 200, donc elle ne se charge pas', '`CLAUDE.md` est un message utilisateur que Claude suit sans garantie'], answer: 3, why: 'Claude essaie de suivre `CLAUDE.md`, mais rien ne l’y oblige.' },
+					{ q: 'Qu’ajoutes-tu pour que `.env` reste fermé même si Claude ignore la ligne ?', options: ['La même ligne en majuscules', 'Une copie de la ligne dans `CLAUDE.local.md`', 'Une règle `deny` comme `Read(./.env)` dans `.claude/settings.json`', 'La ligne répétée dans `~/.claude/CLAUDE.md`'], answer: 2, why: 'Les règles de permission sont vérifiées par le client avant que l’outil tourne, quoi que Claude ait décidé.' }
+				]
+			}
 		]
 	},
 	quiz: [

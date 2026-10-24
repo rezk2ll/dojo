@@ -131,6 +131,44 @@ jobs:
 			'`--bare` skips hooks, plugins, MCP servers and CLAUDE.md on the CI machine, and it needs `ANTHROPIC_API_KEY` in the environment.',
 			'The diff arrives on stdin, so Claude needs no `Bash` permission to read it. The headless docs give the same reason for their `lint:claude` script.',
 			'`jq -e` exits with 1 when the last value is `false`. One typo makes the comparison `false`, and so does a run with no `structured_output`. Run the step under `set -o pipefail`, so a `claude` error at the `--max-turns 3` limit fails it too.'
+		],
+		steps: [
+			{
+				title: 'Feed the diff',
+				questions: [
+					{ q: 'Which flag runs Claude Code without a chat window?', options: ['`--bare`', '`-p`', '`--output-format json`', '`--max-turns`'], answer: 1, why: 'Print mode, `-p`, takes one prompt, prints the result and exits.' },
+					{ q: 'How does the diff reach Claude in the pipeline?', options: ['Claude runs `git diff main` with `Bash`', 'You paste it into the prompt string', 'On stdin, through `git diff main |`', 'Claude reads it from `.git` with `Read`'], answer: 2, why: 'The pipe sends the diff on stdin, so Claude has it before the first turn.' },
+					{ q: 'Why pipe the diff instead of letting Claude fetch it?', options: ['Claude then needs no `Bash` permission to read it', 'A pipe makes the run cheaper per token', '`-p` cannot run any tools at all', 'The diff would be too long for a tool'], answer: 0, why: 'The headless docs give the same reason for their `lint:claude` script: the input arrives on stdin.' },
+					{ q: 'A `-p` run makes a tool call that no rule or flag allows. What happens?', options: ['The run waits for you to approve it', 'The run exits with an error', 'The tool runs, since nobody can refuse it', 'It is denied, and the run goes on without that result'], answer: 3, why: 'Nobody is there to answer a permission prompt, so the call is denied.' }
+				]
+			},
+			{
+				title: 'Ask for JSON',
+				questions: [
+					{ q: 'Which two flags give you an object that matches your schema?', options: ['`--output-format json` and `--json-schema`', '`-p` and `--bare`', '`--json-schema` and `--max-turns`', '`--output-format text` and `jq`'], answer: 0, why: 'With both flags, the run returns structured output that matches the schema.' },
+					{ q: 'Where does the typo list land in the JSON response?', options: ['In `result`, as a string to parse again', 'Alone on stdout, metadata on stderr', 'In `structured_output`', 'In a file under `~/.claude`'], answer: 2, why: 'The validated object sits in `structured_output`, next to metadata such as the session ID. The plain text stays in `result`.' },
+					{ q: 'What does the schema mark as required for each typo?', options: ['Only `issue`', '`file`, `line` and `issue`', '`file` and `issue`', 'Nothing: all fields are optional'], answer: 1, why: 'The prompt asks for `{"file","line","issue"}`, so the schema requires all three.' },
+					{ q: 'Which type fits `line` in the schema?', options: ['`string`', '`boolean`', '`array`', '`integer`'], answer: 3, why: 'A line number is a whole number, so the answer gives it `"type":"integer"`.' }
+				]
+			},
+			{
+				title: 'Set the limits',
+				questions: [
+					{ q: 'How many turns does `claude -p` allow by default?', options: ['3', '10', 'No limit', 'One per tool'], answer: 2, why: '`--max-turns` has no limit by default, so a run with no cap can loop until the job timeout.' },
+					{ q: 'What happens when the run hits `--max-turns 3`?', options: ['It exits with an error', 'It writes a final answer with exit code 0', 'It asks for more turns', 'It keeps going in print mode'], answer: 0, why: 'The CLI reference says it "Exits with an error when the limit is reached".' },
+					{ q: 'Which flag skips hooks, plugins, MCP servers and CLAUDE.md on the CI machine?', options: ['`--max-turns 3`', '`--output-format json`', '`-p`', '`--bare`'], answer: 3, why: 'Bare mode skips what Claude Code would otherwise find on the machine.' },
+					{ q: 'What does `--bare` need in the environment?', options: ['Your subscription login', '`ANTHROPIC_API_KEY`', 'A `.mcp.json` file', 'A `CLAUDE.md` file'], answer: 1, why: 'Bare mode never reads your subscription login, so it needs an API key.' }
+				]
+			},
+			{
+				title: 'Fail on typos',
+				questions: [
+					{ q: 'Which filter makes the script fail when the list is not empty?', options: ['`jq \'.structured_output.typos\'`', '`jq -e \'.result == ""\'`', '`jq -e \'.structured_output.typos == []\'`', '`jq -e \'.typos | length\'`'], answer: 2, why: 'The comparison is `false` when there is a typo, and `jq -e` turns that into a failing exit status.' },
+					{ q: 'What exit code does `jq -e` return when the last value is `false`?', options: ['1', '0', '2', 'It prints `false` and exits 0'], answer: 0, why: '`jq -e` sets its exit status from the last value it prints, and `false` gives 1.' },
+					{ q: 'The run returns no `structured_output`. What does the filter do?', options: ['It passes, since there is no typo', 'It hangs until the job timeout', 'It prints an empty list and exits 0', 'It fails, since the comparison is `false`'], answer: 3, why: 'A missing field is not equal to `[]`, so a broken run fails the check too.' },
+					{ q: 'Why run the step under `set -o pipefail`?', options: ['So `jq` reads the whole diff', 'So a `claude` error, such as the turn limit, fails the step', 'So the diff arrives on stdin', 'So `--bare` finds the API key'], answer: 1, why: 'Without it, the pipeline exit status is the one of `jq`, and a `claude` failure could pass unseen.' }
+				]
+			}
 		]
 	},
 	quiz: [

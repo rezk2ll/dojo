@@ -131,6 +131,44 @@ jobs:
 			'`--bare` ignore les hooks, plugins, serveurs MCP et CLAUDE.md de la machine de CI, et demande `ANTHROPIC_API_KEY` dans l’environnement.',
 			'Le diff arrive sur stdin, donc Claude n’a besoin d’aucune permission `Bash` pour le lire. La doc headless donne la même raison pour son script `lint:claude`.',
 			'`jq -e` sort avec 1 quand la dernière valeur vaut `false`. Une seule faute rend la comparaison `false`, tout comme une exécution sans `structured_output`. Lance l’étape avec `set -o pipefail`, pour qu’une erreur de `claude` à la limite `--max-turns 3` la fasse aussi échouer.'
+		],
+		steps: [
+			{
+				title: 'Envoie le diff',
+				questions: [
+					{ q: 'Quel flag lance Claude Code sans fenêtre de chat ?', options: ['`--bare`', '`-p`', '`--output-format json`', '`--max-turns`'], answer: 1, why: 'Le mode print, `-p`, prend un prompt, affiche le résultat et sort.' },
+					{ q: 'Comment le diff arrive-t-il à Claude dans le pipeline ?', options: ['Claude lance `git diff main` avec `Bash`', 'Tu le colles dans la chaîne du prompt', 'Sur stdin, par `git diff main |`', 'Claude le lit dans `.git` avec `Read`'], answer: 2, why: 'Le pipe envoie le diff sur stdin, donc Claude l’a avant le premier tour.' },
+					{ q: 'Pourquoi envoyer le diff par un pipe plutôt que laisser Claude le chercher ?', options: ['Claude n’a alors besoin d’aucune permission `Bash` pour le lire', 'Un pipe rend chaque token moins cher', '`-p` ne peut lancer aucun outil', 'Le diff serait trop long pour un outil'], answer: 0, why: 'La doc headless donne la même raison pour son script `lint:claude` : l’entrée arrive sur stdin.' },
+					{ q: 'Une exécution `-p` fait un appel d’outil qu’aucune règle ni aucun flag n’autorise. Que se passe-t-il ?', options: ['L’exécution attend que tu l’approuves', 'L’exécution sort avec une erreur', 'L’outil tourne, puisque personne ne peut refuser', 'Il est refusé, et l’exécution continue sans ce résultat'], answer: 3, why: 'Personne n’est là pour répondre à une demande de permission, donc l’appel est refusé.' }
+				]
+			},
+			{
+				title: 'Demande du JSON',
+				questions: [
+					{ q: 'Quels deux flags te donnent un objet qui respecte ton schéma ?', options: ['`--output-format json` et `--json-schema`', '`-p` et `--bare`', '`--json-schema` et `--max-turns`', '`--output-format text` et `jq`'], answer: 0, why: 'Avec ces deux flags, l’exécution renvoie une sortie structurée qui respecte le schéma.' },
+					{ q: 'Où arrive la liste des fautes dans la réponse JSON ?', options: ['Dans `result`, en chaîne à reparser', 'Seule sur stdout, les métadonnées sur stderr', 'Dans `structured_output`', 'Dans un fichier sous `~/.claude`'], answer: 2, why: 'L’objet validé est dans `structured_output`, à côté de métadonnées comme l’ID de session. Le texte brut reste dans `result`.' },
+					{ q: 'Qu’est-ce que le schéma rend obligatoire pour chaque faute ?', options: ['Seulement `issue`', '`file`, `line` et `issue`', '`file` et `issue`', 'Rien : tous les champs sont facultatifs'], answer: 1, why: 'Le prompt demande `{"file","line","issue"}`, donc le schéma exige les trois.' },
+					{ q: 'Quel type convient à `line` dans le schéma ?', options: ['`string`', '`boolean`', '`array`', '`integer`'], answer: 3, why: 'Un numéro de ligne est un entier, donc la réponse lui donne `"type":"integer"`.' }
+				]
+			},
+			{
+				title: 'Pose les limites',
+				questions: [
+					{ q: 'Combien de tours `claude -p` permet-il par défaut ?', options: ['3', '10', 'Aucune limite', 'Un par outil'], answer: 2, why: '`--max-turns` n’a pas de limite par défaut, donc une exécution sans plafond peut boucler jusqu’au timeout du job.' },
+					{ q: 'Que se passe-t-il quand l’exécution atteint `--max-turns 3` ?', options: ['Elle sort avec une erreur', 'Elle écrit une réponse finale avec le code 0', 'Elle demande plus de tours', 'Elle continue en mode print'], answer: 0, why: 'La référence CLI dit qu’elle « Exits with an error when the limit is reached ».' },
+					{ q: 'Quel flag ignore les hooks, plugins, serveurs MCP et CLAUDE.md de la machine de CI ?', options: ['`--max-turns 3`', '`--output-format json`', '`-p`', '`--bare`'], answer: 3, why: 'Le mode bare ignore ce que Claude Code trouverait sinon sur la machine.' },
+					{ q: 'De quoi `--bare` a-t-il besoin dans l’environnement ?', options: ['De ta connexion d’abonnement', 'De `ANTHROPIC_API_KEY`', 'D’un fichier `.mcp.json`', 'D’un fichier `CLAUDE.md`'], answer: 1, why: 'Le mode bare ne lit jamais ta connexion d’abonnement, il lui faut donc une clé d’API.' }
+				]
+			},
+			{
+				title: 'Échoue sur les fautes',
+				questions: [
+					{ q: 'Quel filtre fait échouer le script quand la liste n’est pas vide ?', options: ['`jq \'.structured_output.typos\'`', '`jq -e \'.result == ""\'`', '`jq -e \'.structured_output.typos == []\'`', '`jq -e \'.typos | length\'`'], answer: 2, why: 'La comparaison vaut `false` dès qu’il y a une faute, et `jq -e` en fait un code de sortie en échec.' },
+					{ q: 'Quel code de sortie renvoie `jq -e` quand la dernière valeur vaut `false` ?', options: ['1', '0', '2', 'Il affiche `false` et sort avec 0'], answer: 0, why: '`jq -e` fixe son code de sortie d’après la dernière valeur qu’il affiche, et `false` donne 1.' },
+					{ q: 'L’exécution ne renvoie pas de `structured_output`. Que fait le filtre ?', options: ['Il passe, puisqu’il n’y a pas de faute', 'Il bloque jusqu’au timeout du job', 'Il affiche une liste vide et sort avec 0', 'Il échoue, car la comparaison vaut `false`'], answer: 3, why: 'Un champ absent n’est pas égal à `[]`, donc une exécution cassée fait aussi échouer la vérification.' },
+					{ q: 'Pourquoi lancer l’étape avec `set -o pipefail` ?', options: ['Pour que `jq` lise tout le diff', 'Pour qu’une erreur de `claude`, comme la limite de tours, fasse échouer l’étape', 'Pour que le diff arrive sur stdin', 'Pour que `--bare` trouve la clé d’API'], answer: 1, why: 'Sans lui, le code de sortie du pipeline est celui de `jq`, et un échec de `claude` pourrait passer inaperçu.' }
+				]
+			}
 		]
 	},
 	quiz: [

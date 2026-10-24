@@ -130,6 +130,44 @@ async with stdio_server() as (read_stream, write_stream):
 			'Attaching one ticket is a resource with a URI such as `tickets://PROJ-123`. The host decides to include it, and the client sends `resources/read` with that URI.',
 			'The sprint template is a prompt, which the user picks. The client lists it with `prompts/list` and fetches it with `prompts/get`, passing arguments such as the sprint number.',
 			'The server must declare the `tools`, `resources` and `prompts` capabilities so that the client knows which requests it answers.'
+		],
+		steps: [
+			{
+				title: 'Ask who decides',
+				questions: [
+					{ q: 'Who decides when to search tickets?', options: ['The user, each time', 'The host application', 'The model', 'The MCP server'], answer: 2, why: 'The task says the model searches tickets on its own.' },
+					{ q: 'Who decides to put an attached ticket in the context?', options: ['The host application', 'The model', 'The MCP server', 'Nobody: it is always included'], answer: 0, why: 'The spec calls resources "application-driven": the host decides what goes in the context.' },
+					{ q: 'Who picks the "summarize this sprint" template?', options: ['The model', 'The host application', 'The MCP server', 'The user, from a slash command'], answer: 3, why: 'The spec calls prompts "user-controlled", for example shown as slash commands.' },
+					{ q: 'What does the spec call tools?', options: ['"user-controlled"', '"model-controlled"', '"application-driven"', '"server-driven"'], answer: 1, why: 'The model decides when to call a tool.' }
+				]
+			},
+			{
+				title: 'Map the search',
+				questions: [
+					{ q: 'Which primitive fits "the model searches tickets on its own"?', options: ['A tool', 'A resource', 'A prompt', 'A transport'], answer: 0, why: 'The model decides when to call it, which makes it a tool.' },
+					{ q: 'Which request does the client send to run the search?', options: ['`resources/read`', '`prompts/get`', '`tools/list`', '`tools/call`'], answer: 3, why: '`tools/call` carries the tool name and its arguments.' },
+					{ q: 'What does that request carry?', options: ['A URI such as `tickets://PROJ-123`', '`name: "search_tickets"` and the query in `arguments`', 'The sprint number only', 'The full list of tools'], answer: 1, why: 'The server matches on `name` and reads the query from `arguments`.' },
+					{ q: 'How does the client learn that `search_tickets` exists?', options: ['From `prompts/list`', 'From the server\'s README', 'From `tools/list`', 'From the model\'s training'], answer: 2, why: 'The client learns the tools at run time from `tools/list`, each with a `name`, a `description` and an `inputSchema`.' }
+				]
+			},
+			{
+				title: 'Map the attached ticket',
+				questions: [
+					{ q: 'Which primitive fits "attach one ticket as context by its ID"?', options: ['A tool', 'A prompt', 'A transport', 'A resource'], answer: 3, why: 'Resources are data identified by a URI, which the host puts in the context.' },
+					{ q: 'How is the ticket identified?', options: ['By a URI such as `tickets://PROJ-123`', 'By a tool name', 'By a slash command', 'By a line number on stdout'], answer: 0, why: 'A resource is data identified by a URI.' },
+					{ q: 'Which request does the client send for it?', options: ['`tools/call`', '`resources/read`, with that URI', '`prompts/get`', '`tools/list`'], answer: 1, why: 'The client reads the resource by its URI.' },
+					{ q: 'Why is it not a tool?', options: ['Tools cannot return text', 'Tools need Streamable HTTP', 'The host decides to include it, not the model', 'Resources are cheaper to call'], answer: 2, why: 'A tool is model-controlled. Here the choice belongs to the application.' }
+				]
+			},
+			{
+				title: 'Map the template and declare',
+				questions: [
+					{ q: 'Which primitive fits the "summarize this sprint" template?', options: ['A tool', 'A resource', 'A prompt', 'A resource template'], answer: 2, why: 'A prompt is a user-controlled template, shown for example as a slash command.' },
+					{ q: 'How does the client find the available templates?', options: ['With `prompts/list`', 'With `tools/list`', 'With `resources/read`', 'With an `initialize` handshake only'], answer: 0, why: '`prompts/list` returns the prompts the server offers.' },
+					{ q: 'How does the client fetch the sprint template?', options: ['`tools/call` with the sprint number', '`resources/read` with a sprint URI', '`prompts/list` with a filter', '`prompts/get`, with arguments such as the sprint number'], answer: 3, why: '`prompts/get` returns the template, filled with the arguments you pass.' },
+					{ q: 'What must the server declare so the client knows which requests it answers?', options: ['Only `tools`', 'The `tools`, `resources` and `prompts` capabilities', 'A `readOnlyHint` on every tool', 'Nothing: the client tries each request'], answer: 1, why: 'Each primitive the server offers needs its capability declared.' }
+				]
+			}
 		]
 	},
 	quiz: [

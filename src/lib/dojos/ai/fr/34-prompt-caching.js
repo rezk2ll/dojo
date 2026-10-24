@@ -117,6 +117,44 @@ write_time = time.time() - start
 			'Chaque requête paie une écriture : 20 000 × 3,75 $ par million = 0,075 $. Sans `cache_control`, elle paierait 0,06 $. Le cache cassé coûte 25 % de plus que pas de cache du tout.',
 			'Correction : sors l’heure de `system` et mets-la dans le message user, après le point de cache, en gardant `cache_control` sur le bloc des règles. Le texte des règles est alors identique à chaque requête.',
 			'Moins de 5 minutes après une requête précédente, chaque requête lit alors les règles pour 20 000 × 0,30 $ par million = 0,006 $, et `cache_read_input_tokens` affiche 20000.'
+		],
+		steps: [
+			{
+				title: 'Lis l’usage',
+				questions: [
+					{ q: 'Que veut dire `cache_creation_input_tokens: 20000` sur une réponse ?', options: ['La requête a lu 20 000 tokens dans le cache', 'La requête a écrit un préfixe de 20 000 tokens en cache', 'Le cache est plein et a refusé le préfixe', 'Les règles sont sous la longueur minimale'], answer: 1, why: 'Une écriture en cache apparaît dans `cache_creation_input_tokens`. Une lecture apparaît dans `cache_read_input_tokens`.' },
+					{ q: 'Chaque réponse affiche `cache_read_input_tokens: 0`. Qu’est-ce que ça te dit ?', options: ['Aucune requête n’a jamais trouvé d’entrée précédente', 'Le cache est désactivé pour le compte', 'Les lectures sont gratuites, donc elles affichent 0', 'Le TTL est réglé sur 1 heure'], answer: 0, why: 'Chaque requête écrit et aucune ne lit : chacune rate l’entrée stockée par la précédente.' },
+					{ q: 'Les règles sont-elles assez longues pour être mises en cache sur Claude Sonnet 4.6 ?', options: ['Non, le minimum est de 32 000 tokens', 'Seulement avec le TTL de 1 heure', 'Oui : 20 000 dépasse le minimum de 1 024 tokens', 'Seulement avec un `cache_control` au niveau de la requête'], answer: 2, why: 'Un préfixe sous 1 024 tokens n’est jamais mis en cache sur Claude Sonnet 4.6. Celui-ci est bien au-dessus, et les écritures prouvent qu’il est stocké.' },
+					{ q: 'Dans quel ordre l’API construit-elle le préfixe ?', options: ['`messages`, puis `system`, puis `tools`', '`system`, puis `messages`, puis `tools`', '`system`, puis `tools`, puis `messages`', '`tools`, puis `system`, puis `messages`'], answer: 3, why: 'Le préfixe va du début de `tools` jusqu’au bloc qui porte le point de cache.' }
+				]
+			},
+			{
+				title: 'Trouve la cause',
+				questions: [
+					{ q: 'Où se trouve « Current time: 14:02:31 » dans le préfixe ?', options: ['Après le point de cache, hors du cache', 'Tout au début, dans la partie mise en cache', 'Dans le message user', 'Dans les définitions d’outils'], answer: 1, why: 'C’est la première ligne de `system`, avant les règles et avant le point de cache.' },
+					{ q: 'Pourquoi l’heure casse-t-elle le cache ?', options: ['Elle change le hash à chaque requête', 'Les heures sont interdites dans `system`', 'Elle rend le prompt trop long', 'Elle désactive `cache_control`'], answer: 0, why: '« Changing any block at or before the breakpoint produces a different hash on the next request. »' },
+					{ q: 'À quelle fréquence cette première ligne change-t-elle ?', options: ['Toutes les 5 minutes', 'Une fois par jour', 'Chaque seconde', 'Seulement quand les règles changent'], answer: 2, why: 'Une horloge à la seconde donne un nouveau préfixe à chaque requête, donc aucune recherche ne trouve d’entrée précédente.' },
+					{ q: 'L’API renvoie-t-elle une erreur quand aucune lecture n’a lieu ?', options: ['Oui, une 400 à la deuxième requête', 'Oui, un avertissement dans `stop_reason`', 'Seulement après 4 points de cache', 'Non : les champs d’usage sont le seul signe'], answer: 3, why: 'Un raté de cache n’est pas une erreur. Tu le vois dans `cache_creation_input_tokens` et `cache_read_input_tokens`.' }
+				]
+			},
+			{
+				title: 'Compare le coût',
+				questions: [
+					{ q: 'À 3,75 $ par million pour les écritures 5 minutes, combien chaque requête paie-t-elle pour les règles ?', options: ['0,006 $', '0,06 $', '0,075 $', '0,75 $'], answer: 2, why: '20 000 × 3,75 $ par million font 0,075 $.' },
+					{ q: 'Au prix d’entrée de base de 3 $ par million, combien paierait-elle sans cache ?', options: ['0,06 $', '0,075 $', '0,006 $', '0,6 $'], answer: 0, why: '20 000 × 3 $ par million font 0,06 $.' },
+					{ q: 'Comment le cache cassé se compare-t-il à pas de cache du tout ?', options: ['Il coûte pareil', 'Il coûte 10 % de moins', 'Il coûte 90 % de moins', 'Il coûte 25 % de plus'], answer: 3, why: 'Une écriture coûte 1,25 fois le prix d’entrée de base, et ici chaque requête en paie une.' },
+					{ q: 'Combien coûterait une lecture des règles en cache à 0,30 $ par million ?', options: ['0,06 $', '0,006 $', '0,0006 $', '0,03 $'], answer: 1, why: '20 000 × 0,30 $ par million font 0,006 $, un dixième du prix de base.' }
+				]
+			},
+			{
+				title: 'Corrige le préfixe',
+				questions: [
+					{ q: 'Où va l’heure ?', options: ['À la fin de `system`, avant le point de cache', 'Dans la description d’un outil', 'Dans le message user, après le point de cache', 'Nulle part : le bot ne peut pas connaître l’heure'], answer: 2, why: 'Après le point de cache, elle ne change plus le hash, donc le préfixe des règles reste identique.' },
+					{ q: 'Où reste `cache_control` ?', options: ['Sur le bloc des règles dans `system`', 'Sur le message user', 'Sur le premier outil', 'Il est supprimé'], answer: 0, why: 'Le point de cache sur le bloc des règles fait des 20 000 tokens le préfixe mis en cache.' },
+					{ q: 'Après la correction, une requête arrive 3 minutes après la précédente. Que montre `usage` ?', options: ['`cache_creation_input_tokens: 20000`', 'Les deux champs de cache à 0', '`input_tokens: 20000`', '`cache_read_input_tokens: 20000`'], answer: 3, why: 'Moins de 5 minutes après une requête précédente, les règles viennent du cache.' },
+					{ q: 'Une requête arrive chaque minute, toute la journée. L’entrée expire-t-elle toutes les 5 minutes ?', options: ['Oui, 5 minutes après la première écriture', 'Non : chaque lecture la renouvelle sans surcoût', 'Oui, sauf si tu paies le TTL de 1 heure', 'Non : les entrées n’expirent jamais'], answer: 1, why: 'Chaque lecture relance les 5 minutes, donc un flux régulier de requêtes garde l’entrée en vie.' }
+				]
+			}
 		]
 	},
 	quiz: [

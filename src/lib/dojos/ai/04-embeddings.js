@@ -93,6 +93,44 @@ export default {
 			'a · c = -9 - 16 = -25, so `cos_sim(a, c)` = -25 / 25 = -1. The two vectors point in opposite directions.',
 			'10a = (30, 40), length 50. a · 10a = 90 + 160 = 250, and 250 / (5 × 50) = 1. Scaling a vector does not change its cosine.',
 			'`cos_sim` compares direction after `normalize_embeddings`. A vector’s length plays no part, so a short note can score as high as a long page.'
+		],
+		steps: [
+			{
+				title: 'Compute `cos_sim(a, b)`',
+				questions: [
+					{ q: 'What is the dot product a · b, with a = (3, 4) and b = (4, 3)?', options: ['24', '25', '7', '0'], answer: 0, why: '3 × 4 + 4 × 3 = 12 + 12 = 24.' },
+					{ q: 'What is the length of a = (3, 4)?', options: ['7', '5', '25', '12'], answer: 1, why: 'The square root of 3 × 3 + 4 × 4 = 25 is 5. b has the same length.' },
+					{ q: 'What is `cos_sim(a, b)`?', options: ['24', '1', '0.5', '0.96'], answer: 3, why: 'The dot product divided by both lengths: 24 / (5 × 5) = 0.96.' },
+					{ q: 'What does 0.96 tell you about a and b?', options: ['They point almost the same way', 'They are at right angles', 'They have different lengths', 'They point in opposite directions'], answer: 0, why: 'A cosine close to 1 means a small angle between the two vectors.' }
+				]
+			},
+			{
+				title: 'Compute `cos_sim(a, c)`',
+				questions: [
+					{ q: 'What is a · c, with c = (-3, -4)?', options: ['25', '-25', '-7', '0'], answer: 1, why: '3 × -3 + 4 × -4 = -9 - 16 = -25.' },
+					{ q: 'What is the length of c?', options: ['5', '-5', '-25', '7'], answer: 0, why: 'A length is never negative: (-3)² + (-4)² = 25, and its square root is 5.' },
+					{ q: 'What is `cos_sim(a, c)`?', options: ['0', '1', '-1', '-0.96'], answer: 2, why: '-25 / (5 × 5) = -1, the lowest value a cosine can take.' },
+					{ q: 'What does -1 mean?', options: ['The vectors are at right angles', 'The score is an error', 'The texts have nothing in common', 'The vectors point in opposite directions'], answer: 3, why: 'c is a with both signs flipped. 0 would mean right angles; -1 means exactly opposite.' }
+				]
+			},
+			{
+				title: 'Scale a by 10',
+				questions: [
+					{ q: 'What is 10a, and what is its length?', options: ['(30, 40), length 50', '(30, 40), length 5', '(13, 14), length 19', '(30, 40), length 70'], answer: 0, why: 'Each coordinate is multiplied by 10, and so is the length: 5 × 10.' },
+					{ q: 'What is a · 10a?', options: ['25', '2500', '250', '50'], answer: 2, why: '3 × 30 + 4 × 40 = 90 + 160 = 250.' },
+					{ q: 'What is `cos_sim(a, 10a)`?', options: ['1', '10', '0.1', '0.5'], answer: 0, why: '250 / (5 × 50) = 1. The two vectors point the same way.' },
+					{ q: 'What does making a vector 10 times longer do to its cosine with another vector?', options: ['It multiplies it by 10', 'Nothing: the cosine stays the same', 'It divides it by 10', 'It flips its sign'], answer: 1, why: 'The length appears on both sides of the division and cancels out.' }
+				]
+			},
+			{
+				title: 'Explain what it means for search',
+				questions: [
+					{ q: 'After `normalize_embeddings`, what does `cos_sim` compare?', options: ['Direction only', 'Length only', 'Length and direction', 'The number of words'], answer: 0, why: 'Normalizing gives every vector length 1, so only the direction is left to compare.' },
+					{ q: 'A short note and a long page cover the same topic. Does the long page score higher because it is longer?', options: ['Yes: its vector is longer', 'No: length plays no part, so a short note can score as high as a long page', 'No: the short note always scores higher', 'Yes: a long page always scores 1'], answer: 1, why: 'A vector’s length plays no part in `cos_sim`, as `cos_sim(a, 10a)` = 1 shows.' },
+					{ q: 'What does `normalize_embeddings` do to each vector?', options: ['It rounds each value to 8 bits', 'It sorts the vectors by length', 'It divides the vector by its length', 'It cuts the vector to 256 numbers'], answer: 2, why: 'It calls `torch.nn.functional.normalize(embeddings, p=2, dim=-1)`, which gives each vector length 1.' },
+					{ q: 'The long page runs past 256 word pieces. What does `all-MiniLM-L6-v2` do with its end?', options: ['It encodes the end into a second vector', 'It makes the vector longer to fit it', 'It averages the end into the first vector', 'It truncates it, so the end is never seen'], answer: 3, why: 'Input longer than 256 word pieces is truncated by default. Split long pages into chunks before encoding.' }
+				]
+			}
 		]
 	},
 	quiz: [

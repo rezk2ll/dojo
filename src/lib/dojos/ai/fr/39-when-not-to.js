@@ -120,6 +120,44 @@ def lint_python_compile(fname, code):
 			'(3) Du code : une table de correspondance avec une ligne par code. La liste des réponses est finie et connue d’avance.',
 			'(4) Un modèle : il n’existe pas de liste de résumés valides à écrire d’avance. Vérifie un échantillon à la main ou avec un juge (jour 37).',
 			'(5) Les deux : des règles pour les noms clairs (`email`, `phone`, `birth_date`), puis un modèle avec du contexte pour les flous comme `age`. Quand le modèle donne souvent la même réponse pour un motif, une personne relit ce motif et l’ajoute comme règle, comme dans l’entonnoir de Meta.'
+		],
+		steps: [
+			{
+				title: 'Trie les cas clairs',
+				questions: [
+					{ q: '(1) Extraire `ORD-123456` des emails reçus. Code ou modèle ?', options: ['Un modèle, puisque les emails sont du texte libre', 'Du code : la regex `ORD-\\d{6}`', 'Un modèle, avec une regex pour vérifier', 'Une personne, puisque les numéros de commande comptent'], answer: 1, why: 'Le format est fixe, donc une regex trouve chaque numéro de commande et n’en invente jamais.' },
+					{ q: '(2) Compter les tickets de la semaine dernière par produit. Code ou modèle ?', options: ['Du code : un `GROUP BY product`', 'Un modèle qui lit chaque ticket', 'Un modèle avec un outil SQL', 'Un modèle juge qui vérifie le compte'], answer: 0, why: 'Un `GROUP BY` donne un compte exact, le même à chaque run, et ne coûte aucun token.' },
+					{ q: '(3) Afficher le nom du pays pour chaque code à deux lettres. Code ou modèle ?', options: ['Un modèle, puisque les noms de pays changent', 'Un modèle avec un cache', 'Une regex sur le code', 'Du code : une table de correspondance, une ligne par code'], answer: 3, why: 'La liste des réponses est finie et connue d’avance.' },
+					{ q: 'Quelle question te dit qu’une tâche relève du code ?', options: ['L’entrée est-elle écrite en anglais ?', 'La tâche est-elle ennuyeuse ?', 'Peux-tu lister chaque réponse valide et la règle qui la choisit ?', 'L’équipe la veut-elle vite ?'], answer: 2, why: 'Quand tu peux écrire les réponses et la règle, une règle donne la même réponse à chaque fois.' }
+				]
+			},
+			{
+				title: 'Choisis pour le résumé',
+				questions: [
+					{ q: '(4) Un résumé en une phrase de chaque plainte énervée. Code ou modèle ?', options: ['Du code : la première phrase de la plainte', 'Un modèle : il n’existe pas de liste de résumés valides', 'Une table de correspondance des plaintes courantes', 'Une regex sur les mots énervés'], answer: 1, why: 'Un résumé demande du jugement sur du texte libre, et c’est là qu’un modèle est bon.' },
+					{ q: 'Comment vérifies-tu les résumés ?', options: ['Un échantillon à la main ou avec un juge', 'Un `==` contre un résumé attendu', 'Rien : le modèle est déterministe', 'En comptant les mots de chaque résumé'], answer: 0, why: 'Le texte libre échoue au `==`, donc tu notes un échantillon, comme au jour 37.' },
+					{ q: 'Qu’est-ce qui change quand le résumé passe par une API de modèle ?', options: ['Rien ne quitte ta machine', 'La réponse est la même à chaque run', 'Ça ne coûte aucun token', 'Le texte de la plainte part sur les serveurs de quelqu’un d’autre'], answer: 3, why: 'Un appel d’API de modèle envoie l’entrée ailleurs. Une regex sur ta machine n’envoie rien.' },
+					{ q: 'Un résumé différent à un run suivant pose-t-il problème ici ?', options: ['Oui : il doit pouvoir être rejoué pour un audit', 'Oui : le nombre de tickets change', 'Peu : c’est une note pour une personne, pas une décision appliquée', 'Ça ne peut pas arriver avec un modèle'], answer: 2, why: 'Une réponse changeante compte quand une décision doit être reproduite plus tard. Une note pour le responsable se lit une fois.' }
+				]
+			},
+			{
+				title: 'Partage l’analyse des champs',
+				questions: [
+					{ q: '(5) Repérer les données personnelles parmi 300 noms de champs. Quelle approche convient ?', options: ['Seulement un modèle, pour les 300', 'Seulement des règles, pour les 300', 'Des règles pour les noms clairs, un modèle pour les flous', 'Une personne lit les 300'], answer: 2, why: 'Les noms clairs ne demandent aucun jugement, et les flous comme `age` demandent un contexte qu’aucune règle n’a.' },
+					{ q: 'Quels champs vont aux règles ?', options: ['`email`, `phone`, `birth_date`', '`age`, `id2`', 'Tous les champs avec un chiffre dans le nom', 'Les champs dont le modèle n’est pas sûr'], answer: 0, why: 'Leur nom dit ce qu’ils contiennent, donc une règle peut les reconnaître à chaque fois.' },
+					{ q: 'Pourquoi `age` va-t-il au modèle ?', options: ['C’est le nom le plus long', 'Les règles ne savent pas lire trois lettres', 'Les modèles sont plus rapides sur les noms courts', 'Ce peut être l’âge d’une personne ou la durée de vie d’un cache'], answer: 3, why: 'Distinguer les deux demande du contexte, et c’est le cas pour lequel Meta garde le LLM.' },
+					{ q: 'Dans l’entonnoir de Meta, quelle part du trafic les règles traitent-elles ?', options: ['Environ 15 %', 'Environ 85 %', 'Environ 50 %', 'Tout'], answer: 1, why: 'Les règles « resolve the large majority of traffic, roughly 85%, in single-digit milliseconds ». Le LLM traite le reste.' }
+				]
+			},
+			{
+				title: 'Fais grandir les règles',
+				questions: [
+					{ q: 'Le modèle donne souvent la même réponse pour un motif. Que fais-tu ?', options: ['Une personne relit le motif et l’ajoute comme règle', 'Tu laisses le modèle continuer à y répondre', 'Tu retires le motif de l’analyse', 'Tu demandes à un deuxième modèle de confirmer à chaque fois'], answer: 0, why: 'Meta transforme ce que le LLM apprend en règles, ce qui réduit son rôle au fil du temps.' },
+					{ q: 'Pourquoi une personne doit-elle approuver une règle qui touche aux données personnelles ?', options: ['Les règles ne tournent pas sans signature', 'Le modèle ne sait pas écrire de règles', 'La règle pourrait changer la façon dont les données sensibles sont protégées', 'Ça rend la règle plus rapide'], answer: 2, why: 'Meta fait approuver par une personne chaque règle qui pourrait changer la protection des données sensibles.' },
+					{ q: 'Que gagne une nouvelle règle par rapport au chemin du modèle ?', options: ['Elle traite les noms nouveaux et flous', 'Elle ne demande aucune maintenance', 'Elle comprend mieux le contexte', 'Des millisecondes au lieu de secondes, et la même réponse quand on la rejoue'], answer: 3, why: 'Les règles de Meta répondent en quelques millisecondes, alors que le LLM prend des secondes et environ 400 fois le calcul.' },
+					{ q: 'Tu gardes les deux chemins. Comment les systèmes en aval restent-ils simples ?', options: ['Ils rappellent le modèle pour vérifier', 'Les deux chemins renvoient le même format de résultat', 'Ils ne lisent que les résultats des règles', 'Ils stockent le chemin qui a répondu et s’en servent pour brancher'], answer: 1, why: 'Meta fait renvoyer le même format aux deux, donc les systèmes en aval n’ont pas à savoir quel chemin a répondu.' }
+				]
+			}
 		]
 	},
 	quiz: [

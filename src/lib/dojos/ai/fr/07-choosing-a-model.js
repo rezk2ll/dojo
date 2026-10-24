@@ -92,6 +92,44 @@ export default {
 			'Opus 5.5 : 196/200 = 98 %. Un ticket coûte (500 × 4 + 10 × 20) / 1 000 000 = 0,0022 $. Pour 1 000 tickets bien classés : 0,0022 × 1000 / 0,98 ≈ 2,24 $, environ 37 fois plus.',
 			'Avant de choisir, lis les 16 tickets que Haiku 5.5 a mal classés. S’ils tombent dans une file où quelqu’un les reclasse en une minute, Haiku 5.5 gagne. Si une mauvaise file fait rater un signalement de panne, Opus 5.5 fait 12 erreurs de moins sur 200 tickets pour environ 2,18 $ de plus par 1 000 tickets bien classés.',
 			'Ces calculs ne comptent que les 10 tokens de sortie visibles. Opus 5.5 a la réflexion adaptative toujours active : mesure le vrai `usage` de quelques appels avant de te fier à l’estimation.'
+		],
+		steps: [
+			{
+				title: 'Calcule la précision',
+				questions: [
+					{ q: 'Quelle est la précision de Haiku 5.5 ?', options: ['92 %', '84 %', '98 %', '96 %'], answer: 0, why: '184 / 200 = 0,92.' },
+					{ q: 'Quelle est la précision d’Opus 5.5 ?', options: ['96 %', '92 %', '98 %', '94 %'], answer: 2, why: '196 / 200 = 0,98.' },
+					{ q: 'Combien de tickets Haiku 5.5 a-t-il mis dans la mauvaise file ?', options: ['4', '16', '12', '8'], answer: 1, why: '200 - 184 = 16. Ce sont ces 16 tickets que tu lis avant de choisir.' },
+					{ q: 'Combien d’erreurs de plus sur 200 tickets Haiku 5.5 fait-il par rapport à Opus 5.5 ?', options: ['16', '4', '6', '12'], answer: 3, why: 'Haiku 5.5 en rate 16 et Opus 5.5 en rate 4.' }
+				]
+			},
+			{
+				title: 'Calcule le prix d’un ticket',
+				questions: [
+					{ q: 'Comment calcules-tu le prix d’un ticket ?', options: ['(500 × prix d’entrée + 10 × prix de sortie) / 1 000 000', '(500 + 10) × prix d’entrée / 1 000 000', '500 × prix d’entrée / 1 000', '(prix d’entrée + prix de sortie) × 510'], answer: 0, why: 'Les prix sont par million de tokens, et l’entrée et la sortie n’ont pas le même prix.' },
+					{ q: 'Combien coûte un ticket sur Haiku 5.5 ?', options: ['0,00005 $', '0,000055 $', '0,055 $', '0,0022 $'], answer: 1, why: '(500 × 0,10 + 10 × 0,50) / 1 000 000 = 55 / 1 000 000.' },
+					{ q: 'Combien coûte un ticket sur Opus 5.5 ?', options: ['0,002 $', '2,20 $', '0,0022 $', '0,000055 $'], answer: 2, why: '(500 × 4 + 10 × 20) / 1 000 000 = 2 200 / 1 000 000.' },
+					{ q: 'Quelle part du prix les 500 tokens d’entrée font-ils ?', options: ['L’essentiel : 10 tokens de sortie ajoutent peu', 'Aucune : seule la sortie est facturée', 'La moitié, sur tous les modèles', 'Tout : la sortie est gratuite'], answer: 0, why: 'Sur Haiku 5.5, l’entrée fait 50 des 55 millionièmes de dollar. Un token de sortie coûte plus cher, mais il n’y en a que 10.' }
+				]
+			},
+			{
+				title: 'Calcule le prix de 1 000 tickets bien classés',
+				questions: [
+					{ q: 'Comment passes-tu du prix par ticket au prix par ticket bien classé ?', options: ['Le multiplier par la précision', 'Retirer le coût des tickets mal classés', 'Le diviser par la précision', 'Diviser la précision par ce prix'], answer: 2, why: 'Tu paies chaque ticket, bien ou mal classé. Diviser par la part de réussites répartit le coût des ratés sur les réussites.' },
+					{ q: 'Combien coûtent 1 000 tickets bien classés sur Haiku 5.5 ?', options: ['Environ 0,06 $', 'Environ 0,055 $', 'Environ 0,05 $', 'Environ 2,24 $'], answer: 0, why: '0,000055 × 1000 / 0,92 ≈ 0,06 $.' },
+					{ q: 'Combien coûtent 1 000 tickets bien classés sur Opus 5.5 ?', options: ['Environ 2,20 $', 'Environ 2,24 $', 'Environ 0,06 $', 'Environ 22,40 $'], answer: 1, why: '0,0022 × 1000 / 0,98 ≈ 2,24 $.' },
+					{ q: 'Combien de fois plus cher Opus 5.5 coûte-t-il par ticket bien classé ?', options: ['Environ 40 fois', 'Environ 2 fois', 'Environ 20 fois', 'Environ 37 fois'], answer: 3, why: '2,24 $ contre 0,06 $. Les prix des tokens ont un facteur 40, et la meilleure précision réduit un peu cet écart.' }
+				]
+			},
+			{
+				title: 'Vérifie avant de choisir',
+				questions: [
+					{ q: 'Que lis-tu avant de choisir un modèle ?', options: ['Les 16 tickets que Haiku 5.5 a mal classés', 'Les scores de benchmark du fournisseur', 'Les 196 tickets qu’Opus 5.5 a bien classés', 'La page des prix encore une fois'], answer: 0, why: 'Le coût d’une erreur dépend de la file où tombe le ticket. Seules les erreurs te le disent.' },
+					{ q: 'Les erreurs tombent dans une file où quelqu’un les reclasse en une minute. Quel modèle choisis-tu ?', options: ['Opus 5.5', 'Haiku 5.5', 'Fable 5.1', 'Sonnet 5.5, pour couper la poire en deux'], answer: 1, why: 'Si chaque erreur se corrige pour pas cher, le prix 37 fois plus bas l’emporte.' },
+					{ q: 'Une mauvaise file fait rater un signalement de panne. Qu’est-ce qu’Opus 5.5 t’apporte ?', options: ['16 erreurs de moins pour 2,24 $ de plus', 'Aucune erreur du tout', '12 erreurs de moins sur 200 tickets, pour environ 2,18 $ de plus par 1 000 tickets bien classés', 'Une latence plus basse sur chaque ticket'], answer: 2, why: '16 - 4 = 12 erreurs de moins, et 2,24 $ - 0,06 $ = 2,18 $. Que ça vaille le coup dépend de ce que coûte une erreur.' },
+					{ q: 'Pourquoi mesurer le vrai `usage` de quelques appels avant de te fier à ces chiffres ?', options: ['Opus 5.5 a la réflexion adaptative toujours active : il facture plus que les 10 tokens de sortie visibles', 'Les prix de la page changent tous les jours', '`usage` te dit dans quelle file le modèle a classé', 'Le jeu d’évaluation est trop petit pour s’y fier'], answer: 0, why: 'L’estimation ne compte que les 10 tokens de sortie visibles. Les tokens de réflexion sont facturés aussi.' }
+				]
+			}
 		]
 	},
 	quiz: [

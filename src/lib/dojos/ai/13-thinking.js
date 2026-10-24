@@ -103,6 +103,44 @@ for block in response.content:
 			'Remove the `temperature` settings. On Sonnet 5.5 any non-default `temperature` returns a 400 error, and the default is `1.0`, so 0, 0.2, 0.4, 0.6 and 0.8 all fail.',
 			'Run the test set at `low` and `medium` effort as well as the default `high`. The effort docs give `low` for "Simpler tasks that need the best speed and lowest costs", and a ticket label is one short string. If you want no up-front thinking at all, Sonnet 5.5 takes `thinking: {"type": "between_tools"}` at `high` or below.',
 			'Record `usage.output_tokens` and `usage.output_tokens_details.thinking_tokens` for each run, next to the share of correct labels. Pick the lowest effort that keeps the score.'
+		],
+		steps: [
+			{
+				title: 'Drop the scratchpad',
+				questions: [
+					{ q: 'On Sonnet 5.5, what can happen to a prompt that asks for a `<scratchpad>` before the answer?', options: ['The scratchpad moves into the thinking block for free', 'It may be refused with `stop_details.category: "reasoning_extraction"`', 'The API returns a 400 error for any XML tag', 'It works exactly as on `claude-haiku-4-5`'], answer: 1, why: 'The refusals docs list a scratchpad section the model fills in before it answers as a common cause of `reasoning_extraction`.' },
+					{ q: 'Which part of the response format do you keep?', options: ['`<scratchpad>`', '`<response>` around the scratchpad', '`<category>`', 'None: you parse the plain text'], answer: 2, why: 'Your code still needs the label, and `<category>` is where it reads it.' },
+					{ q: 'Where does Sonnet 5.5 reason once the scratchpad is gone?', options: ['In thinking blocks, by default', 'In the `<response>` tag', 'Nowhere: it answers without reasoning', 'In a second request it sends itself'], answer: 0, why: 'Sonnet 5.5 thinks in thinking blocks by default, so the scratchpad adds nothing.' },
+					{ q: 'You want to read the reasoning on Sonnet 5.5. What do you set?', options: ['`budget_tokens: 1024`', 'A `<scratchpad>` tag in the answer', '`display: "raw"`', '`display: "summarized"`'], answer: 3, why: 'On Sonnet 5.5 `display` defaults to `"omitted"`. With `"summarized"` you get a summary, never the raw reasoning.' }
+				]
+			},
+			{
+				title: 'Remove the temperatures',
+				questions: [
+					{ q: 'What does Sonnet 5.5 do with `temperature: 0.2`?', options: ['It returns a 400 error', 'It rounds it to 0', 'It ignores it and uses 1.0', 'It accepts it, like Haiku 4.5'], answer: 0, why: 'On Sonnet 5.5 any non-default `temperature` returns a 400 error.' },
+					{ q: 'Which of the five test values, 0 to 0.8, still work?', options: ['Only 0', '0 to 0.4', 'None of them', 'All five'], answer: 2, why: 'The default is `1.0`, so 0, 0.2, 0.4, 0.6 and 0.8 all fail.' },
+					{ q: 'What is the `temperature` default on Sonnet 5.5?', options: ['0', '`1.0`', '0.5', 'It has none'], answer: 1, why: 'The default is `1.0`, and only the default is accepted.' },
+					{ q: 'So what do you do in `promptfooconfig.yaml`?', options: ['Set every run to 0', 'Keep only the 0.8 run', 'Replace them with `top_p`', 'Remove the `temperature` settings'], answer: 3, why: 'Without the setting, each request uses the default and no longer fails.' }
+				]
+			},
+			{
+				title: 'Choose the effort levels',
+				questions: [
+					{ q: 'What effort does Sonnet 5.5 use on the Claude API when you set none?', options: ['`low`', '`medium`', '`high`', '`max`'], answer: 2, why: '`high` is the Sonnet 5.5 default. Setting it "produces exactly the same behavior as omitting the `effort` parameter entirely."' },
+					{ q: 'Which levels do you test next to the default?', options: ['`low` and `medium`', '`max` only', '`high` and `max`', 'None: the default is always cheapest'], answer: 0, why: 'A lower effort may keep the score for a short answer and spend fewer tokens.' },
+					{ q: 'Why is `low` a fair candidate for this classifier?', options: ['It turns thinking off on every request', 'It is the only level Sonnet 5.5 accepts', 'It removes the cost of thinking from the bill', 'The docs give it for "Simpler tasks that need the best speed and lowest costs"'], answer: 3, why: 'A ticket label is one short string, which is the kind of simple task `low` is for.' },
+					{ q: 'You want no up-front thinking at all. What does Sonnet 5.5 take?', options: ['`budget_tokens: 0`', '`thinking: {"type": "between_tools"}` at `high` or below', 'A prompt line "Answer directly without thinking"', '`temperature: 0`'], answer: 1, why: 'Sonnet 5.5 takes `between_tools` at `high` or below. `budget_tokens` gets a 400 error on Claude 4.7 and later, and in Anthropic\'s testing a prompt line "didn\'t stop it from thinking" on Haiku 5.5.' }
+				]
+			},
+			{
+				title: 'Measure the cost',
+				questions: [
+					{ q: 'Which two numbers do you record for each run?', options: ['`usage.output_tokens` and `usage.output_tokens_details.thinking_tokens`', '`usage.input_tokens` and `max_tokens`', 'The length of the `thinking` field and the reply', '`stop_reason` and the effort level'], answer: 0, why: '`output_tokens` is the billed total, and `thinking_tokens` shows how much of it went to reasoning.' },
+					{ q: 'Thinking is hidden with `display: "omitted"`. Is it billed?', options: ['No: hidden thinking is free', 'Only half of it', 'Yes, in full, as output tokens', 'Only when you stream'], answer: 2, why: '`display` changes only what you see. Omitting reduces latency, not cost.' },
+					{ q: 'How do you estimate the tokens of the answer text alone?', options: ['`thinking_tokens - output_tokens`', '`output_tokens - thinking_tokens`', '`output_tokens` alone', 'Count the words of the `thinking` field'], answer: 1, why: '`thinking_tokens` counts the raw reasoning inside the billed total, so the rest approximates the answer.' },
+					{ q: 'How do you pick the final effort?', options: ['The highest effort, to be safe', 'The default, since it is tested', 'The one with the most thinking tokens', 'The lowest effort that keeps the share of correct labels'], answer: 3, why: 'You record cost next to the score, and keep the cheapest run that does not lose accuracy.' }
+				]
+			}
 		]
 	},
 	quiz: [

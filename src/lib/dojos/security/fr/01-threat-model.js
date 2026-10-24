@@ -202,6 +202,30 @@ export default {
 			why: 'Un nouveau mot de passe écrit un nouveau hash salé, donc le HMAC recalculé par `check_token` ne correspond plus à l’ancien lien. Le lien est à usage unique sans table de jetons utilisés. La limite de 3 jours vient de l’horodatage et de `PASSWORD_RESET_TIMEOUT`.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Lancer le handler de réinitialisation de l’exercice sur ton portable, le passer au crible de STRIDE, et prouver trois des problèmes avec `curl`.',
+		steps: [
+			'Écris le handler dans un dossier de travail. Il affiche le mail au lieu de l’envoyer : `mkdir -p ~/threat-lab && cd ~/threat-lab && printf \'%s\\n\' \'import random\' \'from flask import Flask, request\' \'app = Flask(__name__)\' \'USERS = {"ana@example.com"}\' \'@app.post("/reset")\' \'def reset():\' \'    email = request.form["email"]\' \'    if email not in USERS:\' \'        return "No account with that email", 404\' \'    token = str(random.randint(100000, 999999))\' \'    print(f"MAIL to={email} link=http://{request.host}/reset?t={token}", flush=True)\' \'    return "Email sent"\' \'app.run(host="0.0.0.0", port=5000)\' > app.py`.',
+			'Lance-le dans un conteneur : `docker run -d --name threat-lab -p 127.0.0.1:5050:5000 -v "$PWD":/app -w /app python:3.12-alpine sh -c \'pip install -q flask==3.1.0 && python app.py\'`. Attends que `docker logs threat-lab` affiche `Running on`.',
+			'Dessine le flux dans `threats.md` : le navigateur, l’appli, l’ensemble `USERS`, la ligne du mail. Pose les six questions STRIDE à chaque flèche, et écris une ligne par menace avec sa lettre.',
+			'Teste le problème I : `curl -s -w \' %{http_code}\\n\' -d email=ana@example.com localhost:5050/reset`, puis la même chose avec `nobody@example.com`.',
+			'Teste le problème S sur le lien : `curl -s -d email=ana@example.com -H \'Host: evil.example\' localhost:5050/reset`, puis `docker logs threat-lab 2>/dev/null | grep MAIL`.',
+			'Teste le problème D : `for i in $(seq 20); do curl -s -o /dev/null -d email=ana@example.com localhost:5050/reset; done`, puis `docker logs threat-lab 2>/dev/null | grep -c MAIL`. Copie `threats.md` ailleurs si tu veux le garder, puis nettoie avec `docker rm -f threat-lab && rm -rf ~/threat-lab`.'
+		],
+		done: [
+			'ana reçoit `Email sent 200`, et nobody reçoit `No account with that email 404`.',
+			'La ligne de log de la requête `evil.example` contient `link=http://evil.example/reset?t=` suivi de six chiffres.',
+			'Après la boucle, `grep -c MAIL` affiche `22` : chaque requête a envoyé un mail, et aucune n’a été refusée.',
+			'`threats.md` a au moins cinq lignes, et elles couvrent I, S, D et R.'
+		],
+		solution: [
+			'I : le code de statut et le corps changent selon le compte, donc une liste d’adresses te dit qui en a un. Réponds `Email sent` avec un 200 dans tous les cas.',
+			'S : le jeton fait 6 chiffres tirés par `random`, le mail part à `request.form["email"]`, et le lien est construit à partir de l’en-tête `Host` que tu viens de choisir. Les parades : `secrets.token_urlsafe(32)` stocké haché avec une expiration, l’adresse enregistrée comme destinataire, une URL de base écrite en dur.',
+			'D et R : 20 requêtes à la suite sont toutes passées, et la seule trace est un print qui contient le jeton. Ajoute une limite par compte, et une entrée de log d’audit avec le compte visé et sans le jeton.',
+			'T et E : ce handler ne change aucune donnée stockée et aucun rôle, donc « rien trouvé » est une réponse valable. Écris-la quand même : elle montre que tu as posé la question.'
+		]
+	},
 	recall: {
 		q: 'Quelle question STRIDE aurait trouvé la CVE-2023-7028 de GitLab, et quelle est la parade ?',
 		a: 'Usurpation : l’attaquant peut-il choisir où part le lien ? Envoie-le seulement à l’adresse enregistrée sur le compte, comme PasswordResetForm de Django avec `user_email`.'

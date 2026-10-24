@@ -204,6 +204,30 @@ type CircleCIAPIContextVariable = {
 			why: 'A running service needs the key in memory to decrypt the secrets it uses. With production access, the attacker "extracted encryption keys from a running process", so the encrypted copy and its key left together.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Respond to a compromised container in the chapter’s order: keep the evidence, contain, rotate, replace.',
+		steps: [
+			'Start the victim with a secret in its environment: `mkdir -p ~/ir-lab && cd ~/ir-lab && docker run -d --name ir-victim -e API_TOKEN=old-token-1234 alpine:3.20 sleep 3600`.',
+			'Play the attacker. Drop a script and read the secret: `docker exec ir-victim sh -c \'printf "#!/bin/sh\\nwhile true; do sleep 60; done\\n" > /tmp/.cache-update && chmod +x /tmp/.cache-update && printenv API_TOKEN\'`, then start the script with `docker exec -d ir-victim /tmp/.cache-update`.',
+			'Now you are the responder. Write down the evidence before you change anything: `date -u > notes.txt`, `docker diff ir-victim > diff.txt`, `docker top ir-victim -o pid,args > ps.txt`, then `docker cp ir-victim:/tmp/.cache-update ./evidence.bin && shasum -a 256 evidence.bin >> notes.txt`.',
+			'Contain: `docker network disconnect bridge ir-victim`, then check with `docker exec ir-victim wget -q -T 3 -O /dev/null http://example.com`.',
+			'Rotate and replace. The old token is stolen, so start a fresh container with a new one: `docker run -d --name ir-clean -e API_TOKEN=new-token-5678 alpine:3.20 sleep 3600`. Search it for the indicators with `docker diff ir-clean` and `docker top ir-clean -o pid,args`.',
+			'Clean up: `docker rm -f ir-victim ir-clean && rm -rf ~/ir-lab`.'
+		],
+		done: [
+			'`diff.txt` shows `A /tmp/.cache-update`, and `ps.txt` shows `/bin/sh /tmp/.cache-update`.',
+			'`notes.txt` holds the UTC time and one SHA256 line for `evidence.bin`.',
+			'After step 4, `wget` fails with `bad address \'example.com\'`.',
+			'`docker diff ir-clean` prints nothing, `docker top ir-clean` shows only `sleep 3600`, and `docker exec ir-clean printenv API_TOKEN` prints `new-token-5678`.'
+		],
+		solution: [
+			'The order matters. `docker diff`, `docker top` and the copied file are the traces, and removing the container first would have deleted all three.',
+			'The hash in `notes.txt` is an indicator of compromise. Anyone can search their own hosts for a file with the same SHA256, as CircleCI customers did with the hash in the report.',
+			'Disconnecting the network stops the attacker from going further while you still hold the container. CircleCI did the same with access: cut first, investigate after.',
+			'In real life the rotation has a second half: revoke `old-token-1234` where it was issued, so the copy the attacker printed stops working. A new container alone does not do that.'
+		]
+	},
 	recall: {
 		q: 'In the CircleCI incident, which date starts the window customers were told to search, and why that date?',
 		a: '16 December 2022, the day malware compromised the engineer’s laptop. The window ends when you finished rotating your secrets after the 4 January 2023 alert.'

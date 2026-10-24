@@ -202,6 +202,30 @@ export default {
 			why: 'Setting a new password writes a new salted hash, so the HMAC computed in `check_token` no longer matches the old link. That makes the link single use without a table of used tokens. The 3-day limit comes from the timestamp and `PASSWORD_RESET_TIMEOUT`.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Run the reset handler from the task on your laptop, walk it with STRIDE, and prove three of the findings with `curl`.',
+		steps: [
+			'Write the handler to a scratch folder. It prints the mail instead of sending it: `mkdir -p ~/threat-lab && cd ~/threat-lab && printf \'%s\\n\' \'import random\' \'from flask import Flask, request\' \'app = Flask(__name__)\' \'USERS = {"ana@example.com"}\' \'@app.post("/reset")\' \'def reset():\' \'    email = request.form["email"]\' \'    if email not in USERS:\' \'        return "No account with that email", 404\' \'    token = str(random.randint(100000, 999999))\' \'    print(f"MAIL to={email} link=http://{request.host}/reset?t={token}", flush=True)\' \'    return "Email sent"\' \'app.run(host="0.0.0.0", port=5000)\' > app.py`.',
+			'Run it in a container: `docker run -d --name threat-lab -p 127.0.0.1:5050:5000 -v "$PWD":/app -w /app python:3.12-alpine sh -c \'pip install -q flask==3.1.0 && python app.py\'`. Wait until `docker logs threat-lab` shows `Running on`.',
+			'Draw the flow in `threats.md`: browser, app, the `USERS` set, the mail line. Ask the six STRIDE prompts of each arrow, and write one line per threat with its letter.',
+			'Test the I finding: `curl -s -w \' %{http_code}\\n\' -d email=ana@example.com localhost:5050/reset`, then the same with `nobody@example.com`.',
+			'Test the S finding on the link: `curl -s -d email=ana@example.com -H \'Host: evil.example\' localhost:5050/reset`, then `docker logs threat-lab 2>/dev/null | grep MAIL`.',
+			'Test the D finding: `for i in $(seq 20); do curl -s -o /dev/null -d email=ana@example.com localhost:5050/reset; done`, then `docker logs threat-lab 2>/dev/null | grep -c MAIL`. Copy `threats.md` out if you want to keep it, then clean up with `docker rm -f threat-lab && rm -rf ~/threat-lab`.'
+		],
+		done: [
+			'ana gets `Email sent 200`, and nobody gets `No account with that email 404`.',
+			'The log line for the `evil.example` request reads `link=http://evil.example/reset?t=` followed by six digits.',
+			'After the loop, `grep -c MAIL` prints `22`: every request sent a mail, and none was refused.',
+			'`threats.md` has at least five lines, and they cover I, S, D and R.'
+		],
+		solution: [
+			'I: the status and the body change with the account, so a list of addresses tells you who has one. Return `Email sent` with a 200 in every case.',
+			'S: the token is 6 digits from `random`, the mail goes to `request.form["email"]`, and the link is built from the `Host` header you just set. The fixes: `secrets.token_urlsafe(32)` stored hashed with an expiry, the stored address as recipient, a hard-coded base URL.',
+			'D and R: 20 requests in a row all went through, and the only trace is a print that holds the token. Add a rate limit per account, and an audit log entry with the target account and no token.',
+			'T and E: this handler changes no stored data and no roles, so "none found" is a valid answer. Write it down anyway: it shows you asked.'
+		]
+	},
 	recall: {
 		q: 'Which STRIDE question would have caught GitLab CVE-2023-7028, and what fixes it?',
 		a: 'Spoofing: can an attacker choose where the reset link goes? Send it only to the address stored on the account, as Django PasswordResetForm does with `user_email`.'

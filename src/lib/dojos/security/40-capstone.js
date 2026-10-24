@@ -211,6 +211,29 @@ RESET_PASSWORD_LOCK_TIME = parse(
 			why: 'The default is `*`, and `fnmatchcase("https://evil.example", "*")` is true. The handler then returns `access-control-allow-origin: https://evil.example` with `access-control-allow-credentials: true`. Set the variable to your own storefront and dashboard origins in production.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Write the controls for the mug shop, then deploy one slice of it for real: an upload served as a download, from a container with no root, no writes and no capabilities.',
+		steps: [
+			'Write the plan: `mkdir -p ~/capstone-lab/media && cd ~/capstone-lab`, then write `controls.md` for the mug shop from the task, one line per control, each ending with its day, such as `(day 24)`.',
+			'Plant a malicious upload and write the media config: `printf \'%s\\n\' \'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.domain)</script></svg>\' > media/evil.svg && printf \'%s\\n\' \'server {\' \'    listen 8080;\' \'    location /media/ {\' \'        alias /srv/media/;\' \'        add_header Content-Disposition attachment always;\' \'        add_header X-Content-Type-Options nosniff always;\' \'    }\' \'}\' > default.conf`.',
+			'Deploy it hardened: `docker run -d --name capstone-lab --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:8080:8080 -v "$PWD/default.conf":/etc/nginx/conf.d/default.conf:ro -v "$PWD/media":/srv/media:ro nginxinc/nginx-unprivileged:1.27-alpine`.',
+			'Check the upload control: `curl -sI localhost:8080/media/evil.svg`, then open `http://localhost:8080/media/evil.svg` in your browser.',
+			'Check the deployment controls: `docker exec capstone-lab id`, `docker exec capstone-lab touch /etc/x` and `docker exec capstone-lab grep CapEff /proc/1/status`.',
+			'Copy `controls.md` out if you want to keep it, then clean up: `docker rm -f capstone-lab && rm -rf ~/capstone-lab`.'
+		],
+		done: [
+			'`controls.md` has lines for the threat model, the browser, accounts, data, outside inputs, supply chain, deployment and after a breach, each with a day.',
+			'The `curl` answer has `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`, and the browser downloads the file with no alert.',
+			'`id` prints `uid=101(nginx)`, `touch` fails with `Read-only file system`, and `CapEff` is `0000000000000000`.'
+		],
+		solution: [
+			'The SVG holds a script. Served inline from the shop’s own origin, it would run with the dashboard’s access, which is GHSA-666h. `attachment` makes the browser save it instead, and `nosniff` stops it from guessing another type (day 24).',
+			'The container shows three day 33 controls at once: a non-root user from the image, `--read-only` with a `tmpfs` only for `/tmp`, and `--cap-drop ALL`. `no-new-privileges` stops a setuid binary from getting root back.',
+			'The rest of `controls.md` does not fit in one container: TLS, cookies, Argon2id, owner checks, the webhook signature and the NetworkPolicy live in the app and the cluster. Keep the file as the checklist you review them against.',
+			'In production the media would also move to `media.` on another domain. Either condition stops GHSA-666h, and having both is defense in depth (day 4).'
+		]
+	},
 	recall: {
 		q: 'Name the three Saleor advisories from this chapter and the day each one maps to.',
 		a: 'GHSA-666h, stored XSS through uploaded HTML and SVG files (days 18 and 24). GHSA-r6fj, IDOR on old orders (day 16). GHSA-ff69, CSRF bypass in `refreshToken` (day 11).'

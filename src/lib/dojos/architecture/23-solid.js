@@ -105,7 +105,7 @@ export default {
 				title: 'Name the broken principle',
 				questions: [
 					{ q: 'Two lists both compile as `List`. One works, one throws. Which principle bends?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 2, why: 'An implementation that throws where others work cannot stand in for them. The caller has to know which one it got.' },
-					{ q: '`addDiscounts` only needs to add, but depends on all of `List`. Which principle would a narrower type serve?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 3, why: 'A caller should not depend on methods it does not use. A narrow type offers only what it needs.' },
+					{ q: 'How many of `List`\'s methods does `addDiscounts` actually call?', options: ['All of them', 'About half', 'None: it only reads', 'One: `add`'], answer: 3, why: 'It takes the whole `List` and uses one method. That gap is what fix two closes.' },
 					{ q: 'Where is the rule "this list may not support `add`" written today?', options: ['In the type', 'Only in the Javadoc', 'In a compiler warning', 'In the `Discount` class'], answer: 1, why: '`List.add` is documented as an "optional operation". Nothing in the type says which kind of list you hold.' },
 					{ q: 'Why did the Java designers keep optional operations in `List`?', options: ['Splitting would need about twenty interfaces and five iterators', 'They did not think of immutable lists', 'Exceptions run faster than extra types', 'Liskov substitution was not known yet'], answer: 0, why: 'The design FAQ explains it: four wide interfaces were judged cheaper than twenty narrow ones.' }
 				]

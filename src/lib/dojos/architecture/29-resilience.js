@@ -133,8 +133,8 @@ export default {
 			{
 				title: 'Close it again',
 				questions: [
-					{ q: 'After `waitDurationInOpenState`, which state comes next?', options: ['Closed', 'Half-open', 'Open again', 'Disabled'], answer: 1, why: 'The breaker does not trust the API at once. It tests it first.' },
-					{ q: 'What happens in half-open?', options: ['A few trial calls go through', 'All calls go through', 'No call goes through', 'Calls go to a backup API'], answer: 0, why: 'resilience4j hands out a fixed number of trial permits, 10 by default.' },
+					{ q: 'The wait is over at 9:01, but the next invoice only comes at 9:06. When does the breaker leave the open state?', options: ['At 9:01 sharp, on a timer', 'At 9:06, on that first call', 'When an admin resets it', 'After 100 more calls'], answer: 1, why: '`tryAcquirePermission` checks the clock when a call arrives, and only then moves to half-open.' },
+					{ q: 'In half-open, 30 invoices arrive at once. With the defaults, how many reach the tax API?', options: ['10, and the other 20 are refused', 'All 30', 'None', '1, then the breaker decides'], answer: 0, why: 'Half-open hands out 10 trial permits by default. Calls beyond those get refused, so those 20 invoices take the "tax pending" path.' },
 					{ q: 'The trial calls go well. What next?', options: ['The breaker opens again', 'It stays half-open for good', 'The breaker closes', 'The pod restarts'], answer: 2, why: 'Below the failure threshold, the breaker closes and normal traffic resumes.' },
 					{ q: 'The trial calls fail. What next?', options: ['The breaker closes', 'The pod restarts', 'It stays half-open for good', 'The breaker opens again'], answer: 3, why: 'At or over the failure threshold, it opens again and waits once more.' }
 				]

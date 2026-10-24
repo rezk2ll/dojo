@@ -137,10 +137,10 @@ class MemoryStoreTest < StoreTest
 			{
 				title: 'Guard the shared message and the wiring',
 				questions: [
-					{ q: 'Which test protects (d)?', options: ['A consumer-driven contract', 'An end-to-end test', 'A unit test in the email service', 'An integration test in the order service'], answer: 0, why: 'The email service writes down the fields it reads, and the order service\'s CI checks its real message against them.' },
+					{ q: 'In Pact\'s terms, which side of `order.placed` is the provider?', options: ['The order service, which writes the message', 'The email service, which reads it', 'The broker that carries it', 'Whichever team wrote the pact'], answer: 0, why: 'For queues, "the consumer is the application that reads the message". The provider writes it, and its CI is where the check runs.' },
 					{ q: 'What is a cheaper first step for (d)?', options: ['More hand-written messages in the email service', 'A code review rule for renames', 'The order service writes its captured message to a fixture file the email service loads', 'A shared Slack channel between the teams'], answer: 2, why: 'The email service then tests against the real message instead of its own copy.' },
 					{ q: 'Which test protects (e), a paid cart becoming an order and an email?', options: ['A unit test of the cart', 'An end-to-end test on the built system, with a stub payment provider', 'A contract test of the payment API', 'An integration test of the email service'], answer: 1, why: 'Only the built system, driven like a user, shows that the services are wired together.' },
-					{ q: 'Why not put (d) in the end-to-end suite?', options: ['End-to-end tests cannot read messages', 'It would make the suite too fast', 'The email service owns that suite', 'A suite that publishes its own copy of the message stays green'], answer: 3, why: 'If the test uses its own copy, it never compares the producer with the consumer, which is the whole point of (d).' }
+					{ q: 'The order team renames `firstName`, and the (d) contract goes red in their CI. What is the right next step?', options: ['Delete the contract', 'Ship anyway: the email team will adapt', 'Skip the test in CI for this release', 'Keep sending `firstName` until the email service reads the new name, then remove it'], answer: 3, why: 'The message has two copies, so a rename must be made in both. The red build is the contract doing its job.' }
 				]
 			}
 		]

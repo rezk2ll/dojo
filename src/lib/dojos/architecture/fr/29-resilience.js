@@ -133,8 +133,8 @@ export default {
 			{
 				title: 'Referme-le',
 				questions: [
-					{ q: 'Après `waitDurationInOpenState`, quel état vient ensuite ?', options: ['Fermé', 'Half-open', 'Ouvert à nouveau', 'Désactivé'], answer: 1, why: 'Le breaker ne fait pas confiance à l’API tout de suite. Il la teste d’abord.' },
-					{ q: 'Que se passe-t-il en half-open ?', options: ['Quelques appels d’essai passent', 'Tous les appels passent', 'Aucun appel ne passe', 'Les appels partent vers une API de secours'], answer: 0, why: 'resilience4j distribue un nombre fixe de permis d’essai, 10 par défaut.' },
+					{ q: 'L’attente se termine à 9 h 01, mais la facture suivante n’arrive qu’à 9 h 06. Quand le breaker quitte-t-il l’état ouvert ?', options: ['À 9 h 01 pile, sur un minuteur', 'À 9 h 06, sur ce premier appel', 'Quand un admin le réinitialise', 'Après 100 appels de plus'], answer: 1, why: '`tryAcquirePermission` regarde l’horloge quand un appel arrive, et c’est seulement là qu’il passe en half-open.' },
+					{ q: 'En half-open, 30 factures arrivent d’un coup. Avec les valeurs par défaut, combien atteignent l’API de taxe ?', options: ['10, et les 20 autres sont refusées', 'Les 30', 'Aucune', '1, puis le breaker décide'], answer: 0, why: 'Le half-open distribue 10 permis d’essai par défaut. Les appels en plus sont refusés, donc ces 20 factures prennent le chemin « taxe en attente ».' },
 					{ q: 'Les appels d’essai se passent bien. Et ensuite ?', options: ['Le breaker se rouvre', 'Il reste half-open pour de bon', 'Le breaker se ferme', 'Le pod redémarre'], answer: 2, why: 'Sous le seuil d’échec, le breaker se ferme et le trafic normal reprend.' },
 					{ q: 'Les appels d’essai échouent. Et ensuite ?', options: ['Le breaker se ferme', 'Le pod redémarre', 'Il reste half-open pour de bon', 'Le breaker se rouvre'], answer: 3, why: 'Au seuil d’échec ou au-delà, il se rouvre et attend à nouveau.' }
 				]

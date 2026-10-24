@@ -118,10 +118,10 @@ export default {
 			{
 				title: 'Give the rest to the owner',
 				questions: [
-					{ q: '(4) May Alice edit this invoice?', options: ['The gateway, with a copy of the rule', 'The SSO, since it knows Alice', 'The invoicing service, which owns the invoice', 'The browser app, before sending'], answer: 2, why: 'The rule needs the invoice\'s data, so the service holding it decides.' },
+					{ q: '(4) Alice asks for an invoice from another company, and the invoicing service says no. What should it answer, the way Mastodon does for a private post?', options: ['401, so she logs in again', '503, try again later', 'Not found, the same as for an invoice that does not exist', 'The invoice, read-only'], answer: 2, why: 'Mastodon\'s `set_status` answers not found when `show?` is false, so a stranger cannot even learn the record exists.' },
 					{ q: 'What does the invoicing service know that the gateway does not?', options: ['Alice\'s IP address', 'Who created the invoice, whether it is sent, and Alice\'s role', 'The token\'s signature', 'The CORS rules'], answer: 1, why: 'Those are facts about the invoice and the company. They live with the owner.' },
 					{ q: 'You also copy the edit rule into the gateway. What happens over time?', options: ['It drifts away from the data it protects', 'It makes the service faster', 'The SSO takes it over', 'Nothing, as long as both run'], answer: 0, why: 'When the owner changes its rule, the copy in the gateway falls out of date.' },
-					{ q: 'In Mastodon, what does `doorkeeper_authorize! :write` tell the controller?', options: ['That Alice owns the post', 'That the post is public', 'That Alice follows the author', 'That this app may write posts, not which posts'], answer: 3, why: 'The scope is part of authentication. `StatusPolicy` still decides on each post.' }
+					{ q: 'In Mastodon, which owner rule lets Alice edit only her own posts?', options: ['`show?`, which reads the visibility', '`doorkeeper_authorize! :write`', 'Envoy\'s `audiences` setting', '`update?`, which returns `owned?`'], answer: 3, why: 'Edit rights depend on who wrote the post, a fact only the posts service holds. Your invoice edit rule belongs in the same kind of place.' }
 				]
 			},
 			{

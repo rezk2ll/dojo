@@ -116,8 +116,8 @@ export default {
 				questions: [
 					{ q: 'What did `cleanup_concurrent_column_rename` remove?', options: ['Only the trigger', 'The new column `updated_at_timestamp`', 'The trigger and the old column `updated_at`', 'Nothing yet: it only marks the column'], answer: 2, why: 'It removes the rename triggers, then calls `remove_column(table, old)`.' },
 					{ q: 'Which columns exist on `users` now?', options: ['Only `updated_at_timestamp`', 'Both `updated_at` and `updated_at_timestamp`', 'Only `updated_at`', 'Neither, until the next migration'], answer: 0, why: 'The old column was dropped. Only the new name is left.' },
-					{ q: 'When did that cleanup run?', options: ['Before the new code was deployed', 'In the same migration as `rename_column_concurrently`', 'When the bug was found', 'After the new code was deployed, as a post-deployment migration'], answer: 3, why: 'GitLab keeps it in `db/post_migrate`, which runs after the new code is live.' },
-					{ q: 'Which step was the point of no return?', options: ['Adding the new column', 'Dropping the old column', 'Installing the trigger', 'Deploying code that reads the new name'], answer: 1, why: 'Until the drop, both columns existed and the undo just removed the new one.' }
+					{ q: 'Before the cleanup, which way did the trigger copy?', options: ['From the new column into the old one', 'Both ways', 'Only on deletes', 'From the old column into the new one, on every insert and update'], answer: 3, why: 'It was a one-way `BEFORE INSERT OR UPDATE` trigger that set the new column from the old one.' },
+					{ q: 'The new release told Rails to ignore one column. Which one?', options: ['`updated_at_timestamp`', '`updated_at`', 'Both', 'Neither: Rails reads every column'], answer: 1, why: 'The new code reads the new name and ignores the old column, so the drop could not surprise a running process.' }
 				]
 			},
 			{
@@ -143,7 +143,7 @@ export default {
 				questions: [
 					{ q: 'What is often the better move than going back?', options: ['Fix forward: patch the bug in the new release', 'Restore the whole database', 'Run both releases side by side', 'Drop `updated_at_timestamp` too'], answer: 0, why: 'Fixing forward leaves the schema alone and avoids a second copy of a big table.' },
 					{ q: 'How should a migration place its point of no return?', options: ['As early as possible, to get it over with', 'Spread over several steps', 'One small step, as late as possible', 'In the same step as the deploy'], answer: 2, why: 'The later and smaller it is, the longer every other step stays cheap to undo.' },
-					{ q: 'Why does GitLab put the drop after the deploy?', options: ['Because post-deploy migrations run faster', 'Because Rails needs the column during the deploy only', 'So the trigger can finish copying', 'So the drop is the last step, once the new code is live'], answer: 3, why: 'Dropping a column is destructive and hard to roll back, so it runs last.' },
+					{ q: 'Next time, nobody runs the cleanup for months. What stays in production?', options: ['Nothing: Rails removes it at boot', 'Only the new column', 'A backup of the table', 'The trigger and the old column, copying on every write'], answer: 3, why: 'Transitional code you plan to delete stays for good if nobody deletes it. Put the cleanup in the plan, with a date.' },
 					{ q: 'In strangler fig terms, when do you delete an old part?', options: ['On a fixed date', 'When no request reaches it any more', 'As soon as the new part is deployed', 'Never: old parts stay as a backup'], answer: 1, why: 'Fowler: move behavior one piece at a time, and delete each old part when nothing uses it.' }
 				]
 			}

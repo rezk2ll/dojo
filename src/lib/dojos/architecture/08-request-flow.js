@@ -125,7 +125,7 @@ export default {
 					{ q: 'Which steps run inside the user\'s HTTP request?', options: ['1 to 5', '1 to 7', '1 to 10', '8 to 10'], answer: 1, why: 'Step 7 sends the 200 back. Steps 8 to 10 run later in Sidekiq.' },
 					{ q: 'At which step does the post exist?', options: ['Step 3: the service starts', 'Step 7: the 200 goes back', 'Step 5: `@status.save!` in a transaction', 'Step 8: home feeds are filled'], answer: 2, why: 'Once the transaction commits, the post is in PostgreSQL. The steps after decide who sees it.' },
 					{ q: 'What does step 6 do with the fan-out?', options: ['It runs it before answering', 'It skips it for big accounts', 'It sends it straight to the streaming server', 'It enqueues it in Redis, and the response goes back without waiting'], answer: 3, why: '`postprocess_status!` enqueues the workers and returns.' },
-					{ q: 'Which step can make the request wait on a server you do not run?', options: ['Step 4', 'Step 2', 'Step 9', 'Step 10'], answer: 0, why: 'Step 10 also talks to other servers, but it runs after the response. Step 4 runs before the save.' }
+					{ q: 'Which outage makes the post request itself fail?', options: ['PostgreSQL or Redis is down', 'A remote server named in a mention is down', 'The streaming server is down', 'Sidekiq is down'], answer: 0, why: 'Both sit on synchronous hops, at steps 2, 5 and 6. A dead remote server only makes the request wait, since that error is rescued, and the others run after the response.' }
 				]
 			},
 			{
@@ -150,7 +150,7 @@ export default {
 				title: 'Explain (d)',
 				questions: [
 					{ q: '(d) "The post shows my mention as plain text." Which step?', options: ['Step 9: the pub/sub message', 'Step 6: the enqueue', 'Step 7: the JSON response', 'Step 4 again: resolving the account failed'], answer: 3, why: 'The mention is plain text when the lookup at step 4 found no account.' },
-					{ q: 'What does the code do when the lookup fails with a connection error?', options: ['It answers `502` and drops the post', 'It rescues the error, sets `mentioned_account = nil`, and keeps the text', 'It retries the lookup forever', 'It saves the post as a draft'], answer: 1, why: 'The `rescue` catches WebFinger and connection errors. The post is still published.' },
+					{ q: 'In `scan_text!`, which call goes out to the other server?', options: ['`Account.find_remote(username, domain)`', '`ResolveAccountService.new.call(...)`, when `mention_undeliverable?` is true', '`TagManager.instance.normalize_domain(domain)`', '`@status.text.gsub(Account::MENTION_RE)`'], answer: 1, why: '`find_remote` looks in Mastodon\'s own database. Only an account it cannot deliver to yet goes to `ResolveAccountService`, which runs WebFinger on the other server.' },
 					{ q: 'What does the user see?', options: ['No error, only the wait', 'An error message on the post', 'A `401`', 'A draft in their profile'], answer: 0, why: 'The failure is rescued, so only the delay shows.' },
 					{ q: 'A remote server that never answers costs the request at least how long?', options: ['1 second', 'Nothing: the error is rescued', 'The 5 second connect timeout', '30 seconds, every time'], answer: 2, why: '`connect_timeout: 5` sets the floor. The comment puts the worst case for opening a connection at about 15 seconds.' }
 				]

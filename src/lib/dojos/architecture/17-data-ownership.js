@@ -114,17 +114,17 @@ export default {
 			{
 				title: 'Ask what Booking needs',
 				questions: [
-					{ q: 'For the price paid, does Booking need today\'s value or the value at the sale?', options: ['Today\'s value, read from Events', 'The value at the moment of sale', 'Neither: it never shows a price', 'Both, kept in step'], answer: 1, why: 'The ticket records what the customer agreed to pay. A later price change must not touch it.' },
+					{ q: 'A concert moves from May to June. Which date must a ticket sold in April show?', options: ['May, the date at the moment of sale', 'June, today\'s value from Events', 'Both dates, side by side', 'No date until the concert is confirmed'], answer: 1, why: 'Unlike the price paid, the date is not a fact of the sale. The customer must go on the day the concert actually happens.' },
 					{ q: 'Which question helps you name the owner?', options: ['Which service runs fastest?', 'Which table is the biggest?', 'Who must keep a rule about it true?', 'Which service read it first?'], answer: 2, why: 'The owner is the one service that keeps the invariants about that data.' },
 					{ q: 'Booking mails a customer. Which email does it need?', options: ['The email at the moment of sale', 'The email from the first booking', 'None: Booking never sends mail', 'The current one, so the mail reaches the customer'], answer: 3, why: 'An old email may no longer work. That is why Booking asks Accounts when it sends.' },
-					{ q: 'In Online Boutique, which value does an order keep for each item?', options: ['The catalog\'s current price, read again on each view', 'The `Cost` at the moment of sale', 'Only the product id', 'The price in USD before conversion'], answer: 1, why: 'Checkout copies the price into `OrderItem.Cost`, a snapshot that later catalog changes never update.' }
+					{ q: 'Booking asks Accounts for the email each time it mails. Accounts is down. What happens to the mail?', options: ['It goes to the email from the last booking', 'It cannot go out until Accounts answers', 'It goes to a default address', 'Booking reads Accounts\' database instead'], answer: 1, why: 'Asking the owner means depending on it, like checkout and the catalog in Online Boutique. A copy fed by events would let the mail go out.' }
 				]
 			},
 			{
 				title: 'Own, copy or reference',
 				questions: [
 					{ q: '(a) Booking prints the concert date on the ticket. What does it keep?', options: ['A copy fed by "concert rescheduled" events', 'Its own date, which it owns', 'A copy it edits when the venue calls', 'No date: tickets never show it'], answer: 0, why: 'A copy is fine as long as only the owner\'s events change it.' },
-					{ q: '(c) What is the price paid, for Booking?', options: ['A copy fed by Events', 'A reference to Events\' price', 'Data Booking owns, a snapshot of the sale', 'A value it asks Events for each time'], answer: 2, why: 'The price paid is a new fact created by the sale, and Booking records the sale.' },
+					{ q: '(d) Tickets keep the customer id. A customer changes their email. What must Booking update?', options: ['The id on every ticket', 'A copy of the email on every ticket', 'Nothing: an id needs no keeping in step', 'The customer\'s row in Accounts'], answer: 2, why: 'The id stays the same. The next time Booking asks Accounts, it gets the new email.' },
 					{ q: '(e) What does a ticket keep about its seat?', options: ['Ownership of the seat', 'A copy of the whole seat map', 'Nothing at all', 'A reference: the seat id'], answer: 3, why: 'Events owns the seat. An id needs no keeping in step.' },
 					{ q: '(d) Booking must mail the customer. Which of these is safe to keep?', options: ['Its own email column that it edits', 'A reference, the customer id, and ask Accounts when mailing', 'A copy typed in at booking and never updated', 'The email from the last booking'], answer: 1, why: 'A reference cannot go stale. A copy is safe only when Accounts\' "email changed" events feed it.' }
 				]

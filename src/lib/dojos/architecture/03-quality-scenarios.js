@@ -119,7 +119,7 @@ export default {
 				questions: [
 					{ q: 'Redis is down. What does the Rails cache return for the counter?', options: ['An error that stops the request', '`nil`, after swallowing the error', 'The last count it knew', 'Zero, read from PostgreSQL'], answer: 1, why: 'The Rails Redis cache swallows connection errors and returns `nil`.' },
 					{ q: 'How does Rack::Attack read that `nil`?', options: ['As a count over the limit', 'As an error to raise', 'As a count of 1', 'As a reason to refuse the request'], answer: 2, why: '`Cache#do_count` counts `nil` as 1, so every attempt looks like the first.' },
-					{ q: 'So what does the throttle do while Redis is down?', options: ['It fails open: nothing is throttled', 'It fails closed: every login gets a `429`', 'It returns a `500` on each login', 'It counts in PostgreSQL instead'], answer: 0, why: 'No count ever passes 1, so no attempt is ever stopped.' },
+					{ q: 'Redis is down, and the attacker sends 1000 logins from one IP in 5 minutes. How many reach the password check?', options: ['All 1000', '25', '25 × the number of web processes', 'None: each one gets a `429`'], answer: 0, why: 'Every attempt counts as the first, so the limit of 25 never trips. The whole burst reaches the password check.' },
 					{ q: 'With fail open, who wins during 10 minutes of Redis outage?', options: ['Honest users, who get locked out', 'QA, who can run more tests', 'Nobody, since logins stop', 'The attacker, who gets 10 minutes with no limit'], answer: 3, why: 'Logins keep working for everyone, attacker included.' }
 				]
 			},
@@ -138,7 +138,7 @@ export default {
 					{ q: 'You pick the local fallback. Which response fits?', options: ['Every login gets a `429`', 'Logins keep working', 'Logins return a `500`', 'Logins wait until Redis is back'], answer: 1, why: 'The fallback keeps logins open and still applies a limit.' },
 					{ q: 'Which measure fits the local fallback?', options: ['At most 25 attempts per IP per 5 minutes, as before', 'No attempt reaches the password check', 'At most 25 × (number of web processes) attempts per IP per 5 minutes reach the password check', 'The throttle stays as secure as possible'], answer: 2, why: 'It is a number QA can check, and it is honest about the multiplied limit.' },
 					{ q: 'Why "25 × number of processes" and not 25?', options: ['Each process counts only the attempts it sees', 'Redis multiplies the limit when it restarts', 'Rack::Attack doubles limits on errors', 'The per-account throttle adds its own 25'], answer: 0, why: 'An attacker whose attempts spread over every process gets 25 in each.' },
-					{ q: 'A teammate writes the measure as "the throttle stays secure". What is wrong?', options: ['It belongs in the stimulus part', 'It names the wrong environment', 'Nothing: it names the characteristic', 'It is not a number QA can check'], answer: 3, why: 'The measure decides pass or fail. Your numbers may differ, but it must be a number.' }
+					{ q: 'How does QA check the local fallback\'s measure?', options: ['They read the Rack::Attack config and approve it', 'They send one login and check that it gets a `429`', 'They ask the team whether the throttle feels secure', 'They stop Redis, send 1000 logins from one IP, and count how many reach the password check per window'], answer: 3, why: 'The measure is a number, so a test can count against it. The test has to run in the scenario\'s environment, with Redis down.' }
 				]
 			}
 		]

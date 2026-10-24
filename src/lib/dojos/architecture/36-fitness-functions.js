@@ -98,7 +98,7 @@ export default {
 			{
 				title: 'Start from the default',
 				questions: [
-					{ q: 'An import matches no rule in the file. What does Checkstyle do?', options: ['Allows it', 'Logs a warning and passes', 'Refuses it', 'Skips the file'], answer: 2, why: 'ImportControl refuses by default, so the file is an allowlist.' },
+					{ q: 'In Kafka\'s `common` block, the two `allow class` lines come before `<disallow pkg="org.apache.kafka.clients" />`. Why that order?', options: ['Only for readability', 'Checkstyle sorts the rules anyway', 'The first rule that matches wins, so a disallow placed first would refuse those classes', 'XML requires allow lines first'], answer: 2, why: 'Checkstyle stops at the first matching rule. Order is part of the rule, so keep each exception above the line it carves out of.' },
 					{ q: 'So which kind of lines do you write for this rule?', options: ['Only `allow` lines', 'Only `disallow` lines', 'One `disallow` per forbidden pair', 'An `allow` and a `disallow` per layer'], answer: 0, why: 'Everything not named is already refused. You only name what each layer may use.' },
 					{ q: 'What goes on the root element?', options: ['`<import-control pkg="com.shop.web">`', '`<import-control pkg="java">`', '`<import-control pkg="com.shop.repository">`', '`<import-control pkg="com.shop">`'], answer: 3, why: 'The root covers the whole shop, and each layer is a subpackage under it.' },
 					{ q: 'Why add `<allow pkg="java" />` at the root?', options: ['To allow every import in the project', 'So every layer may use the standard library', 'Because Checkstyle needs at least one rule', 'To let `repository` call `web`'], answer: 1, why: 'A class that finds no rule in its own subpackage falls back to the parent\'s rules, so one line covers all layers.' }
@@ -126,7 +126,7 @@ export default {
 				title: 'Make it run on every PR',
 				questions: [
 					{ q: 'Where does this check run?', options: ['In the same CI job as the tests', 'Once a month, by the architect', 'Only before a release', 'In production monitoring'], answer: 0, why: 'A fast structural check can guard every pull request without slowing the team.' },
-					{ q: 'In Kafka, which command runs Checkstyle in CI?', options: ['`./gradlew test`', '`./gradlew checkstyle`', '`./gradlew build --scan`', '`./gradlew check`'], answer: 3, why: 'Gradle\'s `check` task includes every Checkstyle task, so the rule runs with no extra step.' },
+					{ q: 'In Kafka\'s CI job, what does the step after the check do when Checkstyle fails?', options: ['Retries the build', 'Merges the PR with a warning', 'Opens a ticket for the architect', 'Annotates the Checkstyle errors'], answer: 3, why: 'The author sees which import broke the rule on the pull request itself, so the fix is one line.' },
 					{ q: 'Is this check triggered or continual?', options: ['Continual: it runs all the time', 'Triggered: it runs on each commit', 'Neither: it is manual', 'Both, since CI never stops'], answer: 1, why: 'Triggered checks run on an event, like a commit. Continual ones run all the time, like production monitoring.' },
 					{ q: 'Without this check, what happens to the layer rule over time?', options: ['Nothing: reviewers always catch upward imports', 'Java refuses upward imports anyway', 'It drifts away, one reasonable-looking change at a time', 'Gradle warns about it'], answer: 2, why: 'A rule with nothing that fails when the code breaks it is gone without anyone deciding to drop it.' }
 				]

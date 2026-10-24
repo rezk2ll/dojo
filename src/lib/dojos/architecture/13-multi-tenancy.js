@@ -99,9 +99,9 @@ export default {
 			{
 				title: 'See what is shared',
 				questions: [
-					{ q: 'How does Discourse find the site for a request?', options: ['From a `tenant_id` column', 'From the request\'s host name', 'From a login cookie', 'From the Sidekiq queue name'], answer: 1, why: 'The middleware looks up the host in `config/multisite.yml`. An unknown host gets a 404.' },
-					{ q: 'What does each site already get on its own?', options: ['Its own Redis server', 'Its own Sidekiq workers', 'Its own PostgreSQL database', 'Its own app processes'], answer: 2, why: 'Each entry in `multisite.yml` names its own `database`. The rest is shared.' },
-					{ q: 'What do all sites share today?', options: ['One set of tables with a tenant column', 'Nothing but the code', 'Only the database server', 'The processes, one Redis server and the Sidekiq queues'], answer: 3, why: 'Redis keys are prefixed per site, and jobs carry `current_site_id`, but the servers and queues are the same.' },
+					{ q: 'A request arrives for `forum.shop-c.example`, a host that is not in `multisite.yml`. What happens?', options: ['It falls back to the first site in the file', 'The middleware answers 404 before Rails runs any controller', 'Rails creates a new site for it', 'It reaches the controller with no database'], answer: 1, why: 'The middleware is the first thing a request meets. A host it cannot map to a site never reaches Rails.' },
+					{ q: 'Which part of the large customer\'s forum can you already back up, restore or move on its own?', options: ['Its Redis keys', 'Its queued Sidekiq jobs', 'Its database', 'Its app processes'], answer: 2, why: 'One site is one database. Redis, the queues and the processes hold every site at once.' },
+					{ q: 'A developer needs one Redis key that every site can read. What must the code call?', options: ['`all_sites: true`', '`with_connection(site)`', '`establish_connection`', '`without_namespace`'], answer: 3, why: '`DiscourseRedis` prefixes every key with the current site. Sharing a key across sites takes `without_namespace`, on purpose.' },
 					{ q: 'Where does multisite sit on the spectrum?', options: ['Left: shared everything, one database', 'Middle: shared processes, a database per site', 'Right: a deployment per tenant', 'Off the spectrum: it shares nothing'], answer: 1, why: 'Isolated data, shared compute. That is the middle of the diagram.' }
 				]
 			},
@@ -110,7 +110,7 @@ export default {
 				questions: [
 					{ q: 'Can one site get its own database server?', options: ['Yes, each `multisite.yml` entry is a database config and can name its own `host`', 'No, all sites must share one database server', 'Only with a separate install', 'Only by forking `rails_multisite`'], answer: 0, why: 'An entry has `adapter` and `database` like any database config, so a `host` fits there too.' },
 					{ q: 'What does that cost?', options: ['One full stack per customer', 'A tenant filter on every query', 'One more server to run, while Redis and Sidekiq stay shared', 'Leaving multisite for good'], answer: 2, why: 'It moves only the data. The processes, Redis and the workers are still shared.' },
-					{ q: 'With their own database server, can another site\'s burst of jobs still slow them?', options: ['No, their data is on another server', 'Yes, the Sidekiq queues are still shared', 'No, the middleware blocks other sites', 'Only when Redis is down'], answer: 1, why: 'One site\'s burst waits in the same queues as every other site\'s jobs.' },
+					{ q: 'A release adds a migration. How does the team run it on the customer\'s database alone?', options: ['`rake db:migrate` already runs only the first site', '`RAILS_DB=<their site> rake db:migrate`', 'It cannot: migrations run on every site or none', 'By removing the other sites from `multisite.yml`'], answer: 1, why: 'Every site is a database to migrate. The Discourse docs target one with `RAILS_DB`.' },
 					{ q: 'Which risk was already blocked before this change?', options: ['A burst of jobs in shared queues', 'Load on the shared processes', 'Memory use on the shared Redis', 'Another tenant reading their data'], answer: 3, why: 'Separate databases already stop a query from reaching another site\'s rows.' }
 				]
 			},

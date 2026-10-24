@@ -136,8 +136,8 @@ export default {
 			{
 				title: 'Publish each event safely',
 				questions: [
-					{ q: 'What goes wrong with "commit, then publish to the broker"?', options: ['The publish can fail after the commit, and the event is never sent', 'The commit gets slower', 'Kafka refuses the event', 'The change is saved twice'], answer: 0, why: 'That is the dual-write problem: no transaction spans a database and a broker.' },
-					{ q: 'Where does each service write its event?', options: ['Straight to Kafka after the commit', 'To its own outbox, in the same transaction as its change', 'To one outbox shared by all services', 'To a log file'], answer: 1, why: 'Both rows commit or neither does, so a committed change always has its event.' },
+					{ q: 'A teammate swaps the order: publish `SeatHeld` first, then commit the hold. What can go wrong?', options: ['Payment charges for a hold the database then refuses to save', 'The commit gets slower', 'Kafka refuses the event', 'Nothing: that order is safe'], answer: 0, why: 'Swapping the two writes swaps the bug. It is still a dual write, now with an event about a change that never happened.' },
+					{ q: 'The payment service charges the card through the provider\'s remote API. Does its outbox make that call safe?', options: ['Yes: the outbox covers every side effect', 'No: the charge happens outside its database, so the call and the outbox row are still a dual write', 'Yes, if Debezium tails the provider', 'No, because payments cannot use Kafka'], answer: 1, why: 'An outbox needs the message and the change in one database. A remote API shares no transaction with it.' },
 					{ q: 'Who sends the outbox rows to the broker?', options: ['The service, right after the commit', 'Each consumer', 'A relay that polls the table or tails the database log', 'The broker, by reading the table itself'], answer: 2, why: 'The relay publishes committed rows later, for example Debezium reading the log.' },
 					{ q: 'You run booking by choreography. What does that mean?', options: ['One service sends commands and tracks the replies', 'All three services share one transaction', 'A person starts each step', 'Each service does its step and publishes the next event, and no single service runs the process'], answer: 3, why: 'With orchestration, one service would send commands. Here each service reacts to the event before it.' }
 				]
@@ -145,8 +145,8 @@ export default {
 			{
 				title: 'Handle the event id',
 				questions: [
-					{ q: 'What does the relay guarantee?', options: ['At-least-once', 'Exactly-once', 'At-most-once', 'No guarantee at all'], answer: 0, why: 'A crash after a publish can send a row twice.' },
-					{ q: 'What does each consumer do with the event id?', options: ['Ignore it', 'Store the ids it handled and skip a repeat', 'Send it back to the producer', 'Use it as the Kafka topic'], answer: 1, why: 'A stored id lets the consumer recognize a copy it already handled.' },
+					{ q: 'The seat service deletes old outbox rows to keep the table small. What does Debezium send for those deletes?', options: ['Nothing: the outbox router skips deletes', 'A "seat released" event for each row', 'The row again, as a repeat', 'An error that stops the relay'], answer: 0, why: 'The router expects only inserts and returns `null` for a delete, so cleanup sends nothing.' },
+					{ q: 'The seat service records each event id it handled. When does it write that id?', options: ['Before it reads the event', 'In the same local transaction as the change it makes', 'After the email has gone out', 'In a separate nightly job'], answer: 1, why: 'Written apart from the change, a crash between the two leaves an id without its change, or a change without its id.' },
 					{ q: 'The payment service skips the dedupe. What can happen?', options: ['The seat is never held', 'The email is lost', 'A duplicate event charges the card twice', 'Nothing, since the relay never repeats'], answer: 2, why: 'At-least-once means a repeat will come one day. Without dedupe, it is a second charge.' },
 					{ q: 'In Debezium\'s outbox router, where does the row\'s `id` go?', options: ['Into the topic name', 'Into the partition number', 'Nowhere: it is dropped', 'Into the message\'s `id` header'], answer: 3, why: 'The Debezium docs say the header is there "to remove duplicate messages".' }
 				]

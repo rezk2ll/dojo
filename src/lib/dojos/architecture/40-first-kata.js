@@ -74,7 +74,7 @@ export default {
 				questions: [
 					{ q: 'You start the timer. What is the first thing on your sheet?', options: ['The containers sketch', 'The questions you would ask the customer', 'The database choice', 'The 30-second pitch'], answer: 1, why: 'The rules say "When in doubt, ask." Two minutes of questions and assumptions come before any box.' },
 					{ q: 'Which question is worth asking for this brief?', options: ['Which logo color the families prefer', 'Whether to use tabs or spaces', 'Are videos in scope, and how big?', 'How many stars the repo should get'], answer: 2, why: 'Videos change storage, upload and archive size, so the answer changes the design.' },
-					{ q: 'Nobody answers your question about videos. What do you do?', options: ['Make an assumption and state it clearly when you present', 'Design for 8K video to be safe', 'Drop the upload requirement', 'Leave videos out and say nothing'], answer: 0, why: 'Assumptions are allowed if you define them clearly. Bad ones, never checked, earn a thumbs down.' },
+					{ q: 'Which question probes the tension between the two deployments?', options: ['Can a self-hosted family invite someone on the hosted service?', 'Which phone models do grandparents use?', 'Should the logo be round?', 'Which font should the album use?'], answer: 0, why: 'Home and hosted are separate installs. Whether an invite crosses between them changes the boundary you draw.' },
 					{ q: 'Alone, who plays the moderator?', options: ['Nobody: you skip that step', 'A random brief generator', 'The first reader of your sheet', 'You: you write the questions down instead'], answer: 3, why: 'The moderator plays everybody except you. Alone, the written questions take that role.' }
 				]
 			},
@@ -91,7 +91,7 @@ export default {
 				title: 'Sketch it and find the door',
 				questions: [
 					{ q: 'Which boxes sit outside the album on the context diagram?', options: ['Mail for invites, push notifications, object storage if hosted', 'The database and the web server', 'Kubernetes and a service mesh', 'The four developers'], answer: 0, why: 'A context diagram shows the system as one box with its people and external systems.' },
-					{ q: 'Which containers sketch fits both deployments?', options: ['One microservice per feature', 'A stateless app: one copy on one box, or many behind a load balancer', 'A separate codebase for home and for hosting', 'One shared database for every family'], answer: 1, why: 'State lives in the database and storage, so the same code runs at home or hosted.' },
+					{ q: 'On the context diagram, where does the invited relative go?', options: ['Inside the album box', 'Outside the box, as a person next to the family members', 'Nowhere: they are not a user', 'Inside the mail box, since the invite is an email'], answer: 1, why: 'A context diagram shows the people around the system. The relative uses the album, so they are a person there, even with access to one album only.' },
 					{ q: 'Which decision is the one-way door?', options: ['The thumbnail size', 'The push notification provider', 'The archive format', 'How families are separated: a database per family or shared tables with a family id'], answer: 3, why: 'Day 13\'s tenancy models. Changing it later means moving every family\'s data.' },
 					{ q: 'The invited relative from outside crosses that boundary. What follows?', options: ['Sharing with them must be a feature you design on purpose', 'They become a member of the family', 'They get read access to all albums', 'They need their own home server'], answer: 0, why: 'This is the brief\'s tension: "never visible" versus "invite from outside". Design the crossing explicitly.' }
 				]
@@ -100,8 +100,8 @@ export default {
 				title: 'Pitch and score it',
 				questions: [
 					{ q: 'How do you write the ADR for the one-way door?', options: ['As a full page of pros and cons', 'As a Y-statement, cost included', 'As a list of technologies', 'As a diagram only'], answer: 1, why: 'Days 4 and 5: one Y-statement that names the choice and what it costs.' },
-					{ q: 'How long is the pitch?', options: ['Five minutes', 'Two minutes', '30 seconds', 'As long as the diagrams need'], answer: 2, why: 'Day 39: pitch it as you would to a director, in 30 seconds.' },
-					{ q: 'Which design earns a thumbs down?', options: ['One with diagrams not finished', 'One that uses a database the voters do not know', 'One that states its assumptions', 'Kubernetes and ten microservices for a home server, with no questions asked'], answer: 3, why: 'Major assumptions with no validity and never asking the customer are what the rules mark down.' },
+					{ q: 'Like the director version on day 39, what must the pitch keep?', options: ['Every container name', 'Only the gain', 'One gain and one cost', 'The project timeline'], answer: 2, why: 'A pitch with only the gain hides the price of the one-way door. The director hears the cost later, from someone else.' },
+					{ q: 'Alone, nobody votes on your sheet. What do you do instead?', options: ['Give yourself a thumbs up', 'Skip the score', 'Redo the kata until it feels right', 'Show it to one person, or compare it with a real system you know'], answer: 3, why: 'Without a vote you cannot see your blind spots, so borrow one outside reader or one real design to check against.' },
 					{ q: 'What does a thumbs up need?', options: ['The confidence you could produce the diagrams given time', 'Finished diagrams for every container', 'A working prototype', 'Support for a billion users'], answer: 0, why: 'The rules say up does not need finished diagrams, only that confidence.' }
 				]
 			}

@@ -148,7 +148,7 @@ module.exports.charge = async request => {
 					{ q: 'What do you fix first?', options: ['Tell "the caller\'s fault" from "our fault" in the code', 'Lower the target until it passes', 'Drop the availability SLI', 'Alert on CPU instead'], answer: 0, why: 'The SLI can only be as honest as the signal under it.' },
 					{ q: 'How can the code tell the two apart?', options: ['A longer timeout', 'A different error type or gRPC status', 'A log line with the card number', 'A retry on every failure'], answer: 1, why: 'Different errors give different values, and the metrics can then split on them.' },
 					{ q: 'Where does that distinction go next?', options: ['Into the card number attribute', 'Into the liveness probe', 'As a dimension on the span metrics connector', 'Into a separate pod'], answer: 2, why: 'A new dimension on the connector shows it in the metrics, so you count only your faults.' },
-					{ q: 'Why not add `transactionId` as a dimension too?', options: ['It is not unique', 'Prometheus cannot store strings', 'It would leak the CVV', 'One time series per transaction makes the metric store fall over'], answer: 3, why: 'A label with one value per transaction creates one series per value. It belongs in the log line.' }
+					{ q: 'The new dimension is in place. Which payment spans count as bad events in the availability SLI now?', options: ['Every span with an `Error` status', 'Only spans slower than 1 s', 'None: errors never count', 'Only `Error` spans marked as our fault, not the card\'s'], answer: 3, why: 'An expired card is a good event for the service: it answered correctly. Only failures the service caused spend the budget.' }
 				]
 			},
 			{
@@ -166,7 +166,7 @@ module.exports.charge = async request => {
 					{ q: 'What do you page on?', options: ['The burn rate', 'One bad minute', 'CPU at 80%', 'One pod restarting'], answer: 0, why: 'The burn rate says users are hurting fast enough to spend the budget.' },
 					{ q: 'What is the burn rate?', options: ['The CPU used by the payment pods', 'The speed at which the error budget is spent', 'The number of requests per second', 'The share of spans that are sampled'], answer: 1, why: 'A high burn rate means the budget will run out well before the window ends.' },
 					{ q: 'Which thresholds does the SRE workbook suggest as a start for a page?', options: ['10% of the budget in 3 days', '50% of the budget in 1 minute', '2% of the budget in 1 hour, or 5% in 6 hours', '1% of the budget in 28 days'], answer: 2, why: 'For a page, the workbook suggests 2% of the budget in 1 hour or 5% in 6 hours. 10% in 3 days is the threshold for a ticket.' },
-					{ q: 'A pod restarts and CPU is at 80%. Do you page?', options: ['Yes: both are urgent', 'Yes, for the CPU only', 'Yes, for the restart only', 'No: those are causes, you look at them after a symptom alert'], answer: 3, why: 'Cause alerts fire often and rarely mean users are affected, so people learn to ignore pages.' }
+					{ q: 'Payments burn 10% of the budget over 3 days, and no page threshold is crossed. What does the workbook suggest?', options: ['Page at once', 'Nothing: it is within budget', 'Turn the SLO off', 'Open a ticket for working hours'], answer: 3, why: 'A slow burn still needs fixing, but not at 3 a.m. 10% in 3 days is the workbook\'s threshold for a ticket.' }
 				]
 			}
 		]

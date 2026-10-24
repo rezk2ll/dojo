@@ -129,6 +129,44 @@ func (r *raft) becomeCandidate() {
 			'(2) Il reste trois membres : le leader, D et E. Trois forment encore un quorum, donc le cluster peut valider, mais seulement quand D et E ont rattrapé les nouvelles entrées. Le leader continue de leur envoyer ce qui leur manque.',
 			'(3) Non. La dernière entrée de C est (terme 8, index 7) et celle de D (terme 8, index 4) : même terme, index plus petit, donc D n’est pas à jour et C refuse le vote. (Si C a entendu le leader dans l’election timeout et que check-quorum est activé, il [ignore la demande](' + RAFT + '/raft.go#L1100-L1112) purement et simplement.) D ne peut pas gagner sans le vote d’un membre qui a l’entrée 7.',
 			'Vérifie (2) avec le [tableau de tolérance aux pannes](' + FAQ + '#L55-L65) de la FAQ d’etcd : 5 membres ont une majorité de 3 et tolèrent 2 pannes.'
+		],
+		steps: [
+			{
+				title: 'Trouve l’index de commit',
+				questions: [
+					{ q: 'Quel est le quorum d’un cluster à cinq membres ?', options: ['3', '2', '4', '5'], answer: 0, why: '(n/2)+1 avec la division arrondie vers le bas : 5/2 donne 2, plus 1 donne 3.' },
+					{ q: 'Tu tries les index acquittés : 3, 4, 7, 7, 9. Quelle position donne l’index de commit ?', options: ['La position 4, la plus haute', 'La position 2, en comptant depuis 0', 'La position 0, la plus basse', 'La position 1'], answer: 1, why: 'etcd prend la position `n - (n/2 + 1)`, ici 5 - 3 = 2. Chaque valeur à partir de là est détenue par au moins un quorum.' },
+					{ q: 'Quel est l’index de commit ?', options: ['9', '4', '7', '3'], answer: 2, why: 'Le leader, B et C ont l’index 7 : trois membres, un quorum. Seul le leader a le 9.' },
+					{ q: 'Quand le comptage des répliques valide-t-il l’entrée 7 ?', options: ['Seulement quand les cinq membres l’ont', 'Seulement après l’acquittement de D et E', 'Dès que le leader l’a sur son disque', 'Seulement si l’entrée 7 a été écrite au terme du leader, 8'], answer: 3, why: 'Un leader ne valide en comptant les répliques que les entrées de son propre terme. Les entrées plus anciennes avant elle sont validées en même temps.' }
+				]
+			},
+			{
+				title: 'Perds B et C',
+				questions: [
+					{ q: 'B et C plantent. Quels membres restent ?', options: ['Le leader, D et E', 'Le leader seul', 'Le leader et D', 'D et E'], answer: 0, why: 'Trois des cinq tournent encore.' },
+					{ q: 'Le cluster peut-il encore valider ?', options: ['Non : deux pannes arrêtent toujours les écritures', 'Oui : trois forment encore un quorum de cinq', 'Seules les lectures marchent désormais', 'Seulement après une nouvelle élection'], answer: 1, why: 'Perdre une minorité, 2 sur 5, laisse une majorité, donc le leader continue de valider.' },
+					{ q: 'Que doit-il se passer avant qu’une nouvelle écriture soit validée ?', options: ['B et C doivent revenir', 'L’opérateur doit réinitialiser le cluster', 'D et E doivent rattraper et persister les entrées qui leur manquent', 'Un nouveau leader doit être élu'], answer: 2, why: 'D est à 4 et E à 3. Le leader continue de leur envoyer ce qui leur manque, et quand les deux ont la nouvelle entrée, trois membres l’ont.' },
+					{ q: 'Combien de pannes supporte un cluster à cinq membres ?', options: ['1', '3', '4', '2'], answer: 3, why: 'Avec 2 membres tombés, il en reste 3, encore un quorum. Une troisième panne en laisse 2, en dessous.' }
+				]
+			},
+			{
+				title: 'Juge la demande de vote de D',
+				questions: [
+					{ q: 'B et C sont revenus. Quelle est la dernière entrée du journal de C ?', options: ['(terme 8, index 7)', '(terme 8, index 4)', '(terme 9, index 7)', '(terme 7, index 7)'], answer: 0, why: 'C avait acquitté l’index 7, écrit au terme 8.' },
+					{ q: 'D demande un vote avec comme dernière entrée (terme 8, index 4). Pour juger si le journal de D est à jour, que compare C en premier ?', options: ['L’heure de chaque dernière écriture', 'Le terme de chaque dernière entrée', 'L’index de chaque dernière entrée', 'Les identifiants des nœuds'], answer: 1, why: 'Être à jour, c’est avoir un dernier terme plus grand, ou le même dernier terme avec un index au moins aussi grand. Le terme passe d’abord.' },
+					{ q: 'Les deux dernières entrées sont au terme 8. Qu’est-ce qui tranche ?', options: ['D gagne les égalités, puisqu’il a demandé en premier', 'Le terme d’élection le plus grand, 9, gagne', 'L’index : 4 est plus petit que 7, donc D n’est pas à jour', 'Un tirage au sort'], answer: 2, why: 'À dernier terme égal, le candidat a besoin d’un index au moins aussi grand que celui du votant.' },
+					{ q: 'C vote-t-il pour D ?', options: ['Oui, parce que le terme 9 dépasse 8', 'Oui, si C n’a pas encore voté au terme 9', 'Oui, mais seulement si le leader a disparu', 'Non : le journal de D est en retard sur celui de C'], answer: 3, why: '`isUpToDate` renvoie false, donc C refuse le vote, quel que soit le terme de la demande.' }
+				]
+			},
+			{
+				title: 'Tire la leçon',
+				questions: [
+					{ q: 'Pourquoi D ne peut-il jamais gagner cette élection ?', options: ['Toute majorité de trois inclut le leader, B ou C, qui ont tous l’entrée 7 et refusent D', 'D a le plus petit identifiant', 'Le terme 9 est trop grand pour être accepté', 'etcd interdit à un membre qui a planté de diriger'], answer: 0, why: 'D n’a que son propre vote et celui de E. Le troisième vote doit venir d’un membre qui a l’entrée 7.' },
+					{ q: 'C a entendu le leader dans l’election timeout, et check-quorum est activé. Que fait-il de la demande de D ?', options: ['Il vote oui, puis redevient follower', 'Il ignore la demande purement et simplement', 'Il devient candidat lui aussi', 'Il la transmet au leader'], answer: 1, why: 'Un follower qui entend encore un leader vivant ignore les demandes de vote, donc un membre en retard ne peut pas perturber le cluster.' },
+					{ q: 'Pourquoi la règle « à jour » compte-t-elle ?', options: ['Elle accélère les élections', 'Elle envoie moins de messages', 'Un candidat qui a raté des entrées validées ne peut pas gagner, donc une écriture validée n’est jamais perdue', 'Elle économise du disque'], answer: 2, why: 'Une entrée validée est sur un quorum, et toute majorité partage un membre avec ce quorum. Ce membre bloque tout candidat qui ne l’a pas.' },
+					{ q: 'Quelqu’un propose un sixième membre « par sécurité ». Combien de pannes six membres supportent-ils ?', options: ['3', '5', '1', '2, comme cinq, puisque le quorum passe à 4'], answer: 3, why: 'Le quorum de 6 est 4, donc en perdre 3 en laisse trop peu. La FAQ : une taille paire "doesn\'t buy additional fault tolerance" (n’apporte aucune tolérance aux pannes en plus).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -166,6 +204,29 @@ func (r *raft) becomeCandidate() {
 			why: 'Valider demande un quorum de 2, et l’ancien leader n’atteint que lui-même. Les deux followers élisent un nouveau leader à un terme plus grand. Quand l’ancien leader voit ce terme, il redevient follower, et ses entrées non validées sont remplacées par le journal du nouveau leader.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Faire tourner un etcd à trois membres sur ton portable, arrêter les membres un par un, et voir les écritures passer avec 2 sur 3 et s’arrêter avec 1 sur 3.',
+		steps: [
+			'Lance un conteneur qui sert seulement de réseau aux trois membres, puis les membres, chacun sur ses propres ports localhost : `docker run -d --name etcd-net alpine:3.20 sleep 86400`, puis `for i in 1 2 3; do docker run -d --name etcd$i --network container:etcd-net quay.io/coreos/etcd:v3.5.25 etcd --name etcd$i --data-dir /etcd-data --listen-client-urls http://127.0.0.1:${i}2379 --advertise-client-urls http://127.0.0.1:${i}2379 --listen-peer-urls http://127.0.0.1:${i}2380 --initial-advertise-peer-urls http://127.0.0.1:${i}2380 --initial-cluster etcd1=http://127.0.0.1:12380,etcd2=http://127.0.0.1:22380,etcd3=http://127.0.0.1:32380 --initial-cluster-state new; done`.',
+			'Regarde le cluster et écris une clé : `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 endpoint status -w table`, puis `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 put /service/leader node-a`. Note quel membre a `IS LEADER`.',
+			'Arrête un membre qui n’est pas le leader, par exemple `docker stop etcd3` si `etcd1` ou `etcd2` dirige. Écris encore depuis un membre vivant : `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 put /service/leader node-b`.',
+			'Arrête un deuxième membre, pour n’en laisser qu’un. Écris encore avec un délai : `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 --command-timeout=5s put /service/leader node-c` (lance-le sur le membre encore debout). Puis lance `endpoint status -w table` et `endpoint health` sur lui.',
+			'Redémarre un membre arrêté avec `docker start etcd3` (ou celui que tu as arrêté), attends quelques secondes, et écris encore une fois.',
+			'Quand tu as fini : `docker rm -f etcd1 etcd2 etcd3 etcd-net`.'
+		],
+		done: [
+			'Avec trois membres, `endpoint status` montre un membre avec `IS LEADER` à true et le même `RAFT INDEX` sur les trois.',
+			'Avec un membre arrêté, le `put` affiche `OK`.',
+			'Avec deux arrêtés, le `put` échoue après le délai, avec `etcdserver: request timed out` si le dernier membre se croit encore leader, ou `context deadline exceeded` une fois qu’il est redevenu follower. `endpoint status` affiche `etcdserver: no leader`, et `endpoint health` dit que le membre n’est pas sain : `failed to commit proposal`.',
+			'Après `docker start`, le `put` affiche de nouveau `OK` et `endpoint status` montre un `RAFT TERM` plus grand.'
+		],
+		solution: [
+			'Trois membres ont un quorum de 2. Une panne en laisse 2, donc les écritures sont validées. Deux pannes en laissent 1, et le dernier membre redevient follower : il ne peut pas atteindre une majorité, donc il a toutes les données et ne valide rien.',
+			'Quand un deuxième membre revient, un quorum existe de nouveau, une élection a lieu à un terme plus grand, et etcd reprend sans intervention.',
+			'Les membres partagent un même espace réseau, donc ils se parlent sur `127.0.0.1` avec des ports différents, sans réseau Docker à créer.'
+		]
+	},
 	recall: {
 		q: 'Un cluster etcd à trois membres en perd deux. Pourquoi les écritures s’arrêtent-elles, et combien de pannes cinq membres tolèrent-ils ?',
 		a: 'Une écriture n’est validée qu’une fois sur disque chez un quorum, (n/2)+1 membres. Avec 3 membres, le quorum est 2, et il n’en reste qu’un. Cinq membres ont un quorum de 3 et tolèrent 2 pannes.'

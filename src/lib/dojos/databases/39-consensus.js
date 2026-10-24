@@ -129,6 +129,44 @@ func (r *raft) becomeCandidate() {
 			'(2) Three members are left: leader, D and E. Three is still a quorum, so the cluster can commit, but only once D and E catch up to the new entries. The leader keeps sending them what they miss.',
 			'(3) No. C\'s last entry is (term 8, index 7) and D\'s is (term 8, index 4): same term, smaller index, so D is not up to date and C rejects the vote. (If C heard from the leader within the election timeout and check-quorum is on, it [ignores the request](' + RAFT + '/raft.go#L1100-L1112) outright.) D cannot win without a vote from someone holding entry 7.',
 			'Check (2) against the [fault tolerance table](' + FAQ + '#L55-L65) in the etcd FAQ: 5 members have a majority of 3 and tolerate 2 failures.'
+		],
+		steps: [
+			{
+				title: 'Find the commit index',
+				questions: [
+					{ q: 'What is the quorum of a five-member cluster?', options: ['3', '2', '4', '5'], answer: 0, why: '(n/2)+1 with the division rounded down: 5/2 is 2, plus 1 is 3.' },
+					{ q: 'You sort the acknowledged indexes: 3, 4, 7, 7, 9. Which position gives the commit index?', options: ['Position 4, the highest', 'Position 2, counting from 0', 'Position 0, the lowest', 'Position 1'], answer: 1, why: 'etcd takes position `n - (n/2 + 1)`, here 5 - 3 = 2. Every value from there up is held by at least a quorum.' },
+					{ q: 'What is the commit index?', options: ['9', '4', '7', '3'], answer: 2, why: 'The leader, B and C hold index 7: three members, a quorum. Only the leader holds 9.' },
+					{ q: 'When does counting replicas commit entry 7?', options: ['Only once all five members hold it', 'Only after D and E acknowledge it', 'As soon as the leader has it on disk', 'Only if entry 7 was written in the leader\'s own term, 8'], answer: 3, why: 'A leader commits by counting replicas only for entries of its own term. Older entries before it commit along with it.' }
+				]
+			},
+			{
+				title: 'Lose B and C',
+				questions: [
+					{ q: 'B and C crash. Which members are left?', options: ['The leader, D and E', 'Only the leader', 'The leader and D', 'D and E'], answer: 0, why: 'Three of the five are still up.' },
+					{ q: 'Can the cluster still commit?', options: ['No: two failures always stop writes', 'Yes: three is still a quorum of five', 'Only reads work from now on', 'Only after a new election'], answer: 1, why: 'Losing a minority, 2 of 5, leaves a majority, so the leader keeps committing.' },
+					{ q: 'What must happen before a new write commits?', options: ['B and C must come back', 'The operator must reset the cluster', 'D and E must catch up and persist the entries they miss', 'A new leader must be elected'], answer: 2, why: 'D is at 4 and E at 3. The leader keeps sending them what they lack, and once both hold the new entry, three members have it.' },
+					{ q: 'How many failures does a five-member cluster survive?', options: ['1', '3', '4', '2'], answer: 3, why: 'With 2 down, 3 are left, still a quorum. A third failure leaves 2, below it.' }
+				]
+			},
+			{
+				title: 'Judge D\'s vote request',
+				questions: [
+					{ q: 'B and C are back. What is C\'s last log entry?', options: ['(term 8, index 7)', '(term 8, index 4)', '(term 9, index 7)', '(term 7, index 7)'], answer: 0, why: 'C had acknowledged index 7, written in term 8.' },
+					{ q: 'D asks for a vote with last entry (term 8, index 4). To decide whether D\'s log is up to date, what does C compare first?', options: ['The time of each last write', 'The term of each last entry', 'The index of each last entry', 'The node ids'], answer: 1, why: 'Up to date means a later last term, or the same last term and an index at least as large. The term comes first.' },
+					{ q: 'Both last entries are in term 8. What decides it?', options: ['D wins ties, since it asked first', 'The higher election term, 9, wins', 'The index: 4 is smaller than 7, so D is not up to date', 'A random draw'], answer: 2, why: 'With the same last term, the candidate needs an index at least as large as the voter\'s.' },
+					{ q: 'Does C vote for D?', options: ['Yes, because term 9 is higher than 8', 'Yes, if C has not voted in term 9 yet', 'Yes, but only if the leader is gone', 'No: D\'s log is behind C\'s'], answer: 3, why: '`isUpToDate` returns false, so C rejects the vote whatever the term of the request.' }
+				]
+			},
+			{
+				title: 'Draw the lesson',
+				questions: [
+					{ q: 'Why can D never win this election?', options: ['Any majority of three includes the leader, B or C, who all hold entry 7 and reject D', 'D has the lowest node id', 'Term 9 is too high to be accepted', 'etcd forbids a member that crashed from leading'], answer: 0, why: 'D only has its own vote and E\'s. The third vote must come from a member with entry 7.' },
+					{ q: 'C heard the leader within the election timeout, and check-quorum is on. What does it do with D\'s request?', options: ['It votes yes, then steps down', 'It ignores the request outright', 'It becomes a candidate too', 'It forwards it to the leader'], answer: 1, why: 'A follower that still hears a live leader ignores vote requests, so a lagging member cannot disrupt the cluster.' },
+					{ q: 'Why does the up-to-date rule matter?', options: ['It makes elections faster', 'It sends fewer messages', 'A candidate that missed committed entries cannot win, so a committed write is never lost', 'It saves disk space'], answer: 2, why: 'A committed entry is on a quorum, and every majority shares a member with that quorum. That member blocks any candidate without it.' },
+					{ q: 'Someone proposes a sixth member "for safety". How many failures can six survive?', options: ['3', '5', '1', '2, the same as five, since the quorum rises to 4'], answer: 3, why: 'The quorum of 6 is 4, so losing 3 leaves too few. The FAQ: an even size "doesn\'t buy additional fault tolerance".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -166,6 +204,29 @@ func (r *raft) becomeCandidate() {
 			why: 'Commit needs a quorum of 2, and the old leader reaches only itself. The two followers elect a new leader at a higher term. When the old leader hears that term, it steps down, and its uncommitted entries are replaced by the new leader\'s log.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Run a three-member etcd on your laptop, stop members one by one, and watch writes keep working with 2 of 3 and stop with 1 of 3.',
+		steps: [
+			'Start a container that only holds a network for the three members, then the members, each on its own localhost ports: `docker run -d --name etcd-net alpine:3.20 sleep 86400`, then `for i in 1 2 3; do docker run -d --name etcd$i --network container:etcd-net quay.io/coreos/etcd:v3.5.25 etcd --name etcd$i --data-dir /etcd-data --listen-client-urls http://127.0.0.1:${i}2379 --advertise-client-urls http://127.0.0.1:${i}2379 --listen-peer-urls http://127.0.0.1:${i}2380 --initial-advertise-peer-urls http://127.0.0.1:${i}2380 --initial-cluster etcd1=http://127.0.0.1:12380,etcd2=http://127.0.0.1:22380,etcd3=http://127.0.0.1:32380 --initial-cluster-state new; done`.',
+			'Look at the cluster and write a key: `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 endpoint status -w table`, then `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 put /service/leader node-a`. Note which member `IS LEADER`.',
+			'Stop one member that is not the leader, for example `docker stop etcd3` if `etcd1` or `etcd2` leads. Write again from a live member: `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 put /service/leader node-b`.',
+			'Stop a second member, leaving only one. Write again with a timeout: `docker exec etcd1 etcdctl --endpoints=127.0.0.1:12379 --command-timeout=5s put /service/leader node-c` (run it on whichever member is still up). Then run `endpoint status -w table` and `endpoint health` against it.',
+			'Start one stopped member again with `docker start etcd3` (or the one you stopped), wait a few seconds, and write once more.',
+			'When you are done: `docker rm -f etcd1 etcd2 etcd3 etcd-net`.'
+		],
+		done: [
+			'With three members, `endpoint status` shows one member with `IS LEADER` true and the same `RAFT INDEX` on all three.',
+			'With one member stopped, the `put` prints `OK`.',
+			'With two stopped, the `put` fails after the timeout, with `etcdserver: request timed out` if the last member still thinks it leads, or `context deadline exceeded` once it has stepped down. `endpoint status` shows `etcdserver: no leader`, and `endpoint health` says the member is unhealthy: `failed to commit proposal`.',
+			'After `docker start`, the `put` prints `OK` again and `endpoint status` shows a higher `RAFT TERM`.'
+		],
+		solution: [
+			'Three members have a quorum of 2. One failure leaves 2, so writes commit. Two failures leave 1, and the last member steps down: it cannot reach a majority, so it holds every byte and commits nothing.',
+			'When a second member returns, a quorum exists again, an election runs at a higher term, and etcd resumes with no operator action.',
+			'The members share one network namespace, so they talk over `127.0.0.1` on different ports, with no Docker network to create.'
+		]
+	},
 	recall: {
 		q: 'A three-member etcd cluster loses two members. Why do writes stop, and how many failures can five members tolerate?',
 		a: 'A write commits only once a quorum, (n/2)+1, has it on disk. With 3 members the quorum is 2, and one member is left. Five members have a quorum of 3 and tolerate 2 failures.'

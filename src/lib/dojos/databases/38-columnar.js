@@ -142,6 +142,44 @@ export default {
 			'Zonemaps on `created_at`: the data is in date order, so row groups before 2026 have a max below the filter and are skipped. One year out of five leaves about 160 MB, before any compression.',
 			'In DuckDB 1.5, a 1 million row copy with an `id`, a `created_at` every 30 seconds, a 3-value `status` and a `total` showed `Dictionary` for `status` and `BitPacking` for the others in `pragma_storage_info`. The database file was 2.7 MiB, while the same rows in a PostgreSQL heap took 58 MB.',
 			'Conclusion: keep checkout on PostgreSQL, and copy orders to a column store in batches for reports, accepting that reports run a few minutes behind.'
+		],
+		steps: [
+			{
+				title: 'Estimate the row store',
+				questions: [
+					{ q: 'With no index on `created_at`, how many bytes does a row store read for the report, before compression?', options: ['About 10 GB', 'About 800 MB', 'About 160 MB', 'About 2 GB'], answer: 0, why: '50 million rows of 200 bytes is about 10 GB, and every page is read.' },
+					{ q: 'Why does it read all of that for two columns?', options: ['It decompresses every page first', 'Each page holds whole rows, so `total` comes with the 38 other columns', 'It reads every index as well', 'PostgreSQL reads each row twice'], answer: 1, why: 'The two columns are spread across every page of the table, between the other columns.' },
+					{ q: 'You add an index on `created_at`. Why does the report stay expensive?', options: ['Indexes cannot be used for `sum`', 'The index is ignored on timestamps', '2026 is a fifth of the table, and each row read is still a whole row', 'The index makes the pages bigger'], answer: 2, why: 'An index finds rows, but each row it finds still brings all 40 columns with it.' },
+					{ q: 'What is the row store good at, then?', options: ['Revenue per month over five years', 'Counting distinct visitors over a year', 'Averages across all past orders', 'Reading or writing one whole order, as checkout does'], answer: 3, why: 'A whole row sits in one page, so one order is one page read or write.' }
+				]
+			},
+			{
+				title: 'Estimate the column store',
+				questions: [
+					{ q: 'How many bytes per row does the report need?', options: ['16', '200', '8', '40'], answer: 0, why: '`created_at` is 8 bytes and `total` is 8 bytes.' },
+					{ q: 'How many bytes does the column store read for those two columns, before skipping anything?', options: ['About 10 GB', 'About 800 MB', 'About 160 MB', 'About 80 MB'], answer: 1, why: '50 million rows times 16 bytes is 800 MB.' },
+					{ q: 'Why does it never touch the other 38 columns?', options: ['They are compressed to nothing', 'A zonemap skips them', 'Each column is stored on its own, and the query names only two', 'It keeps an index on every column'], answer: 2, why: 'A query reads only the columns it names. The others sit in their own files, untouched.' },
+					{ q: 'What makes the real number smaller still?', options: ['Bigger row groups', 'A B-tree on each column', 'Sampling a fraction of the rows', 'Compression: values of one column look alike'], answer: 3, why: 'A column of one type and one meaning compresses well, so even fewer bytes come off the disk.' }
+				]
+			},
+			{
+				title: 'Apply the zonemaps',
+				questions: [
+					{ q: 'What does a zonemap keep for each row group?', options: ['The min and max of the column', 'Every value, sorted', 'A hash of each value', 'The number of NULLs only'], answer: 0, why: 'A filter that falls outside the min-max range skips the row group without reading it.' },
+					{ q: 'Why can row groups before 2026 be skipped here?', options: ['DuckDB knows the current year', 'The orders were inserted in date order, so their max is below the filter', 'Old row groups are compressed harder', 'Old row groups are deleted at checkpoint'], answer: 1, why: 'Zonemaps pay off when the data is roughly sorted on the filtered column, as dates inserted over time are.' },
+					{ q: 'One year out of five is left. How many bytes is that, before compression?', options: ['About 800 MB', 'About 10 GB', 'About 160 MB', 'About 16 MB'], answer: 2, why: 'A fifth of 800 MB is 160 MB.' },
+					{ q: 'If the orders had been loaded in random date order, what would change?', options: ['Nothing: zonemaps sort the data', 'More row groups would be skipped', 'The column store would refuse the filter', 'Every row group would span all dates, so none could be skipped'], answer: 3, why: 'With random values, DuckDB "will likely be unable to skip any row groups".' }
+				]
+			},
+			{
+				title: 'Check it and decide',
+				questions: [
+					{ q: 'Where do you see the encoding DuckDB chose for each column?', options: ['`pragma_storage_info(\'orders\')`', '`EXPLAIN` on the report', 'PostgreSQL\'s `pg_stats`', '`information_schema.columns`'], answer: 0, why: 'It lists each segment of each column with its compression.' },
+					{ q: 'Which encoding fits `status`, three words repeated a million times?', options: ['Bit packing', 'Dictionary encoding', 'No compression', 'One file per value'], answer: 1, why: 'A dictionary stores the three words once and a small code per row.' },
+					{ q: 'How does DuckDB pick an encoding?', options: ['One fixed encoding per type', 'You name it in `CREATE TABLE`', 'It tries every candidate at checkpoint and keeps the lowest estimated size', 'It picks the newest one'], answer: 2, why: 'Each candidate analyzes the column data and returns a size estimate, and the smallest wins.' },
+					{ q: 'What do you do with checkout and the reports?', options: ['Move checkout to DuckDB too', 'Index all 40 columns in PostgreSQL', 'Send each order to ClickHouse as it is placed', 'Keep checkout on PostgreSQL, and copy orders in batches to a column store for reports'], answer: 3, why: 'Checkout writes one row at a time, which a row store does best. Reports accept a few minutes of lag.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -179,6 +217,29 @@ export default {
 			why: 'A zonemap skips a row group only when the value falls outside its min-max range. With random UUIDs, every range is wide, so nothing is skipped. The DuckDB guide suggests ordered integers for such filters.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Load a million orders into DuckDB, read the encodings it chose, and watch zonemaps skip row groups on sorted data but not on shuffled data.',
+		steps: [
+			'Install DuckDB for Python in a folder of its own: `mkdir -p ~/col-lab && cd ~/col-lab && python3 -m venv venv && venv/bin/pip install duckdb==2.0.0`.',
+			'Write `q.py`, which runs one SQL statement on `orders.duckdb`: `import duckdb, sys`, `con = duckdb.connect("orders.duckdb")`, `r = con.sql(sys.argv[1])`, then `if r is not None: print(r.fetchall()[0][1] if sys.argv[1].startswith("EXPLAIN") else r)`.',
+			'Load five years of orders in date order: `venv/bin/python q.py "CREATE TABLE orders AS SELECT i AS id, TIMESTAMP \'2022-01-01\' + i * INTERVAL 158 SECOND AS created_at, ([\'paid\', \'shipped\', \'refunded\'])[1 + i % 3] AS status, (i % 500)::DECIMAL(10,2) AS total FROM range(1000000) t(i)"`, then `venv/bin/python q.py "CHECKPOINT"` and `ls -l orders.duckdb`.',
+			'Read the encodings: `venv/bin/python q.py "SELECT column_name, compression, count(*) AS segments FROM pragma_storage_info(\'orders\') GROUP BY ALL ORDER BY ALL"`.',
+			'Run the report with a 2026 filter and read the scan: `venv/bin/python q.py "EXPLAIN ANALYZE SELECT sum(total) FROM orders WHERE created_at >= \'2026-01-01\'" | grep "Row Groups"`.',
+			'Make a shuffled copy and run the same filter on it: `venv/bin/python q.py "CREATE TABLE shuffled AS SELECT * FROM orders ORDER BY random()"`, then the same `EXPLAIN ANALYZE` on `shuffled`.'
+		],
+		done: [
+			'`orders.duckdb` is about 3 MB for a million rows.',
+			'`pragma_storage_info` shows `BitPacking` for `id`, `created_at` and `total`, and a dictionary encoding (`DICT_FSST` in DuckDB 2.0) for `status`.',
+			'On `orders`, the scan prints `Row Groups Scanned: 3 / 9`.',
+			'On `shuffled`, the same query prints `Row Groups Scanned: 9 / 9`.'
+		],
+		solution: [
+			'The row groups hold 122,880 rows each, so a million rows make 9. In date order, only the last three can hold 2026, and the zonemaps rule out the other six.',
+			'After the shuffle, every row group holds dates from all five years, so each min-max range covers the filter and nothing is skipped.',
+			'For comparison, the task\'s note measured the same rows in a PostgreSQL heap at 58 MB. The column store wins on bytes read, and still loses on fetching one whole order by id.'
+		]
+	},
 	recall: {
 		q: 'A report sums 2 columns of a 40-column table, filtered on a date. What does a column store such as DuckDB skip that a row store reads?',
 		a: 'The 38 other columns, and every row group whose zonemap max on `created_at` is below the filter. Each row group holds 122,880 rows by default.'

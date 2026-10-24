@@ -142,6 +142,44 @@ export default {
 			'Zonemaps sur `created_at` : les données sont dans l’ordre des dates, donc les row groups d’avant 2026 ont un max sous le filtre et sont sautés. Une année sur cinq laisse environ 160 Mo, avant toute compression.',
 			'Avec DuckDB 1.5, une copie d’un million de lignes avec un `id`, un `created_at` toutes les 30 secondes, un `status` à 3 valeurs et un `total` a montré `Dictionary` pour `status` et `BitPacking` pour les autres dans `pragma_storage_info`. Le fichier de base pesait 2,7 Mio, alors que les mêmes lignes dans un heap PostgreSQL prenaient 58 Mo.',
 			'Conclusion : garde le paiement sur PostgreSQL, et copie les commandes par lots vers un stockage en colonnes pour les rapports, en acceptant qu’ils aient quelques minutes de retard.'
+		],
+		steps: [
+			{
+				title: 'Estime le stockage en lignes',
+				questions: [
+					{ q: 'Sans index sur `created_at`, combien d’octets lit un stockage en lignes pour le rapport, avant compression ?', options: ['Environ 10 Go', 'Environ 800 Mo', 'Environ 160 Mo', 'Environ 2 Go'], answer: 0, why: '50 millions de lignes de 200 octets, c’est environ 10 Go, et chaque page est lue.' },
+					{ q: 'Pourquoi lit-il tout ça pour deux colonnes ?', options: ['Il décompresse d’abord chaque page', 'Chaque page contient des lignes entières, donc `total` vient avec les 38 autres colonnes', 'Il lit aussi chaque index', 'PostgreSQL lit chaque ligne deux fois'], answer: 1, why: 'Les deux colonnes sont réparties dans toutes les pages de la table, entre les autres colonnes.' },
+					{ q: 'Tu ajoutes un index sur `created_at`. Pourquoi le rapport reste-t-il cher ?', options: ['Les index ne servent pas pour un `sum`', 'L’index est ignoré sur les timestamps', '2026 fait un cinquième de la table, et chaque ligne lue reste une ligne entière', 'L’index grossit les pages'], answer: 2, why: 'Un index trouve des lignes, mais chaque ligne trouvée amène encore ses 40 colonnes.' },
+					{ q: 'À quoi le stockage en lignes est-il bon, alors ?', options: ['Le chiffre d’affaires par mois sur cinq ans', 'Compter les visiteurs distincts sur un an', 'Des moyennes sur toutes les commandes passées', 'Lire ou écrire une commande entière, comme le paiement'], answer: 3, why: 'Une ligne entière tient dans une page, donc une commande, c’est une lecture ou une écriture de page.' }
+				]
+			},
+			{
+				title: 'Estime le stockage en colonnes',
+				questions: [
+					{ q: 'De combien d’octets par ligne le rapport a-t-il besoin ?', options: ['16', '200', '8', '40'], answer: 0, why: '`created_at` fait 8 octets et `total` 8 octets.' },
+					{ q: 'Combien d’octets lit le stockage en colonnes pour ces deux colonnes, avant de sauter quoi que ce soit ?', options: ['Environ 10 Go', 'Environ 800 Mo', 'Environ 160 Mo', 'Environ 80 Mo'], answer: 1, why: '50 millions de lignes fois 16 octets, c’est 800 Mo.' },
+					{ q: 'Pourquoi ne touche-t-il jamais les 38 autres colonnes ?', options: ['Elles sont compressées à rien', 'Une zonemap les saute', 'Chaque colonne est stockée à part, et la requête n’en nomme que deux', 'Il garde un index sur chaque colonne'], answer: 2, why: 'Une requête ne lit que les colonnes qu’elle nomme. Les autres restent dans leurs propres fichiers, sans être touchées.' },
+					{ q: 'Qu’est-ce qui rend le vrai chiffre encore plus petit ?', options: ['Des row groups plus gros', 'Un B-tree sur chaque colonne', 'L’échantillonnage d’une partie des lignes', 'La compression : les valeurs d’une colonne se ressemblent'], answer: 3, why: 'Une colonne d’un seul type et d’un seul sens se compresse bien, donc encore moins d’octets sortent du disque.' }
+				]
+			},
+			{
+				title: 'Applique les zonemaps',
+				questions: [
+					{ q: 'Que garde une zonemap pour chaque row group ?', options: ['Le min et le max de la colonne', 'Toutes les valeurs, triées', 'Un hash de chaque valeur', 'Seulement le nombre de NULL'], answer: 0, why: 'Un filtre qui tombe hors de l’intervalle min-max saute le row group sans le lire.' },
+					{ q: 'Pourquoi les row groups d’avant 2026 peuvent-ils être sautés ici ?', options: ['DuckDB connaît l’année en cours', 'Les commandes ont été insérées dans l’ordre des dates, donc leur max est sous le filtre', 'Les vieux row groups sont plus compressés', 'Les vieux row groups sont supprimés au checkpoint'], answer: 1, why: 'Les zonemaps paient quand les données sont à peu près triées sur la colonne filtrée, comme des dates insérées au fil du temps.' },
+					{ q: 'Il reste une année sur cinq. Combien d’octets ça fait, avant compression ?', options: ['Environ 800 Mo', 'Environ 10 Go', 'Environ 160 Mo', 'Environ 16 Mo'], answer: 2, why: 'Un cinquième de 800 Mo, c’est 160 Mo.' },
+					{ q: 'Si les commandes avaient été chargées dans un ordre de dates aléatoire, qu’est-ce qui changerait ?', options: ['Rien : les zonemaps trient les données', 'Plus de row groups seraient sautés', 'Le stockage en colonnes refuserait le filtre', 'Chaque row group couvrirait toutes les dates, donc aucun ne pourrait être sauté'], answer: 3, why: 'Avec des valeurs aléatoires, DuckDB "will likely be unable to skip any row groups" (ne pourra sans doute sauter aucun row group).' }
+				]
+			},
+			{
+				title: 'Vérifie et décide',
+				questions: [
+					{ q: 'Où vois-tu l’encodage que DuckDB a choisi pour chaque colonne ?', options: ['`pragma_storage_info(\'orders\')`', 'Un `EXPLAIN` du rapport', 'Le `pg_stats` de PostgreSQL', '`information_schema.columns`'], answer: 0, why: 'Il liste chaque segment de chaque colonne avec sa compression.' },
+					{ q: 'Quel encodage convient à `status`, trois mots répétés un million de fois ?', options: ['Le bit packing', 'L’encodage par dictionnaire', 'Pas de compression', 'Un fichier par valeur'], answer: 1, why: 'Un dictionnaire stocke les trois mots une fois et un petit code par ligne.' },
+					{ q: 'Comment DuckDB choisit-il un encodage ?', options: ['Un encodage fixe par type', 'Tu le nommes dans le `CREATE TABLE`', 'Il essaie chaque candidat au checkpoint et garde la plus petite taille estimée', 'Il prend le plus récent'], answer: 2, why: 'Chaque candidat analyse les données de la colonne et renvoie une estimation de taille, et la plus petite gagne.' },
+					{ q: 'Que fais-tu du paiement et des rapports ?', options: ['Passer aussi le paiement sur DuckDB', 'Indexer les 40 colonnes dans PostgreSQL', 'Envoyer chaque commande à ClickHouse dès qu’elle est passée', 'Garder le paiement sur PostgreSQL, et copier les commandes par lots vers un stockage en colonnes pour les rapports'], answer: 3, why: 'Le paiement écrit une ligne à la fois, ce qu’un stockage en lignes fait le mieux. Les rapports acceptent quelques minutes de retard.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -179,6 +217,29 @@ export default {
 			why: 'Une zonemap ne saute un row group que si la valeur tombe hors de son intervalle min-max. Avec des UUID aléatoires, chaque intervalle est large, donc rien n’est sauté. Le guide de DuckDB conseille des entiers ordonnés pour ce genre de filtre.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Charger un million de commandes dans DuckDB, lire les encodages choisis, et voir les zonemaps sauter des row groups sur des données triées mais pas sur des données mélangées.',
+		steps: [
+			'Installe DuckDB pour Python dans un dossier à part : `mkdir -p ~/col-lab && cd ~/col-lab && python3 -m venv venv && venv/bin/pip install duckdb==2.0.0`.',
+			'Écris `q.py`, qui lance une instruction SQL sur `orders.duckdb` : `import duckdb, sys`, `con = duckdb.connect("orders.duckdb")`, `r = con.sql(sys.argv[1])`, puis `if r is not None: print(r.fetchall()[0][1] if sys.argv[1].startswith("EXPLAIN") else r)`.',
+			'Charge cinq ans de commandes dans l’ordre des dates : `venv/bin/python q.py "CREATE TABLE orders AS SELECT i AS id, TIMESTAMP \'2022-01-01\' + i * INTERVAL 158 SECOND AS created_at, ([\'paid\', \'shipped\', \'refunded\'])[1 + i % 3] AS status, (i % 500)::DECIMAL(10,2) AS total FROM range(1000000) t(i)"`, puis `venv/bin/python q.py "CHECKPOINT"` et `ls -l orders.duckdb`.',
+			'Lis les encodages : `venv/bin/python q.py "SELECT column_name, compression, count(*) AS segments FROM pragma_storage_info(\'orders\') GROUP BY ALL ORDER BY ALL"`.',
+			'Lance le rapport avec un filtre sur 2026 et lis le parcours : `venv/bin/python q.py "EXPLAIN ANALYZE SELECT sum(total) FROM orders WHERE created_at >= \'2026-01-01\'" | grep "Row Groups"`.',
+			'Fais une copie mélangée et lance le même filtre dessus : `venv/bin/python q.py "CREATE TABLE shuffled AS SELECT * FROM orders ORDER BY random()"`, puis le même `EXPLAIN ANALYZE` sur `shuffled`.'
+		],
+		done: [
+			'`orders.duckdb` pèse environ 3 Mo pour un million de lignes.',
+			'`pragma_storage_info` montre `BitPacking` pour `id`, `created_at` et `total`, et un encodage par dictionnaire (`DICT_FSST` dans DuckDB 2.0) pour `status`.',
+			'Sur `orders`, le parcours affiche `Row Groups Scanned: 3 / 9`.',
+			'Sur `shuffled`, la même requête affiche `Row Groups Scanned: 9 / 9`.'
+		],
+		solution: [
+			'Les row groups contiennent 122 880 lignes chacun, donc un million de lignes en font 9. Dans l’ordre des dates, seuls les trois derniers peuvent contenir 2026, et les zonemaps écartent les six autres.',
+			'Après le mélange, chaque row group contient des dates des cinq années, donc chaque intervalle min-max couvre le filtre et rien n’est sauté.',
+			'Pour comparer, la note de l’exercice a mesuré les mêmes lignes dans un heap PostgreSQL à 58 Mo. Le stockage en colonnes gagne sur les octets lus, et perd toujours pour lire une commande entière par id.'
+		]
+	},
 	recall: {
 		q: 'Un rapport fait la somme de 2 colonnes d’une table de 40, filtrée sur une date. Que saute un stockage en colonnes comme DuckDB, alors qu’un stockage en lignes le lit ?',
 		a: 'Les 38 autres colonnes, et chaque row group dont le max de `created_at` dans la zonemap est sous le filtre. Un row group contient 122 880 lignes par défaut.'

@@ -17,6 +17,13 @@
  * A rep is one typed answer: a command, a query or an expression. `accept` lists every
  * answer that counts, the first one shown as the answer.
  * @typedef {{ prompt: string, accept: string[], why: string }} Rep
+ * A task with `steps` is multiple-choice questions grouped in steps and checked together;
+ * without them it is a free answer. Either way `answer` is shown at the end.
+ * @typedef {{ title: string, questions: Question[] }} TaskStep
+ * @typedef {{ prompt: string, hint?: string, answer: string[], steps?: TaskStep[] }} Task
+ * A lab is an optional exercise done for real, in a terminal or a sandbox. It never
+ * holds back the chapter.
+ * @typedef {{ minutes: number, goal: string, steps: string[], done: string[], solution?: string[] }} Lab
  * @typedef {{
  *   slug: string, part: string, title: string, minutes: number,
  *   hook: string[],
@@ -28,8 +35,9 @@
  *   kata?: Kata,
  *   reps?: Rep[],
  *   tradeoff?: { gain: string[], cost: string[] },
- *   task?: { prompt: string, hint?: string, answer: string[] },
+ *   task?: Task,
  *   quiz: Question[],
+ *   lab?: Lab,
  *   recall?: { q: string, a: string },
  *   sources: { title: string, url: string }[]
  * }} Chapter
@@ -58,7 +66,13 @@ const list = (modules) =>
 	Object.keys(modules)
 		.sort()
 		.map((k) => modules[k].default)
-		.map((c) => ({ ...c, quiz: c.quiz.map((q, i) => shuffled(`${c.slug}#${i}`, q)) }));
+		.map((c) => ({
+			...c,
+			quiz: c.quiz.map((q, i) => shuffled(`${c.slug}#${i}`, q)),
+			task: c.task?.steps
+				? { ...c.task, steps: c.task.steps.map((s, j) => ({ ...s, questions: s.questions.map((q, i) => shuffled(`${c.slug}#t${j}.${i}`, q)) })) }
+				: c.task
+		}));
 
 /** @param {Record<string, { default: Chapter }>} modules @returns {Record<string, Chapter[]>} */
 function byDojo(modules) {

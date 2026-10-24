@@ -118,7 +118,7 @@ func init() {
 				title: 'Read the limits line',
 				questions: [
 					{ q: 'In `Max open files 1024 524288 files`, which number does the kernel enforce?', options: ['524288, the hard limit', '1024, the soft limit', 'Both added together', 'Neither, it is only a hint'], answer: 1, why: 'The kernel enforces the soft limit. The hard limit is the ceiling for raising it.' },
-					{ q: 'What does a soft limit of 1024 mean for descriptor numbers?', options: ['The highest fd the process can get is 1023', 'The process can hold 1024 files besides 0, 1 and 2', 'The highest fd the process can get is 1024', 'The limit counts files only, not sockets'], answer: 0, why: 'RLIMIT_NOFILE is "one greater than the maximum file descriptor number that can be opened".' },
+					{ q: 'A shell started with the same limits runs `ulimit -n`. What does it print?', options: ['1024, the soft limit', '524288, the hard limit', '1023, the highest fd number', '`unlimited`'], answer: 0, why: '`ulimit -n` reads the soft limit, the one the kernel enforces. `ulimit -Hn` would print 524288.' },
 					{ q: 'Can the service raise its own soft limit without privilege?', options: ['No, only root can change limits', 'Yes, to any value', 'Only with `ulimit -n` in the shell that started it', 'Yes, up to the hard limit of 524288'], answer: 3, why: 'An unprivileged process may raise its soft limit up to the hard limit. Raising the hard limit needs `CAP_SYS_RESOURCE`.' },
 					{ q: 'Where do 1024 and 524288 come from for a service?', options: ['The kernel\'s built-in maximum, set at compile time', 'Your login shell\'s `ulimit -n`', 'systemd\'s defaults for the services it starts', 'The size of the process\'s memory'], answer: 2, why: 'systemd starts services with a soft limit of 1024 and a hard limit of 524288 by default.' }
 				]
@@ -127,8 +127,8 @@ func init() {
 				title: 'Compare the count',
 				questions: [
 					{ q: '`ls /proc/<pid>/fd | wc -l` prints 1024. What does that mean?', options: ['Every number from 0 to 1023 is in use', 'The process has room for one more fd', 'Half of the hard limit is used', 'The count includes the `ls` process'], answer: 0, why: 'One entry per open descriptor, and 1024 entries fill every number below the soft limit.' },
-					{ q: 'What happens to the next `accept()` on the listening socket?', options: ['It gets fd 1024', 'It waits until an fd is closed', 'It closes the oldest connection', 'It fails with `EMFILE`'], answer: 3, why: 'Every call that needs a new descriptor fails with `EMFILE` once all numbers are taken.' },
-					{ q: 'Which other calls fail the same way?', options: ['Only `open()`', '`read()` and `write()` on existing fds', '`open()`, `pipe()` and `socket()`', 'None: only sockets are limited'], answer: 2, why: 'Any call that creates a descriptor needs a free number. Calls on existing fds still work.' },
+					{ q: 'Besides its connections, the service holds fds 0, 1, 2 and its listening socket. How many clients were connected when `accept()` began to fail?', options: ['1024', '1023', '524288', '1020'], answer: 3, why: 'The numbers 0 to 1023 are 1024 fds. Four go to stdin, stdout, stderr and the listening socket, which leaves 1020 for connections.' },
+					{ q: 'Besides `accept()`, which calls now fail with `EMFILE`?', options: ['Only `open()`', '`read()` and `write()` on existing fds', '`open()`, `pipe()` and `socket()`', 'None: only sockets are limited'], answer: 2, why: 'Any call that creates a descriptor needs a free number. Calls on existing fds still work.' },
 					{ q: 'Why can the service\'s own error handler fail while logging the problem?', options: ['Logging is disabled at the limit', 'Listing `/proc/self/fd` needs one more fd', 'The kernel kills the process once it reaches the limit', 'stderr is closed at the limit'], answer: 1, why: 'In the chapter\'s test, `os.listdir("/proc/self/fd")` failed too: listing a directory opens it first.' }
 				]
 			},
@@ -147,7 +147,7 @@ func init() {
 					{ q: 'You find a leak. Is raising the limit the fix?', options: ['No: a higher limit only pushes the error later', 'Yes: 524288 will never be reached', 'Yes, as long as you also restart nightly', 'No: limits cannot be raised for services'], answer: 0, why: 'A leak keeps growing whatever the limit. Fix the code that forgets to close.' },
 					{ q: 'The count matches real load, with no leak. What do you do?', options: ['Lower the hard limit', 'Close stdin, stdout and stderr to free 3 fds', 'Run `ulimit -n 65536` in your own shell', 'Let the program raise its own soft limit'], answer: 3, why: 'systemd\'s docs suggest the program raise its own soft limit, as the Go runtime does at startup.' },
 					{ q: 'Why does `ulimit -n 65536` in your shell not help the running service?', options: ['`ulimit` only works for root', 'Limits are inherited at `fork()`, and it already runs', 'The kernel ignores limits set from an interactive shell', 'It only changes the hard limit'], answer: 1, why: 'Your shell\'s limit only reaches the children of your shell.' },
-					{ q: 'When must a program keep the soft limit at 1024?', options: ['When it uses `epoll`', 'When it runs as root', 'When it passes fds to `select()`', 'When it runs under systemd'], answer: 2, why: 'systemd.exec(5): "select(2) cannot function with file descriptors above 1023 on Linux".' }
+					{ q: 'After the fix, how do you check that the running service has its new soft limit?', options: ['`ulimit -n` in your own shell', '`cat /proc/sys/fs/file-max`', '`grep "Max open files" /proc/<pid>/limits`', '`ls /proc/<pid>/fd | wc -l`'], answer: 2, why: 'The `limits` file shows the soft and hard limit of that process. `ulimit -n` in your shell only shows your shell\'s own limit.' }
 				]
 			}
 		]

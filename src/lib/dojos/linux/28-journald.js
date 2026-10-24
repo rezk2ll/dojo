@@ -160,17 +160,17 @@ int journal_ratelimit_test(
 				title: 'Free the space now',
 				questions: [
 					{ q: 'Which command deletes old files down to 500M right away?', options: ['`journalctl --vacuum-size=500M`', '`rm /var/log/journal/*/*.journal`', '`journalctl --disk-usage=500M`', '`systemctl clean systemd-journald`'], answer: 0, why: 'It deletes the oldest archived files until they use less than 500M.' },
-					{ q: 'Which files does vacuuming never delete?', options: ['The oldest archived files', 'The active journal files', 'Files from the previous boot', 'Files over 100M'], answer: 1, why: 'Only archived files are removed. The active `system.journal` stays.' },
-					{ q: 'After the vacuum, `--disk-usage` shows 540M. Is something wrong?', options: ['Yes: the drop-in was ignored', 'Yes: the vacuum failed halfway', 'No: the active files are counted too', 'No: `--disk-usage` rounds up by 10%'], answer: 2, why: 'journalctl(1) says the vacuum has "only an indirect effect" on that number, because active files count.' },
+					{ q: 'About how much disk does that vacuum give back on this VM?', options: ['About 500M', 'About 3.4G', 'About 3.9G', 'Nothing until the next reboot'], answer: 1, why: 'The journals go from 3.9G to about 500M, so about 3.4G comes back. The active files make it a little less.' },
+					{ q: 'Does the vacuum alone keep the journal under 500M next month?', options: ['Yes: the vacuum sets the limit', 'Yes, until the next reboot', 'No: only the `SystemMaxUse=500M` drop-in does', 'No: nothing can'], answer: 2, why: 'A vacuum is a one-time cleanup. journald keeps growing to its configured limit, so the drop-in is what holds it at 500M.' },
 					{ q: 'Why not just `rm` the files by hand?', options: ['`rm` cannot delete journal files', 'journald would recreate them at once', 'Journal files are read-only, even for root', '`--vacuum-size` picks the oldest archived files and leaves the active one alone'], answer: 3, why: 'The vacuum removes files in age order and never touches the active file journald is writing.' }
 				]
 			},
 			{
 				title: 'Find last boot\'s nginx errors',
 				questions: [
-					{ q: 'Which option picks the boot before the current one?', options: ['`-b`', '`-b 1`', '`-b -1`', '`--since -1`'], answer: 2, why: '`-b -1` matches the `_BOOT_ID=` of the boot before the current one. `-b` alone is the current boot and `-b 1` the first recorded.' },
-					{ q: 'Which option keeps only errors and worse?', options: ['`-p err`', '`-p 3..7`', '`-p info`', '`--errors`'], answer: 0, why: '`-p err` keeps priorities 0 to 3. `3..7` would add warnings, notices, info and debug.' },
-					{ q: 'So the full command is...', options: ['`journalctl nginx -b -1 | grep error`', '`journalctl -u nginx -b -p err`', '`journalctl -u nginx -b 1 -p 3`', '`journalctl -u nginx -b -1 -p err`'], answer: 3, why: '`-u nginx` matches `_SYSTEMD_UNIT=nginx.service`, and the filters work on fields, with no `grep`.' },
+					{ q: 'Which command first shows whether the journal holds a boot before the current one?', options: ['`journalctl -b`', '`uptime`', '`journalctl --list-boots`', '`journalctl --disk-usage`'], answer: 2, why: '`--list-boots` prints one line per recorded boot. The previous one has index `-1`.' },
+					{ q: 'Which priority number is `err`?', options: ['3', '4', '6', '7'], answer: 0, why: '`-p err` shows priority 3 and everything more important, 0 to 3.' },
+					{ q: 'Which option would cut the output to the last 5 of those errors?', options: ['`-p 5`', '`-b 5`', '`--since 5`', '`-n 5`'], answer: 3, why: '`-n` limits the output to the newest N entries. `-p 5` and `-b 5` would change the priority and the boot.' },
 					{ q: 'The command prints nothing for any earlier boot. What is the likely cause?', options: ['nginx had no errors', 'The journal lives only in `/run/log/journal/`, lost at reboot', 'The 500M limit deleted last night\'s files', '`-p err` hides nginx messages'], answer: 1, why: 'Older boots need persistent storage in `/var/log/journal/`.' }
 				]
 			}

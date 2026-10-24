@@ -120,8 +120,8 @@ void linuxMemoryWarnings(void) {
 				title: 'Lis le mode',
 				questions: [
 					{ q: 'Le fichier affiche `always [madvise] never`. Quel mode est actif ?', options: ['`always`', '`never`', '`madvise`', 'Les trois, un par CPU'], answer: 2, why: 'Le noyau met entre crochets la valeur active.' },
-					{ q: 'En mode `madvise`, quelle mémoire peut recevoir des grandes pages ?', options: ['Toute plage anonyme de plus de 2 MB', 'Seulement les plages marquées avec `madvise(MADV_HUGEPAGE)`', 'Seulement les fichiers sur disque', 'Rien : `madvise` équivaut à `never`'], answer: 1, why: 'La doc du noyau : les grandes pages sont "only enabled inside MADV_HUGEPAGE regions". La taille ne joue aucun rôle.' },
-					{ q: 'Que change une page de 2 MB pour le TLB ?', options: ['Une entrée couvre 512 fois plus de mémoire', 'Le TLB gagne 512 entrées', 'Le TLB est coupé pour cette plage', 'Rien : le TLB ne garde que des fichiers'], answer: 0, why: 'Avec des pages de 4 KB, chaque entrée couvre 4 KB. Une page de 2 MB couvre 512 fois plus avec une seule entrée.' },
+					{ q: 'Laquelle des trois valeurs donnerait des grandes pages à toute plage anonyme, marquée ou non ?', options: ['`never`', '`always`', '`madvise`', 'Aucune'], answer: 1, why: 'Seul `always` applique les THP sans appel à `madvise`. `never` les coupe.' },
+					{ q: 'Comment root couperait-il les THP sur cette machine jusqu’au prochain démarrage ?', options: ['En écrivant `never` dans `/sys/kernel/mm/transparent_hugepage/enabled`', 'En modifiant `/proc/meminfo`', 'En appelant `madvise(MADV_HUGEPAGE)` sur le tas', 'En écrivant 0 dans `AnonHugePages`'], answer: 0, why: 'Le mode se règle dans ce fichier sysfs. `/proc/meminfo` ne fait qu’afficher, et `MADV_HUGEPAGE` demande des grandes pages.' },
 					{ q: 'Redis afficherait-il son avertissement THP sur cette machine ?', options: ['Oui : THP est pris en charge', 'Oui : `AnonHugePages` n’est pas à 0', 'Seulement si `defrag` est à `always`', 'Non : `checkTHPEnabled` n’échoue que sur `[always]`'], answer: 3, why: 'Redis lit le même fichier et n’avertit que s’il trouve `[always]`. Avec `madvise`, il ne fait rien.' }
 				]
 			},

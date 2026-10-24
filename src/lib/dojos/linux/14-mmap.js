@@ -124,7 +124,7 @@ export default {
 					{ q: 'The command prints five lines for `libc.so.6`. What is each line?', options: ['One copy of libc loaded from disk', 'One mapping of part of the same file, at its own offset', 'One thread of the shell', 'One version of libc on the machine'], answer: 1, why: 'Each line is one mapping of the same file at a different offset, with its own permissions.' },
 					{ q: 'Which line holds libc\'s code?', options: ['The `rw-p` line', 'The first `r--p` line', 'The `r-xp` line', 'None: code is not mapped'], answer: 2, why: 'The `x` means executable. The `r-xp` line at offset `00028000` is the code.' },
 					{ q: 'What does the fourth character of the permissions column say?', options: ['Whether the mapping is shared or private', 'Whether the page is in RAM', 'Whether the file is open', 'Whether the page is dirty'], answer: 0, why: 'proc_pid_maps(5): "s = shared", "p = private (copy on write)".' },
-					{ q: 'The shell read libc through these mappings. Where do those bytes live?', options: ['In a buffer the shell allocated with `malloc`', 'In the shell\'s stack', 'In swap', 'In the page cache, mapped into the shell with no copy'], answer: 3, why: 'A file mapping points at the page cache pages of the file. Reading an address reads the file\'s bytes there.' }
+					{ q: 'The `r-xp` line shows the offset `00028000`. What does it say?', options: ['The memory address where libc starts', 'The size of libc\'s code', 'The inode number of `libc.so.6`', 'Where in the file this mapping starts: 0x28000 bytes in'], answer: 3, why: 'The third column is the offset into the file. Each line maps the part of `libc.so.6` that starts there.' }
 				]
 			},
 			{
@@ -132,7 +132,7 @@ export default {
 				questions: [
 					{ q: 'Why are all libc lines private?', options: ['So no write by the shell can reach the libc file on disk', 'Because shared mappings are slower to read', 'Because only root can make shared mappings', 'So libc is loaded once per CPU'], answer: 0, why: 'With `MAP_PRIVATE`, updates are not carried through to the file. A program cannot change the libc that every other process runs.' },
 					{ q: 'Do the read-only `r--p` lines cost each process its own copy of libc?', options: ['Yes: private means copied at once', 'Yes: each process reads libc from disk again', 'No: a private page is copied only on the first write', 'No: private pages are kept on disk'], answer: 2, why: 'Copy-on-write copies a page only when the process writes to it. Pages that are never written stay shared in the page cache.' },
-					{ q: 'Under `MAP_SHARED`, where would a write go?', options: ['To a private copy', 'To the file\'s page in the page cache, then to the file', 'Nowhere: shared mappings are read-only', 'To swap'], answer: 1, why: 'A `MAP_SHARED` write changes the page cache page itself. Other mappers see it, and writeback carries it to the file.' },
+					{ q: 'Which `mmap` flag gives a line its `p`?', options: ['`MAP_SHARED`', '`MAP_PRIVATE`', '`MAP_ANONYMOUS`', '`MAP_FIXED`'], answer: 1, why: 'The fourth permission character is `p` for a `MAP_PRIVATE` mapping and `s` for a `MAP_SHARED` one.' },
 					{ q: 'Which flag would let a stray write from the shell change libc for everyone?', options: ['`MAP_PRIVATE` with `PROT_READ`', '`MAP_PRIVATE` with `PROT_WRITE`', '`MAP_ANONYMOUS`', '`MAP_SHARED` with `PROT_WRITE`'], answer: 3, why: 'Only a shared, writable mapping writes back to the file. Every libc line is private.' }
 				]
 			},
@@ -140,7 +140,7 @@ export default {
 				title: 'Follow a write',
 				questions: [
 					{ q: 'What does the `rw-p` line hold?', options: ['libc\'s writable globals', 'libc\'s code', 'The shell\'s heap', 'The shell\'s stack'], answer: 0, why: 'It is the only writable libc mapping. Global variables that change at run time live there.' },
-					{ q: 'The shell writes a libc global for the first time. What does the kernel do?', options: ['Writes the change to the libc file', 'Sends SIGSEGV to the shell', 'Updates the page for every process', 'Gives this shell its own copy of the page'], answer: 3, why: 'The first write to a `MAP_PRIVATE` page faults and the kernel copies the page. The shell then writes its copy.' },
+					{ q: 'How does the kernel notice the shell\'s first write to that page?', options: ['The shell calls `msync` first', 'libc tells the kernel with a system call', 'A timer scans the page every second', 'The write faults: the page has no write access until it is copied'], answer: 3, why: 'Until the copy, the page is mapped without write access. The write traps into the kernel, which copies the page and lets the write go on.' },
 					{ q: 'Another shell runs at the same time. Does it see the first shell\'s change?', options: ['Yes, at once', 'Yes, after the next writeback', 'No: it keeps the original page', 'Only after `msync`'], answer: 2, why: 'The copy belongs to one process. The file and other processes keep the original.' },
 					{ q: 'Would `msync` push the change to the libc file?', options: ['Yes: `msync` writes every dirty page', 'No: `msync` matters only for `MAP_SHARED` mappings', 'Yes, if the shell runs as root', 'Only if the page was evicted'], answer: 1, why: 'A private copy has no link back to the file. `msync` sets when shared pages reach the file.' }
 				]

@@ -120,7 +120,7 @@ export default {
 				questions: [
 					{ q: 'What are `6.12 5.90 5.31`?', options: ['CPU usage in percent over the last three minutes', 'The load averaged over 1, 5 and 15 minutes', 'Tasks per CPU right now', 'Seconds of wait per minute'], answer: 1, why: 'The first three fields are the damped 1, 5 and 15 minute values of `avenrun`.' },
 					{ q: 'What does `1/388` say?', options: ['1 runnable task now, out of 388', '1 CPU busy out of 388', '1 task in D state', '1% of all tasks are blocked waiting for I/O'], answer: 0, why: 'The fourth field is runnable tasks right now over all tasks.' },
-					{ q: 'What does 6.12 count on Linux?', options: ['Only tasks using a CPU', 'Every task that exists', 'Tasks in R plus tasks in D', 'Tasks in S state'], answer: 2, why: 'Each CPU folds `nr_running + nr_uninterruptible` into the global count.' },
+					{ q: 'What does the last field, `20417`, say?', options: ['The number of tasks in D state', 'The uptime in seconds', 'The PID most recently created', 'Free memory, in pages'], answer: 2, why: '`/proc/loadavg` ends with the last PID the kernel created.' },
 					{ q: 'The 15 minute value is 5.31 and the 1 minute value is 6.12. What does that tell you?', options: ['The spike ended before you logged in to look', 'The machine just rebooted', 'The numbers are wrong', 'The load is sustained and rising a little'], answer: 3, why: 'All three values are close and the shortest one is highest: the load is sustained and slightly rising.' }
 				]
 			},
@@ -139,7 +139,7 @@ export default {
 					{ q: 'Are the CPUs the bottleneck?', options: ['No: 1 runnable task, CPUs 50% idle', 'Yes: the load of 6 is above the 4 CPUs', 'Yes: the 15 minute load is above 4', 'Cannot tell without `top`'], answer: 0, why: 'A CPU bottleneck would show many runnable tasks and little idle time.' },
 					{ q: 'Would two more CPUs make this VM faster?', options: ['Yes, the load would drop to 1.5 per CPU', 'Yes, `wa` would turn into `us`', 'No: the tasks wait for I/O, not a CPU', 'Only for the 15 minute value'], answer: 2, why: 'D tasks use no CPU. They wait for the disk whatever the CPU count.' },
 					{ q: 'Why not just divide 6.12 by 4 CPUs?', options: ['The load is already per CPU', 'D tasks use no CPU, so the ratio misleads', 'You should divide by the 388 tasks instead', 'Only the 15 minute value can be divided'], answer: 1, why: 'Load per CPU mixes disk waits with CPU demand. Gregg compares the load to the same server\'s usual value instead.' },
-					{ q: 'Where is the load mostly coming from?', options: ['A busy loop', 'Too many threads', 'Kernel threads flushing writes, only', 'Tasks in D state waiting on the disk'], answer: 3, why: '6 blocked processes and 45% I/O wait point at the disk.' }
+					{ q: 'The disk recovers and the 6 blocked tasks finish. What does the 1 minute load do?', options: ['Drops to 1 at once', 'Stays at 6 for the next 15 minutes', 'Rises, because the tasks become runnable', 'Falls toward 1 over the next minute or so, as the average decays'], answer: 3, why: 'Each 5 second sample keeps 92% of the old 1 minute value, so the load decays gradually after the D tasks are gone.' }
 				]
 			},
 			{

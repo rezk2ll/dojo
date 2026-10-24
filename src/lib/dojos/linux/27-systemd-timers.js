@@ -105,14 +105,14 @@ WantedBy=timers.target`,
 					{ q: 'Which `Type=` fits a report that runs and exits?', options: ['`Type=oneshot`', '`Type=notify`', '`Type=simple`', '`Type=forking`'], answer: 0, why: 'A timer usually starts a `Type=oneshot` service: it runs to the end, then the unit goes back to inactive.' },
 					{ q: 'Which line runs the report?', options: ['`Exec=/usr/local/bin/report`', '`Command=/usr/local/bin/report`', '`ExecStart=/usr/local/bin/report`', '`Run=/usr/local/bin/report`'], answer: 2, why: '`ExecStart=` is the command systemd runs when the service starts.' },
 					{ q: 'Does `report.service` need an `[Install]` section?', options: ['Yes, `WantedBy=multi-user.target`', 'No: the timer starts it', 'Yes, `WantedBy=report.timer`', 'Yes, or the timer cannot find it'], answer: 1, why: 'The timer starts the service at each elapse. Only the timer is enabled, so only the timer needs `[Install]`.' },
-					{ q: 'Where does the report\'s output go?', options: ['To root\'s mailbox, like cron', 'To `/var/log/cron.log`', 'Nowhere unless you redirect it', 'To the journal, tagged with `report.service`'], answer: 3, why: 'A service writes to the journal by default (`DefaultStandardOutput=journal`).' }
+					{ q: 'You want one run now, outside the schedule. What do you type?', options: ['Nothing: only the timer can start it', '`systemctl start report.timer`', '`systemd-analyze calendar now`', '`systemctl start report.service`'], answer: 3, why: 'The service is an ordinary unit, so you can start it by hand. Starting the timer only arms the schedule.' }
 				]
 			},
 			{
 				title: 'Write the timer',
 				questions: [
 					{ q: 'Which `OnCalendar=` matches `30 2 * * 1-5`?', options: ['`OnCalendar=Mon..Fri 02:30`', '`OnCalendar=1-5 2:30`', '`OnCalendar=*-*-1..5 02:30`', '`OnCalendar=weekdays 30 2`'], answer: 0, why: 'A calendar event names the weekdays first, then the date and the time: `Mon..Fri *-*-* 02:30:00` in normalized form.' },
-					{ q: 'Which line catches up on a run missed during downtime?', options: ['`RandomizedDelaySec=1h`', '`WakeSystem=true`', '`Persistent=true`', '`AccuracySec=1us`'], answer: 2, why: 'With `Persistent=true`, systemd stores the last trigger time on disk and starts the service at boot if a run was missed.' },
+					{ q: 'Which line would spread the 02:30 start over up to 10 minutes, so many servers do not all run at once?', options: ['`Persistent=true`', '`WakeSystem=true`', '`RandomizedDelaySec=10min`', '`AccuracySec=1us`'], answer: 2, why: '`RandomizedDelaySec=` draws a random delay before each run and adds it to the scheduled time.' },
 					{ q: 'Which `[Install]` line starts the timer at boot?', options: ['`WantedBy=multi-user.target`', '`WantedBy=timers.target`', '`After=time-sync.target`', '`Before=report.service`'], answer: 1, why: '`apt-daily.timer` does the same: `WantedBy=timers.target`.' },
 					{ q: 'Would `Persistent=true` work with `OnUnitActiveSec=1d` instead?', options: ['Yes, it works with every timer', 'Yes, if you add `AccuracySec=`', 'Only after a reboot', 'No: `Persistent=` works only with `OnCalendar=`'], answer: 3, why: 'A timer built on `OnUnitActiveSec=` does not catch up after downtime.' }
 				]
@@ -123,7 +123,7 @@ WantedBy=timers.target`,
 					{ q: 'Which command checks your schedule before you enable it?', options: ['`systemctl cat report.timer`', '`systemd-analyze calendar \'Mon..Fri 02:30\'`', '`crontab -l`', '`systemctl list-units --type=timer`'], answer: 1, why: 'It prints `Normalized form: Mon..Fri *-*-* 02:30:00` and the next elapse.' },
 					{ q: 'Which unit do you enable and start?', options: ['`report.service`', 'Both, one after the other', '`report.timer`', '`timers.target`'], answer: 2, why: '`systemctl enable --now report.timer`. The timer then starts the service at each elapse.' },
 					{ q: 'Which command shows when it last ran and when it runs next?', options: ['`systemctl list-timers report.timer`', '`journalctl -u report.timer`', '`systemctl status report.service`', '`systemd-analyze blame`'], answer: 0, why: 'Its columns are `NEXT`, `LEFT`, `LAST` and `PASSED`.' },
-					{ q: 'And what the report printed?', options: ['`journalctl -u report.timer`', '`cat /var/log/syslog`', '`systemctl list-timers --all`', '`journalctl -u report.service`'], answer: 3, why: 'The timer only starts the service. The output is tagged with the service unit, so you filter on `report.service`.' }
+					{ q: 'Right after you enable it, `list-timers` shows nothing under `LAST`. What does that say?', options: ['The timer is broken', 'The service failed', 'The schedule is invalid', 'The timer has not triggered yet'], answer: 3, why: '`LAST` and `PASSED` fill in after the first run. `NEXT` and `LEFT` already show the coming one.' }
 				]
 			}
 		]

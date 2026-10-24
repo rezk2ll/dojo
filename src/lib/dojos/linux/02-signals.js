@@ -149,16 +149,16 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 				questions: [
 					{ q: 'Which signal is number 15?', options: ['SIGKILL', 'SIGINT', 'SIGQUIT', 'SIGTERM'], answer: 3, why: 'signal(7): SIGTERM is 15. SIGKILL is 9 on x86.' },
 					{ q: 'Which Python line would give exactly this mask?', options: ['`signal.signal(signal.SIGTERM, handler)`', '`signal.signal(signal.SIGKILL, handler)`', '`os.kill(os.getpid(), 15)`', '`signal.pause()`'], answer: 0, why: 'Registering a SIGTERM handler sets bit 14. The chapter captured exactly `0000000000004000` for that.' },
-					{ q: 'Could you add a bit for SIGKILL to this mask?', options: ['Yes, with `sigaction()` when the process runs as root', 'No: SIGKILL cannot be caught, blocked or ignored', 'Yes, but only inside a container', 'Only if SIGTERM is caught first'], answer: 1, why: 'sigaction(2) accepts "any valid signal except SIGKILL and SIGSTOP".' },
+					{ q: 'Like the `postgres` image, an image could set `STOPSIGNAL SIGINT`. Which bit of `SigCgt` shows that a program catches SIGINT?', options: ['Bit 2', 'Bit 1', 'Bit 14', 'Bit 0'], answer: 1, why: 'SIGINT is signal 2, and bit n-1 stands for signal n. This mask has only bit 14, so the program would not catch SIGINT.' },
 					{ q: 'What does the mask not tell you about the SIGTERM handler?', options: ['That a handler exists', 'Which signal it is for', 'Whether the handler makes the program exit', 'That the default action is replaced'], answer: 2, why: 'The bit only says a handler is registered. What it does, exit or just log, is in the code.' }
 				]
 			},
 			{
 				title: 'Follow docker stop',
 				questions: [
-					{ q: 'What does `docker stop` send first when the image sets no `STOPSIGNAL`?', options: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP'], answer: 0, why: 'Docker sends the image\'s `StopSignal`, or SIGTERM when none is set.' },
+					{ q: 'Which process does `docker stop` send its first signal to?', options: ['The main process, `python app.py`', 'Every process in the container at once', 'The Docker daemon, which then stops the program', 'The shell you typed `docker stop` in'], answer: 0, why: 'Docker signals the container\'s main process. Its mask shows a SIGTERM handler, so that handler runs.' },
 					{ q: 'The handler cleans up and exits within 10 seconds. What happens next?', options: ['Docker still sends SIGKILL at second 10', 'Docker restarts the container', 'The kernel runs the handler a second time', 'Docker never sends SIGKILL'], answer: 3, why: 'SIGKILL only comes when the process is still running at the end of the grace period.' },
-					{ q: 'The handler only logs and returns. What happens?', options: ['The program exits on its own once the handler returns', 'It keeps running until SIGKILL at second 10', 'Docker waits forever for the program', 'The kernel turns SIGTERM into SIGKILL at once'], answer: 1, why: 'After a handler returns, the program carries on. Docker sends SIGKILL when the 10 seconds are up.' },
+					{ q: 'The handler only writes a log line and returns. How many of those lines appear during the stop?', options: ['Ten, one per second of the grace period', 'One: SIGTERM comes once, then the next signal is SIGKILL', 'None: a handler cannot write to a log', 'Two: one for SIGTERM and one for SIGKILL'], answer: 1, why: 'Docker sends the stop signal once and waits. What comes next is SIGKILL, and no handler runs for it.' },
 					{ q: 'How do you give the program more than 10 seconds?', options: ['Catch SIGKILL in the handler', 'Set `STOPSIGNAL SIGINT`', 'Pass `--stop-timeout` or `docker stop -t`', 'Restart the container with `--rm`'], answer: 2, why: 'The grace period is 10 seconds by default, and these two options change it.' }
 				]
 			},
@@ -168,7 +168,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 					{ q: '`sleep 300` with no handler gets `kill -TERM`. What status does the shell see?', options: ['143', '137', '15', '0'], answer: 0, why: 'Captured in the chapter: 143, which is 128 + 15 for SIGTERM.' },
 					{ q: 'A bash loop with `trap ... TERM` gets `kill -TERM`. What happens?', options: ['It exits with 143', 'It exits with 0', 'It exits with 137', 'It keeps running'], answer: 3, why: 'The trap is a handler, so the default action no longer applies.' },
 					{ q: 'That loop then gets `kill -KILL`. What status?', options: ['143', '137', '9', '1'], answer: 1, why: 'SIGKILL ends it whatever the trap says, and the status is 137, which is 128 + 9.' },
-					{ q: 'After a stop that took 10 seconds, the main process ended with status 137. What does that point to?', options: ['The handler exited with an error', 'The healthcheck failed', 'SIGKILL ended it after the grace period', 'SIGTERM was delivered twice'], answer: 2, why: '137 means SIGKILL, and 10 seconds is the default grace period.' }
+					{ q: 'The Python handler cleans up and calls `sys.exit(0)` within 10 seconds. What status does the container report?', options: ['143', '137', '0', '15'], answer: 2, why: 'The program ended itself with exit status 0. 143 shows only when SIGTERM kills a process that has no handler.' }
 				]
 			}
 		]

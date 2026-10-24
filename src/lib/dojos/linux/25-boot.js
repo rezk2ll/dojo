@@ -129,7 +129,7 @@ export default {
 					{ q: 'Which stage is the longest on the test laptop?', options: ['Firmware, 9.346 s', 'Kernel, 3.721 s', 'Userspace, 19.993 s', 'Loader, 3.185 s'], answer: 2, why: '`Startup finished in 9.346s (firmware) + 3.185s (loader) + 3.721s (kernel) + 19.993s (userspace)`: more than half of 36.246 s.' },
 					{ q: 'Userspace starts at which moment?', options: ['When the kernel starts PID 1', 'When the firmware hands over to the loader', 'When `graphical.target` is reached', 'When the first service unit starts'], answer: 0, why: 'The userspace stage is what systemd does after the kernel has started it as PID 1.' },
 					{ q: 'Can a unit file or kernel parameter shorten the firmware\'s 9.346 s?', options: ['Yes, with `quiet` on the command line', 'Yes, by masking slow units', 'Only with a smaller initramfs', 'No: the firmware runs before the kernel'], answer: 3, why: 'The firmware stage comes first. Nothing the kernel or systemd reads can change it.' },
-					{ q: 'Inside the kernel stage, which program runs first as PID 1?', options: ['`/init` from the initramfs', '`/sbin/init` from the real root', '`/bin/sh` as a fallback', 'The boot loader'], answer: 0, why: '`kernel_init` tries `ramdisk_execute_command` (`/init`) first. It mounts the real root, then executes `/sbin/init`.' }
+					{ q: 'How long did the boot loader take on the test laptop?', options: ['3.185 s', '3.721 s', '9.346 s', '19.993 s'], answer: 0, why: 'The `(loader)` field reads 3.185s. 3.721 s is the kernel, 9.346 s the firmware, 19.993 s userspace.' }
 				]
 			},
 			{
@@ -154,7 +154,7 @@ export default {
 				title: 'Compare and decide',
 				questions: [
 					{ q: 'Is the top unit of `blame` on the test laptop\'s critical chain?', options: ['No, it ran in parallel', 'Yes, together with docker', 'Only in the first second', 'Only on reboot'], answer: 1, why: 'Both `NetworkManager-wait-online.service` and `docker.service` are on the chain, so they set the boot time.' },
-					{ q: '`snapd.seeded.service` is in `blame` at 916 ms but not in the chain. What does speeding it up change?', options: ['About 816 ms less boot time', 'The firmware stage gets shorter', 'Almost nothing: it ran in parallel', 'docker starts 916 ms earlier'], answer: 2, why: 'Only the units on the chain decide when the default target is reached.' },
+					{ q: 'If docker started in 1 s and the chain stayed the same, about when would `graphical.target` be reached?', options: ['Still at about 19.88 s', 'At about 9 s', 'At about 14.9 s', 'At about 13.9 s'], answer: 2, why: 'docker starts at 13.897 s, so 13.897 + 1 is about 14.9 s, almost 5 s earlier.' },
 					{ q: 'What would take the 10.778 s wait off this chain?', options: ['docker not waiting for `network-online.target`', 'Moving docker to the top of `blame`', 'A faster firmware', 'Removing `quiet` from the command line'], answer: 0, why: 'docker is the only link from the wait to `graphical.target` here. systemd.io notes server software "should generally not pull this in".' },
 					{ q: 'After such a change, how do you see the new slowest path?', options: ['Run `blame` again and take the top line', 'Read `/proc/cmdline`', 'Count the units in `blame`', 'Reboot and run `critical-chain` again'], answer: 3, why: 'Removing one wait exposes the next slowest path, and only a fresh `critical-chain` shows which one it is.' }
 				]

@@ -120,8 +120,8 @@ void linuxMemoryWarnings(void) {
 				title: 'Read the mode',
 				questions: [
 					{ q: 'The file reads `always [madvise] never`. Which mode is active?', options: ['`always`', '`never`', '`madvise`', 'All three, one per CPU'], answer: 2, why: 'The kernel puts brackets around the active value.' },
-					{ q: 'In `madvise` mode, which memory can get huge pages?', options: ['Any anonymous range larger than 2 MB', 'Only ranges marked with `madvise(MADV_HUGEPAGE)`', 'Only files on disk', 'Nothing: `madvise` is the same as `never`'], answer: 1, why: 'The kernel docs: huge pages are "only enabled inside MADV_HUGEPAGE regions". Size plays no part.' },
-					{ q: 'What does one 2 MB page change for the TLB?', options: ['One entry covers 512 times more memory', 'The TLB gets 512 more entries', 'The TLB is turned off for that range', 'Nothing: the TLB only caches files'], answer: 0, why: 'With 4 KB pages each entry covers 4 KB. A 2 MB page covers 512 times more with one entry.' },
+					{ q: 'Which of the three values would give huge pages to every anonymous range, marked or not?', options: ['`never`', '`always`', '`madvise`', 'None of them'], answer: 1, why: 'Only `always` applies THP without a `madvise` call. `never` turns it off.' },
+					{ q: 'How would root switch THP off on this machine until the next boot?', options: ['Write `never` to `/sys/kernel/mm/transparent_hugepage/enabled`', 'Edit `/proc/meminfo`', 'Call `madvise(MADV_HUGEPAGE)` on the heap', 'Write 0 to `AnonHugePages`'], answer: 0, why: 'The mode is set in that sysfs file. `/proc/meminfo` only reports, and `MADV_HUGEPAGE` asks for huge pages.' },
 					{ q: 'Would Redis print its THP warning on this machine?', options: ['Yes: THP is supported', 'Yes: `AnonHugePages` is not 0', 'Only if `defrag` is `always`', 'No: `checkTHPEnabled` fails only on `[always]`'], answer: 3, why: 'Redis reads the same file and warns only when it finds `[always]`. With `madvise` it does nothing.' }
 				]
 			},

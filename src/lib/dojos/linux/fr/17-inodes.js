@@ -146,7 +146,7 @@ next_group:
 			{
 				title: 'Devine le rm',
 				questions: [
-					{ q: 'Après `rm report.txt`, combien de liens `copy.txt` affiche-t-il ?', options: ['0', '2', '1', 'Il a disparu'], answer: 2, why: 'unlink(2) retire un nom et baisse le nombre de liens de un.' },
+					{ q: 'Après `rm report.txt`, quel numéro d’inode `ls -li` affiche-t-il pour `copy.txt` ?', options: ['Un nouveau numéro', '0', 'Le même qu’avant', 'Aucun : l’inode est passé à `link.txt`'], answer: 2, why: '`rm` retire une entrée de répertoire. L’inode ne bouge pas, et `copy.txt` pointe toujours dessus.' },
 					{ q: 'Qu’affiche `cat copy.txt` ?', options: ['`hello`', 'Rien : le fichier est vide', '`No such file or directory`', 'Des octets au hasard venus de blocs libérés'], answer: 0, why: 'L’inode a encore un lien, ses blocs sont donc toujours là.' },
 					{ q: 'Qu’affiche `cat link.txt` ?', options: ['`hello`, en passant par `copy.txt`', 'Une ligne vide', '`Permission denied`', '`No such file or directory`'], answer: 3, why: 'Le symlink existe encore, mais le chemin qu’il contient, `report.txt`, n’existe plus. Il pointe dans le vide.' },
 					{ q: 'Quand l’inode revient-il dans la bitmap ?', options: ['Maintenant : un nom a disparu', 'Quand le nombre de liens atteint 0 et qu’aucun processus n’a le fichier ouvert', 'Au prochain redémarrage', 'Quand `fsck` passe'], answer: 1, why: 'unlink(2) : le fichier n’est supprimé que quand le dernier lien a disparu et qu’aucun processus ne l’a ouvert.' }
@@ -157,8 +157,8 @@ next_group:
 				questions: [
 					{ q: '`df -i .` affiche `62251008` inodes, `18931731` utilisés. Combien de fichiers tiennent encore, environ ?', options: ['Environ 18 millions', 'Environ 62 millions', 'Environ 43 millions', 'Ça dépend des octets libres'], answer: 2, why: '62251008 − 18931731 = 43319277 inodes libres, un par nouveau fichier.' },
 					{ q: 'Lequel de ces éléments consomme aussi un de ces inodes ?', options: ['Un nouveau répertoire, symlink ou socket', 'Un nouveau lien physique', 'Écrire plus d’octets dans un fichier existant', 'Lire un fichier'], answer: 0, why: 'Chaque fichier, répertoire, symlink et socket demande un inode. Un lien physique en réutilise un.' },
-					{ q: 'Peux-tu ajouter des inodes plus tard à ce système ext4 ?', options: ['Oui, avec `df -i --grow`', 'Oui, ils suivent les octets libres', 'Seulement en supprimant des répertoires', 'Non : leur nombre est fixé au mkfs'], answer: 3, why: 'mke2fs(8) : "it is not possible to change this ratio on a file system after it is created".' },
-					{ q: 'Tous les inodes sont pris et `df -h` montre 40 % de libre. Qu’affiche `touch new` ?', options: ['Rien : ça passe', '`No space left on device`', '`Too many open files`', '`Read-only file system`'], answer: 1, why: '`__ext4_new_inode` renvoie `-ENOSPC` quand aucun groupe de blocs n’a d’inode libre. Il ne regarde jamais les blocs de données libres.' }
+					{ q: 'Avec 18931731 utilisés sur 62251008, qu’affiche à peu près la colonne `IUse%` ?', options: ['Environ 43 %', 'Environ 69 %', '100 %', 'Environ 30 %'], answer: 3, why: '18931731 / 62251008 donne environ 0,30. Les 43 millions sont le nombre de libres, pas un pourcentage.' },
+					{ q: 'Un jour, `IUse%` atteint 100. Qu’est-ce qui libère des inodes sur ce système ?', options: ['Vider les gros fichiers à zéro octet', 'Supprimer les fichiers et répertoires dont tu n’as plus besoin', 'Monter `ulimit -n`', 'Lancer `sync`'], answer: 1, why: 'Chaque fichier supprimé rend son inode dès que plus rien ne l’a ouvert. Dans le rapport Rancher, supprimer les vieux dossiers `tls-*` a fait passer l’usage des inodes de 100 % à 32 %. Un fichier vidé garde son inode.' }
 				]
 			}
 		]

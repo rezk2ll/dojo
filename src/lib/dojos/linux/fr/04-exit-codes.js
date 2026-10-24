@@ -95,7 +95,7 @@ func ExitStatus(status unix.WaitStatus) int {
 					{ q: 'Lesquels des sept codes indiquent une mort par signal ?', options: ['127 et 126', '137, 143 et 139', 'Seulement 137', '1, 127 et 126'], answer: 1, why: 'Les codes au-dessus de 128 suivent la règle 128 + N. 127 et 126 sont en dessous et viennent du shell.' },
 					{ q: 'Quels codes veulent dire que la commande n’a jamais démarré ?', options: ['127 et 126', '0 et 1', '137 et 143', '139 et 1'], answer: 0, why: 'bash(1) : 127, c’est « not found », 126, « found but is not executable ».' },
 					{ q: 'Quel code le programme a-t-il choisi lui-même, en appelant `exit()` ?', options: ['137', '143', '139', '1'], answer: 3, why: '1 est sous 126 et n’est pas un code du shell : c’est le code d’échec du programme.' },
-					{ q: 'Pourquoi un processus tué par un signal a-t-il quand même un seul code de sortie ?', options: ['Le processus appelle `exit(128 + N)` dans son handler', 'Le noyau écrit 137 dans le processus', 'Le runtime transforme « tué par le signal N » en 128 + N', 'Kubernetes le devine à partir des logs'], answer: 2, why: 'Le `ExitStatus()` de runc renvoie 128 plus le numéro du signal quand `Signaled()` est vrai.' }
+					{ q: 'Avec la règle 128 + N, quel numéro de signal N se cache derrière 139 ?', options: ['9', '15', '11', '139'], answer: 2, why: '139 - 128 = 11. runc ajoute le numéro du signal à 128 quand `Signaled()` est vrai.' }
 				]
 			},
 			{
@@ -104,13 +104,13 @@ func ExitStatus(status unix.WaitStatus) int {
 					{ q: 'Que veut dire 0 ?', options: ['Le job a été sauté', 'Succès', 'Le Pod a été évincé', 'Le programme n’a rien affiché'], answer: 1, why: '0 est le code de succès. Tout le reste est une forme d’échec.' },
 					{ q: 'Que veut dire 1 en général ?', options: ['Un échec, selon les règles du programme', 'La commande nommée dans `command:` est introuvable', 'SIGHUP, le signal 1', 'La limite mémoire a été atteinte'], answer: 0, why: 'Sous 126, le sens appartient au programme. Lis sa page de man.' },
 					{ q: 'Pour `grep`, que veut dire le code 1 ?', options: ['Une erreur s’est produite', 'Le fichier est introuvable', 'Aucune ligne n’a été sélectionnée', 'Trop de correspondances'], answer: 2, why: 'grep(1) : 1 veut dire « no lines were selected ». 2 veut dire « an error occurred ».' },
-					{ q: 'Pourquoi `exit 300` ne permet-il pas de renvoyer un code personnalisé ?', options: ['Bash refuse les valeurs au-dessus de 255', 'Le noyau le transforme en SIGKILL', 'Il est rapporté comme 255', 'Seuls les 8 bits de poids faible restent : 44'], answer: 3, why: '300 vaut 256 + 44, et `WEXITSTATUS` garde les 8 bits de poids faible.' }
+					{ q: 'Les codes comme 1 appartiennent au programme. Quel code juste sous 126 `docker run` garde-t-il pour une erreur du démon Docker lui-même ?', options: ['1', '126', '127', '125'], answer: 3, why: '`docker run` utilise 127 et 126 pour la commande, comme bash, et 125 quand le démon lui-même échoue.' }
 				]
 			},
 			{
 				title: 'Lis 127 et 126',
 				questions: [
-					{ q: 'Un Pod s’est terminé avec 127. Quelle est la cause probable ?', options: ['Une faute dans `command:`, ou un binaire absent', 'Le fichier existe dans l’image mais n’est pas exécutable', 'Le conteneur a manqué de mémoire et a été tué', 'Le nœud a été vidé'], answer: 0, why: '127 veut dire que la commande est introuvable.' },
+					{ q: 'Pour confirmer le 127, que vérifies-tu dans l’image ?', options: ['Que le fichier nommé dans `command:` existe, à ce chemin ou dans le `PATH`', 'Que le fichier a son bit d’exécution', 'Que la limite mémoire est assez haute', 'Que le log du programme contient une ligne d’erreur'], answer: 0, why: '127, c’est « command not found ». Comparer le nom avec l’image distingue une faute de frappe d’un binaire absent. Un fichier sans bit d’exécution, c’est le cas 126.' },
 					{ q: 'Un Pod s’est terminé avec 126. Quelle est la cause probable ?', options: ['Le binaire est absent de l’image', 'Le processus a reçu SIGTERM', 'Le fichier a été trouvé mais n’a pas pu être lancé', 'Le programme a planté sur un mauvais pointeur'], answer: 2, why: 'bash(1) : « found but is not executable » donne 126.' },
 					{ q: 'Comment le chapitre a-t-il reproduit 126 avec bash ?', options: ['`./nope`, un chemin qui n’existe pas du tout', 'Un script en mode 664 : `Permission denied`', '`exit 126` écrit à la fin d’un script', '`kill -126` sur un processus'], answer: 1, why: 'Le mode 664 n’a pas le bit d’exécution : le shell trouve le fichier mais ne peut pas le lancer.' },
 					{ q: 'As-tu besoin des logs du programme pour expliquer 127 ou 126 ?', options: ['Oui, le programme écrit la raison', 'Oui, seuls les logs montrent le signal', 'Seulement pour 126', 'Non : le programme n’a jamais démarré'], answer: 3, why: 'Ces codes disent que la commande n’a jamais tourné, avant même de lire ses logs.' }
@@ -119,8 +119,8 @@ func ExitStatus(status unix.WaitStatus) int {
 			{
 				title: 'Lis les codes de signal',
 				questions: [
-					{ q: '137 avec la raison `OOMKilled`. Que s’est-il passé ?', options: ['Le programme a appelé `exit(137)`', 'SIGTERM lors d’un arrêt normal du Pod', 'SIGKILL de l’OOM killer', 'Une erreur de segmentation'], answer: 2, why: '137 - 128 = 9, SIGKILL. La raison `OOMKilled` dit que c’est la limite mémoire qui l’a envoyé.' },
-					{ q: '143. Que s’est-il passé ?', options: ['SIGTERM, envoyé quand Kubernetes arrête un Pod', 'SIGKILL à la fin du délai de grâce', 'Un accès mémoire invalide dans le programme', 'La commande est introuvable'], answer: 0, why: '143 - 128 = 15, SIGTERM. containerd et CRI-O l’envoient quand un Pod est arrêté.' },
+					{ q: 'Pour le Pod en 137 avec `OOMKilled`, que changes-tu pour que la prochaine exécution tienne ?', options: ['Ajouter un handler SIGTERM au programme', 'Allonger le délai de grâce de l’arrêt', 'Monter la limite mémoire, ou faire consommer moins au job', 'Corriger le chemin dans `command:`'], answer: 2, why: 'Le conteneur a dépassé sa limite mémoire et l’OOM killer a envoyé SIGKILL, qu’aucun handler ne peut intercepter. Seul le budget mémoire aide.' },
+					{ q: 'Le Pod en 143 a été arrêté par Kubernetes. Si son programme avait un handler SIGTERM qui appelle `exit(0)`, quel code afficherait-il ?', options: ['0', '143', '137', '15'], answer: 0, why: 'Un handler qui sort passe son propre code à `exit()`. 143 n’apparaît que quand l’action par défaut de SIGTERM tue le processus.' },
 					{ q: '139. Que s’est-il passé ?', options: ['SIGKILL de l’OOM killer à la limite mémoire', 'SIGTERM pendant un rolling update', 'Le fichier n’était pas exécutable', 'SIGSEGV, un accès mémoire invalide'], answer: 3, why: '139 - 128 = 11, SIGSEGV.' },
 					{ q: 'Pourquoi Kubernetes ajoute-t-il une `reason` à côté de 137 ?', options: ['137 désigne un signal différent dans chaque runtime', 'Un programme peut appeler `exit(137)` lui-même', 'Le code de sortie est perdu après un redémarrage', 'Seule la raison dit de quel conteneur il s’agit'], answer: 1, why: 'L’entier ne distingue pas un vrai SIGKILL d’un `exit(137)`. La raison dit ce qui a envoyé le signal.' }
 				]

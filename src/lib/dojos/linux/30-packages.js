@@ -114,9 +114,9 @@ bool DoUpgradeWithAllowNewPackages(CommandLine &CmdL)
 			{
 				title: 'Read the kept-back list',
 				questions: [
-					{ q: 'Why does `apt-get upgrade` keep back `linux-image-amd64`?', options: ['Its new version needs a kernel package that is not installed yet', 'apt never upgrades the running kernel', 'Kernel packages are on hold by default', 'The package lists are too old'], answer: 0, why: 'The meta-package depends on a kernel package with the version in its name, so a new kernel is a new package.' },
-					{ q: 'Which flags does plain `apt-get upgrade` pass?', options: ['`ALLOW_EVERYTHING`', '`FORBID_REMOVE_PACKAGES` only', '`FORBID_INSTALL_NEW_PACKAGES` only', '`FORBID_REMOVE_PACKAGES` and `FORBID_INSTALL_NEW_PACKAGES`'], answer: 3, why: '`DoUpgradeNoNewPackages` forbids both, so an upgrade that needs a new package is skipped.' },
-					{ q: '`nginx` is kept back too. What is a likely reason?', options: ['nginx is always held', 'Its new version needs a package that is not installed yet', 'nginx is running, so it cannot be upgraded', 'nginx comes from another source'], answer: 1, why: 'Plain `apt-get upgrade` will not install a new package, so an upgrade that needs one is kept back. The task\'s fix, which allows new packages, then upgrades it.' },
+					{ q: 'Which command shows the versioned kernel package that `linux-image-amd64` points to?', options: ['`apt-cache depends linux-image-amd64`', '`dpkg -l linux-image-amd64`', '`apt-mark showhold`', '`uname -r`'], answer: 0, why: 'The meta-package names its kernel in its dependencies. On Ubuntu, `apt-cache depends linux-image-generic` lists `linux-image-6.8.0-147-generic`.' },
+					{ q: 'Before any upgrade, which command makes apt aware of the newest versions?', options: ['`apt-mark showhold`', '`dpkg --configure -a`', '`apt-cache depends`', '`apt update`'], answer: 3, why: '`apt update` downloads the package lists. Without a recent one, `upgrade` has no new versions to offer.' },
+					{ q: 'Besides a new dependency, what else can keep `nginx` back?', options: ['nginx is running', 'A hold on it, or an upgrade that needs a removal', 'It was installed by hand', 'Its config file was edited'], answer: 1, why: 'A package is kept back when the upgrade would need a new package, a removal, or the package is on hold.' },
 					{ q: 'Does a kept-back package print an error?', options: ['Yes, apt exits with an error', 'Yes, at the next boot', 'No: the machine just runs the old version', 'Only in `/var/log/dpkg.log`'], answer: 2, why: 'The chapter warns about this cost: the old versions stay, with no error.' }
 				]
 			},
@@ -125,7 +125,7 @@ bool DoUpgradeWithAllowNewPackages(CommandLine &CmdL)
 				questions: [
 					{ q: 'Which command upgrades both and removes nothing?', options: ['`apt-get upgrade --with-new-pkgs`', '`apt-get dist-upgrade`', '`apt full-upgrade`', '`apt-get install --reinstall nginx`'], answer: 0, why: 'It sets `APT::Get::Upgrade-Allow-New`, which keeps only `FORBID_REMOVE_PACKAGES`.' },
 					{ q: 'Which other command does the same?', options: ['`apt-get upgrade`', '`apt upgrade`', '`apt full-upgrade`', '`dpkg --configure -a`'], answer: 1, why: 'apt(8): `apt upgrade` installs new packages "if required to satisfy dependencies", and never removes one.' },
-					{ q: 'What can `full-upgrade` do that these two never do?', options: ['Install new packages', 'Upgrade held packages', 'Download package lists', 'Remove installed packages to solve a conflict'], answer: 3, why: '`full-upgrade` calls `DoDistUpgrade` with `ALLOW_EVERYTHING`.' },
+					{ q: 'Under which name does apt-get offer what `apt full-upgrade` does?', options: ['`upgrade --with-new-pkgs`', '`install -f`', '`remove`', '`dist-upgrade`'], answer: 3, why: 'apt-get calls it `dist-upgrade`. `--with-new-pkgs` still forbids removals.' },
 					{ q: 'When is `full-upgrade` the right choice?', options: ['Always, it is the most complete', 'When the output shows a needed removal you have read', 'Never on a server', 'Only after `apt-mark hold`'], answer: 1, why: 'A careless `Y` can remove a package your service needs, so read the removal list first.' }
 				]
 			},

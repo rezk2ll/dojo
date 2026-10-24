@@ -128,7 +128,7 @@ export default {
 					{ q: 'The disk `sda` shows 100G. Why does `df -h /data` still show 50G?', options: ['The cloud console has not finished the resize', 'The kernel needs a reboot to see the disk', 'The partition, PV, LV and filesystem kept their old sizes', '`df` caches sizes until the next mount'], answer: 2, why: 'Each layer has its own size. Growing the disk changes only the bottom one.' },
 					{ q: 'Which device is still 50G right above the 100G disk?', options: ['`vg0-data`', '`sda1`', '`/data`', '`sda`'], answer: 1, why: 'The hint says to start from the bottom. `sda1` sits directly on `sda` and still ends where the old disk ended.' },
 					{ q: 'What does type `LVM2_member` on `sda1` tell you?', options: ['The partition is an LVM physical volume', 'The partition holds an ext4 filesystem', 'The partition is a swap area', 'The partition is a logical volume'], answer: 0, why: '`lsblk` shows a PV prepared with `pvcreate` as `LVM2_member`.' },
-					{ q: 'In what order do you grow the layers?', options: ['Filesystem, LV, PV, partition', 'LV, partition, PV, filesystem', 'PV, partition, filesystem, LV', 'Partition, PV, LV, filesystem'], answer: 3, why: 'From the bottom up: each layer can only grow into space the layer below already has.' }
+					{ q: 'Which layer is `vg0-data` in this tree?', options: ['The disk', 'The partition', 'The physical volume', 'The logical volume that holds the ext4'], answer: 3, why: 'It sits above `sda1` and carries the filesystem mounted on `/data`. Its name is the VG and the LV joined by a dash.' }
 				]
 			},
 			{
@@ -152,9 +152,9 @@ export default {
 			{
 				title: 'Grow the LV and the filesystem',
 				questions: [
-					{ q: 'Which command gives `vg0/data` all the free space and grows the filesystem?', options: ['`lvextend -l +100%FREE vg0/data`', '`lvextend -r -l +100%FREE vg0/data`', '`lvresize -L 100G vg0`', '`resize2fs -l +100%FREE vg0/data`'], answer: 1, why: '`-l +100%FREE` takes all free extents of the VG, and `-r` resizes the filesystem "together with the LV using fsadm(8)".' },
+					{ q: 'After `lvextend -r -l +100%FREE vg0/data`, how much free space does `vgs` show?', options: ['About 50G', 'None: the LV took it all', 'About 100G', 'About 25G'], answer: 1, why: '`-l +100%FREE` hands every free extent of `vg0` to the LV, so the VG has nothing left.' },
 					{ q: 'Does `/data` need to be unmounted?', options: ['No: resize2fs grows a mounted ext4 through `EXT4_IOC_RESIZE_FS`', 'Yes: resize2fs refuses on a mounted filesystem', 'Yes, unless you add `--force`', 'Only on the first resize'], answer: 0, why: 'resize2fs(8): "If the file system is mounted, it can be used to expand the size of the mounted file system". Only shrinking needs an unmount.' },
-					{ q: 'You forgot `-r`. `lvs` shows 100G and `df` shows 50G. What do you run?', options: ['`pvresize /dev/sda1`', '`growpart /dev/sda 1`', '`resize2fs /dev/vg0/data`', 'A reboot'], answer: 2, why: 'The LV grew, the ext4 on it did not. `df` reports the filesystem.' },
+					{ q: 'Which command shows the size of the LV itself, apart from its filesystem?', options: ['`pvs`', '`growpart`', '`lvs`', '`df -h /data`'], answer: 2, why: '`lvs` lists each logical volume with its size. `df` reports the filesystem, which can lag behind the LV.' },
 					{ q: '`df -h /data` shows a bit less than 100G. Why?', options: ['LVM keeps 5% for snapshots', 'growpart leaves a gap at the end of the disk', 'The resize is still running in the background', 'ext4 metadata is left out of `df`\'s size'], answer: 3, why: 'Inode tables, the journal and bitmaps take space `df` never shows: 16 GB of a 1 TB LV on the test laptop.' }
 				]
 			}

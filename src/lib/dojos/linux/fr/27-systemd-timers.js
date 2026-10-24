@@ -105,14 +105,14 @@ WantedBy=timers.target`,
 					{ q: 'Quel `Type=` convient à un rapport qui tourne puis s’arrête ?', options: ['`Type=oneshot`', '`Type=notify`', '`Type=simple`', '`Type=forking`'], answer: 0, why: 'Un timer démarre en général un service `Type=oneshot` : il va jusqu’au bout, puis l’unité redevient inactive.' },
 					{ q: 'Quelle ligne lance le rapport ?', options: ['`Exec=/usr/local/bin/report`', '`Command=/usr/local/bin/report`', '`ExecStart=/usr/local/bin/report`', '`Run=/usr/local/bin/report`'], answer: 2, why: '`ExecStart=` est la commande que systemd lance au démarrage du service.' },
 					{ q: '`report.service` a-t-il besoin d’une section `[Install]` ?', options: ['Oui, `WantedBy=multi-user.target`', 'Non : c’est le timer qui le démarre', 'Oui, `WantedBy=report.timer`', 'Oui, sinon le timer ne le trouve pas'], answer: 1, why: 'Le timer démarre le service à chaque expiration. Seul le timer est activé, donc seul le timer a besoin d’`[Install]`.' },
-					{ q: 'Où va la sortie du rapport ?', options: ['Dans la boîte mail de root, comme avec cron', 'Dans `/var/log/cron.log`', 'Nulle part sans redirection', 'Dans le journal, rattachée à `report.service`'], answer: 3, why: 'Un service écrit par défaut dans le journal (`DefaultStandardOutput=journal`).' }
+					{ q: 'Tu veux un passage tout de suite, hors horaire. Que tapes-tu ?', options: ['Rien : seul le timer peut le démarrer', '`systemctl start report.timer`', '`systemd-analyze calendar now`', '`systemctl start report.service`'], answer: 3, why: 'Le service est une unité ordinaire : tu peux la démarrer à la main. Démarrer le timer ne fait qu’armer l’horaire.' }
 				]
 			},
 			{
 				title: 'Écris le timer',
 				questions: [
 					{ q: 'Quel `OnCalendar=` correspond à `30 2 * * 1-5` ?', options: ['`OnCalendar=Mon..Fri 02:30`', '`OnCalendar=1-5 2:30`', '`OnCalendar=*-*-1..5 02:30`', '`OnCalendar=weekdays 30 2`'], answer: 0, why: 'Un événement de calendrier donne d’abord les jours de la semaine, puis la date et l’heure : `Mon..Fri *-*-* 02:30:00` en forme normalisée.' },
-					{ q: 'Quelle ligne rattrape un passage raté pendant un arrêt ?', options: ['`RandomizedDelaySec=1h`', '`WakeSystem=true`', '`Persistent=true`', '`AccuracySec=1us`'], answer: 2, why: 'Avec `Persistent=true`, systemd garde sur le disque l’heure du dernier déclenchement et démarre le service au boot si un passage a été raté.' },
+					{ q: 'Quelle ligne étalerait le départ de 02:30 sur 10 minutes au plus, pour que tous les serveurs ne lancent pas en même temps ?', options: ['`Persistent=true`', '`WakeSystem=true`', '`RandomizedDelaySec=10min`', '`AccuracySec=1us`'], answer: 2, why: '`RandomizedDelaySec=` tire un délai au hasard avant chaque passage et l’ajoute à l’heure prévue.' },
 					{ q: 'Quelle ligne d’`[Install]` démarre le timer au boot ?', options: ['`WantedBy=multi-user.target`', '`WantedBy=timers.target`', '`After=time-sync.target`', '`Before=report.service`'], answer: 1, why: '`apt-daily.timer` fait pareil : `WantedBy=timers.target`.' },
 					{ q: '`Persistent=true` marcherait-il avec `OnUnitActiveSec=1d` à la place ?', options: ['Oui, il marche avec tous les timers', 'Oui, si tu ajoutes `AccuracySec=`', 'Seulement après un redémarrage', 'Non : `Persistent=` ne marche qu’avec `OnCalendar=`'], answer: 3, why: 'Un timer basé sur `OnUnitActiveSec=` ne rattrape rien après un arrêt.' }
 				]
@@ -123,7 +123,7 @@ WantedBy=timers.target`,
 					{ q: 'Quelle commande vérifie ton horaire avant de l’activer ?', options: ['`systemctl cat report.timer`', '`systemd-analyze calendar \'Mon..Fri 02:30\'`', '`crontab -l`', '`systemctl list-units --type=timer`'], answer: 1, why: 'Elle affiche `Normalized form: Mon..Fri *-*-* 02:30:00` et la prochaine expiration.' },
 					{ q: 'Quelle unité actives-tu et démarres-tu ?', options: ['`report.service`', 'Les deux, l’une après l’autre', '`report.timer`', '`timers.target`'], answer: 2, why: '`systemctl enable --now report.timer`. Le timer démarre ensuite le service à chaque expiration.' },
 					{ q: 'Quelle commande montre le dernier passage et le prochain ?', options: ['`systemctl list-timers report.timer`', '`journalctl -u report.timer`', '`systemctl status report.service`', '`systemd-analyze blame`'], answer: 0, why: 'Ses colonnes sont `NEXT`, `LEFT`, `LAST` et `PASSED`.' },
-					{ q: 'Et ce qu’a affiché le rapport ?', options: ['`journalctl -u report.timer`', '`cat /var/log/syslog`', '`systemctl list-timers --all`', '`journalctl -u report.service`'], answer: 3, why: 'Le timer ne fait que démarrer le service. La sortie est rattachée à l’unité service, donc tu filtres sur `report.service`.' }
+					{ q: 'Juste après l’activation, `list-timers` n’affiche rien sous `LAST`. Qu’est-ce que ça dit ?', options: ['Le timer est cassé', 'Le service a échoué', 'L’horaire est invalide', 'Le timer ne s’est pas encore déclenché'], answer: 3, why: '`LAST` et `PASSED` se remplissent après le premier passage. `NEXT` et `LEFT` montrent déjà le prochain.' }
 				]
 			}
 		]

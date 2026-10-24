@@ -146,7 +146,7 @@ next_group:
 			{
 				title: 'Predict the rm',
 				questions: [
-					{ q: 'After `rm report.txt`, what link count does `copy.txt` show?', options: ['0', '2', '1', 'It is gone'], answer: 2, why: 'unlink(2) removes one name and lowers the link count by one.' },
+					{ q: 'After `rm report.txt`, what inode number does `ls -li` show for `copy.txt`?', options: ['A new number', '0', 'The same number as before', 'None: the inode moved to `link.txt`'], answer: 2, why: '`rm` removes one directory entry. The inode stays where it was, and `copy.txt` still points at it.' },
 					{ q: 'What does `cat copy.txt` print?', options: ['`hello`', 'Nothing: the file is empty', '`No such file or directory`', 'Random bytes from freed blocks'], answer: 0, why: 'The inode still has one link, so its blocks are still there.' },
 					{ q: 'What does `cat link.txt` print?', options: ['`hello`, through `copy.txt`', 'An empty line', '`Permission denied`', '`No such file or directory`'], answer: 3, why: 'The symlink still exists, but the path it holds, `report.txt`, does not. It is dangling.' },
 					{ q: 'When does the inode go back to the bitmap?', options: ['Now: one name is gone', 'When the link count reaches 0 and no process has the file open', 'At the next reboot', 'When `fsck` runs'], answer: 1, why: 'unlink(2): the file is deleted only when the last link is gone and no process has it open.' }
@@ -157,8 +157,8 @@ next_group:
 				questions: [
 					{ q: '`df -i .` shows `62251008` inodes, `18931731` used. About how many more files fit?', options: ['About 18 million', 'About 62 million', 'About 43 million', 'It depends on the free bytes'], answer: 2, why: '62251008 − 18931731 = 43319277 free inodes, one per new file.' },
 					{ q: 'Which of these also uses up one of those inodes?', options: ['A new directory, symlink or socket', 'A new hard link', 'Writing more bytes to an existing file', 'Reading a file'], answer: 0, why: 'Every file, directory, symlink and socket needs an inode. A hard link reuses one.' },
-					{ q: 'Can you add inodes to this ext4 filesystem later?', options: ['Yes, with `df -i --grow`', 'Yes, they grow with the free bytes', 'Only by deleting directories', 'No: the count is fixed at mkfs time'], answer: 3, why: 'mke2fs(8): "it is not possible to change this ratio on a file system after it is created".' },
-					{ q: 'All inodes are used and `df -h` shows 40% free. What does `touch new` print?', options: ['Nothing: it succeeds', '`No space left on device`', '`Too many open files`', '`Read-only file system`'], answer: 1, why: '`__ext4_new_inode` returns `-ENOSPC` when no block group has a free inode. It never looks at free data blocks.' }
+					{ q: 'With 18931731 used out of 62251008, about what does the `IUse%` column show?', options: ['About 43%', 'About 69%', '100%', 'About 30%'], answer: 3, why: '18931731 / 62251008 is about 0.30. The 43 million is the free count, not a percent.' },
+					{ q: 'One day `IUse%` reaches 100. What frees inodes on this filesystem?', options: ['Truncating big files to zero bytes', 'Deleting files and directories you no longer need', 'Raising `ulimit -n`', 'Running `sync`'], answer: 1, why: 'Each deleted file gives its inode back once nothing has it open. In the Rancher report, deleting old `tls-*` folders took inode use from 100% to 32%. A truncated file keeps its inode.' }
 				]
 			}
 		]

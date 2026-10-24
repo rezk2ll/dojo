@@ -160,17 +160,17 @@ int journal_ratelimit_test(
 				title: 'Libère la place tout de suite',
 				questions: [
 					{ q: 'Quelle commande supprime tout de suite les vieux fichiers jusqu’à 500M ?', options: ['`journalctl --vacuum-size=500M`', '`rm /var/log/journal/*/*.journal`', '`journalctl --disk-usage=500M`', '`systemctl clean systemd-journald`'], answer: 0, why: 'Elle supprime les plus vieux fichiers archivés jusqu’à passer sous 500M.' },
-					{ q: 'Quels fichiers le nettoyage ne supprime-t-il jamais ?', options: ['Les plus vieux fichiers archivés', 'Les fichiers actifs du journal', 'Les fichiers du boot d’avant', 'Les fichiers de plus de 100M'], answer: 1, why: 'Seuls les fichiers archivés partent. Le `system.journal` actif reste.' },
-					{ q: 'Après le nettoyage, `--disk-usage` affiche 540M. Y a-t-il un problème ?', options: ['Oui : le drop-in a été ignoré', 'Oui : le nettoyage s’est arrêté en route', 'Non : les fichiers actifs comptent aussi', 'Non : `--disk-usage` arrondit de 10 % vers le haut'], answer: 2, why: 'journalctl(1) dit que le nettoyage n’a qu’un « indirect effect » sur ce chiffre, puisque les fichiers actifs comptent.' },
+					{ q: 'Combien de disque ce nettoyage rend-il à peu près sur cette VM ?', options: ['Environ 500M', 'Environ 3,4G', 'Environ 3,9G', 'Rien avant le prochain redémarrage'], answer: 1, why: 'Les journaux passent de 3,9G à environ 500M : environ 3,4G reviennent. Les fichiers actifs en retirent un peu.' },
+					{ q: 'Le nettoyage seul garde-t-il le journal sous 500M le mois prochain ?', options: ['Oui : le nettoyage fixe la limite', 'Oui, jusqu’au prochain redémarrage', 'Non : seul le drop-in `SystemMaxUse=500M` le fait', 'Non : rien ne le peut'], answer: 2, why: 'Un nettoyage ne sert qu’une fois. journald grossit jusqu’à sa limite configurée : c’est le drop-in qui le tient à 500M.' },
 					{ q: 'Pourquoi ne pas faire un `rm` des fichiers à la main ?', options: ['`rm` ne peut pas supprimer les fichiers du journal', 'journald les recréerait aussitôt', 'Les fichiers du journal sont en lecture seule, même pour root', '`--vacuum-size` prend les plus vieux fichiers archivés et laisse le fichier actif tranquille'], answer: 3, why: 'Le nettoyage retire les fichiers par ordre d’âge et ne touche jamais au fichier actif dans lequel journald écrit.' }
 				]
 			},
 			{
 				title: 'Trouve les erreurs nginx du boot d’avant',
 				questions: [
-					{ q: 'Quelle option choisit le boot d’avant ?', options: ['`-b`', '`-b 1`', '`-b -1`', '`--since -1`'], answer: 2, why: '`-b -1` correspond au `_BOOT_ID=` du boot d’avant. `-b` seul désigne le boot en cours et `-b 1` le premier enregistré.' },
-					{ q: 'Quelle option ne garde que les erreurs et pire ?', options: ['`-p err`', '`-p 3..7`', '`-p info`', '`--errors`'], answer: 0, why: '`-p err` garde les priorités 0 à 3. `3..7` ajouterait avertissements, notices, infos et debug.' },
-					{ q: 'La commande complète est donc...', options: ['`journalctl nginx -b -1 | grep error`', '`journalctl -u nginx -b -p err`', '`journalctl -u nginx -b 1 -p 3`', '`journalctl -u nginx -b -1 -p err`'], answer: 3, why: '`-u nginx` correspond à `_SYSTEMD_UNIT=nginx.service`, et les filtres portent sur des champs, sans `grep`.' },
+					{ q: 'Quelle commande montre d’abord si le journal garde un boot avant celui en cours ?', options: ['`journalctl -b`', '`uptime`', '`journalctl --list-boots`', '`journalctl --disk-usage`'], answer: 2, why: '`--list-boots` affiche une ligne par boot enregistré. Celui d’avant a l’index `-1`.' },
+					{ q: 'Quel numéro de priorité correspond à `err` ?', options: ['3', '4', '6', '7'], answer: 0, why: '`-p err` affiche la priorité 3 et tout ce qui est plus important, de 0 à 3.' },
+					{ q: 'Quelle option réduirait la sortie aux 5 dernières de ces erreurs ?', options: ['`-p 5`', '`-b 5`', '`--since 5`', '`-n 5`'], answer: 3, why: '`-n` limite la sortie aux N entrées les plus récentes. `-p 5` et `-b 5` changeraient la priorité et le boot.' },
 					{ q: 'La commande n’affiche rien pour aucun boot précédent. Quelle est la cause probable ?', options: ['nginx n’a eu aucune erreur', 'Le journal ne vit que dans `/run/log/journal/`, perdu au reboot', 'La limite de 500M a effacé les fichiers de la nuit', '`-p err` cache les messages de nginx'], answer: 1, why: 'Les boots précédents demandent un stockage persistant dans `/var/log/journal/`.' }
 				]
 			}

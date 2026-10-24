@@ -130,16 +130,16 @@ export default {
 				questions: [
 					{ q: 'Quelle ligne donne « 94 % utilisés » ?', options: ['`MemAvailable` sur `MemTotal`', '`MemFree` : 5,9 % de libre', '`Cached` sur `MemTotal`', '`SReclaimable`'], answer: 1, why: '100 % moins 5,9 % de libre font environ 94 %. L’alerte a lu `MemFree`.' },
 					{ q: 'Que laisse de côté `MemFree` ?', options: ['Le swap en cours d’usage', 'La RAM qui ne contient rien du tout', 'Du cache de pages qu’il peut rendre', 'La mémoire des processus de root'], answer: 2, why: 'Les pages de fichiers gardées au cas où on les relise sortent de `MemFree`, alors que les programmes peuvent encore les obtenir.' },
-					{ q: 'Pourquoi un `MemFree` bas est-il normal sur un serveur actif ?', options: ['Le noyau met des fichiers en cache dans la RAM inutilisée', 'Le noyau se réserve la plus grande partie de la RAM', 'Les programmes fuient lentement avec le temps', '`MemFree` n’est mis à jour qu’au démarrage'], answer: 0, why: 'La RAM qu’aucun programme n’utilise garde des pages de fichiers au lieu de rester vide.' },
-					{ q: 'Quelle ligne l’alerte devrait-elle utiliser ?', options: ['`Cached`', '`Buffers`', '`MemTotal`', '`MemAvailable`'], answer: 3, why: 'Elle estime ce qu’un nouveau programme peut obtenir « without swapping ».' }
+					{ q: 'Le trafic s’arrête pour la nuit. L’alerte cesse-t-elle de sonner ?', options: ['Non : les fichiers en cache restent en RAM jusqu’à ce qu’on ait besoin de la mémoire', 'Oui : le noyau vide le cache quand le serveur est au repos', 'Oui : `MemFree` est remis à zéro chaque minute', 'Oui : le page cache expire au bout de 15 minutes'], answer: 0, why: 'Le noyau ne reprend le cache que quand la mémoire manque. Sur un serveur calme, `MemFree` reste bas, et une alerte dessus continue de sonner.' },
+					{ q: 'Quelle colonne de `free -h` montre le même nombre que `MemFree` ?', options: ['`available`', '`buff/cache`', '`used`', '`free`'], answer: 3, why: 'La colonne `free`, c’est `MemFree` : 1670320 kB, environ 1,6 GiB. L’alerte repose sur ce nombre.' }
 				]
 			},
 			{
 				title: 'Recalcule used',
 				questions: [
-					{ q: 'Comment free(1) calcule-t-il `used` ?', options: ['Total moins free', 'Total moins available', 'Total moins buff/cache', 'Cached plus Buffers'], answer: 1, why: 'free(1) : `used` vaut le total moins le disponible.' },
-					{ q: 'Que vaut `used` ici ?', options: ['26695032 kB', '21073136 kB', '6352852 kB', '1670320 kB'], answer: 2, why: '28365352 - 22012500 = 6352852 kB, environ 6,1 GiB.' },
-					{ q: 'Quelle part de la RAM est-ce ?', options: ['Environ 22 %', 'Environ 94 %', 'Environ 6 %', 'Environ 78 %'], answer: 0, why: '6352852 / 28365352 font environ 22 %, loin des 94 % de l’alerte.' },
+					{ q: 'Si `used` valait le total moins `MemFree`, comme le suppose l’alerte, combien ferait-il ?', options: ['6352852 kB', '26695032 kB', '21073136 kB', '1670320 kB'], answer: 1, why: '28365352 - 1670320 = 26695032 kB, 94 % de la RAM : le nombre de l’alerte.' },
+					{ q: 'free(1) retranche `MemAvailable` au lieu de `MemFree`. De combien ça fait baisser `used` ?', options: ['1670320 kB', '22012500 kB', '20342180 kB', '6352852 kB'], answer: 2, why: '22012500 - 1670320 = 20342180 kB, environ 19,4 GiB que le noyau peut rendre aux programmes.' },
+					{ q: 'Le `used` de free vaut 6352852 kB. Quelle part de la RAM est-ce ?', options: ['Environ 22 %', 'Environ 94 %', 'Environ 6 %', 'Environ 78 %'], answer: 0, why: '6352852 / 28365352 font environ 22 %, loin des 94 % de l’alerte.' },
 					{ q: 'Combien est disponible pour de nouveaux programmes ?', options: ['Environ 1,6 GiB', 'Environ 6,1 GiB', 'Environ 10 GiB', 'Environ 21 GiB'], answer: 3, why: '`MemAvailable` vaut 22012500 kB, environ 21 GiB.' }
 				]
 			},
@@ -148,7 +148,7 @@ export default {
 				questions: [
 					{ q: 'Quelles trois lignes s’additionnent pour donner buff/cache ?', options: ['`Buffers`, `Cached`, `SReclaimable`', '`MemFree`, `Cached`, `Buffers`', '`Active(file)`, `Inactive(file)`, `Cached`', '`Cached`, `SReclaimable`, `MemAvailable`'], answer: 0, why: 'free(1) additionne `Buffers`, `Cached` et `SReclaimable`.' },
 					{ q: 'Que vaut buff/cache ici ?', options: ['17256208 kB', '21073136 kB', '22012500 kB', '16985396 kB'], answer: 1, why: '7061852 + 10194356 + 3816928 = 21073136 kB.' },
-					{ q: 'Le noyau peut-il lâcher tout buff/cache ?', options: ['Oui, chaque page en cache est une copie du disque', 'Oui, mais seulement une fois les pages sales écrites', 'Non : `Cached` inclut tmpfs et la mémoire partagée', 'Non : seul `Buffers` peut être lâché'], answer: 2, why: 'Les pages tmpfs n’ont aucun fichier sur disque derrière elles, et l’estimation garde un peu de cache de côté.' },
+					{ q: 'Quelle part de la RAM représente buff/cache ici ?', options: ['Environ 22 %', 'Environ 94 %', 'Environ 74 %', 'Environ 6 %'], answer: 2, why: '21073136 / 28365352 font environ 74 % : l’essentiel de la RAM que l’alerte disait utilisée contient du cache.' },
 					{ q: 'Que doit-il se passer avant que le noyau réutilise une page sale ?', options: ['Rien, il la lâche', 'Un processus doit fermer le fichier', 'La page doit partir en swap', 'Elle doit être écrite sur le disque'], answer: 3, why: 'Une page sale diffère du fichier sur disque : elle est d’abord réécrite.' }
 				]
 			},

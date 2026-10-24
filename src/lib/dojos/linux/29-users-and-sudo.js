@@ -107,7 +107,7 @@ root ALL=(ALL:ALL) ALL
 					{ q: 'In `www-data:x:33:33:...`, what is the `x` in the second field?', options: ['The password is empty', 'The account is locked forever', 'The password hash is kept in `/etc/shadow`', 'The user may run setuid programs'], answer: 2, why: 'The second field is the password, and `x` points to `/etc/shadow`, where the hash lives.' },
 					{ q: 'Which fields are the UID and the GID?', options: ['The third and the fourth: 33 and 33', 'The first and the second', 'The fifth and the sixth', 'Only the third: UID and GID share it'], answer: 0, why: 'passwd(5) lists `name:password:UID:GID:GECOS:directory:shell`.' },
 					{ q: 'What do `/var/www` and `/usr/sbin/nologin` say?', options: ['The web root and the web server binary', 'The log folder and the log rotator', 'The home directory and the login shell', 'The mount point and its type'], answer: 2, why: 'The sixth field is the home directory, the seventh the program run at login.' },
-					{ q: 'Why is the shell `/usr/sbin/nologin`?', options: ['The kernel refuses `execve()` for UID 33', 'Nobody can log in to the account with a shell', 'nginx needs it to read `/etc/passwd`', 'UIDs below 1000 cannot own files'], answer: 1, why: '`nologin` prints a message and exits. The account can still own files and run a daemon.' }
+					{ q: 'UID 33 is below 1000. What does that suggest about `www-data`?', options: ['It has root rights', 'It is a system user, made for a daemon', 'It cannot own files', 'It cannot be in a group'], answer: 1, why: '`useradd --system` picks UIDs below the first regular UID, 1000 by default. Such accounts run daemons such as the web server.' }
 				]
 			},
 			{
@@ -134,7 +134,7 @@ root ALL=(ALL:ALL) ALL
 					{ q: 'Which command checks `/etc/sudoers` and every file it includes?', options: ['`sudo -l`', '`visudo -c`', '`sudoedit /etc/sudoers`', '`cat /etc/sudoers`'], answer: 1, why: '`visudo -c` parses the main file and its includes without opening an editor.' },
 					{ q: 'And one file only?', options: ['`visudo -c -f /etc/sudoers.d/backup`', '`visudo /etc/sudoers.d/backup -n`', '`sudo -c /etc/sudoers.d/backup`', '`bash -n /etc/sudoers.d/backup`'], answer: 0, why: 'It prints `parsed OK`, or the line and column of the error and exit status 1.' },
 					{ q: 'You forget the colon after `NOPASSWD`. What does `visudo -c -f` print?', options: ['`parsed OK`, the colon is optional', 'A warning, then it installs the file', 'Nothing, and exits with 0', '`<file>:1:<column>: syntax error`'], answer: 3, why: 'The hook shows it: `bad.sudoers:1:67: syntax error`, exit 1.' },
-					{ q: 'You named the file `/etc/sudoers.d/backup.conf`. What happens?', options: ['It works like `backup`', 'visudo refuses to save it', 'sudo skips it with no warning', 'sudo reads it last'], answer: 2, why: 'sudo skips file names in `/etc/sudoers.d` that contain a `.` or end in `~`.' }
+					{ q: 'Your editor left a copy named `/etc/sudoers.d/backup~`. Does sudo read it?', options: ['Yes, after `backup`', 'Yes, instead of `backup`', 'No: sudo skips names that end in `~`', 'Only if `visudo -c` passes'], answer: 2, why: 'sudo skips file names in `/etc/sudoers.d` that end in `~` or contain a `.`, so editor backups never become rules.' }
 				]
 			}
 		]

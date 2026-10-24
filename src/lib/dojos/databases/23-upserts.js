@@ -109,6 +109,44 @@ RETURNING
 			'One row back: this request owns the charge. Call the provider, passing the same key so their side is idempotent too, then `UPDATE charges SET status = \'done\', response = $3 WHERE idempotency_key = $1`.',
 			'No row back: it is a retry. `SELECT status, response FROM charges WHERE idempotency_key = $1`. If `done`, return the saved response. If still `pending`, answer 409 or "try again shortly", because the first attempt is still running. Also check the amount matches, as Stripe does, and refuse a reused key with different parameters.',
 			'Two at once: the second INSERT waits on the first one\'s uncommitted key. When the first commits, the second gets the conflict and returns no row. Exactly one request calls the provider.'
+		],
+		steps: [
+			{
+				title: 'Design the table',
+				questions: [
+					{ q: 'What must `idempotency_key` have for the handler to work?', options: ['A default of `gen_random_uuid()`', 'A plain index, for fast lookups', 'A PRIMARY KEY or a UNIQUE index', 'A CHECK that it is not empty'], answer: 2, why: 'The unique index decides which attempt is the real one. Without it, PostgreSQL stops with "there is no unique or exclusion constraint matching the ON CONFLICT specification".' },
+					{ q: 'Who picks the key?', options: ['The client, once per operation, and it resends the same key on retry', 'The server, with a new UUID on each request', 'The database, with a sequence', 'The payment provider, in its response'], answer: 0, why: 'The key must be the same on the first try and the retry. Only the client knows both are the same request.' },
+					{ q: 'Why does the row get a `status` such as `pending`?', options: ['PostgreSQL needs it to detect the conflict', 'Stripe rejects a key without a status', 'It makes the unique index smaller', 'A retry must tell a finished charge from one still running'], answer: 3, why: 'The row is written before the charge. `pending` means the first attempt has not saved its result yet.' },
+					{ q: 'When does the handler write the key row?', options: ['After the provider confirms the charge', 'Before it calls the provider', 'Only when a retry arrives', 'In a nightly batch'], answer: 1, why: 'Record the key before the side effect. Written after, two attempts could both charge before either row exists.' }
+				]
+			},
+			{
+				title: 'Write the first statement',
+				questions: [
+					{ q: 'Which SQL does the handler run first?', options: ['`SELECT 1 FROM charges WHERE idempotency_key = $1;`', '`INSERT INTO charges (...) VALUES ($1, $2, \'pending\') ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key;`', '`INSERT INTO charges (...) VALUES ($1, $2, \'pending\');`', '`UPDATE charges SET status = \'pending\' WHERE idempotency_key = $1;`'], answer: 1, why: 'One atomic statement checks the index and writes. A SELECT first leaves the check-then-act race of day 22.' },
+					{ q: 'The key already exists. What does that INSERT return?', options: ['No row', 'The existing row', 'An error with SQLSTATE `23505`', 'A row of NULLs'], answer: 0, why: 'RETURNING covers rows actually inserted or updated. DO NOTHING writes nothing, so nothing comes back.' },
+					{ q: 'The INSERT returns one row. What does that mean?', options: ['A retry: the key was already there', 'The provider has charged the card', 'This request owns the charge', 'Another request is still running'], answer: 2, why: 'Only the attempt that inserted the row gets it back. That attempt runs the charge.' },
+					{ q: 'Why `DO NOTHING` here and not River\'s no-op `DO UPDATE`?', options: ['`DO UPDATE` cannot use a primary key', '`DO NOTHING` takes a table lock', '`DO UPDATE` fails when the key exists', 'An empty result is the retry signal, and no dead row is left'], answer: 3, why: 'The handler only needs to know if it inserted. A no-op `DO UPDATE` returns the row but writes a new row version each time.' }
+				]
+			},
+			{
+				title: 'Call the provider, or answer the retry',
+				questions: [
+					{ q: 'The INSERT returned a row. What next?', options: ['Call the provider with the same key, then `UPDATE` the row to `done` with the response', 'Return the saved response', 'Answer 409 and wait for a retry', 'Call the provider with a new key, so it is not seen as a duplicate'], answer: 0, why: 'Passing the same key makes the provider\'s side idempotent too. Then the row holds the result for any retry.' },
+					{ q: 'The INSERT returned no row. What does the handler run?', options: ['The same INSERT again', '`SELECT status, response FROM charges WHERE idempotency_key = $1`', '`DELETE` the row and start over', 'A call to the provider, to be sure'], answer: 1, why: 'It is a retry. The stored row says what happened to the first attempt.' },
+					{ q: 'The row says `pending`. What does the handler answer?', options: ['The saved response', 'A new charge with a fresh key', '409 or "try again shortly"', '200 with an empty body'], answer: 2, why: 'The first attempt is still running. Charging again is the bug the key prevents.' },
+					{ q: 'A retry reuses key `k-42` with a different amount. What should happen?', options: ['Charge the new amount', 'Update the row to the new amount', 'Return the saved response for the old amount', 'Refuse the request: the key was used with other parameters'], answer: 3, why: 'Stripe checks that the parameters match. A reused key with new values is a client bug, not a retry.' }
+				]
+			},
+			{
+				title: 'Race two identical requests',
+				questions: [
+					{ q: 'Two requests with the same key run the INSERT at the same moment. What does the second one do first?', options: ['It inserts a second row', 'It fails at once with `23505`', 'It waits on the first one\'s uncommitted key', 'It reads the first row as `pending`'], answer: 2, why: 'PostgreSQL makes the second INSERT wait on the key in the index until the first transaction ends.' },
+					{ q: 'The first commits. What does the second INSERT get?', options: ['The conflict, and no row back', 'One row, since it started second', 'A deadlock error', 'The first row\'s response'], answer: 0, why: 'After the wait it sees the committed key. `DO NOTHING` returns nothing, so it takes the retry path.' },
+					{ q: 'How many requests call the provider?', options: ['Two, one per request', 'Exactly one', 'None until a third retry', 'It depends on which commits first'], answer: 1, why: 'Only the request that got a row back owns the charge.' },
+					{ q: 'The server crashes after the charge but before it saves the result. What is left?', options: ['Nothing: the row is rolled back with the charge', 'A `done` row with no response', 'Two rows with the same key', 'A `pending` row; finishing it is safe only if the provider call carried the same key'], answer: 3, why: 'The unique index protects only your database. The provider\'s own idempotency covers the charge itself.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -146,6 +184,30 @@ RETURNING
 			why: 'The docs call ON CONFLICT DO UPDATE "deterministic": one statement may not affect a row more than once, and raises a cardinality violation if it would. Deduplicate the batch first, for example with `DISTINCT ON (sku)`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Send the same payment twice, once in a row and once at the same moment, and see the unique index pick one winner.',
+		steps: [
+			'Start PostgreSQL: `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Wait until `docker exec dojo-pg pg_isready` prints `accepting connections`, then open `docker exec -it dojo-pg psql -U postgres`.',
+			'Create the table: `CREATE TABLE charges (idempotency_key text PRIMARY KEY, amount_cents int NOT NULL, status text NOT NULL, response jsonb, created_at timestamptz NOT NULL DEFAULT now());`',
+			'Run the handler\'s first statement twice: `INSERT INTO charges (idempotency_key, amount_cents, status) VALUES (\'k-42\', 1999, \'pending\') ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key;`',
+			'Finish the first attempt: `UPDATE charges SET status = \'done\', response = \'{"charge":"ch_1"}\' WHERE idempotency_key = \'k-42\';` then read it the way a retry would: `SELECT status, response FROM charges WHERE idempotency_key = \'k-42\';`',
+			'Point the conflict at a column with no unique index: the same INSERT with key `k-43` and `ON CONFLICT (status) DO NOTHING`.',
+			'Race it: open a second terminal with the same `psql` command. In the first, `BEGIN;` and run the INSERT with key `k-77`. In the second, run the same INSERT. Then `COMMIT;` in the first.'
+		],
+		done: [
+			'In step 3, the first run returns `k-42` and `INSERT 0 1`. The second returns `(0 rows)` and `INSERT 0 0`.',
+			'Step 4 shows `done` and the saved response.',
+			'Step 5 fails with `there is no unique or exclusion constraint matching the ON CONFLICT specification`.',
+			'In step 6, the second terminal hangs until the commit, then prints `(0 rows)` and `INSERT 0 0`.'
+		],
+		solution: [
+			'Only the attempt that inserted the row gets it back from RETURNING. That one calls the provider. Every other attempt reads the saved row.',
+			'The second session waits on the first one\'s uncommitted key in the index. No SELECT before the INSERT could make it wait like that.',
+			'Bonus: `INSERT INTO charges (idempotency_key, amount_cents, status) VALUES (\'k-50\', 1, \'pending\'), (\'k-50\', 2, \'pending\') ON CONFLICT (idempotency_key) DO UPDATE SET amount_cents = EXCLUDED.amount_cents;` fails with `ON CONFLICT DO UPDATE command cannot affect row a second time`. Deduplicate a batch first.',
+			'Clean up with `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'A payment request with key `k-42` arrives again after a timeout. Which statement does the handler run before charging the card, and how does it spot the retry?',
 		a: '`INSERT ... ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key`. No row back means the key already exists, so the handler returns the saved result instead of charging again.'

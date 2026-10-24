@@ -109,6 +109,44 @@ RETURNING
 			'Une ligne en retour : cette requête possède le paiement. Appelle le prestataire en passant la même clé, pour que son côté soit idempotent aussi, puis `UPDATE charges SET status = \'done\', response = $3 WHERE idempotency_key = $1`.',
 			'Aucune ligne en retour : c’est une nouvelle tentative. `SELECT status, response FROM charges WHERE idempotency_key = $1`. Si `done`, renvoie la réponse enregistrée. Si encore `pending`, réponds 409 ou « réessaie dans un instant », parce que le premier essai tourne encore. Vérifie aussi que le montant correspond, comme le fait Stripe, et refuse une clé réutilisée avec d’autres paramètres.',
 			'Deux en même temps : le second INSERT attend sur la clé pas encore validée du premier. Quand le premier valide, le second reçoit le conflit et ne renvoie aucune ligne. Exactement une requête appelle le prestataire.'
+		],
+		steps: [
+			{
+				title: 'Conçois la table',
+				questions: [
+					{ q: 'Que doit avoir `idempotency_key` pour que le handler marche ?', options: ['Un défaut à `gen_random_uuid()`', 'Un index simple, pour des lectures rapides', 'Une PRIMARY KEY ou un index UNIQUE', 'Un CHECK qui interdit la valeur vide'], answer: 2, why: 'L’index unique décide quelle tentative est la vraie. Sans lui, PostgreSQL s’arrête sur « there is no unique or exclusion constraint matching the ON CONFLICT specification ».' },
+					{ q: 'Qui choisit la clé ?', options: ['Le client, une fois par opération, et il renvoie la même clé en cas de nouvelle tentative', 'Le serveur, avec un nouvel UUID à chaque requête', 'La base, avec une séquence', 'Le prestataire de paiement, dans sa réponse'], answer: 0, why: 'La clé doit être la même au premier essai et à la nouvelle tentative. Seul le client sait que les deux sont la même requête.' },
+					{ q: 'Pourquoi la ligne reçoit-elle un `status` comme `pending` ?', options: ['PostgreSQL en a besoin pour détecter le conflit', 'Stripe refuse une clé sans statut', 'Ça rend l’index unique plus petit', 'Une nouvelle tentative doit distinguer un paiement fini d’un paiement en cours'], answer: 3, why: 'La ligne est écrite avant le débit. `pending` veut dire que le premier essai n’a pas encore enregistré son résultat.' },
+					{ q: 'Quand le handler écrit-il la ligne de clé ?', options: ['Après la confirmation du prestataire', 'Avant d’appeler le prestataire', 'Seulement quand une nouvelle tentative arrive', 'Dans un lot nocturne'], answer: 1, why: 'Enregistre la clé avant l’effet de bord. Écrite après, deux tentatives pourraient débiter toutes les deux avant qu’aucune ligne n’existe.' }
+				]
+			},
+			{
+				title: 'Écris la première instruction',
+				questions: [
+					{ q: 'Quel SQL le handler lance-t-il en premier ?', options: ['`SELECT 1 FROM charges WHERE idempotency_key = $1;`', '`INSERT INTO charges (...) VALUES ($1, $2, \'pending\') ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key;`', '`INSERT INTO charges (...) VALUES ($1, $2, \'pending\');`', '`UPDATE charges SET status = \'pending\' WHERE idempotency_key = $1;`'], answer: 1, why: 'Une seule instruction atomique vérifie l’index et écrit. Un SELECT avant laisse la course vérifier-puis-agir du jour 22.' },
+					{ q: 'La clé existe déjà. Que renvoie cet INSERT ?', options: ['Aucune ligne', 'La ligne existante', 'Une erreur avec le SQLSTATE `23505`', 'Une ligne de NULL'], answer: 0, why: 'RETURNING couvre les lignes vraiment insérées ou mises à jour. DO NOTHING n’écrit rien, donc rien ne revient.' },
+					{ q: 'L’INSERT renvoie une ligne. Qu’est-ce que ça veut dire ?', options: ['Une nouvelle tentative : la clé était déjà là', 'Le prestataire a débité la carte', 'Cette requête possède le paiement', 'Une autre requête tourne encore'], answer: 2, why: 'Seule la tentative qui a inséré la ligne la reçoit en retour. C’est elle qui lance le débit.' },
+					{ q: 'Pourquoi `DO NOTHING` ici et pas le `DO UPDATE` sans effet de River ?', options: ['`DO UPDATE` ne peut pas utiliser une clé primaire', '`DO NOTHING` prend un verrou de table', '`DO UPDATE` échoue quand la clé existe', 'Un résultat vide est le signal de nouvelle tentative, et aucune ligne morte ne reste'], answer: 3, why: 'Le handler a seulement besoin de savoir s’il a inséré. Un `DO UPDATE` sans effet renvoie la ligne mais écrit une nouvelle version de ligne à chaque fois.' }
+				]
+			},
+			{
+				title: 'Appelle le prestataire, ou réponds à la nouvelle tentative',
+				questions: [
+					{ q: 'L’INSERT a renvoyé une ligne. Et ensuite ?', options: ['Appeler le prestataire avec la même clé, puis passer la ligne à `done` avec la réponse par un `UPDATE`', 'Renvoyer la réponse enregistrée', 'Répondre 409 et attendre une nouvelle tentative', 'Appeler le prestataire avec une nouvelle clé, pour ne pas passer pour un doublon'], answer: 0, why: 'Passer la même clé rend le côté du prestataire idempotent aussi. Ensuite, la ligne garde le résultat pour toute nouvelle tentative.' },
+					{ q: 'L’INSERT n’a renvoyé aucune ligne. Que lance le handler ?', options: ['Le même INSERT encore', '`SELECT status, response FROM charges WHERE idempotency_key = $1`', 'Un `DELETE` de la ligne pour recommencer', 'Un appel au prestataire, pour être sûr'], answer: 1, why: 'C’est une nouvelle tentative. La ligne enregistrée dit ce qui est arrivé au premier essai.' },
+					{ q: 'La ligne dit `pending`. Que répond le handler ?', options: ['La réponse enregistrée', 'Un nouveau débit avec une clé neuve', '409 ou « réessaie dans un instant »', '200 avec un corps vide'], answer: 2, why: 'Le premier essai tourne encore. Débiter à nouveau, c’est justement le bug que la clé empêche.' },
+					{ q: 'Une nouvelle tentative réutilise la clé `k-42` avec un autre montant. Que doit-il se passer ?', options: ['Débiter le nouveau montant', 'Mettre la ligne à jour avec le nouveau montant', 'Renvoyer la réponse enregistrée pour l’ancien montant', 'Refuser la requête : la clé a servi avec d’autres paramètres'], answer: 3, why: 'Stripe vérifie que les paramètres correspondent. Une clé réutilisée avec de nouvelles valeurs est un bug du client, pas une nouvelle tentative.' }
+				]
+			},
+			{
+				title: 'Fais courir deux requêtes identiques',
+				questions: [
+					{ q: 'Deux requêtes avec la même clé lancent l’INSERT au même moment. Que fait la seconde d’abord ?', options: ['Elle insère une seconde ligne', 'Elle échoue tout de suite avec `23505`', 'Elle attend sur la clé pas encore validée de la première', 'Elle lit la première ligne en `pending`'], answer: 2, why: 'PostgreSQL fait attendre le second INSERT sur la clé dans l’index jusqu’à la fin de la première transaction.' },
+					{ q: 'La première valide. Qu’obtient le second INSERT ?', options: ['Le conflit, et aucune ligne en retour', 'Une ligne, puisqu’il a démarré en second', 'Une erreur de deadlock', 'La réponse de la première ligne'], answer: 0, why: 'Après l’attente, il voit la clé validée. `DO NOTHING` ne renvoie rien, donc il prend le chemin de la nouvelle tentative.' },
+					{ q: 'Combien de requêtes appellent le prestataire ?', options: ['Deux, une par requête', 'Exactement une', 'Aucune avant une troisième tentative', 'Ça dépend de celle qui valide en premier'], answer: 1, why: 'Seule la requête qui a reçu une ligne en retour possède le paiement.' },
+					{ q: 'Le serveur plante après le débit mais avant d’enregistrer le résultat. Que reste-t-il ?', options: ['Rien : la ligne est annulée avec le débit', 'Une ligne `done` sans réponse', 'Deux lignes avec la même clé', 'Une ligne `pending` ; la terminer n’est sans risque que si l’appel au prestataire portait la même clé'], answer: 3, why: 'L’index unique ne protège que ta base. L’idempotence du prestataire couvre le débit lui-même.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -146,6 +184,30 @@ RETURNING
 			why: 'La doc dit qu’ON CONFLICT DO UPDATE est « deterministic » : une instruction ne peut pas toucher une ligne plus d’une fois, et lève une erreur de cardinalité si elle le ferait. Dédoublonne le lot avant, par exemple avec `DISTINCT ON (sku)`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Envoyer le même paiement deux fois, une fois à la suite et une fois au même moment, et voir l’index unique choisir un seul gagnant.',
+		steps: [
+			'Lance PostgreSQL : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`, puis ouvre `docker exec -it dojo-pg psql -U postgres`.',
+			'Crée la table : `CREATE TABLE charges (idempotency_key text PRIMARY KEY, amount_cents int NOT NULL, status text NOT NULL, response jsonb, created_at timestamptz NOT NULL DEFAULT now());`',
+			'Lance deux fois la première instruction du handler : `INSERT INTO charges (idempotency_key, amount_cents, status) VALUES (\'k-42\', 1999, \'pending\') ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key;`',
+			'Termine le premier essai : `UPDATE charges SET status = \'done\', response = \'{"charge":"ch_1"}\' WHERE idempotency_key = \'k-42\';` puis lis-le comme le ferait une nouvelle tentative : `SELECT status, response FROM charges WHERE idempotency_key = \'k-42\';`',
+			'Vise une colonne sans index unique : le même INSERT avec la clé `k-43` et `ON CONFLICT (status) DO NOTHING`.',
+			'Fais la course : ouvre un second terminal avec la même commande `psql`. Dans le premier, `BEGIN;` et lance l’INSERT avec la clé `k-77`. Dans le second, lance le même INSERT. Puis `COMMIT;` dans le premier.'
+		],
+		done: [
+			'À l’étape 3, le premier lancement renvoie `k-42` et `INSERT 0 1`. Le second renvoie `(0 rows)` et `INSERT 0 0`.',
+			'L’étape 4 montre `done` et la réponse enregistrée.',
+			'L’étape 5 échoue avec `there is no unique or exclusion constraint matching the ON CONFLICT specification`.',
+			'À l’étape 6, le second terminal reste bloqué jusqu’au commit, puis affiche `(0 rows)` et `INSERT 0 0`.'
+		],
+		solution: [
+			'Seule la tentative qui a inséré la ligne la reçoit par RETURNING. C’est elle qui appelle le prestataire. Toutes les autres lisent la ligne enregistrée.',
+			'La seconde session attend sur la clé pas encore validée de la première dans l’index. Aucun SELECT avant l’INSERT ne pourrait la faire attendre ainsi.',
+			'Bonus : `INSERT INTO charges (idempotency_key, amount_cents, status) VALUES (\'k-50\', 1, \'pending\'), (\'k-50\', 2, \'pending\') ON CONFLICT (idempotency_key) DO UPDATE SET amount_cents = EXCLUDED.amount_cents;` échoue avec `ON CONFLICT DO UPDATE command cannot affect row a second time`. Dédoublonne un lot avant.',
+			'Nettoie avec `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Une requête de paiement avec la clé `k-42` revient après une expiration. Quelle instruction le handler lance-t-il avant de débiter la carte, et comment repère-t-il la nouvelle tentative ?',
 		a: '`INSERT ... ON CONFLICT (idempotency_key) DO NOTHING RETURNING idempotency_key`. Aucune ligne en retour veut dire que la clé existe déjà, donc le handler renvoie le résultat enregistré au lieu de débiter une seconde fois.'

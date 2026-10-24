@@ -121,6 +121,44 @@ export default {
 			'La session A (toujours dans sa transaction) obtient les ids 1 et 2. La session B obtient 3 et 4 tout de suite : les lignes 1 et 2 sont verrouillées par A, donc elles sont sautées.',
 			'Sans `SKIP LOCKED`, la session B bloque sur la ligne 1 jusqu’au commit ou au rollback de A. Si A valide, B revérifie sa clause WHERE sur les nouvelles versions des lignes (jour 21), trouve `executing`, et écarte les lignes 1 et 2. Le LIMIT est au-dessus de l’étape de verrouillage dans le plan, donc il continue à tirer des lignes et B finit avec 3 et 4, seulement plus tard.',
 			'Dans un vrai worker, fais `COMMIT` juste après la prise en charge. Le job tourne hors de la transaction, et c’est l’état `executing` plus `attempted_at` que regarde une requête de sauvetage.'
+		],
+		steps: [
+			{
+				title: 'Écris la requête de prise en charge',
+				questions: [
+					{ q: 'Quelle clause de verrouillage permet à une session de prendre des jobs sans attendre l’autre ?', options: ['`FOR UPDATE`', '`FOR UPDATE NOWAIT`', '`FOR SHARE`', '`FOR UPDATE SKIP LOCKED`'], answer: 3, why: 'SKIP LOCKED laisse hors du résultat les lignes qu’une autre transaction tient. NOWAIT lève une erreur à la place, et FOR UPDATE tout court attend.' },
+					{ q: 'Où va le SELECT qui verrouille ?', options: ['Dans un CTE, `WITH next AS (SELECT id ... LIMIT 2 FOR UPDATE SKIP LOCKED)`, joint par l’UPDATE', 'Après l’UPDATE, pour vérifier ce qu’il a changé', 'Dans une transaction à part, avant l’UPDATE', 'Nulle part : un UPDATE avec `LIMIT 2` suffit'], answer: 0, why: 'Le CTE choisit et verrouille les ids, et l’UPDATE prend exactement ces lignes dans la même instruction.' },
+					{ q: 'Pourquoi Oban met-il la sous-requête qui verrouille dans un CTE ?', options: ['Un CTE tourne plus vite qu’une sous-requête', 'Ecto ne sait pas construire une sous-requête avec un verrou', 'PostgreSQL n’intègre jamais un CTE qui verrouille des lignes, donc le LIMIT tourne une seule fois', 'Un CTE garde ses verrous après le COMMIT'], answer: 2, why: 'Une boucle imbriquée pourrait lancer la sous-requête avec LIMIT plusieurs fois et mettre à jour plus de lignes que demandé. Un CTE qui verrouille est calculé une seule fois.' },
+					{ q: 'Que met l’UPDATE sur chaque job pris ?', options: ['`state = \'completed\'`', '`state = \'executing\'`, `attempted_at = now()`, `attempt = attempt + 1`', '`state = \'available\'` et `attempt = 0`', 'Seulement `attempted_at = now()`'], answer: 1, why: 'L’état dit à qui est le job une fois le verrou parti, et `attempted_at` est ce que lit la requête de sauvetage.' }
+				]
+			},
+			{
+				title: 'Dis quels ids chaque session obtient',
+				questions: [
+					{ q: 'La session A lance `BEGIN;` et la prise en charge, et reste dans sa transaction. Quels ids obtient-elle ?', options: ['1 et 2', '1 seulement', 'Les quatre', '3 et 4'], answer: 0, why: '`ORDER BY id LIMIT 2` prend les deux plus petits ids disponibles.' },
+					{ q: 'La session B lance la même prise en charge pendant que A est ouverte. Que se passe-t-il ?', options: ['B attend le commit de A', 'B obtient aussi 1 et 2', 'B reçoit une erreur disant que les lignes sont verrouillées', 'B obtient 3 et 4 tout de suite'], answer: 3, why: 'Les lignes 1 et 2 sont verrouillées par A, donc SKIP LOCKED passe à côté et prend les lignes disponibles suivantes.' },
+					{ q: 'Une troisième session lance la prise en charge pendant que A et B sont ouvertes. Qu’obtient-elle ?', options: ['Les ids 1 et 2 encore', 'Aucune ligne', 'Une erreur', 'Elle attend A'], answer: 1, why: 'Chaque ligne disponible est verrouillée par A ou B, donc les quatre sont sautées. Le worker repassera plus tard.' },
+					{ q: 'B avait utilisé `FOR UPDATE NOWAIT` à la place. Qu’obtiendrait-elle ?', options: ['Les ids 3 et 4', 'Une attente sur la ligne 1', 'Une erreur, parce que la ligne 1 est verrouillée', 'Aucune ligne et aucune erreur'], answer: 2, why: 'NOWAIT lève une erreur dès qu’une ligne dont il a besoin est verrouillée. Seul SKIP LOCKED passe à la suite.' }
+				]
+			},
+			{
+				title: 'Enlève SKIP LOCKED',
+				questions: [
+					{ q: 'B lance la prise en charge avec `FOR UPDATE` tout court pendant que A est ouverte. Que se passe-t-il d’abord ?', options: ['B obtient 3 et 4 tout de suite', 'B obtient aussi 1 et 2', 'B reçoit une erreur', 'B bloque sur la ligne 1 jusqu’au commit ou au rollback de A'], answer: 3, why: 'FOR UPDATE tout court attend que le détenteur du verrou finisse.' },
+					{ q: 'A valide. Que fait B des lignes 1 et 2 ?', options: ['Elle revérifie le WHERE sur les nouvelles versions des lignes, trouve `executing`, et les écarte', 'Elle les prend une seconde fois', 'Elle lève une erreur de sérialisation', 'Elle les renvoie avec leur ancien état'], answer: 0, why: 'En Read Committed, une instruction qui attendait réévalue son WHERE sur la ligne mise à jour (jour 21).' },
+					{ q: 'Avec quels ids B finit-elle ?', options: ['Aucun', '1 et 2', '3 et 4, seulement plus tard', '3 seulement'], answer: 2, why: 'Le LIMIT est au-dessus de l’étape de verrouillage dans le plan, donc il continue à tirer des lignes jusqu’à en avoir deux.' },
+					{ q: 'Avec dix workers et `FOR UPDATE` tout court, à quoi ressemble la file ?', options: ['Dix workers font chacun un job', 'Un worker travaille et neuf attendent son verrou', 'Chaque worker fait le même job', 'PostgreSQL répartit les jobs également'], answer: 1, why: 'Chaque worker bloque sur la première ligne que les autres tiennent. SKIP LOCKED est ce qui les laisse tourner côte à côte.' }
+				]
+			},
+			{
+				title: 'Termine comme un vrai worker',
+				questions: [
+					{ q: 'Quand un vrai worker valide-t-il la prise en charge ?', options: ['Après la fin du job, pour garder le verrou', 'Juste après la prise en charge, avant de lancer le job', 'Jamais : il fait un rollback et garde l’état', 'Après le passage de la requête de sauvetage'], answer: 1, why: 'Le verrou ne sert qu’à empêcher deux workers de prendre le même job. Ensuite, l’état `executing` dit à qui il est.' },
+					{ q: 'Pourquoi ne pas garder la transaction ouverte pendant que le job tourne ?', options: ['PostgreSQL annule les verrous de ligne après quelques secondes', 'NOTIFY arrêterait de marcher', 'Une longue transaction ouverte bloque une connexion et retient vacuum', 'Les autres workers attendraient sur le verrou'], answer: 2, why: 'Avec SKIP LOCKED, personne n’attend, donc ce n’est pas la raison. Des transactions de plusieurs minutes épuisent les connexions et laissent s’accumuler les lignes mortes.' },
+					{ q: 'Un worker meurt pendant que le job 3 dit `executing`. Comment retrouve-t-on le job ?', options: ['Une requête de sauvetage cherche les jobs `executing` dont `attempted_at` est plus vieux qu’une limite', 'PostgreSQL lâche le verrou de ligne et le job repasse en `available`', 'La prochaine prise en charge le récupère toute seule', 'Le redémarrage du worker rejoue sa transaction'], answer: 0, why: 'La prise en charge est déjà validée, donc il ne reste aucun verrou. Seul l’âge de `attempted_at` montre que le worker a disparu.' },
+					{ q: 'Pourquoi un job sauvé doit-il être idempotent ?', options: ['La requête de sauvetage le lance deux fois exprès', 'Il a peut-être déjà fait une partie de son travail avant le plantage', 'PostgreSQL rejoue la dernière transaction du job', 'Le compteur `attempt` revient à zéro'], answer: 1, why: 'Un job tourne au moins une fois, et parfois deux. Le relancer doit être sans risque (jour 23).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,31 @@ export default {
 			why: 'La doc de NOTIFY dit que les événements « are not delivered until and unless the transaction is committed » (ne sont livrés que si la transaction est validée). Ça colle à la mise en file transactionnelle : un job annulé n’a jamais existé, et personne n’est réveillé pour lui.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Faire tourner deux workers sur une même table de jobs, voir SKIP LOCKED leur donner des jobs différents, puis sauver un job dont le worker est mort.',
+		steps: [
+			'Lance PostgreSQL : `docker run -d --name dojo-pg -e POSTGRES_PASSWORD=dojo postgres:17`. Attends que `docker exec dojo-pg pg_isready` affiche `accepting connections`. Ouvre deux terminaux, A et B, chacun avec `docker exec -it dojo-pg psql -U postgres`.',
+			'Dans A : `CREATE TABLE jobs (id bigserial PRIMARY KEY, state text NOT NULL DEFAULT \'available\', attempted_at timestamptz, attempt int NOT NULL DEFAULT 0);` puis `INSERT INTO jobs (state) SELECT \'available\' FROM generate_series(1, 4);`',
+			'Dans A, `BEGIN;` puis la prise en charge : `WITH next AS (SELECT id FROM jobs WHERE state = \'available\' ORDER BY id LIMIT 2 FOR UPDATE SKIP LOCKED) UPDATE jobs SET state = \'executing\', attempted_at = now(), attempt = attempt + 1 FROM next WHERE jobs.id = next.id RETURNING jobs.id;`. Ne valide pas.',
+			'Dans B, `BEGIN;` et la même prise en charge. Puis `ROLLBACK;` dans les deux.',
+			'Refais l’étape 3 dans A. Dans B, envoie la même prise en charge sans `SKIP LOCKED` et sans BEGIN. Attends quelques secondes, puis `COMMIT;` dans A.',
+			'Fais comme si tous les workers étaient morts. Attends 5 secondes, puis sauve : `UPDATE jobs SET state = \'available\' WHERE state = \'executing\' AND attempted_at < now() - interval \'5 seconds\' RETURNING id, attempt;`',
+			'Réveille un worker : dans B, `LISTEN jobs;`. Dans A, `BEGIN; NOTIFY jobs, \'job 5\'; ROLLBACK;` puis `NOTIFY jobs, \'job 6\';`. Dans B, lance `SELECT 1;` après chacun.'
+		],
+		done: [
+			'À l’étape 4, A a renvoyé les ids 1 et 2, et B a renvoyé 3 et 4 tout de suite.',
+			'À l’étape 5, B reste bloquée jusqu’au commit de A, puis renvoie 3 et 4.',
+			'À l’étape 6, le sauvetage renvoie les quatre ids avec `attempt` à 1.',
+			'À l’étape 7, B affiche `Asynchronous notification "jobs" with payload "job 6"` et ne montre jamais `job 5`.'
+		],
+		solution: [
+			'SKIP LOCKED laisse hors du résultat de B les lignes que A tient, donc B passe aux suivantes.',
+			'Sans lui, B attend sur la ligne 1. Quand A valide, B revérifie son WHERE sur les nouvelles versions des lignes, trouve `executing`, écarte les lignes 1 et 2, et le LIMIT continue à tirer jusqu’à avoir 3 et 4.',
+			'Le sauvetage trouve les workers morts à l’âge seulement : les prises en charge sont validées, donc il ne reste aucun verrou. Chaque job sauvé tournera une seconde fois, d’où le besoin de jobs idempotents.',
+			'Un NOTIFY n’est livré que si sa transaction est validée, donc `job 5`, annulé, ne réveille personne. Nettoie avec `docker rm -f dojo-pg`.'
+		]
+	},
 	recall: {
 		q: 'Dix workers prennent des jobs dans la même table. Quelle clause laisse chacun prendre des jobs différents sans attendre, et combien de temps tient-il le verrou de ligne ?',
 		a: '`FOR UPDATE SKIP LOCKED`. Le verrou ne dure que la courte transaction de prise en charge qui met `state = \'executing\'` ; le job tourne ensuite hors de toute transaction.'

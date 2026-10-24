@@ -112,6 +112,44 @@ export default {
 			'Correction 1 : tire un nonce à chaque appel et envoie-le avec le chiffré :\n```python\ndef encrypt(msg: bytes) -> bytes:\n    nonce = os.urandom(12)\n    return nonce + AESGCM(KEY).encrypt(nonce, msg, None)\n```\nOu quitte la couche hazmat et utilise `Fernet(key).encrypt(msg)`, qui le fait pour toi.',
 			'Trou 2 : `random` n’est pas un CSPRNG. La doc Python dit qu’il « should not be used for security purposes ». Un attaquant qui voit assez de sorties peut prédire les prochains codes de réinitialisation.',
 			'Correction 2 : `import secrets` et `return "%06d" % secrets.randbelow(1_000_000)`. Six chiffres se devinent toujours en 10^6 essais : l’endpoint de réinitialisation a encore besoin d’une limite de débit (jour 15).'
+		],
+		steps: [
+			{
+				title: 'Suis le moment où chaque ligne s’exécute',
+				questions: [
+					{ q: 'Combien de fois `NONCE = os.urandom(12)` s’exécute-t-il ?', options: ['Une fois, à l’import du module', 'Une fois par appel à `encrypt`', 'Une fois par processus et par jour', 'Jamais : Python le traite comme une constante'], answer: 0, why: 'Le code au niveau du module tourne à l’import. Chaque appel suivant à `encrypt` lit la même valeur.' },
+					{ q: '`os.urandom` est-il le problème en soi ?', options: ['Oui : sa sortie est prévisible', 'Non : c’est un CSPRNG, le problème est de ne tirer qu’une fois', 'Oui : 12 octets, c’est trop court pour GCM', 'Non : le problème est la clé de 256 bits'], answer: 1, why: '`os.urandom` est une bonne source, et AES-GCM utilise des nonces de 12 octets. L’appeler une seule fois transforme un nonce aléatoire en nonce fixe.' },
+					{ q: 'Après 1000 appels à `encrypt`, combien de nonces différents ont servi avec `KEY` ?', options: ['1000', '12', '1', '0'], answer: 2, why: 'Un seul nonce, tiré à l’import, pour les 1000 messages sous la même clé.' },
+					{ q: 'D’où vient `random.randint` ?', options: ['Du module `secrets`', 'Du module `os`', 'Du paquet `cryptography`', 'Du module `random` de Python, qui n’est pas un CSPRNG'], answer: 3, why: 'La première ligne importe `random`. Sa doc dit qu’il « should not be used for security purposes ».' }
+				]
+			},
+			{
+				title: 'Mesure les dégâts',
+				questions: [
+					{ q: 'D’après la RFC 5116, que casse le deuxième message sous le même nonce ?', options: ['Seulement le deuxième message', 'Rien, si les deux messages n’ont pas la même longueur', 'La confidentialité des deux, et toute l’authenticité sous `KEY`', 'Seulement le tag du deuxième message'], answer: 2, why: 'La RFC : la réutilisation « undermines all of the authenticity and integrity protection provided by that key », pas seulement les deux messages.' },
+					{ q: 'Que peut faire un attaquant sur le réseau, en plus de lire ?', options: ['Forger des messages qui passent la vérification du tag sous `KEY`', 'Seulement rejouer d’anciens messages tels quels', 'Rien : le tag GCM bloque toute modification', 'Retrouver la clé AES elle-même'], answer: 0, why: 'Une fois l’authenticité sous la clé perdue, des messages forgés sont acceptés. La preuve de concept de 2016 injectait du contenu dans des sessions chiffrées.' },
+					{ q: 'Quel cas réel avait le même bug que le trou 1 ?', options: ['Le générateur OpenSSL prévisible de Debian en 2008', 'Les 184 serveurs HTTPS qui répétaient un nonce GCM en 2016', 'La backdoor xz en 2024', 'CVE-2019-11250, des tokens dans les logs'], answer: 1, why: 'Ces serveurs réutilisaient un nonce sous une clé, ce qui « fully breaks the authenticity of the connections ».' },
+					{ q: 'Pourquoi le trou 2 compte-t-il pour les codes de réinitialisation ?', options: ['`random` est trop lent pour un parcours de connexion', 'Les codes n’ont que cinq chiffres', 'Chaque code répète le précédent', 'Qui voit assez de codes peut prédire les suivants'], answer: 3, why: 'La sortie d’un générateur qui n’est pas un CSPRNG se déduit des sorties précédentes. Un code de réinitialisation prédit, c’est un compte pris.' }
+				]
+			},
+			{
+				title: 'Corrige le nonce',
+				questions: [
+					{ q: 'Où le code corrigé tire-t-il le nonce ?', options: ['À l’import, mais sur 16 octets', 'Dans `encrypt`, une fois par appel', 'Depuis une valeur rangée dans un fichier de config', 'Depuis les 12 premiers octets de `KEY`'], answer: 1, why: 'Un nonce aléatoire neuf par message le garde unique pour la clé.' },
+					{ q: 'Pourquoi `encrypt` renvoie-t-il `nonce + ciphertext` ?', options: ['Pour rendre la sortie plus difficile à lire', 'Parce que le tag est rangé dans le nonce', 'Le déchiffrement a besoin du même nonce, donc il voyage avec le chiffré', 'Pour cacher le nonce à l’attaquant'], answer: 2, why: 'Le nonce n’est pas secret. Le destinataire sépare les 12 premiers octets et les passe à `decrypt`.' },
+					{ q: 'Quel appel fait tout le travail pour toi ?', options: ['`random.randbytes(12)`', '`hashlib.sha256(msg)`', '`base64.b64encode(msg)`', '`Fernet(key).encrypt(msg)`'], answer: 3, why: 'Une recette choisit le nonce, ajoute le tag et fixe le format. pyca/cryptography recommande « using the recipes layer whenever possible ».' },
+					{ q: 'Les nonces aléatoires de 96 bits ont quand même une limite par clé. Laquelle ?', options: ['2^32 messages', '2^96 messages', '2^64 messages', 'Aucune : un nonce aléatoire ne se répète jamais'], answer: 0, why: 'La doc Go : « Never use more than 2^32 random nonces with a given key because of the risk of a repeat. »' }
+				]
+			},
+			{
+				title: 'Corrige le code de réinitialisation',
+				questions: [
+					{ q: 'Quel module remplace `random` ici ?', options: ['`math`', '`secrets`', '`hashlib`', '`uuid`'], answer: 1, why: 'La doc de `random` renvoie vers `secrets` pour tout usage de sécurité.' },
+					{ q: 'Quel est le `return` corrigé ?', options: ['`return "%06d" % random.randint(0, 999999)`, initialisé avec l’heure', '`return "%06d" % (int(time.time()) % 1_000_000)`', '`return "%06d" % secrets.randbelow(1_000_000)`', '`return str(os.getpid())`'], answer: 2, why: 'Il tire depuis un CSPRNG et garde le format à six chiffres. Une graine tirée de l’heure, ou l’heure elle-même, se devine facilement.' },
+					{ q: 'Pourquoi l’endpoint de réinitialisation a-t-il encore besoin d’une limite de débit ?', options: ['`secrets` est lent sous la charge', 'Les codes de `secrets` se répètent souvent', 'Une limite de débit remplace le CSPRNG', 'Six chiffres se devinent toujours en 10^6 essais'], answer: 3, why: 'Un CSPRNG empêche la prédiction, pas la force brute. Un million d’essais, c’est peu sans limite.' },
+					{ q: 'La même erreur en Go : de quel paquet un code de réinitialisation doit-il venir ?', options: ['`crypto/rand`', '`math/rand`', '`math/rand/v2` avec une graine en nanosecondes', '`time`'], answer: 0, why: 'La doc de `math/rand/v2` renvoie vers `crypto/rand`, et dit que ses sorties « might be easily predictable regardless of how it’s seeded ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,26 @@ export default {
 			why: 'La doc Go : « A given key MUST NOT be used to encrypt more than 2^32 messages, to limit the risk of a random nonce collision to negligible levels. » Personne ne vérifie les répétitions de nonces aléatoires, donc la limite est fixée bien en dessous de 2^96 pour garder une chance de collision minuscule.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire un message secret dans deux chiffrés AES-GCM qui partagent un nonce, sans la clé, puis corriger le module pour que l’astuce ne marche plus.',
+		steps: [
+			'Crée un dossier, `mkdir -p ~/crypto-lab && cd ~/crypto-lab`, et enregistre ceci dans `nonce.py`. C’est le `encrypt` de l’exercice, plus un attaquant qui connaît un des clairs :\n```python\nimport os\nfrom cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\nKEY = AESGCM.generate_key(bit_length=256)\nNONCE = os.urandom(12)\n\ndef encrypt(msg: bytes) -> bytes:\n    return AESGCM(KEY).encrypt(NONCE, msg, None)\n\nknown = b"transfer 100 EUR to alice"\nsecret = b"the vault code is 4-8-1-5"\nc1, c2 = encrypt(known), encrypt(secret)\nstream = bytes(a ^ b for a, b in zip(c1, known))\nprint(bytes(a ^ b for a, b in zip(c2, stream)))\n```',
+			'Lance-le dans un conteneur jetable : `docker run --rm -v "$PWD":/w -w /w python:3.12-slim sh -c "pip install -q --root-user-action=ignore cryptography==42.0.5 && python nonce.py"`.',
+			'Applique la correction 1 de l’exercice : tire `nonce = os.urandom(12)` dans `encrypt` et renvoie `nonce + AESGCM(KEY).encrypt(nonce, msg, None)`. Saute le préfixe de 12 octets dans l’attaque (`c1[12:]` et `c2[12:]`), ajoute `print(AESGCM(KEY).decrypt(c2[:12], c2[12:], None))` à la fin, et relance l’étape 2.',
+			'Applique la correction 2 : `python3 -c \'import secrets; print("%06d" % secrets.randbelow(1_000_000))\'`. Lance-le plusieurs fois.'
+		],
+		done: [
+			'L’étape 2 affiche `b\'the vault code is 4-8-1-5\'`, alors que le script n’a jamais appelé `decrypt`.',
+			'Après la correction 1, la ligne d’attaque affiche des octets au hasard, et la ligne `decrypt` affiche le message secret.',
+			'L’étape 4 affiche un code à six chiffres qui change à chaque lancement.'
+		],
+		solution: [
+			'Avec un seul nonce, AES-GCM chiffre les deux messages avec le même flux de clé. Un XOR entre le clair connu et son chiffré donne ce flux ; un XOR entre ce flux et le second chiffré donne le second clair.',
+			'Avec un nonce neuf à chaque appel, chaque message a son propre flux de clé, donc le message connu ne t’apprend rien sur l’autre.',
+			'La même réutilisation casse aussi le tag, ce que ce lab ne montre pas : la RFC 5116 dit qu’elle « undermines all of the authenticity and integrity protection provided by that key ».'
+		]
+	},
 	recall: {
 		q: 'Quelles deux règles gardent AES-GCM sûr dans ton code, et quel appel Go applique les deux pour toi ?',
 		a: 'Un nonce ne se répète jamais pour une clé (au plus 2^32 nonces aléatoires de 96 bits), et les octets aléatoires viennent d’un CSPRNG comme `crypto/rand`. `cipher.NewGCMWithRandomNonce` fait les deux.'

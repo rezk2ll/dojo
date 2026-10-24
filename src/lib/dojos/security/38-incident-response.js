@@ -129,6 +129,44 @@ type CircleCIAPIContextVariable = {
 			'Check the rotation: list the context with the Env Inspector and confirm every variable has `updated_at` after 5 January 2023.',
 			'Search from 16 December 2022, the date the laptop was compromised, to the time your rotation ended. The report gives the same window.',
 			'Search AWS, npm and GitHub logs for the 8 IP addresses and the VPN providers in the report, and the GitHub audit log for `repo.download_zip`. Write down each hit with its time before you change anything else, so the evidence survives.'
+		],
+		steps: [
+			{
+				title: 'Decide what comes first',
+				questions: [
+					{ q: 'Do you wait for proof that your secrets were used before you act?', options: ['No: the report says "assume they have been accessed"', 'Yes: rotating without proof breaks deploys for nothing', 'Yes: CircleCI will tell you if they were used', 'No, but only for the AWS key'], answer: 0, why: 'Proof may never come. The safe move is to treat every stored secret as stolen.' },
+					{ q: 'Why can CircleCI not tell you whether your secrets were used?', options: ['It deleted its logs during containment', 'Use happens in other systems: "there is no way for us to know"', 'The attacker kept the secrets encrypted', 'GitHub keeps those logs private'], answer: 1, why: 'The secrets work in AWS, npm and GitHub. Only those systems, and you, see them being used.' },
+					{ q: 'The secrets were encrypted at rest. Does that lower the urgency?', options: ['Yes: the attacker only has ciphertext', 'Yes, if the key was long enough', 'No: the attacker extracted the keys from a running process', 'No, but only for the npm token'], answer: 2, why: 'A running service holds the key in memory. The encrypted copy and its key left together.' },
+					{ q: 'What did the report ask customers to rotate?', options: ['Only GitHub OAuth tokens', 'Only cloud provider keys', 'Only secrets added after 16 December', 'All secrets stored in CircleCI: "OAuth tokens, Project API Tokens, SSH keys, and more"'], answer: 3, why: 'The disclosure asked every customer to rotate every secret it held, not a chosen few.' }
+				]
+			},
+			{
+				title: 'Rotate each secret',
+				questions: [
+					{ q: 'In which order do you rotate one secret?', options: ['Revoke the old one, create a new one, update the context', 'Create a new one, put it in `deploy`, revoke the old one', 'Update the context, revoke the old one, create a new one', 'Create a new one now, revoke the old one next week'], answer: 1, why: 'The stolen copy stops working when you revoke it, and the next deploy already has the new value.' },
+					{ q: 'What do you do with the GitHub deploy key?', options: ['Delete it and add a new one', 'Change its passphrase', 'Leave it: deploy keys only read', 'Move it to another context'], answer: 0, why: 'A deploy key is a secret like the others. Rotating it means removing the old key and adding a new one.' },
+					{ q: 'Which of the secrets in `deploy` do you rotate?', options: ['Only the npm token, since it publishes your packages', 'Only the GitHub deploy key', 'The AWS key, the npm token and the GitHub deploy key', 'Only the AWS key, since it costs money'], answer: 2, why: 'All three sat in the `deploy` context, so the attacker may hold all three. Each one gets rotated, one after the other.' },
+					{ q: 'How do you check that the rotation is done?', options: ['Run one build and see it pass', 'Ask CircleCI support', 'Wait a week and look again', 'List the context with the Env Inspector and check every `updated_at` is after 5 January 2023'], answer: 3, why: 'A variable with an older `updated_at` still holds a value the attacker may have.' }
+				]
+			},
+			{
+				title: 'Set the time window',
+				questions: [
+					{ q: 'Where does your search window start?', options: ['22 December 2022, the exfiltration', '29 December 2022, the first customer report', '16 December 2022, the laptop compromise', '4 January 2023, the containment'], answer: 2, why: 'It is the earliest date in the report, and the report gives the same start.' },
+					{ q: 'Where does it end?', options: ['When your own rotation ended', 'On 22 December 2022', 'On 12 January 2023, the report date', 'On 4 January 2023'], answer: 0, why: 'The report says "through the date when you rotated your secrets".' },
+					{ q: 'Why does the window end at your rotation and not at CircleCI’s containment?', options: ['Logs stop at that point', 'Until you rotate, the attacker can still use your secrets', 'CircleCI’s containment was on the same day', 'Rotation deletes the older logs'], answer: 1, why: 'Containment closed the way into CircleCI. Your stolen secrets kept working until you replaced them.' },
+					{ q: 'Why start on 16 December, days before the data was taken on 22 December?', options: ['CircleCI only started logging that day', 'It is the default window in AWS', 'The report adds a week to every search', 'From that day on, the attacker could act as the engineer'], answer: 3, why: 'The malware took the session on the day the laptop was compromised. Reconnaissance followed on 19 December.' }
+				]
+			},
+			{
+				title: 'Search for the traces',
+				questions: [
+					{ q: 'Which of these is an indicator of compromise from the report?', options: ['The engineer’s name', 'The GitHub audit log action `repo.download_zip`', 'The CircleCI status page', 'Your usual build times'], answer: 1, why: 'An indicator is a trace others can search for. The report lists that action next to the IPs, the file hash and the domain.' },
+					{ q: 'Where do you search for the attacker’s IP addresses?', options: ['In your AWS, npm and GitHub logs', 'In CircleCI’s logs only', 'On the engineer’s laptop', 'In your DNS cache'], answer: 0, why: 'Those are the systems your secrets open. Use of a stolen secret shows up there.' },
+					{ q: 'You find a hit. What do you do before you change anything else?', options: ['Delete the log line to stop the leak', 'Block the IP and move on', 'Write down each hit with its time, so the evidence survives', 'Rotate the same secret a second time'], answer: 2, why: 'Changes can overwrite or age out the traces. A written list with times is what you build on.' },
+					{ q: 'How many attacker IP addresses did the report list?', options: ['1', '3', '20', '8'], answer: 3, why: 'The report gave 8 IP addresses, plus data centers and VPN providers.' }
+				]
+			}
 		]
 	},
 	quiz: [

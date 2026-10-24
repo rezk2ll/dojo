@@ -126,6 +126,44 @@ export default {
 			'Un `cat /etc/shadow` d’attaquant a `proc.exepath=/usr/bin/cat` et un shell comme parent : il déclenche toujours la règle. Upstream a corrigé falco#3480 avec les deux mêmes champs dans `systemd_sensitive_file_readers`.',
 			'Écarté : ajouter `9` à une liste de noms de confiance. Tout programme que l’attaquant nomme `9` lirait alors `/etc/shadow` sans alerte.',
 			'Écarté : couper la règle, ou retirer `/etc/shadow`. Les deux font aussi taire l’attaquant. Baisser la priorité range la lecture de l’attaquant dans le même bac que le bruit de la nuit.'
+		],
+		steps: [
+			{
+				title: 'Lis l’alerte',
+				questions: [
+					{ q: 'Quelle règle envoie ce WARNING ?', options: ['Read sensitive file untrusted', 'Terminal shell in container', 'Detect release_agent File Container Escapes', 'Write below etc'], answer: 0, why: 'La ligne d’alerte commence par `rule=Read sensitive file untrusted`, et le fichier est `/etc/shadow`.' },
+					{ q: 'Quel programme a vraiment ouvert `/etc/shadow` ?', options: ['Un programme nommé `9`', '`/usr/lib/systemd/systemd-executor`, lancé par systemd', 'Le shell de connexion du job de sauvegarde', '`cat`'], answer: 1, why: '`process=9` n’est que le nom qu’il annonce. `proc_exepath` et `parent` montrent l’assistant de systemd.' },
+					{ q: 'Quand l’alerte se déclenche-t-elle ?', options: ['Toutes les heures pile', 'Quand un attaquant se connecte', 'Après la connexion SSH du job de sauvegarde de la nuit', 'Seulement quand Falco redémarre'], answer: 2, why: 'L’énoncé la lie à la connexion SSH du job de sauvegarde, le même schéma que falco#3480.' },
+					{ q: 'Pourquoi est-ce un faux positif ?', options: ['Le fichier est `/etc/sudoers`, pas `/etc/shadow`', 'Falco est mal configuré sur cet hôte', 'La règle n’a pas de priorité', 'C’est l’assistant de systemd qui fait son travail normal après une connexion SSH'], answer: 3, why: 'Une alerte sur une activité inoffensive est un faux positif. systemd qui lit `/etc/shadow` pendant une connexion SSH est l’exemple même du chapitre.' }
+				]
+			},
+			{
+				title: 'Choisis des champs que l’attaquant ne peut pas falsifier',
+				questions: [
+					{ q: 'Pourquoi `process=9` est-il un mauvais champ pour l’exception ?', options: ['N’importe quel programme peut s’appeler `9`', 'Il change chaque nuit', 'Falco ne peut pas le lire', 'Il est trop court pour aller dans une liste'], answer: 0, why: 'N’importe quel programme peut fixer son nom de processus, donc une correspondance sur ce nom peut être copiée.' },
+					{ q: 'Que dit le commentaire de la macro upstream sur `proc.exepath` ?', options: ['Il est vide dans les conteneurs', 'Il est « kernel-resolved, unspoofable »', 'Il est fixé par le programme lui-même', 'Il demande un plugin Falco'], answer: 1, why: 'Le noyau résout le chemin de l’exécutable, donc le programme ne peut pas en choisir un faux.' },
+					{ q: 'Quel deuxième champ l’exception associe-t-elle à `proc.exepath` ?', options: ['`fd.name`', '`proc.cmdline`', '`proc.pname`, le parent `systemd`', '`user.name`'], answer: 2, why: 'Upstream a corrigé falco#3480 avec les deux mêmes champs : le chemin de l’exécutable et le processus parent.' },
+					{ q: 'Un attaquant lance `cat /etc/shadow` depuis un shell. Que voit Falco ?', options: ['`proc.exepath=/usr/lib/systemd/systemd-executor`', 'Rien : `cat` est un programme de confiance', '`process=9` et le parent `systemd`', '`proc.exepath=/usr/bin/cat` et un shell comme parent'], answer: 3, why: 'Aucun des deux champs ne correspond à l’exception, donc la règle sonne toujours pour l’attaquant.' }
+				]
+			},
+			{
+				title: 'Écris le réglage',
+				questions: [
+					{ q: 'Dans quel fichier va le réglage ?', options: ['`/etc/falco/falco_rules.yaml`, modifié sur place', '`/etc/falco/falco_rules.local.yaml`, chargé après le fichier par défaut', 'Un nouveau fichier chargé avant celui par défaut', '`/etc/falco/falco.yaml`'], answer: 1, why: 'Ton propre fichier est chargé après les règles par défaut, donc tu gardes ton changement et tu reçois toujours les mises à jour upstream.' },
+					{ q: 'Quelle macro remplaces-tu ?', options: ['`sensitive_files`', '`open_read`', '`user_known_read_sensitive_files_activities`', '`never_true`'], answer: 2, why: 'La règle finit déjà par `and not user_known_read_sensitive_files_activities`. Elle vaut `never_true` par défaut, un emplacement vide pour tes exceptions.' },
+					{ q: 'Que fait `override: condition: replace` ?', options: ['Il remplace la condition de la macro par la tienne', 'Il ajoute ta condition après l’ancienne', 'Il supprime la règle', 'Il baisse la priorité de la règle'], answer: 0, why: 'La macro par défaut vaut `never_true`. La remplacer met ton exception à sa place.' },
+					{ q: 'Quelle condition va dans la macro ?', options: ['`proc.name=9`', '`fd.name=/etc/shadow`', '`proc.pname=systemd`', '`(proc.pname=systemd and proc.exepath=/usr/lib/systemd/systemd-executor)`'], answer: 3, why: 'Les deux champs ensemble désignent l’assistant et rien d’autre. Le parent seul ferait confiance à tous les enfants de systemd.' }
+				]
+			},
+			{
+				title: 'Écarte les mauvais réglages',
+				questions: [
+					{ q: 'Pourquoi écarter l’ajout de `9` aux noms de confiance ?', options: ['Tout programme que l’attaquant nomme `9` lirait `/etc/shadow` sans alerte', 'Les listes Falco ne peuvent pas contenir de nombres', 'Ça ralentit toutes les règles', 'Ça ne marche qu’après un redémarrage'], answer: 0, why: 'Une exception qui ne regarde que le nom laisse passer tout binaire qui porte ce nom.' },
+					{ q: 'Pourquoi écarter le retrait de `/etc/shadow` des fichiers sensibles ?', options: ['La règle ne se chargerait plus', 'Ça fait aussi taire la lecture de l’attaquant', '`/etc/shadow` n’est pas sensible de toute façon', 'Falco aurait besoin d’un nouveau driver noyau'], answer: 1, why: 'Si le fichier n’est plus dans la liste, personne ne déclenche rien en le lisant, l’attaquant compris.' },
+					{ q: 'Pourquoi écarter la baisse de priorité en DEBUG ?', options: ['Les alertes DEBUG sont supprimées tout de suite', 'Falco ne le permet pas', 'La lecture de l’attaquant atterrit dans le même bac que le bruit', 'Ça coûte plus de CPU'], answer: 2, why: 'La priorité s’applique à chaque déclenchement de la règle, le vrai compris.' },
+					{ q: 'Les alertes de la nuit ne font de mal à personne. Pourquoi les régler ?', options: ['Elles remplissent le disque', 'Elles font planter Falco', 'Elles ralentissent les connexions SSH', 'La fatigue d’alerte : on arrête de lire cette alerte et on rate la vraie'], answer: 3, why: 'Quelques dizaines de fausses alertes par nuit apprennent à la personne d’astreinte à ignorer cette règle.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,26 @@ export default {
 			why: 'La description dit qu’elle est « Common when using kubectl exec » et « may be best used as generic auditing rule while examining other triggered rules in this container/tty ». Elle propose aussi de la croiser avec les logs d’audit Kubernetes des exec pour retrouver l’utilisateur.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Charger le réglage de l’exercice dans Falco, le lancer sur ton portable, et vérifier qu’un `cat /etc/shadow` dans un conteneur déclenche toujours l’alerte.',
+		steps: [
+			'Écris le réglage dans un fichier de règles local : `mkdir -p ~/falco-lab && cd ~/falco-lab && printf \'%s\\n\' \'- macro: user_known_read_sensitive_files_activities\' \'  condition: (proc.pname=systemd and proc.exepath=/usr/lib/systemd/systemd-executor)\' \'  override:\' \'    condition: replace\' > local.yaml`.',
+			'Vérifie que Falco l’accepte : `docker run --rm -v "$PWD/local.yaml":/etc/falco/falco_rules.local.yaml:ro falcosecurity/falco:0.42.0 falco -V /etc/falco/falco_rules.yaml -V /etc/falco/falco_rules.local.yaml`.',
+			'Dans un premier terminal, lance Falco en direct. Il a besoin de `--privileged` pour lire les événements du noyau, donc fais-le seulement sur ta propre machine : `docker run --rm -it --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /proc:/host/proc:ro -v /etc:/host/etc:ro -v "$PWD/local.yaml":/etc/falco/falco_rules.local.yaml:ro falcosecurity/falco:0.42.0`.',
+			'Dans un second terminal, joue l’attaquant : `docker run --rm busybox:1.37 cat /etc/shadow`.',
+			'Lis l’alerte dans le premier terminal, puis arrête Falco avec Ctrl+C.'
+		],
+		done: [
+			'L’étape 2 affiche `/etc/falco/falco_rules.local.yaml: Ok`.',
+			'Falco affiche `Warning Sensitive file opened for reading by non-trusted program` avec `file=/etc/shadow` et, plus loin sur la même ligne, `process=cat`.'
+		],
+		solution: [
+			'La ligne d’alerte porte `proc_exepath`, le chemin de l’exécutable résolu par le noyau. C’est le champ que l’exception regarde, et `cat` n’a pas le chemin de l’assistant.',
+			'Tu verras peut-être le même WARNING pour des programmes qui tournent déjà sur ton portable, comme le health check d’une base de données dans un autre conteneur. Chacun appelle sa propre exception sur le chemin de l’exécutable et le parent, jamais sur le nom seul.',
+			'Ce lab tourne sous Linux. Sur macOS, Docker Desktop lance les conteneurs dans une VM, et le lab n’y a pas été essayé.'
+		]
+	},
 	recall: {
 		q: 'Quelle règle Falco par défaut attrape une tentative d’évasion CVE-2022-0492, et quel événement syscall surveille-t-elle ?',
 		a: '« Detect release_agent File Container Escapes », priorité CRITICAL : un `openat` en écriture sur un fichier qui finit par `release_agent`, par un processus de conteneur qui a `CAP_SYS_ADMIN`.'

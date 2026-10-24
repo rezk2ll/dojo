@@ -122,6 +122,44 @@ found:
 			'`10.244.3.9`: the third byte 3 is outside the `/24`, so `10.244.0.0/16` wins: `via 172.17.0.3 dev eth0`.',
 			'`10.100.0.10`: 100 is between 96 and 111, so `10.96.0.0/12` wins: `via 172.17.0.4 dev eth0`.',
 			'`10.112.0.1`: 112 is past 111, and only the default route contains it: `via 172.17.0.1 dev eth0`.'
+		],
+		steps: [
+			{
+				title: 'Read the table',
+				questions: [
+					{ q: 'Which addresses does `10.96.0.0/12` cover?', options: ['10.96.0.0 to 10.111.255.255', '10.96.0.0 to 10.96.255.255', '10.96.0.0 to 10.108.255.255', '10.0.0.0 to 10.255.255.255'], answer: 0, why: 'A `/12` fixes the top 4 bits of the second byte, so it spans 16 values: 96 to 111.' },
+					{ q: 'Which routes have no `via`?', options: ['Only the default route', '`10.244.0.0/24` and `172.17.0.0/16`', '`10.96.0.0/12` and `10.244.0.0/16`', 'None of them'], answer: 1, why: 'A route with no `via` means the destination is on that link and gets the packet directly.' },
+					{ q: 'Does the order of the lines change which route wins?', options: ['Yes: the first line that matches wins', 'Yes: the last line that matches wins', 'No: only the prefix length decides', 'Only for the default route'], answer: 2, why: 'Longest prefix match looks at every route that contains the address. The order `ip route` prints them in plays no part.' },
+					{ q: 'What prefix length does the `default` route have?', options: ['32', '8', '0', '24'], answer: 2, why: '`default` is `0.0.0.0/0`. It contains every address but has the shortest prefix, so it wins only when nothing else matches.' }
+				]
+			},
+			{
+				title: 'Route 10.244.0.17',
+				questions: [
+					{ q: 'Which routes contain `10.244.0.17`?', options: ['`10.244.0.0/24`, `10.244.0.0/16` and the default', 'Only `10.244.0.0/24`', '`10.244.0.0/16` and `172.17.0.0/16`', 'Only the default route'], answer: 0, why: 'The `/24` covers 10.244.0.x, the `/16` covers 10.244.x.x, and the default covers everything.' },
+					{ q: 'Which of them wins?', options: ['`10.244.0.0/16`, because it is listed after', '`10.244.0.0/24`', 'The default route', '`10.96.0.0/12`'], answer: 1, why: '24 is the largest prefix length of the three candidates.' },
+					{ q: 'Where does the packet go?', options: ['To 172.17.0.3 on `eth0`', 'To 172.17.0.1 on `eth0`', 'To 10.244.0.1, as a gateway', 'Straight out of `br0`, with no gateway'], answer: 3, why: 'The winning route has no `via`, so the kernel delivers the packet directly on `br0`. 10.244.0.1 is the node\'s own address there.' },
+					{ q: 'What does `ip route get 10.244.0.17` print?', options: ['`10.244.0.17 via 172.17.0.3 dev eth0`', '`10.244.0.17 dev br0 src 10.244.0.1`', '`RTNETLINK answers: Network unreachable`', '`10.244.0.17 via 172.17.0.1 dev eth0`'], answer: 1, why: 'It prints the route the kernel picked: `dev br0`, with the bridge address as the source.' }
+				]
+			},
+			{
+				title: 'Route 10.244.3.9 and 10.100.0.10',
+				questions: [
+					{ q: 'Is `10.244.3.9` inside `10.244.0.0/24`?', options: ['Yes: the first two bytes match', 'No: its third byte, 3, is outside the `/24`', 'Yes: a `/24` covers 10.244.0 to 10.244.3', 'No: a `/24` holds only one address'], answer: 1, why: 'A `/24` fixes the first three bytes, and 10.244.3 is not 10.244.0.' },
+					{ q: 'So where does `10.244.3.9` go?', options: ['`via 172.17.0.3 dev eth0`', '`dev br0`', '`via 172.17.0.1 dev eth0`', '`via 172.17.0.4 dev eth0`'], answer: 0, why: '`10.244.0.0/16` and the default contain it, and /16 beats /0.' },
+					{ q: 'Which route wins for `10.100.0.10`?', options: ['The default, because no line starts with 10.100', '`10.244.0.0/16`', '`10.96.0.0/12`, because 100 is between 96 and 111', '`172.17.0.0/16`'], answer: 2, why: 'A prefix covers a range, not a text match. 10.100 falls inside 10.96 to 10.111, and /12 beats /0.' },
+					{ q: 'Where does `10.100.0.10` go?', options: ['`dev br0`', '`via 172.17.0.1 dev eth0`', '`via 172.17.0.3 dev eth0`', '`via 172.17.0.4 dev eth0`'], answer: 3, why: 'The winning `10.96.0.0/12` route hands the packet to 172.17.0.4.' }
+				]
+			},
+			{
+				title: 'Route 10.112.0.1, then check',
+				questions: [
+					{ q: 'Is `10.112.0.1` inside `10.96.0.0/12`?', options: ['Yes: 112 is close to 96', 'No: 112 is past 111', 'Yes: a `/12` covers 10.96 to 10.127', 'No: a `/12` covers only 10.96'], answer: 1, why: 'The block has 16 values, 96 to 111. 112 starts the next block.' },
+					{ q: 'Where does `10.112.0.1` go?', options: ['Nowhere: no route contains it', '`via 172.17.0.4 dev eth0`', '`via 172.17.0.1 dev eth0`, the default route', '`dev br0`'], answer: 2, why: 'Only the default route contains it, so the packet goes to 172.17.0.1.' },
+					{ q: 'With the default route deleted, what does `ip route get 10.112.0.1` print?', options: ['`RTNETLINK answers: Network unreachable`', '`10.112.0.1 via 172.17.0.4 dev eth0`', '`100% packet loss`', '`10.112.0.1 dev eth0 src 172.17.0.5`'], answer: 0, why: 'No route contains the address, so the local kernel fails the lookup and sends nothing.' },
+					{ q: 'Which command shows the table line that matched?', options: ['`ip neigh show 10.112.0.1`', '`ping -c1 10.112.0.1`', '`ip addr show to 10.112.0.1`', '`ip route get fibmatch 10.112.0.1`'], answer: 3, why: '`ip route get` shows the route as the kernel sees it, and `fibmatch` prints the matched line from the table.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,27 @@ found:
 			why: 'The ip-route man page says `ip route get` "gets a single route to a destination and prints its contents exactly as the kernel sees it". Add `fibmatch` to see the matched route line from the table.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build the task\'s routing table in a container and let the kernel check your four answers.',
+		steps: [
+			'Start a container with no network and the right to change its routes: `docker run --rm -it --network none --cap-add NET_ADMIN nicolaka/netshoot:v0.13`.',
+			'Create the task\'s two interfaces: `ip link add eth0 type bridge && ip link set eth0 up && ip addr add 172.17.0.5/16 dev eth0`, then `ip link add br0 type bridge && ip link set br0 up && ip addr add 10.244.0.1/24 dev br0`.',
+			'Add the three routes that use a gateway: `ip route add default via 172.17.0.1 && ip route add 10.96.0.0/12 via 172.17.0.4 && ip route add 10.244.0.0/16 via 172.17.0.3`. Run `ip route` and compare with the task.',
+			'Write your four answers down, then check them: `for a in 10.244.0.17 10.244.3.9 10.100.0.10 10.112.0.1; do ip route get fibmatch $a; done`.',
+			'Delete the default route with `ip route del default`, then run `ip route get 10.112.0.1` and `ping -c1 10.112.0.1`. Type `exit` to leave.'
+		],
+		done: [
+			'`ip route` prints the same five routes as the task.',
+			'The four `fibmatch` lines are `10.244.0.0/24 dev br0 ...`, `10.244.0.0/16 via 172.17.0.3 dev eth0`, `10.96.0.0/12 via 172.17.0.4 dev eth0` and `default via 172.17.0.1 dev eth0`.',
+			'Without the default route, `ip route get 10.112.0.1` prints `RTNETLINK answers: Network unreachable`.'
+		],
+		solution: [
+			'The kernel keeps every route that contains the address, then the longest prefix: /24 beats /16 for 10.244.0.17, and /16 wins for 10.244.3.9.',
+			'10.100 is inside `10.96.0.0/12` (10.96 to 10.111), and 10.112 is not, so only the default route catches 10.112.0.1.',
+			'With no default route, `ping` fails at once with `Network unreachable`: the local kernel found no route and sent no packet.'
+		]
+	},
 	recall: {
 		q: 'Routes `10.0.0.0/8 via 172.17.0.1` and `10.1.0.0/16 dev br0` both contain 10.1.2.3. Which one does the kernel use, and why?',
 		a: '`10.1.0.0/16 dev br0`, because longest prefix match keeps the largest prefix length: 16 beats 8.'

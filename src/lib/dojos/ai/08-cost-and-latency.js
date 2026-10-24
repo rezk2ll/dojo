@@ -99,6 +99,44 @@ export default {
 			'Cold: 22 × 3 = 66, plus 151,629 × 3.75 ≈ 568,609, plus 362 × 15 = 5,430. Total ≈ 574,105 / 1,000,000 ≈ $0.574. The cache write is 99% of it.',
 			'Warm: 22 × 3 = 66, plus 151,629 × 0.30 ≈ 45,489, plus 330 × 15 = 4,950. Total ≈ 50,505 / 1,000,000 ≈ $0.051. The cache read is still about 90% of it.',
 			'Output is a small part of both bills here because the answer is short. A 300-token prompt with a 4,000-token answer would flip it: output would be 98% of the cost at these prices.'
+		],
+		steps: [
+			{
+				title: 'Read the `usage` fields',
+				questions: [
+					{ q: 'How many input tokens does the cold request have in total?', options: ['22', '151,629', '151,651', '152,013'], answer: 2, why: 'Total input is `input_tokens` plus `cache_creation_input_tokens` plus `cache_read_input_tokens`: 22 + 151,629.' },
+					{ q: 'Why is `input_tokens` only 22?', options: ['The source is counted in the cache fields instead', 'The API dropped the source to save tokens', 'Only the question is ever billed', 'The source was too long and got truncated'], answer: 0, why: 'The source was marked with `cache_control`, so its 151,629 tokens show up as a cache write, not as plain input.' },
+					{ q: 'Which price applies to `cache_creation_input_tokens`?', options: ['$3 per million, plain input', '$3.75 per million, a 5-minute cache write', '$0.30 per million, a cache hit', '$15 per million, output'], answer: 1, why: 'Writing to the cache costs more than a plain input token on Sonnet 4.6.' },
+					{ q: 'Which price applies to `cache_read_input_tokens`?', options: ['$3 per million', '$3.75 per million', '$0.30 per million', '$15 per million'], answer: 2, why: 'A cache hit is a tenth of the plain input price on Sonnet 4.6.' }
+				]
+			},
+			{
+				title: 'Price the cold request',
+				questions: [
+					{ q: 'What is 151,629 × 3.75, the cache write part?', options: ['About 568,609', 'About 454,887', 'About 45,489', 'About 5,430'], answer: 0, why: 'The cache write price is $3.75 per million, not the $3 of plain input.' },
+					{ q: 'What is the output part, 362 × 15?', options: ['1,086', '4,950', '362', '5,430'], answer: 3, why: 'Output costs $15 per million on Sonnet 4.6.' },
+					{ q: 'What does the cold request cost in total?', options: ['About $0.455', 'About $0.574', 'About $0.051', 'About $5.74'], answer: 1, why: '66 + 568,609 + 5,430 ≈ 574,105, divided by 1,000,000.' },
+					{ q: 'What share of the cold cost is the cache write?', options: ['About 99%', 'About 50%', 'About 90%', 'About 1%'], answer: 0, why: '568,609 of 574,105. The question and the answer barely count next to the source.' }
+				]
+			},
+			{
+				title: 'Price the warm request',
+				questions: [
+					{ q: 'What is 151,629 × 0.30, the cache read part?', options: ['About 568,609', 'About 4,549', 'About 45,489', 'About 454,887'], answer: 2, why: 'The cache hit price is $0.30 per million.' },
+					{ q: 'What is the output part, 330 × 15?', options: ['4,950', '5,430', '990', '330'], answer: 0, why: 'The warm answer is 330 tokens, a little shorter than the cold one.' },
+					{ q: 'What does the warm request cost in total?', options: ['About $0.574', 'About $0.046', 'About $0.51', 'About $0.051'], answer: 3, why: '66 + 45,489 + 4,950 ≈ 50,505, divided by 1,000,000.' },
+					{ q: 'What share of the warm cost is the cache read?', options: ['About 99%', 'About 90%', 'About 10%', 'About 50%'], answer: 1, why: '45,489 of 50,505. Reading 151,629 tokens is still most of the bill, even at the cache price.' }
+				]
+			},
+			{
+				title: 'Say what costs most',
+				questions: [
+					{ q: 'What costs most in the cold request?', options: ['Writing the source to the cache', 'The 362 output tokens', 'The 22-token question', 'The 20.87 seconds of TTFT'], answer: 0, why: 'It is 99% of the cold bill.' },
+					{ q: 'What costs most in the warm request?', options: ['The 330 output tokens', 'Reading the source from the cache', 'The 22-token question', 'Writing the cache again'], answer: 1, why: 'At about 90% of the bill, the cache read still beats the output.' },
+					{ q: 'Why is output a small part of both bills?', options: ['Output tokens cost less than input tokens', 'Output tokens are cached too', 'The answer is short', '`max_tokens` caps the output price'], answer: 2, why: 'An output token costs 5 times a plain input token, but there are only about 350 of them against 151,629 of source.' },
+					{ q: 'A 300-token prompt gets a 4,000-token answer at these prices. What share of the cost is output?', options: ['About 50%', 'About 10%', 'About 75%', 'About 98%'], answer: 3, why: '4,000 × 15 = 60,000 against 300 × 3 = 900. A long answer flips the bill toward output.' }
+				]
+			}
 		]
 	},
 	quiz: [

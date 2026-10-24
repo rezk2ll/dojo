@@ -95,6 +95,44 @@ To do this, follow these steps precisely:
 			'Contexte : « La réponse est postée en commentaire sur la pull request et lue par son auteur, qui connaît le code mais n’a pas vu le log de CI. »',
 			'Format : « Pour chaque test, donne le nom du test, le fichier et la ligne du diff, et une phrase d’explication. Liste numérotée, 5 éléments au plus. » Fini quand : « Si l’échec ne vient pas du diff, par exemple un timeout réseau, dis-le et arrête-toi. »',
 			'Vérification avec la golden rule : un collègue peut maintenant répondre à « je produis quoi, pour qui, sous quelle forme, et quand je m’arrête » avec le seul prompt.'
+		],
+		steps: [
+			{
+				title: 'Nomme l’action',
+				questions: [
+					{ q: 'Qu’est-ce qui ne va pas dans "tell me what\'s up" ?', options: ['Il ne nomme ni action claire ni unité de travail', 'Il est trop poli pour un bot', 'Il est trop court pour que le modèle le lise', 'Il utilise une contraction'], answer: 0, why: 'Un collègue ne saurait pas quoi produire. Le modèle a le même problème.' },
+					{ q: 'Quelle ligne d’instruction marche le mieux ?', options: ['« Regarde bien les tests en échec. »', '« Peux-tu suggérer pourquoi les tests échouent ? »', '« Pour chaque test en échec dans le log ci-dessous, trouve la ligne du diff qui a le plus de chances d’avoir causé l’échec. »', '« Explique tout sur ce run de CI. »'], answer: 2, why: 'Elle a un verbe, « trouve », une unité de travail et un résultat clair : une ligne du diff.' },
+					{ q: 'Quelle est l’unité de travail de cette instruction ?', options: ['Un test en échec', 'Le log entier', 'Un commit', 'Un fichier du diff'], answer: 0, why: '« Pour chaque test en échec » fixe la portée. Le modèle n’étend pas de lui-même une consigne d’un élément à un autre.' },
+					{ q: 'Pourquoi ne pas écrire « Peux-tu suggérer pourquoi les tests échouent ? »', options: ['Les questions sont interdites dans un prompt', 'Le modèle suit le verbe : tu obtiens des suggestions, pas un résultat', 'Ça coûte plus de tokens d’entrée', 'Ça fait refuser le modèle'], answer: 1, why: 'Les modèles Claude actuels sont entraînés à suivre les consignes à la lettre. « Suggérer » donne des suggestions.' }
+				]
+			},
+			{
+				title: 'Ajoute le contexte',
+				questions: [
+					{ q: 'Qui lit la sortie du bot ?', options: ['Le bot de CI lui-même', 'Un responsable des releases', 'Quiconque lit le log de CI', 'Le développeur qui a ouvert la pull request'], answer: 3, why: 'La tâche le dit. Le modèle ne peut pas le deviner : ça va dans le prompt.' },
+					{ q: 'Quelle ligne de contexte convient ?', options: ['« La réponse est postée en commentaire sur la pull request et lue par son auteur, qui connaît le code mais n’a pas vu le log de CI. »', '« Tu es un expert en CI. »', '« Fais très attention. »', '« C’est très important. »'], answer: 0, why: 'Le contexte, c’est ce que le modèle ne peut pas deviner : qui lit le résultat et où il va.' },
+					{ q: 'Pourquoi dire que l’auteur n’a pas vu le log de CI ?', options: ['Pour que le modèle lui cache le log', 'Pour que la réponse apporte les détails du log qui lui manquent', 'Pour que le modèle écrive en majuscules', 'Pour rallonger le prompt'], answer: 1, why: 'L’auteur connaît le code. Ce qui lui manque, c’est le log : la réponse doit l’apporter.' },
+					{ q: 'Pourquoi donner la raison d’une règle plutôt que la règle seule ?', options: ['Un prompt plus long a toujours un meilleur score', 'Les majuscules font ignorer les règles', 'Le modèle peut généraliser à partir de l’explication', 'Le modèle ne suit que les règles avec « car »'], answer: 2, why: 'Le guide : "Claude is smart enough to generalize from the explanation."' }
+				]
+			},
+			{
+				title: 'Fixe le format et la fin',
+				questions: [
+					{ q: 'Quelle ligne de format ne laisse au modèle aucune forme à deviner ?', options: ['« Pour chaque test, donne le nom du test, le fichier et la ligne du diff, et une phrase d’explication. »', '« Mets bien la réponse en forme. »', '« Prends le format qui convient le mieux. »', '« Sois complet dans ta réponse. »'], answer: 0, why: 'Une forme fixe par test ne laisse au modèle aucun format à deviner.' },
+					{ q: 'Pourquoi plafonner la liste, par exemple à « 5 éléments au plus » ?', options: ['L’API refuse les listes plus longues', 'Ça donne au modèle la taille maximale du résultat', 'Ça oblige le modèle à trouver exactement 5 causes', 'Un modèle ne sait pas compter au-delà de 5'], answer: 1, why: 'Une limite, comme « up to 3 » dans `dedupe.md`, donne au modèle la taille maximale du résultat.' },
+					{ q: 'L’échec vient d’un timeout réseau, pas du diff. Que doit faire le bot ?', options: ['Trouver quand même la ligne du diff la plus proche', 'Le dire et s’arrêter', 'Relancer les tests jusqu’à ce qu’ils passent', 'Poster le log entier'], answer: 1, why: 'Le prompt doit dire quand la tâche est finie, y compris quand la bonne sortie est de ne rien trouver.' },
+					{ q: 'Pourquoi écrire la condition d’arrêt dans le prompt ?', options: ['La réponse arrive plus vite', 'L’API en exige une', 'Elle arrête le travail avant que le bot poste un commentaire faux', 'Elle baisse la température'], answer: 2, why: 'Le modèle "does not infer requests you didn\'t make". `dedupe.md` fait pareil avec « do not proceed ».' }
+				]
+			},
+			{
+				title: 'Applique la golden rule',
+				questions: [
+					{ q: 'Qu’est-ce que la golden rule ?', options: ['Faire suivre le prompt par un collègue qui a peu de contexte', 'Mettre la règle clé dans la dernière phrase', 'Écrire chaque règle en majuscules', 'Garder chaque prompt sous 100 tokens'], answer: 0, why: '"If they\'d be confused, Claude will be too."' },
+					{ q: 'Le collègue demande « quels tests ? ». Qu’est-ce que ça t’apprend ?', options: ['Le collègue manque de compétences', 'Le modèle le saura de toute façon', 'Le prompt est trop long', 'Il manque une ligne au prompt'], answer: 3, why: 'Chaque question du collègue désigne une ligne qui manque au prompt.' },
+					{ q: 'À quelles quatre questions le prompt seul doit-il répondre ?', options: ['Quel modèle, quelle température, quels outils, quel budget', 'Je produis quoi, pour qui, sous quelle forme, et quand je m’arrête', 'Qui l’a écrit, quand, pourquoi et où', 'Combien de temps, à quelle vitesse, à quel prix et avec quels risques'], answer: 1, why: 'Action, contexte, format et fin : une ligne pour chacun.' },
+					{ q: 'Le nouveau prompt est plus long. Qu’est-ce que ça coûte ?', options: ['Rien du tout', 'Le modèle suit moins bien les longs prompts', 'Des tokens d’entrée à chaque appel', 'Deux fois plus de tokens de sortie'], answer: 2, why: 'Sur une tâche lancée 200 000 fois par mois, 100 tokens de plus font 20 millions de tokens d’entrée en plus. Mets-le en balance avec les commentaires faux.' }
+				]
+			}
 		]
 	},
 	quiz: [

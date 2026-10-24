@@ -98,6 +98,44 @@ export default {
 			'`x = [20, 30, 40, 50]` and `y = [30, 40, 50, 60]`. Each position of `y` is the token that follows the same position in `x`.',
 			'The loss scores 4 predictions for this row: after `20` predict `30`, after `20 30` predict `40`, and so on up to `60`.',
 			'SFT is the first step that helps: the model trains on about 13k prompts paired with written answers, so after a question, an answer is the likely next text. RLHF then trains on rankings of those answers.'
+		],
+		steps: [
+			{
+				title: 'Slice `x`',
+				questions: [
+					{ q: 'Which slice builds `x`?', options: ['`data[i:i+block_size]`', '`data[i+1:i+1+block_size]`', '`data[0:block_size]`', '`data[i:i+block_size+1]`'], answer: 0, why: 'Line 9 cuts `block_size` tokens starting at the random start point `i`.' },
+					{ q: 'With `i = 1`, where does `x` start?', options: ['At index 0, token 10', 'At index 1, token 10', 'At index 1, token 20', 'At index 2, token 30'], answer: 2, why: 'Python indexes from 0, so index 1 of `[10, 20, 30, 40, 50, 60]` is 20.' },
+					{ q: 'What is `x`?', options: ['`[10, 20, 30, 40]`', '`[20, 30, 40, 50]`', '`[30, 40, 50, 60]`', '`[20, 30, 40, 50, 60]`'], answer: 1, why: '`data[1:5]` takes indices 1 to 4: four tokens, one `block_size`.' },
+					{ q: 'Why could `get_batch` never draw `i = 3` for this data?', options: ['Start points must be odd numbers', 'Index 3 marks the end of a document', '`block_size` has to divide `i`', '`torch.randint(len(data) - block_size, ...)` only draws 0 or 1'], answer: 3, why: '6 - 4 is 2, so the start is below 2. That leaves room for `y`, one token further right.' }
+				]
+			},
+			{
+				title: 'Slice `y`',
+				questions: [
+					{ q: 'Which slice builds `y`?', options: ['`data[i:i+block_size]`', '`data[i+1:i+1+block_size]`', '`data[i-1:i-1+block_size]`', '`data[i+block_size]`'], answer: 1, why: 'Line 10 takes the same window shifted one token to the right.' },
+					{ q: 'What is `y`?', options: ['`[30, 40, 50, 60]`', '`[20, 30, 40, 50]`', '`[60]`', '`[40, 50, 60, 10]`'], answer: 0, why: '`data[2:6]` takes indices 2 to 5.' },
+					{ q: 'What is at position 0 of `y`?', options: ['The same token as position 0 of `x`: 20', 'The last token of the window: 60', 'The token after position 0 of `x`: 30', 'A label a person wrote for the window'], answer: 2, why: 'Each position of `y` is the token that follows the same position in `x`.' },
+					{ q: 'Who wrote the targets in `y`?', options: ['Labelers, one target per window', 'A reward model trained on rankings', 'A larger teacher model', 'Nobody: they come from the same text, shifted by one'], answer: 3, why: 'In pretraining, the next token in the text is the target. Written answers only arrive at the SFT step.' }
+				]
+			},
+			{
+				title: 'Count the predictions',
+				questions: [
+					{ q: 'How many next-token predictions does the loss score for this row?', options: ['1', '4', '6', '5'], answer: 1, why: 'Every position in the window is one training example, and the window holds 4 tokens.' },
+					{ q: 'Which is the first prediction?', options: ['After `20`, predict `30`', 'After `10`, predict `20`', 'After `20 30 40 50`, predict `60`', 'After `30`, predict `40`'], answer: 0, why: 'Position 0 of `x` is 20, and position 0 of `y` is 30.' },
+					{ q: 'What does the model see for the last prediction?', options: ['Only `50`, to predict `60`', '`20 30 40 50`, to predict `60`', '`10 20 30 40 50`, to predict `60`', '`60`, to predict the next row'], answer: 1, why: 'Each prediction uses the tokens of the window up to that position: after `20 30` predict `40`, and so on up to `60`.' },
+					{ q: 'Which function scores the predictions against `y`?', options: ['`torch.randint`', '`np.memmap`', '`F.cross_entropy`', '`torch.stack`'], answer: 2, why: 'The model compares its predictions with `y` using `F.cross_entropy` in `model.py`.' }
+				]
+			},
+			{
+				title: 'Pick the training step',
+				questions: [
+					{ q: 'Why does a base model answer a code question with "A. B. C. D."?', options: ['After a question, a quiz page is likely text', 'It was trained on purpose to write quiz options', 'It cannot read code', 'Its `block_size` is too small for the question'], answer: 0, why: 'A base model writes what is likely to come next in its training text.' },
+					{ q: 'Which step from the diagram is the first to stop this?', options: ['More pretraining on web text', 'SFT', 'The reward model', 'Constitutional AI'], answer: 1, why: 'SFT is the first step that shows the model a question followed by a written answer.' },
+					{ q: 'What does InstructGPT’s SFT step train on?', options: ['Rankings of 4 to 9 answers for 33k prompts', 'Rewards on 31k prompts', '16 written principles', 'About 13k prompts with answers written by labelers'], answer: 3, why: 'A team of 40 contractors wrote the wanted answer for each prompt. Rankings and rewards come in the later steps.' },
+					{ q: 'Which loss does SFT use?', options: ['A ranking loss over pairs of answers', 'A reward from PPO', 'The same next-token loss as pretraining', 'A KL penalty only'], answer: 2, why: 'The nanoGPT README says "Finetuning is no different than training": same loop, a pretrained start and a smaller learning rate.' }
+				]
+			}
 		]
 	},
 	quiz: [

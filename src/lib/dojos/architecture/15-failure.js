@@ -101,6 +101,44 @@ export default {
 			'Answer the webhook fast, and send the email from a job. A slow endpoint is what triggers the provider\'s retries in the first place.',
 			'Order still matters: insert, then send. A crash between the two loses one email. Decide which is worse for you: a missing email or a duplicate one.',
 			'Keep the rows longer than the provider\'s retry window, or a late retry slips past.'
+		],
+		steps: [
+			{
+				title: 'See why there are two',
+				questions: [
+					{ q: 'Your endpoint is slow, and the provider\'s call times out. What does the provider know about your handler?', options: ['That it failed, so a retry is safe', 'That it worked, so it can stop', 'Nothing: it may have run or not, so it retries', 'That your server rolled the work back'], answer: 2, why: 'A timeout only frees the caller. It says nothing about what happened on your side.' },
+					{ q: 'Why does the retry send a second email?', options: ['The provider sends two different events on purpose', 'The handler is not idempotent: running it twice sends twice', 'The mail server copies every email', 'The timeout cancelled the first email'], answer: 1, why: 'Idempotent means twice has the same effect as once. Sending an email is not.' },
+					{ q: 'Which part of the handler is not safe to repeat?', options: ['Parsing the webhook body', 'Logging the request', 'Sending the email', 'Answering 200'], answer: 2, why: 'Reading and logging change nothing for the customer. The email is the side effect they see twice.' },
+					{ q: 'The provider retries until you answer in time. Which delivery promise is that?', options: ['Exactly once', 'At most once', 'Once per hour', 'At least once'], answer: 3, why: 'Retries mean a call can arrive more than once. The receiver must make the repeat harmless.' }
+				]
+			},
+			{
+				title: 'Pick the key',
+				questions: [
+					{ q: 'Which value makes a good idempotency key here?', options: ['The provider\'s event id, or the payment id', 'A random id you generate on receipt', 'The time the webhook arrived', 'The customer\'s email address'], answer: 0, why: 'Every retry repeats it, so the second call carries the same key as the first.' },
+					{ q: 'Why not a random id generated on receipt?', options: ['Random ids are too long for a column', 'Each retry would get a new one, so no repeat is ever spotted', 'The provider would reject it', 'It would leak the customer\'s data'], answer: 1, why: 'The key must be the same on every retry of one event. A fresh random id never matches.' },
+					{ q: 'Why not key on the customer\'s email address?', options: ['Email addresses are too long to index', 'Email addresses change case', 'One customer can pay twice, and each payment is its own event', 'The provider does not send it'], answer: 2, why: 'The key must name one event, not one person. Otherwise a real second payment would get no email.' },
+					{ q: 'In Mastodon, who picks the `Idempotency-Key` for a new post?', options: ['The server, when it saves the post', 'Redis, when the lock is taken', 'Sidekiq, when the job is queued', 'The client, once per post, sent again on every retry'], answer: 3, why: 'The API docs suggest a hash or UUID generated client side, kept for every retry of that post.' }
+				]
+			},
+			{
+				title: 'Store it',
+				questions: [
+					{ q: 'What do you store?', options: ['The full text of each email sent', 'A row like `(event_id, processed_at)` with a **unique constraint**', 'A counter of retries per customer', 'Nothing: the provider remembers for you'], answer: 1, why: 'You cannot ask the mail server what it sent, so you remember it yourself, one row per event.' },
+					{ q: 'Do you insert first, or check first?', options: ['Insert first, and let the unique constraint reject a repeat', 'Check with a `SELECT`, then insert', 'Send the email, then insert', 'Insert once a day, in a batch'], answer: 0, why: 'Two copies at the same moment would both pass a `SELECT`. The constraint lets only one insert win.' },
+					{ q: 'The insert fails as a duplicate. What do you answer?', options: ['500, so the provider tries again', '409, as an error', '200, and do nothing', '202, and send the email again'], answer: 2, why: 'The event was already handled. A 200 stops the retries, and nothing else must happen.' },
+					{ q: 'Mastodon takes a lock around its key lookup. Why?', options: ['Redis needs a lock to read a key', 'To slow retries down on purpose', 'To make the key expire', 'Two copies at the same moment would both miss the key and both save'], answer: 3, why: 'The same race your unique constraint closes. With the lock, the second copy gets a 503 and its retry finds the key.' }
+				]
+			},
+			{
+				title: 'Close the gaps',
+				questions: [
+					{ q: 'The handler is slow because it sends the email itself. What do you change?', options: ['Raise the provider\'s timeout', 'Retry the email three times inside the request', 'Answer fast, and send the email from a job', 'Ask the provider to stop retrying'], answer: 2, why: 'A slow endpoint is what triggers the provider\'s retries in the first place.' },
+					{ q: 'You insert, then send. The process crashes between the two. What happens?', options: ['The email goes out twice', 'One email is lost', 'The row is rolled back', 'The provider sends a new event id'], answer: 1, why: 'The row says done, so the retry skips it. Decide which is worse for you: a missing email or a duplicate.' },
+					{ q: 'How long do you keep the rows?', options: ['Longer than the provider\'s retry window', 'One hour, like Mastodon', 'Until the email is sent', 'Only for the current request'], answer: 0, why: 'A retry that comes after the row is gone is treated as new, and sends again.' },
+					{ q: 'Mastodon\'s key lives one hour. A client retries a post after two hours. What happens?', options: ['It gets the same post back', 'It gets a 503', 'It is rejected with a 409', 'It creates a second post'], answer: 3, why: 'The key is stored for 3,600 seconds. After that, nothing remembers the first request.' }
+				]
+			}
 		]
 	},
 	quiz: [

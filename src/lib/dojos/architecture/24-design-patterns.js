@@ -109,6 +109,44 @@ export default {
 			'Leave `ProviderManager` as it is. Its loop already tries every provider that supports the token, and it already publishes the success event, so every existing listener covers the new method too.',
 			'No template method here: `AbstractUserDetailsAuthenticationProvider` only supports username and password tokens, so a key provider implements the interface directly.',
 			'Risk to name: the key lookup is new security code. Copy the care of `DaoAuthenticationProvider`, which mitigates timing attacks when a user is not found, and never log the key.'
+		],
+		steps: [
+			{
+				title: 'Find what reads the request',
+				questions: [
+					{ q: 'Which piece reads the `X-Api-Key` header?', options: ['A new `AuthenticationProvider`', '`ProviderManager`', 'A new filter in the security filter chain', 'A listener of `AuthenticationSuccessEvent`'], answer: 2, why: 'The filters are the pieces that see the HTTP request. The providers only see a token.' },
+					{ q: 'Which pattern do the security filters follow?', options: ['Strategy', 'Chain of responsibility', 'Observer', 'Adapter'], answer: 1, why: 'Each filter does its part, then passes the request on to the next one, or stops it.' },
+					{ q: 'The filter has built an API key token. Who does it hand it to?', options: ['The `AuthenticationManager`', 'The `UserDetailsService`', 'Only the next filter', '`PasswordEncoderFactories`'], answer: 0, why: 'The filter reads, the manager decides. Checking the key is not the filter\'s job.' },
+					{ q: 'What must the filter call at the end so the request goes on?', options: ['`publishAuthenticationSuccess`', '`retrieveUser`', '`supports`', '`chain.doFilter`'], answer: 3, why: 'A filter that does not call `chain.doFilter` stops the request there.' }
+				]
+			},
+			{
+				title: 'Find what decides',
+				questions: [
+					{ q: 'Which piece decides whether the key is valid?', options: ['The new filter', 'A new `AuthenticationProvider`', '`FilterChainProxy`', '`DelegatingPasswordEncoder`'], answer: 1, why: 'A provider\'s `authenticate` looks the key up and returns a result or fails.' },
+					{ q: 'What does the new provider\'s `supports` accept?', options: ['Every token class', 'Only username and password tokens', 'Only the API key token class', 'Only JWTs'], answer: 2, why: 'Saying "not mine" to every other token keeps it out of the other login methods.' },
+					{ q: 'Which pattern is each `AuthenticationProvider`?', options: ['Template method', 'Factory', 'Chain of responsibility', 'Strategy'], answer: 3, why: 'Interchangeable implementations of one interface, tried in turn by a caller that never names their classes.' },
+					{ q: 'How does the new provider join the others?', options: ['You register it with the other providers', 'You add an `if` for API keys in `ProviderManager`', 'You subclass `ProviderManager`', 'You replace `DaoAuthenticationProvider`'], answer: 0, why: 'A new login method is a new provider in the list.' }
+				]
+			},
+			{
+				title: 'Say what you leave alone',
+				questions: [
+					{ q: 'Do you change `ProviderManager`?', options: ['Yes: add a branch for API keys', 'No: its loop already tries every provider that supports the token', 'Yes: move it in front of the filters', 'No, but you copy it into a new manager'], answer: 1, why: 'The strategy loop is the reason the new provider needs no change anywhere else.' },
+					{ q: 'How does `ProviderManager` pick a result?', options: ['It skips providers whose `supports` says no and keeps the first non-null result', 'It asks every provider and keeps the last result', 'It picks one provider at random', 'It only calls the first provider in the list'], answer: 0, why: 'It breaks on the first result that is not null.' },
+					{ q: 'A listener writes an audit line on every successful login. Do you update it for API keys?', options: ['Yes: it only knows passwords', 'Yes: register it on the new filter', 'No: `ProviderManager` already publishes the success event for every provider', 'Only if the key is a JWT'], answer: 2, why: 'The event comes from `ProviderManager`, not from a provider, so the new method is covered for free.' },
+					{ q: 'Which pattern lets that listener work without `ProviderManager` knowing it?', options: ['Adapter', 'Observer', 'Decorator', 'Template method'], answer: 1, why: 'Every listener receives the event, and the publisher does not know who they are.' }
+				]
+			},
+			{
+				title: 'Check what does not fit',
+				questions: [
+					{ q: 'Why not extend `AbstractUserDetailsAuthenticationProvider`?', options: ['The class is `final`', 'It only supports username and password tokens', 'It has no `authenticate` method', 'It only works with JWTs'], answer: 1, why: 'Its fixed steps load a user and check a password. An API key token does not go through them.' },
+					{ q: 'So how do you write the key provider?', options: ['Extend `DaoAuthenticationProvider`', 'Wrap an `InputStreamReader`', 'Implement `AuthenticationProvider` directly', 'Override `ProviderManager.authenticate`'], answer: 2, why: 'No template method fits, so you implement the interface yourself.' },
+					{ q: 'What is the risk to name?', options: ['The key lookup is new security code', '`ProviderManager` gets slower with one more provider', 'The filter chain gets too long', 'Listeners may miss the event'], answer: 0, why: 'New code that decides who gets in deserves the most care in this change.' },
+					{ q: 'Which care do you copy from `DaoAuthenticationProvider`?', options: ['Caching every key forever', 'Storing keys with a `{bcrypt}` prefix', 'Skipping the pre-checks for speed', 'Mitigating timing attacks on a miss, and never logging the key'], answer: 3, why: '`DaoAuthenticationProvider` mitigates timing attacks when a user is not found. A key in a log is a leaked key.' }
+				]
+			}
 		]
 	},
 	quiz: [

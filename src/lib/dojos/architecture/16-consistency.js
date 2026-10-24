@@ -88,6 +88,44 @@ export default {
 			'Outbox: it needs a store that writes the file and a "to copy" record in one go. A storage bucket does not offer that. You could write the record to the database first, but the database and the bucket are then a new dual write.',
 			'Reconciliation: a job lists both regions and copies what is missing. Each run lists both buckets in full, which takes time and may cost money.',
 			'Copying twice is harmless if a file\'s name is derived from its content, or if the copy overwrites with the same bytes. With an idempotent repair, you can run it as often as you like.'
+		],
+		steps: [
+			{
+				title: 'Trace the crash',
+				questions: [
+					{ q: 'The process dies after the first write and before the event. What is left?', options: ['No file in either region', 'The file in the first region only, and no "copy later" event', 'Both copies, and a pending event', 'The file in the second region only'], answer: 1, why: 'One write landed, the other did not, and the event that would repair it was never sent.' },
+					{ q: 'What kind of write is this upload?', options: ['A single atomic write to both regions', 'An outbox write', 'A reconciliation step', 'A dual write: two stores, with nothing making both succeed or both fail'], answer: 3, why: 'Two stores written separately, in parallel here, with nothing around both writes.' },
+					{ q: 'Can a `try/catch` around the two writes fix this?', options: ['Yes, catch the error and send the event', 'No, a `catch` only runs while the process is alive', 'Yes, if the `catch` retries the write', 'No, because buckets do not raise errors'], answer: 1, why: 'A crash skips the `catch`. The gap stays open.' },
+					{ q: 'Why does the copy worker never fix it?', options: ['It copies only when it gets a "copy later" event, and none was sent', 'The second region refuses copies', 'The first copy is broken', 'It runs only once a day'], answer: 0, why: 'The repair depends on the event, and the event was the write that never happened.' }
+				]
+			},
+			{
+				title: 'Find when it shows',
+				questions: [
+					{ q: 'Where does playback read from?', options: ['Always from the second region', 'From both regions, and compares them', 'From the first region, and the second only on error', 'From whichever region is closer'], answer: 2, why: 'The second copy is read only when the first one fails.' },
+					{ q: 'When does anyone notice the missing copy?', options: ['At the next playback', 'The day the first region is down', 'When the worker retries', 'At the next upload'], answer: 1, why: 'While the first region works, reads never touch the second.' },
+					{ q: 'Why is that the worst moment to find out?', options: ['It is the one day the second copy is needed', 'Uploads are slower that day', 'The worker is busy that day', 'Users watch fewer videos that day'], answer: 0, why: 'The copy exists to cover a region outage, and the outage is when it turns out to be missing.' },
+					{ q: 'What would make the gap visible before that day?', options: ['More playback traffic', 'Longer timeouts on the upload', 'A larger first region', 'A job that compares both regions'], answer: 3, why: 'Nothing on the normal path reads the second copy. Only a check that looks at both regions finds the gap.' }
+				]
+			},
+			{
+				title: 'Weigh compensation and outbox',
+				questions: [
+					{ q: 'Compensation would delete the file from the first region. Why is that wrong here?', options: ['Deleting is too slow', 'The upload was accepted and the first copy is fine', 'Compensation needs an outbox first', 'It would delete the second copy too'], answer: 1, why: 'Undoing a good write throws away the one copy you have.' },
+					{ q: 'What does an outbox need?', options: ['A store that saves the data and the message in one write', 'A second broker', 'A reconciliation job behind it', 'A cache in front of the store'], answer: 0, why: 'The outbox works because data and message land in the same write, so a crash keeps both or neither.' },
+					{ q: 'Can a storage bucket write the file and a "to copy" record in one go?', options: ['Yes, every bucket supports transactions', 'Yes, if both regions share one bucket', 'No, a bucket does not offer that', 'Only for files under a size limit'], answer: 2, why: 'The outbox needs one write for both. A bucket gives you none.' },
+					{ q: 'You write the "to copy" record to the database first, then the file. What have you built?', options: ['A true outbox', 'An atomic upload', 'A reconciliation job', 'A new dual write, between the database and the bucket'], answer: 3, why: 'The database and the bucket share no transaction, so the same crash can split them.' }
+				]
+			},
+			{
+				title: 'Reconcile, safely',
+				questions: [
+					{ q: 'What does the reconciliation job do?', options: ['Lists both regions and copies what is missing', 'Deletes every file found in only one region', 'Asks users to upload again', 'Compares only the file counts'], answer: 0, why: 'It repairs the gap whatever caused it, including the crash no event saw.' },
+					{ q: 'What does it cost?', options: ['Nothing: it reads a single row', 'It blocks uploads while it runs', 'Each run lists both buckets in full, which takes time and may cost money', 'It needs an outbox relay'], answer: 2, why: 'Reconciliation reads everything. Some storage providers charge for those list requests.' },
+					{ q: 'When is copying a file twice harmless?', options: ['Never: a second copy always corrupts it', 'When the name comes from the content, or the copy overwrites with the same bytes', 'Only when the file is small', 'Only when the job runs at night'], answer: 1, why: 'Then the repair is idempotent, and you can run it as often as you like.' },
+					{ q: 'Which Mastodon tool is the same kind of repair?', options: ['The Redis set `chewy:queue`', 'The Chewy strategy that stashes ids', 'The order of `import!`, then `srem`', '`tootctl media remove-orphans`, which checks every stored file against the records'], answer: 3, why: 'It reconciles object storage with Postgres by going over every file, and it warns that it will be slow.' }
+				]
+			}
 		]
 	},
 	quiz: [

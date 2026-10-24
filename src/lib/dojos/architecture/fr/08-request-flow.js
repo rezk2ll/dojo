@@ -117,6 +117,44 @@ export default {
 			'(b) Vérifie chaque saut synchrone. Le premier suspect est l’étape 4 : une mention d’un compte distant inconnu, résolue par le réseau avant l’enregistrement.',
 			'(c) Étape 10 : le job de livraison est en file ou en retry, ou Sidekiq ne tourne pas. La requête (étapes 1 à 7) a réussi, donc elle ne peut rien te dire.',
 			'(d) Encore l’étape 4 : la résolution du compte a échoué, l’erreur a été rattrapée, et la mention est restée du texte.'
+		],
+		steps: [
+			{
+				title: 'Sépare la requête des jobs',
+				questions: [
+					{ q: 'Quelles étapes tournent pendant la requête HTTP de l’utilisateur ?', options: ['1 à 5', '1 à 7', '1 à 10', '8 à 10'], answer: 1, why: 'L’étape 7 renvoie le 200. Les étapes 8 à 10 tournent plus tard dans Sidekiq.' },
+					{ q: 'À quelle étape le post existe-t-il ?', options: ['Étape 3 : le service démarre', 'Étape 7 : le 200 repart', 'Étape 5 : `@status.save!` dans une transaction', 'Étape 8 : les fils d’accueil sont remplis'], answer: 2, why: 'Une fois la transaction validée, le post est dans PostgreSQL. Les étapes suivantes décident qui le voit.' },
+					{ q: 'Que fait l’étape 6 du fan-out ?', options: ['Elle l’exécute avant de répondre', 'Elle le saute pour les gros comptes', 'Elle l’envoie directement au serveur de streaming', 'Elle le met en file dans Redis, et la réponse repart sans attendre'], answer: 3, why: '`postprocess_status!` met les workers en file et rend la main.' },
+					{ q: 'Quelle étape peut faire attendre la requête sur un serveur que tu ne fais pas tourner ?', options: ['Étape 4', 'Étape 2', 'Étape 9', 'Étape 10'], answer: 0, why: 'L’étape 10 parle aussi à d’autres serveurs, mais après la réponse. L’étape 4 tourne avant l’enregistrement.' }
+				]
+			},
+			{
+				title: 'Explique (a) et (b)',
+				questions: [
+					{ q: '(a) « 401 quand je publie. » Quelle étape ?', options: ['Étape 4 : la recherche de mention', 'Étape 5 : l’enregistrement du post', 'Étape 2 : le token est absent, révoqué ou invalide', 'Étape 10 : les livraisons'], answer: 2, why: 'Sans token valide, la requête s’arrête avant que le moindre code de publication tourne.' },
+					{ q: 'Qu’exige l’étape 2 ?', options: ['Un token avec le scope `write` ou `write:statuses`', 'Un token avec le scope `read`', 'Une session de navigateur connectée', 'Une recherche WebFinger de l’utilisateur'], answer: 0, why: 'Le contrôleur vérifie le scope d’un token stocké dans `oauth_access_tokens`.' },
+					{ q: '(b) « Mon post a mis 6 secondes. » Quel est le premier suspect ?', options: ['Étape 8 : le fan-out vers les abonnés', 'Étape 4 : une mention distante inconnue, résolue par le réseau', 'Étape 10 : les livraisons', 'Étape 9 : le message pub/sub'], answer: 1, why: 'C’est le seul saut synchrone qui attend la machine de quelqu’un d’autre.' },
+					{ q: 'Pourquoi l’étape 8 n’est-elle pas suspecte pour (b) ?', options: ['Elle est trop rapide pour être mesurée', 'Redis ne ralentit jamais', 'Elle tourne avant l’étape 2', 'Elle part en file, donc elle n’ajoute rien au temps de réponse'], answer: 3, why: 'Sidekiq absorbe le coût d’une grosse liste d’abonnés, et le clic revient aussi vite que pour une petite.' }
+				]
+			},
+			{
+				title: 'Explique (c)',
+				questions: [
+					{ q: '(c) « Mon post est sur mon profil, mais mes abonnés sur un autre serveur ne l’ont jamais vu. » Quelle étape ?', options: ['Étape 10 : la livraison à chaque inbox distante', 'Étape 5 : l’enregistrement du post', 'Étape 4 : la recherche de mention', 'Étape 2 : la vérification du token'], answer: 0, why: 'Le post est enregistré, donc les étapes 1 à 7 ont marché. C’est la livraison aux autres serveurs qui a échoué.' },
+					{ q: 'Pourquoi la requête ne peut-elle pas prévenir l’utilisateur ?', options: ['La requête a planté avant de répondre', 'Les étapes 1 à 7 ont réussi, et l’étape 10 tourne plus tard dans Sidekiq', 'Le 200 cachait une erreur dans son JSON', 'Le serveur de streaming a avalé l’erreur'], answer: 1, why: 'Le 200 ne dit rien de la partie asynchrone.' },
+					{ q: 'Quelles causes collent à (c) ?', options: ['Le token a expiré, le scope est faux, ou l’utilisateur est banni', 'PostgreSQL est en panne, Redis est plein, ou le disque est plein', 'La mention a échoué, l’aperçu de lien a échoué, ou un hashtag est faux', 'Le job de livraison est en file ou en retry, ou Sidekiq ne tourne pas'], answer: 3, why: 'Chacune laisse le post enregistré et non livré.' },
+					{ q: 'Un serveur distant est en panne. Que fait le job de livraison ?', options: ['Il abandonne après un essai', 'Il fait échouer la requête de l’utilisateur', 'Il retente pendant des jours', 'Il supprime le post'], answer: 2, why: 'Le code part du principe que les serveurs distants tombent parfois, donc le job retente.' }
+				]
+			},
+			{
+				title: 'Explique (d)',
+				questions: [
+					{ q: '(d) « Le post affiche ma mention en texte brut. » Quelle étape ?', options: ['Étape 9 : le message pub/sub', 'Étape 6 : la mise en file', 'Étape 7 : la réponse JSON', 'Encore l’étape 4 : la résolution du compte a échoué'], answer: 3, why: 'La mention reste en texte brut quand la recherche de l’étape 4 n’a trouvé aucun compte.' },
+					{ q: 'Que fait le code quand la recherche échoue avec une erreur de connexion ?', options: ['Il répond `502` et jette le post', 'Il rattrape l’erreur, met `mentioned_account = nil`, et garde le texte', 'Il retente la recherche indéfiniment', 'Il garde le post en brouillon'], answer: 1, why: 'Le `rescue` attrape les erreurs WebFinger et de connexion. Le post est quand même publié.' },
+					{ q: 'Que voit l’utilisateur ?', options: ['Aucune erreur, seulement l’attente', 'Un message d’erreur sur le post', 'Un `401`', 'Un brouillon dans son profil'], answer: 0, why: 'L’échec est rattrapé, donc seul le délai se voit.' },
+					{ q: 'Un serveur distant qui ne répond jamais coûte au moins combien à la requête ?', options: ['1 seconde', 'Rien : l’erreur est rattrapée', 'Le timeout de connexion de 5 secondes', '30 secondes, à chaque fois'], answer: 2, why: '`connect_timeout: 5` fixe le minimum. Le commentaire estime le pire cas pour ouvrir une connexion à environ 15 secondes.' }
+				]
+			}
 		]
 	},
 	quiz: [

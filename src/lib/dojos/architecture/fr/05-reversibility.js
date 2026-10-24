@@ -84,6 +84,44 @@ export default {
 			'(b) Sens unique : les factures supprimées ne reviennent pas. Une option intermédiaire : soft delete d’abord, purge réelle après un délai, pour qu’une mauvaise date dans la tâche soit repérée avant que les données disparaissent.',
 			'(c) Presque sens unique : du code client que tu ne vois pas dépend de l’ancien nom. L’option intermédiaire : envoyer les deux champs pendant un temps, annoncer que l’ancien va disparaître, le retirer plus tard.',
 			'(d) Double sens pour les nouveaux PDF : tu peux remettre l’ancienne police quand tu veux. Les factures déjà envoyées gardent la police avec laquelle elles ont été faites, et personne n’a besoin de les changer.'
+		],
+		steps: [
+			{
+				title: 'Pose la question de la porte',
+				questions: [
+					{ q: 'Quelle question distingue une porte à sens unique d’une porte à double sens ?', options: ['Combien de temps ça prendra à construire ?', 'Est-ce que la décision touche la base de données ?', 'Si on change d’avis dans un mois, qui d’autre doit changer, et quelles données restent derrière ?', 'Qui dans l’équipe l’a proposée ?'], answer: 2, why: 'Une porte est à sens unique quand la défaire oblige d’autres gens à changer, ou laisse des données que tu ne peux pas reprendre.' },
+					{ q: 'Comment décides-tu une porte à double sens ?', options: ['Lentement, avec un ADR', 'Vite, puis tu avances', 'Seulement après un vote de l’équipe', 'Jamais : tu la laisses ouverte'], answer: 1, why: 'Bezos : tu peux rouvrir la porte et repasser de l’autre côté. Y passer une semaine, c’est perdre la semaine.' },
+					{ q: 'Comment décides-tu une porte à sens unique ?', options: ['Vite, parce que c’est rare', 'Toujours derrière un feature flag', 'Celui qui est libre choisit', 'Lentement, et tu écris un ADR'], answer: 3, why: 'Tu ne peux pas revenir là où tu étais, donc c’est là que tu mets ton temps de conception.' },
+					{ q: 'Laquelle est par nature une porte à sens unique ?', options: ['Des données supprimées', 'Un flag de configuration', 'Une colonne d’état', 'Une bibliothèque derrière une interface'], answer: 0, why: 'Des données supprimées ne reviennent pas. Les trois autres sont peu coûteuses à défaire.' }
+				]
+			},
+			{
+				title: 'Classe chaque décision',
+				questions: [
+					{ q: '(a) Un feature flag montre le nouveau tableau de bord à certains clients.', options: ['Sens unique : les clients l’ont vu', 'Double sens, si le nouveau tableau de bord n’écrit rien que l’ancien ne sache lire', 'Sens unique : un flag ne peut jamais être retiré', 'Double sens dans tous les cas'], answer: 1, why: 'Désactiver le flag annule le rollout, tant qu’il ne laisse pas de nouvelles données derrière.' },
+					{ q: '(b) Une tâche nocturne supprime pour de bon les factures de plus de 10 ans.', options: ['Double sens : tu peux arrêter la tâche', 'Double sens : il y a des sauvegardes', 'Sens unique : les factures supprimées ne reviennent pas', 'Presque sens unique, comme un renommage'], answer: 2, why: 'Arrêter la tâche sauve les prochaines factures, pas celles déjà supprimées.' },
+					{ q: '(c) Renommer un champ dans le payload du webhook que reçoivent les clients.', options: ['Double sens : tu le renommes dans l’autre sens', 'Double sens : ce n’est qu’un nom de champ', 'Sens unique seulement si les clients se plaignent', 'Presque sens unique : du code client que tu ne vois pas dépend de l’ancien nom'], answer: 3, why: 'Le défaire oblige chaque client qui a déjà changé son code à le changer encore.' },
+					{ q: '(d) Changer la police des PDF de facture.', options: ['Double sens pour les nouveaux PDF', 'Sens unique : les factures envoyées gardent l’ancienne police', 'Sens unique : les clients gardent les fichiers PDF', 'Presque sens unique, comme le webhook'], answer: 0, why: 'Tu peux remettre l’ancienne police quand tu veux. Personne d’autre n’a rien à changer.' }
+				]
+			},
+			{
+				title: 'Dis ce qui la rend telle',
+				questions: [
+					{ q: '(a) Quand le flag cesse-t-il d’être une porte à double sens ?', options: ['Quand plus de la moitié des clients le voient', 'Quand le flag est actif depuis un mois', 'Quand le nouveau tableau de bord stocke des données que l’ancien ne sait pas lire', 'Quand le nouveau tableau de bord est plus lent'], answer: 2, why: 'Désactiver le flag laisse alors ces données derrière.' },
+					{ q: '(c) Le renommage tient en une ligne de code. Pourquoi est-il difficile à défaire ?', options: ['Du code client dépend de l’ancien nom, et tu ne vois pas ce code', 'Les payloads de webhook ne peuvent pas être renommés', 'Le payload est mis en cache pendant 10 ans', 'Les noms de champs JSON sont fixés par la norme'], answer: 0, why: 'Un nom de champ dans un contrat public a l’air d’un détail jusqu’à ce que quelqu’un d’autre en dépende.' },
+					{ q: '(d) Les factures déjà envoyées gardent l’ancienne police. Est-ce que ça rend (d) à sens unique ?', options: ['Oui : tu ne peux plus les changer', 'Oui : un PDF est définitif', 'Seulement si un client se plaint', 'Non : personne n’a besoin de les changer'], answer: 3, why: 'Ce qui reste derrière est sans danger, donc la porte s’ouvre toujours dans les deux sens.' },
+					{ q: 'Un site Discourse active `can_permanently_delete` pendant un mois, puis le désactive. Qu’est-ce que la désactivation a défait ?', options: ['Les messages détruits, pas le réglage', 'Le réglage, pas les messages détruits', 'Le réglage et les messages', 'Ni le réglage ni les messages'], answer: 1, why: 'Le flag est réversible, ce qu’il a fait ne l’est pas. Regarde ce qu’un flag laisse derrière lui.' }
+				]
+			},
+			{
+				title: 'Ajoute une option intermédiaire',
+				questions: [
+					{ q: '(b) Quelle option intermédiaire rend la purge plus sûre ?', options: ['Lancer la tâche chaque semaine au lieu de chaque nuit', 'Supprimer plutôt les factures de plus de 20 ans', 'Soft delete d’abord, puis purge réelle après un délai', 'Demander à un admin de cliquer sur supprimer chaque nuit'], answer: 2, why: 'Comme Discourse, place une étape réversible devant la porte à sens unique.' },
+					{ q: 'Que rattrape le délai avant la purge réelle ?', options: ['Une mauvaise date dans la tâche, avant que les données disparaissent', 'Les requêtes lentes sur la table des factures', 'Les factures en double', 'Les clients qui ont fermé leur compte'], answer: 0, why: 'Une erreur à l’étape du soft delete peut encore être rattrapée.' },
+					{ q: '(c) Quelle option intermédiaire convient au renommage ?', options: ['Renommer maintenant, et corriger les bugs clients au fil de l’eau', 'Envoyer les deux champs pendant un temps, annoncer que l’ancien va disparaître, le retirer plus tard', 'Ne jamais renommer un champ une fois livré', 'Renommer et prévenir les clients par e-mail le même jour'], answer: 1, why: 'Les clients avancent à leur rythme, et l’ancien nom ne part qu’après leur avoir laissé le temps.' },
+					{ q: 'Que coûte chaque état intermédiaire, comme chez Discourse ?', options: ['Rien : un soft delete est gratuit', 'Une deuxième base de données à faire tourner', 'Une génération de PDF plus lente', 'Du code à maintenir : cacher les lignes soft-deleted dans chaque requête, une tâche pour faire le ménage'], answer: 3, why: 'Chaque état intermédiaire, c’est du code à maintenir, et les lignes soft-deleted prennent toujours de la place.' }
+				]
+			}
 		]
 	},
 	quiz: [

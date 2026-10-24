@@ -97,6 +97,44 @@ export default {
 			'Pas modifiés : `Blob`, tes modèles avec `has_one_attached`, et `MirrorService`. Ils ne connaissent que `Service`.',
 			'Implémente le port en entier, au delà de `upload` et `download` : `url_for_direct_upload`, `compose`, `delete_prefixed`, ainsi que `private_url` et `public_url` qu’appelle `url`, lèvent tous `NotImplementedError` par défaut.',
 			'Ça vaut le coup : inclus `SharedServiceTests` dans le test de l’adaptateur, et fais-le tourner contre un vrai bucket Acme en CI. Ensuite, un miroir de l’ancien stockage vers Acme copie chaque nouvel envoi dans les deux stockages pendant la migration.'
+		],
+		steps: [
+			{
+				title: 'Lis le diagramme',
+				questions: [
+					{ q: 'Quelle classe est le port qu’Acme doit implémenter ?', options: ['`ActiveStorage::Blob`', '`ActiveStorage::Service`', '`Configurator`', '`S3Service`'], answer: 1, why: '`Service` est la classe abstraite que le cœur appelle. Chaque adaptateur en est une sous-classe.' },
+					{ q: 'Acme a sa propre API, non compatible S3. Peux-tu réutiliser `S3Service` ?', options: ['Oui, en le faisant pointer vers l’endpoint Acme', 'Oui, si tu l’enveloppes dans `MirrorService`', 'Non, Acme a besoin de son propre adaptateur, une sous-classe de `Service`', 'Non, il faut d’abord apprendre Acme à `Blob`'], answer: 2, why: 'Un adaptateur implémente le port pour une technologie. Une nouvelle API veut dire un nouvel adaptateur.' },
+					{ q: 'Qui choisit l’adaptateur que reçoit le cœur ?', options: ['`Blob`, au moment de l’envoi', 'Chaque modèle avec `has_one_attached`', '`MirrorService`, à partir de sa liste de miroirs', 'Le câblage : l’environnement, `storage.yml`, puis le `Configurator`'], answer: 3, why: 'L’environnement nomme un service, `storage.yml` l’associe à un adaptateur, et le `Configurator` le construit. Aucun autre code ne choisit le service.' },
+					{ q: 'Qu’appelle `Blob` quand il enregistre un fichier ?', options: ['`service.upload key, io`', 'Le SDK S3, directement', '`DiskService#upload`, puis le cloud', '`Configurator#build`'], answer: 0, why: 'Le cœur n’appelle que le port. `upload_without_unfurling` tient en cette seule ligne.' }
+				]
+			},
+			{
+				title: 'Écris l’adaptateur',
+				questions: [
+					{ q: 'Où va la nouvelle classe, pour que `resolve` la trouve ?', options: ['Dans `app/models`, à côté de `Blob`', 'Dans `active_storage/service/acme_service.rb`, dans le load path', 'Dans `storage.yml`, en code Ruby', 'Dans `configurator.rb`, comme nouvelle branche'], answer: 1, why: '`resolve` charge `active_storage/service/acme_service` quand on lui demande `Acme`.' },
+					{ q: '`storage.yml` dit `service: Acme`. Quelle classe `resolve` cherche-t-il ?', options: ['`Acme`', '`AcmeAdapter`', '`AcmeService`', '`ActiveStorage::Acme`'], answer: 2, why: 'Il met le nom en camel case et ajoute `Service`, puis le cherche sous `ActiveStorage::Service`.' },
+					{ q: 'Tu n’implémentes que `upload` et `download`. Que fait un appel à `compose` ?', options: ['Il se rabat sur l’adaptateur disque', 'Il lève `NotImplementedError`, le défaut dans `Service`', 'Il ne fait rien et rend la main', 'Il est pris en charge par `MirrorService`'], answer: 1, why: 'Les méthodes du port font surtout `raise NotImplementedError`. Chaque adaptateur doit les remplir.' },
+					{ q: 'Quelles méthodes font aussi partie du port ?', options: ['`url_for_direct_upload`, `compose`, `delete_prefixed`, `private_url` et `public_url`', 'Aucune : seulement `upload`, `download` et `delete`', '`has_one_attached` et `mirror_later`', '`build` et `resolve`'], answer: 0, why: 'Elles lèvent toutes `NotImplementedError` par défaut, et `url` appelle `private_url` ou `public_url`.' }
+				]
+			},
+			{
+				title: 'Câble-le',
+				questions: [
+					{ q: 'Qu’ajoutes-tu à `storage.yml` ?', options: ['Une ligne `require` pour le SDK Acme', 'La liste des modèles qui doivent utiliser Acme', 'Une nouvelle sous-classe de `Blob` pour Acme', 'Une entrée `acme:` avec `service: Acme`'], answer: 3, why: '`storage.yml` associe chaque nom à un adaptateur. Cette entrée est la seule nouvelle ligne.' },
+					{ q: 'Comment la production se met-elle à utiliser Acme ?', options: ['Règle `config.active_storage.service = :acme` en production', 'Ajoute `if Rails.env.production?` dans chaque modèle', 'Renomme `S3Service` en `AcmeService`', 'Supprime l’entrée `local:` de `storage.yml`'], answer: 0, why: 'Le fichier d’environnement nomme le service. Pour changer, tu changes ce choix.' },
+					{ q: 'Après le changement, pourquoi tes tests tournent-ils toujours sur disque ?', options: ['Parce qu’Acme n’a pas de mode test', 'Parce que `Blob` détecte la CI et choisit le disque', 'Parce que `test.rb` dit toujours `:test`, associé à `Disk`', 'Parce que le SDK AWS n’est pas chargé en tests'], answer: 2, why: 'Chaque environnement choisit son propre service. Seule la production a changé.' },
+					{ q: 'Une appli n’utilise jamais S3. Charge-t-elle le SDK AWS ?', options: ['Oui, le gemspec d’Active Storage en dépend', 'Oui, le `Configurator` charge tous les adaptateurs au démarrage', 'Non, seul `s3_service.rb` le charge, et seulement quand on le demande', 'Non, mais seulement parce qu’Acme le remplace'], answer: 2, why: '`resolve` ne charge un fichier d’adaptateur que quand un service le nomme, et le gemspec ne dépend pas du SDK AWS.' }
+				]
+			},
+			{
+				title: 'Nomme ce qui reste',
+				questions: [
+					{ q: 'Quel code t’attends-tu à **ne pas** modifier ?', options: ['`storage.yml`', '`Blob` et tes modèles avec `has_one_attached`', 'Le fichier d’environnement de production', 'Le fichier de test de l’adaptateur'], answer: 1, why: 'Ils ne connaissent que `Service`. Le nouveau backend vit derrière le port.' },
+					{ q: '`MirrorService` doit-il changer pour copier les envois vers Acme ?', options: ['Oui, il doit apprendre l’API Acme', 'Oui, il faut un nouveau `AcmeMirrorService`', 'Non, parce que les miroirs ne marchent qu’avec S3', 'Non, il enveloppe n’importe quel `Service`, et les adaptateurs n’en savent rien'], answer: 3, why: 'Un décorateur marche avec n’importe quels adaptateurs. Un miroir de l’ancien stockage vers Acme copie chaque nouvel envoi pendant la migration.' },
+					{ q: 'Comment vérifies-tu que `AcmeService` respecte le contrat du port ?', options: ['Inclus `SharedServiceTests` et fais-le tourner contre un vrai bucket Acme en CI', 'Lance les tests disque, puisqu’ils utilisent le même port', 'Lis attentivement la doc de l’API Acme', 'Déploie et surveille les erreurs en production'], answer: 0, why: 'Une seule suite de tests partagée vérifie chaque adaptateur contre le même port. Elle a besoin du vrai backend pour valoir quelque chose.' },
+					{ q: 'Sans identifiants, le test Acme est sauté, comme celui de S3. La CI est verte sur disque. Qu’est-ce que ça te dit d’Acme ?', options: ['Qu’Acme marche, puisque le port est partagé', 'Rien : les tests partagés n’ont jamais tourné contre Acme', 'Qu’Acme a passé les tests du miroir', 'Qu’Acme n’a plus de `NotImplementedError`'], answer: 1, why: 'Les tests partagés ne tournent que là où le backend existe. Un run vert sur disque ne dit rien d’un autre stockage.' }
+				]
+			}
 		]
 	},
 	quiz: [

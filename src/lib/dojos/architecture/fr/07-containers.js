@@ -106,6 +106,44 @@ export default {
 			'Conteneurs : PostgreSQL, le processus Sidekiq, le serveur de streaming, l’appli web React (elle tourne dans le navigateur), Elasticsearch (quand il est activé), et le bucket S3 (tu possèdes ses données).',
 			'Pas des conteneurs : l’image (un seul build qui tourne comme deux conteneurs, `web` et `sidekiq`) et `PostStatusService` (une classe dans l’appli Rails, un composant au niveau 3).',
 			'Le piège, c’est l’image. `web` et `sidekiq` partagent le code mais tournent dans des processus séparés : Sidekiq peut mourir pendant que l’API continue de répondre.'
+		],
+		steps: [
+			{
+				title: 'Fixe le critère',
+				questions: [
+					{ q: 'Quelle question poses-tu pour chaque élément ?', options: ['Est-il empaqueté comme une image Docker ?', 'A-t-il son propre dépôt Git ?', 'Tourne-t-il, ou stocke-t-il des données, tout seul, et peut-il planter pendant que le reste continue ?', 'Expose-t-il une API REST ?'], answer: 2, why: 'Un conteneur est quelque chose qui doit tourner pour que le système marche, en processus ou stockage à part.' },
+					{ q: 'Que veut dire « conteneur » dans C4 ?', options: ['Un conteneur Docker', 'Une frontière d’exécution : un processus ou un stockage que tu démarres, arrêtes, déploies et surveilles à part', 'Un pod Kubernetes', 'Un dossier de code dans le dépôt'], answer: 1, why: 'Simon Brown a choisi ce mot pour qu’il ne dise rien de la manière dont la chose tourne.' },
+					{ q: 'Deux morceaux de code sont de part et d’autre d’une frontière de processus. Que ne peuvent-ils pas faire ?', options: ['Communiquer par le réseau', 'Communiquer par une file', 'Planter l’un sans l’autre', 'Partager de la mémoire'], answer: 3, why: 'Ils communiquent par le réseau, une file ou un fichier, et chaque côté peut planter seul.' },
+					{ q: 'À quel niveau C4 apparaissent les conteneurs ?', options: ['Niveau 2', 'Niveau 1, contexte', 'Niveau 3, composants', 'Niveau 4, code'], answer: 0, why: 'Le niveau 2 ouvre la boîte du système du diagramme de contexte.' }
+				]
+			},
+			{
+				title: 'Range ce qui tourne',
+				questions: [
+					{ q: 'PostgreSQL ?', options: ['Pas un conteneur : il n’a pas d’API à lui', 'Un conteneur : un stockage de données qui doit tourner', 'Un système externe', 'Un composant de `web`'], answer: 1, why: 'Les comptes, les posts et les abonnements y vivent. Une base sans API reste un conteneur.' },
+					{ q: 'L’appli web React ?', options: ['Pas un conteneur : `web` la sert', 'Pas un conteneur : elle n’a pas d’image Docker', 'Un conteneur : elle tourne dans le navigateur de l’utilisateur', 'Un système externe : le navigateur n’est pas à nous'], answer: 2, why: 'Elle tourne toute seule, dans le navigateur, donc c’est un conteneur à part entière.' },
+					{ q: 'Le serveur de streaming ?', options: ['Une partie du conteneur `web`', 'Un composant dans Rails', 'Un système externe', 'Un conteneur : sa propre image, Node.js sur le port 4000'], answer: 3, why: 'Il est construit depuis son propre Dockerfile et tu le passes à l’échelle à part.' },
+					{ q: 'Le processus Sidekiq ?', options: ['Un conteneur : il tourne dans son propre processus', 'Pas un conteneur : il partage l’image de `web`', 'Un composant de Redis', 'Une partie du conteneur `web`'], answer: 0, why: 'Il démarre, plante et passe à l’échelle séparément de `web`.' }
+				]
+			},
+			{
+				title: 'Range les cas limites',
+				questions: [
+					{ q: 'Elasticsearch ?', options: ['Jamais un conteneur : il est optionnel', 'Un système externe', 'Un conteneur quand il est activé, dessiné en pointillés', 'Un composant de PostgreSQL'], answer: 2, why: 'Mastodon propose la recherche « quand Elasticsearch est disponible », donc il a une boîte en pointillés.' },
+					{ q: 'Le bucket S3 pour les médias ?', options: ['Un conteneur : quelqu’un d’autre l’héberge, mais tu possèdes les données', 'Un système externe : quelqu’un d’autre l’héberge', 'Pas un conteneur : il ne contient que des fichiers', 'Un composant de `web`'], answer: 0, why: 'Ce qui compte, c’est qui possède les données, pas qui fait tourner le matériel.' },
+					{ q: 'La classe `PostStatusService` ?', options: ['Un conteneur : elle travaille toute seule', 'Un système externe', 'Un conteneur, puisque Sidekiq l’appelle', 'Pas un conteneur : une classe dans l’appli Rails, un composant au niveau 3'], answer: 3, why: 'Une classe tourne dans un processus. Elle ne peut pas planter seule.' },
+					{ q: 'Le serveur de streaming lit PostgreSQL directement. Pourquoi ça compte ?', options: ['Ça fait du streaming une partie de `web`', 'Un changement de schéma doit marcher pour les deux conteneurs', 'Ça fait de PostgreSQL un système externe', 'Ça ne compte pas : les lectures sont gratuites'], answer: 1, why: 'Deux conteneurs sur une même base, c’est un seul schéma qui sert les deux.' }
+				]
+			},
+			{
+				title: 'Repère le piège de l’image',
+				questions: [
+					{ q: 'L’image `ghcr.io/mastodon/mastodon` ?', options: ['Un conteneur : elle est dans `docker-compose.yml`', 'Un système externe : elle vit sur ghcr.io', 'Pas un conteneur : un seul build qui tourne comme deux conteneurs, `web` et `sidekiq`', 'Deux conteneurs dessinés dans une boîte'], answer: 2, why: 'Une image n’est que le build dont part un conteneur.' },
+					{ q: 'Dans `docker-compose.yml`, qu’est-ce qui diffère entre `web` et `sidekiq` ?', options: ['L’image', 'Le `env_file`', 'La politique `restart`', 'La `command`'], answer: 3, why: 'Même image, commande différente : `puma` pour l’un, `sidekiq` pour l’autre.' },
+					{ q: 'Sidekiq meurt. Que fait l’API ?', options: ['Elle continue de répondre : les posts sont enregistrés et les jobs attendent dans Redis', 'Elle tombe aussi, puisqu’ils partagent une image', 'Elle exécute les jobs elle-même', 'Elle jette les jobs en file'], answer: 0, why: 'Des processus séparés tombent séparément. Les fils et les autres serveurs reçoivent le post une fois Sidekiq relancé.' },
+					{ q: 'Une image, deux commandes. Combien de boîtes sur le diagramme de conteneurs ?', options: ['Une', 'Deux', 'Aucune', 'Trois'], answer: 1, why: 'C4 dessine une boîte par processus ou stockage, pas par image.' }
+				]
+			}
 		]
 	},
 	quiz: [

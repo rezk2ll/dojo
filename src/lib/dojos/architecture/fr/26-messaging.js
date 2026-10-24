@@ -107,6 +107,44 @@ export default {
 			'`OrderPaid` : trouve d’abord la cause dans les logs et corrige-la. Ensuite rejoue, mais seulement si le handler dédoublonne sur l’id du message, ou si tu vérifies quelles commandes ont déjà retiré leur stock.',
 			'Décide type de message par type de message, jamais pour toute la DLQ d’un coup, et écris cette décision là où la personne d’astreinte la trouvera.',
 			'Mets une alerte sur la profondeur de la DLQ : la personne d’astreinte apprend l’arrivée du premier message mort le jour même, pas le lundi.'
+		],
+		steps: [
+			{
+				title: 'Lis ce qu’il y a dans la DLQ',
+				questions: [
+					{ q: 'Ton collègue veut renvoyer les 40 d’un coup. Qu’est-ce qui ne va pas ?', options: ['Le broker ne peut pas rejouer plus de 10 messages à la fois', 'Chaque type de message demande sa propre décision', 'Rejouer depuis une DLQ est toujours interdit', 'Rien : rejouer est sans risque pour tous les messages'], answer: 1, why: 'Un rejeu sans risque pour un type peut écraser la vérité pour un autre.' },
+					{ q: 'Quelles questions te poses-tu pour chaque type de message ?', options: ['L’appliquer deux fois est-il sans risque ? Un vieux message peut-il écraser une vérité plus récente ?', 'Quel thread consommateur l’a traité ?', 'Quelle est la taille de chaque message ?', 'Qui a écrit le handler ?'], answer: 0, why: 'Les doublons et les données périmées sont les deux façons dont un rejeu tourne mal.' },
+					{ q: 'Pourquoi ces messages sont-ils arrivés dans la DLQ ?', options: ['Ils ont été traités et confirmés', 'La queue principale était pleine', 'Ils ont échoué trop de fois, alors le broker les a déplacés', 'Quelqu’un les a déplacés à la main'], answer: 2, why: 'Le broker range un message dans la DLQ après trop d’essais ratés.' },
+					{ q: 'Un message échoue à chaque retry à cause de données invalides. Comment l’appelle-t-on ?', options: ['Un doublon', 'Un competing consumer', 'Une lettre morte en transit', 'Un poison message'], answer: 3, why: 'Un poison message échoue à chaque fois. La DLQ le sort de la queue pour que les messages derrière lui continuent de passer.' }
+				]
+			},
+			{
+				title: 'Décide pour PriceChanged',
+				questions: [
+					{ q: 'Tu rejoues un `PriceChanged` de la semaine dernière. Que se passe-t-il ?', options: ['Il remet un prix qui a changé deux fois depuis', 'Rien : une mise à jour de prix se répète sans risque', 'Le broker refuse un vieux message', 'Il confirme le prix actuel'], answer: 0, why: 'Le vieux message porte un vieux prix, et il écrase le plus récent.' },
+					{ q: 'Alors, que fais-tu des 3 `PriceChanged` ?', options: ['Tu les rejoues dans leur ordre d’arrivée', 'Tu ne les rejoues pas : tu lis le prix actuel depuis la source de vérité du catalogue, puis tu les jettes', 'Tu les rejoues deux fois pour être sûr', 'Tu les laisses dans la DLQ pour de bon'], answer: 1, why: 'Le catalogue connaît le prix d’aujourd’hui. Les messages ne connaissent que celui de la semaine dernière.' },
+					{ q: 'Le handler du stock dédoublonne sur l’id du message. Est-ce que ça rend le rejeu de `PriceChanged` sans risque ?', options: ['Oui : le dédoublonnage règle tous les problèmes de rejeu', 'Oui, si tu les rejoues dans l’ordre', 'Non : il n’a jamais été appliqué, donc le dédoublonnage le laisse passer, et il reste vieux', 'Non : les messages de prix n’ont pas d’id'], answer: 2, why: 'Le dédoublonnage arrête une deuxième copie. Il ne fait rien contre une première copie qui arrive trop tard.' },
+					{ q: 'Lequel des deux risques de l’indice est-ce ?', options: ['L’appliquer deux fois', 'Un vieux message qui écrase une vérité plus récente', 'Perdre le message pour toujours', 'Bloquer la queue'], answer: 1, why: 'Le prix n’est pas doublé, il revient en arrière.' }
+				]
+			},
+			{
+				title: 'Décide pour OrderPaid',
+				questions: [
+					{ q: 'Que fais-tu d’abord avec les 37 `OrderPaid` ?', options: ['Tu trouves la cause dans les logs et tu la corriges', 'Tu les rejoues tout de suite', 'Tu les jettes tous', 'Tu les déplaces dans une deuxième DLQ'], answer: 0, why: 'Rejouer avant la correction les renvoie tout droit dans la DLQ.' },
+					{ q: 'Pourquoi rejouer un `OrderPaid` peut-il faire mal ?', options: ['Il rembourse le client', 'Il change le prix', 'Il bloque la queue pour de bon', 'Un message à moitié réussi ferait baisser le stock deux fois'], answer: 3, why: 'Un message qui a échoué à mi-chemin a déjà fait une partie de son travail.' },
+					{ q: 'Quand est-ce que les rejouer est sans risque ?', options: ['Quand tu les rejoues la nuit', 'Quand le handler dédoublonne sur l’id du message, ou que tu vérifies quelles commandes ont déjà retiré leur stock', 'Quand tu en rejoues un par minute', 'Quand moins de 50 messages attendent'], answer: 1, why: 'Soit le handler saute les répétitions, soit tu les sautes toi-même avant le rejeu.' },
+					{ q: 'Quelle garantie de livraison rend ce dédoublonnage nécessaire ?', options: ['At-most-once', 'Exactly-once', 'At-least-once', 'Best effort'], answer: 2, why: 'At-least-once ne perd jamais un message, mais peut le livrer deux fois. Le consommateur dédoublonne.' }
+				]
+			},
+			{
+				title: 'Sois prévenu plus tôt',
+				questions: [
+					{ q: 'Que mets-tu en place pour être prévenu avant lundi ?', options: ['Une revue hebdomadaire de la DLQ', 'Plus de retries avant la DLQ', 'Une alerte sur la profondeur de la DLQ', 'Une DLQ plus grande'], answer: 2, why: 'Une alerte sur la profondeur se déclenche dès le premier message mort.' },
+					{ q: 'Quand la personne d’astreinte doit-elle apprendre l’arrivée du premier message mort ?', options: ['Le jour même', 'Le lundi matin', 'Quand la DLQ est pleine', 'À la fin du mois'], answer: 0, why: 'Plus vite quelqu’un regarde, moins il y a de messages qui s’empilent derrière la même cause.' },
+					{ q: 'Où écris-tu la décision par type ?', options: ['Dans une note privée', 'Là où la personne d’astreinte la trouvera', 'Seulement dans un message de commit', 'Nulle part : c’est évident'], answer: 1, why: 'La prochaine personne d’astreinte aura les mêmes 40 messages et aura besoin de la même réponse.' },
+					{ q: 'En plus de l’alerte, de quoi une DLQ a-t-elle besoin ?', options: ['D’un deuxième broker', 'D’un disque plus grand', 'D’un seul consommateur', 'D’un runbook par type de message, et d’un moyen de rejouer'], answer: 3, why: 'Une DLQ que personne ne lit ne fait que stocker le problème. Mastodon n’a personne pour lire les livraisons ratées, alors il les jette.' }
+				]
+			}
 		]
 	},
 	quiz: [

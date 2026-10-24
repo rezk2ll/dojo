@@ -131,6 +131,44 @@ module.exports.charge = async request => {
 			'Objectif : 99,5 % de disponibilité et 95 % sous 1 s, sur 28 jours.',
 			'Déclenche la page sur le burn rate, la vitesse à laquelle l’error budget se consomme, et non sur une mauvaise minute. Le SRE workbook suggère de commencer avec 2 % du budget consommé en 1 heure ou 5 % en 6 heures pour une page, et 10 % en 3 jours pour un ticket.',
 			'Ne déclenche pas de page sur le CPU ou sur un pod qui redémarre : ce sont des causes, et tu les regardes après que l’alerte sur symptôme a sonné.'
+		],
+		steps: [
+			{
+				title: 'Choisis les bons événements',
+				questions: [
+					{ q: 'De quel ratio un SLO a-t-il besoin ?', options: ['Les bons événements sur l’ensemble des événements', 'Les erreurs sur le temps CPU', 'Les spans sur les lignes de log', 'Les appels par pod'], answer: 0, why: 'Un SLI est la part des événements qui se sont bien passés, et le SLO est un objectif pour cette part.' },
+					{ q: 'Quels spans forment le premier SLI de disponibilité ?', options: ['Tous les spans de toute la boutique', 'Les spans serveur du paiement dont le statut n’est pas `Error`, sur l’ensemble', 'Seulement les spans client du checkout', 'Les spans qui portent un `transactionId`'], answer: 1, why: 'Le SLO porte sur le service de paiement : tu comptes les requêtes qu’il a servies.' },
+					{ q: 'Quel statut `charge` pose-t-il aujourd’hui pour une carte expirée ?', options: ['`Ok`', '`Unset`', '`Error`', 'Aucun span n’est créé'], answer: 2, why: 'L’énoncé prévient que `charge` pose `ERROR` quand la carte est invalide ou expirée.' },
+					{ q: 'Alors, qu’est-ce qui ne va pas avec ce premier SLI ?', options: ['Il compte trop peu de spans', 'Il lui faut une ligne de log par span', 'Il ne peut pas se lire dans les span metrics', 'Il reproche au service les cartes de ses clients'], answer: 3, why: 'Une carte expirée est le problème du client, et le SLI la compte comme la tienne.' }
+				]
+			},
+			{
+				title: 'Corrige le signal',
+				questions: [
+					{ q: 'Que corriges-tu d’abord ?', options: ['Distinguer « faute de l’appelant » et « notre faute » dans le code', 'Baisser l’objectif jusqu’à ce qu’il passe', 'Abandonner le SLI de disponibilité', 'Alerter plutôt sur le CPU'], answer: 0, why: 'Un SLI n’est jamais plus honnête que le signal qu’il y a dessous.' },
+					{ q: 'Comment le code peut-il distinguer les deux ?', options: ['Un timeout plus long', 'Un type d’erreur ou un statut gRPC différent', 'Une ligne de log avec le numéro de carte', 'Un retry à chaque échec'], answer: 1, why: 'Des erreurs différentes donnent des valeurs différentes, et les métriques peuvent ensuite les séparer.' },
+					{ q: 'Où va cette distinction ensuite ?', options: ['Dans l’attribut du numéro de carte', 'Dans la probe de liveness', 'Comme dimension sur le connecteur des span metrics', 'Dans un pod à part'], answer: 2, why: 'Une nouvelle dimension sur le connecteur la fait apparaître dans les métriques : tu ne comptes que tes fautes.' },
+					{ q: 'Pourquoi ne pas ajouter aussi `transactionId` comme dimension ?', options: ['Il n’est pas unique', 'Prometheus ne sait pas stocker de chaînes', 'Il ferait fuiter le CVV', 'Une série temporelle par transaction fait tomber le stockage des métriques'], answer: 3, why: 'Un label avec une valeur par transaction crée une série par valeur. Sa place est dans la ligne de log.' }
+				]
+			},
+			{
+				title: 'Écris le SLO',
+				questions: [
+					{ q: 'Quel est le SLI de latence ?', options: ['La part des spans serveur du paiement sous 1 s, lue dans l’histogramme de durée', 'La durée moyenne de tous les spans', 'L’appel le plus lent de chaque jour', 'Le temps CPU par appel'], answer: 0, why: 'Une part sous un seuil se lit directement dans l’histogramme, et elle dit combien d’utilisateurs ont attendu.' },
+					{ q: 'Quel objectif le chapitre propose-t-il ?', options: ['100 % de disponibilité, toujours', '99,5 % de disponibilité et 95 % sous 1 s, sur 28 jours', '99,5 % de disponibilité sur 1 heure', '95 % de disponibilité et 99,5 % sous 1 s'], answer: 1, why: 'Deux objectifs, une fenêtre : 99,5 % de disponibilité, 95 % sous 1 s, sur 28 jours.' },
+					{ q: 'Avec 99,5 % de disponibilité sur 28 jours, quel est l’error budget ?', options: ['5 % des paiements', '0,05 % des paiements', '0,5 % des paiements', '99,5 % des paiements'], answer: 2, why: 'Les 0,5 % restants sont l’error budget.' },
+					{ q: 'Pourquoi fixer le SLO sur une fenêtre comme 28 jours ?', options: ['Les métriques expirent après 28 jours', 'Prometheus impose cette fenêtre', 'Les alertes sonnent plus vite', 'Un SLO est un objectif sur une fenêtre : une mauvaise minute ne le casse pas'], answer: 3, why: 'La fenêtre te permet de dépenser un budget au lieu d’échouer à chaque accroc.' }
+				]
+			},
+			{
+				title: 'Écris l’alerte',
+				questions: [
+					{ q: 'Sur quoi déclenches-tu la page ?', options: ['Le burn rate', 'Une mauvaise minute', 'Le CPU à 80 %', 'Un pod qui redémarre'], answer: 0, why: 'Le burn rate dit que les utilisateurs souffrent assez vite pour consommer le budget.' },
+					{ q: 'Qu’est-ce que le burn rate ?', options: ['Le CPU utilisé par les pods du paiement', 'La vitesse à laquelle l’error budget se consomme', 'Le nombre de requêtes par seconde', 'La part des spans échantillonnés'], answer: 1, why: 'Un burn rate élevé veut dire que le budget sera épuisé bien avant la fin de la fenêtre.' },
+					{ q: 'Quels seuils le SRE workbook suggère-t-il pour commencer, pour une page ?', options: ['10 % du budget en 3 jours', '50 % du budget en 1 minute', '2 % du budget en 1 heure, ou 5 % en 6 heures', '1 % du budget en 28 jours'], answer: 2, why: 'Pour une page, le workbook suggère 2 % du budget en 1 heure ou 5 % en 6 heures. 10 % en 3 jours est le seuil pour un ticket.' },
+					{ q: 'Un pod redémarre et le CPU est à 80 %. Déclenches-tu une page ?', options: ['Oui : les deux sont urgents', 'Oui, seulement pour le CPU', 'Oui, seulement pour le redémarrage', 'Non : ce sont des causes, tu les regardes après une alerte sur symptôme'], answer: 3, why: 'Les alertes sur causes sonnent souvent et veulent rarement dire que les utilisateurs souffrent : les gens apprennent à ignorer les pages.' }
+				]
+			}
 		]
 	},
 	quiz: [

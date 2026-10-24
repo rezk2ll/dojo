@@ -99,6 +99,44 @@ after_initialize do
 			'Check: top folders named `controllers/services/repositories` mean technical partitioning. Top folders named after business areas mean domain partitioning.',
 			'Check: at least one characteristic got a minus. Every style has one, and day 1 said every choice is a trade-off.',
 			'Bonus: write one sentence on what would have to change to move it to the next style. You can turn that sentence into an ADR.'
+		],
+		steps: [
+			{
+				title: 'Read the code, not the wiki',
+				questions: [
+					{ q: 'Where do you look to name a component\'s style?', options: ['The code: folders, deployables, how parts talk', 'The team wiki page', 'The style the team wants to reach', 'The name of the repo'], answer: 0, why: 'The style is what the code does today. A wiki or a plan describes what someone hopes it is.' },
+					{ q: 'Discourse\'s `app/` holds `controllers`, `models`, `serializers` and `jobs`. What partitioning is that?', options: ['Domain partitioning', 'Technical partitioning', 'Partitioning by plug-in', 'No partitioning at all'], answer: 1, why: 'Those folders are layer names, not business names.' },
+					{ q: 'What would top folders named `topics`, `polls` and `chat` point to?', options: ['A layered monolith', 'Microservices, by definition', 'Domain partitioning', 'A pipeline'], answer: 2, why: 'Folders named after business areas mean the code is split by domain. That still says nothing about how many deployables there are.' },
+					{ q: 'In Discourse, topics, posts and users each live in several layer folders. What does that make the back end?', options: ['A modular monolith', 'Service-based', 'Microservices', 'A layered monolith'], answer: 3, why: 'One Rails app split by technical layer is a layered monolith.' }
+				]
+			},
+			{
+				title: 'Count the parts and how they talk',
+				questions: [
+					{ q: 'What does Discourse deploy?', options: ['One Rails app, run as web and Sidekiq processes', 'One app per plugin', '11 services, one per feature', 'Two apps, one for topics and one for chat'], answer: 0, why: 'The Sidekiq workers run the same code base as a second kind of process. It is still one app.' },
+					{ q: 'How do Discourse plugins join the core?', options: ['Over gRPC', 'Through a shared message broker', 'Through the plugin API: `on(event)`, `add_to_serializer`, `add_to_class`', 'By forking the repo'], answer: 2, why: 'Each `plugin.rb` calls the plugin API, and those calls are the contract between core and plug-in.' },
+					{ q: 'A small core plus 46 plugins that add features. Which style is that?', options: ['Space-based', 'Orchestration-driven SOA', 'Pipeline', 'Microkernel'], answer: 3, why: 'A core plus plug-ins is the microkernel style, also called plug-in architecture.' },
+					{ q: '`PostCreator` triggers `:post_created`, and `DiscourseEvent` calls each block before `create` returns. What is that?', options: ['Events between services, through a broker', 'In-process events, run inline', 'A direct gRPC call', 'A scheduled job'], answer: 1, why: '`DiscourseEvent` is a hash of blocks in memory. The handlers run inside `create`.' }
+				]
+			},
+			{
+				title: 'Name the style',
+				questions: [
+					{ q: 'Which name fits Discourse best?', options: ['Microservices', 'A layered monolith with a microkernel inside', 'Pure event-driven', 'Space-based'], answer: 1, why: 'One app split by layer, plus a plug-in core. "X with Y inside" is the honest name.' },
+					{ q: 'What makes Online Boutique microservices, and Discourse not?', options: ['Boutique uses Redis', 'Boutique has more plugins', 'Each Boutique service is built and deployed on its own', 'Discourse has no database'], answer: 2, why: 'Boutique is 11 services that talk over gRPC, each deployed on its own. Discourse ships one app.' },
+					{ q: 'Your component mixes two styles. Is that a mistake?', options: ['No: most real systems mix several styles', 'Yes: a system must have exactly one style', 'Only if it has more than one database', 'Only if the two styles come from different books'], answer: 0, why: 'Discourse itself is layered, microkernel and uses events. Mixing is the normal case.' },
+					{ q: 'The team calls it "microservices", but it deploys as one unit. What do you write?', options: ['Microservices, since that is the plan', 'Nothing until the migration is done', 'Service-based, as a middle ground', 'The style the code shows today'], answer: 3, why: 'One deployable is not microservices. Name it from the code, not from the goal.' }
+				]
+			},
+			{
+				title: 'Rate it against your characteristics',
+				questions: [
+					{ q: 'Discourse runs as one app, one database, one transaction around a post. Rate "easy to deploy and debug".', options: ['+', '=', '-', 'Cannot tell'], answer: 0, why: 'One thing to deploy and debug is the main gain of this monolith.' },
+					{ q: 'Plugins share the core\'s process and can patch its classes. Rate "a fault stays in one area".', options: ['+', '=', '-', 'Cannot tell'], answer: 2, why: 'A slow or broken plug-in slows or breaks everyone, and a bug in one area can take down all of them.' },
+					{ q: 'Your three ratings are all +. What does the check say?', options: ['Good: the style fits perfectly', 'Look again: every style has at least one minus', 'Add a fourth characteristic until one is a minus', 'Ask the team to vote on the ratings'], answer: 1, why: 'Every choice is a trade-off. Three pluses usually means you rated the hope, not the code.' },
+					{ q: 'What is the bonus sentence for?', options: ['Saying what would change to reach the next style, the start of an ADR', 'Listing every file to delete', 'Defending the current style to management', 'Naming who should do the migration'], answer: 0, why: 'One sentence on what must change is a decision you can write down and argue about.' }
+				]
+			}
 		]
 	},
 	quiz: [

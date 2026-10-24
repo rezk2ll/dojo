@@ -101,6 +101,44 @@ class InterestsViewModel @AssistedInject constructor(
 			'The fix: add a use case in the domain, for example `FollowTopicUseCase`, that calls `setTopicIdFollowed`. The ViewModel calls the use case.',
 			'The cost: one more class that does little more than forward the call. The app keeps the domain open, so it does not need such classes. Write down the choice either way.',
 			'A check like this, run by the build, is a **fitness function**, coming later in the course.'
+		],
+		steps: [
+			{
+				title: 'Find the leak',
+				questions: [
+					{ q: 'Why can `InterestsViewModel` import `UserDataRepository` today?', options: ['Kotlin allows any import in the same app', 'The repository class is `internal`', '`core/domain` declares `api(projects.core.data)`', 'Hilt injects it, so no import is checked'], answer: 2, why: 'The feature module only declares `core.domain`. The `api` passes `core.data` on to it.' },
+					{ q: 'What does Gradle\'s `api` do?', options: ['It hides the dependency from consumers', 'It passes the dependency on to every consumer', 'It publishes the module online', 'It turns the module into an API server'], answer: 1, why: 'With `implementation`, the dependency stays private to the module that declares it.' },
+					{ q: 'Which call skips the domain today?', options: ['`getFollowableTopics(...)` in `uiState`', 'The `@Binds` in `DataModule`', '`OfflineFirstTopicsRepository` reading Room', '`userDataRepository.setTopicIdFollowed` in `followTopic`'], answer: 3, why: 'Reads go through the use case, writes go straight to the repository.' },
+					{ q: 'What does a **closed** domain mean?', options: ['Every call from the UI has to go through it', 'Nobody may change its code', 'It has no interfaces', 'Tests cannot see it'], answer: 0, why: 'An open layer may be skipped. A closed one may not.' }
+				]
+			},
+			{
+				title: 'Change the build',
+				questions: [
+					{ q: 'What do you change in `core/domain/build.gradle.kts`?', options: ['Remove `projects.core.data` from it', '`api(projects.core.data)` to `implementation(projects.core.data)`', 'Add `api(projects.feature.interests)`', 'Mark the repository interfaces `internal`'], answer: 1, why: 'The domain still uses the data layer, and no longer passes it on.' },
+					{ q: '`bookmarks`, `settings` and `topic` declare `projects.core.data` themselves. What do you do?', options: ['Nothing: the domain change covers them', 'Turn their lines into `api` too', 'Remove those lines too, or the domain stays open for them', 'Move those features into `core/domain`'], answer: 2, why: 'A direct dependency does not need the `api` to leak. It is already there.' },
+					{ q: 'Why put the rule in the build instead of a team wiki?', options: ['Builds run faster without `api`', 'Gradle emails the team on each change', 'A wiki page cannot be versioned', 'A forbidden import fails to compile, before anyone reviews it'], answer: 3, why: 'Changing the rule is a one-line diff a reviewer can see.' },
+					{ q: 'What is a check like this, run by the build, called?', options: ['A fitness function', 'A composition root', 'An open layer', 'A use case'], answer: 0, why: 'The course comes back to fitness functions later.' }
+				]
+			},
+			{
+				title: 'See what breaks',
+				questions: [
+					{ q: 'What breaks?', options: ['The Room database', 'The `DataModule` bindings', 'Every feature that imports a repository, starting with `InterestsViewModel`', 'The network sync'], answer: 2, why: 'Those imports no longer reach `core.data`, so they stop compiling.' },
+					{ q: 'How do you find every place that broke?', options: ['Grep the repo for "Repository"', 'The compiler lists every one', 'Run the app and tap every button', 'Ask each feature team'], answer: 1, why: 'The build checks the rule, so it also reports each break.' },
+					{ q: 'Does `DataModule` still compile?', options: ['Yes: it lives in `core/data`, so it may see the `internal` classes', 'No: it binds classes the domain cannot see', 'No: Hilt needs `api` to work', 'Only if you move it into the domain'], answer: 0, why: 'The change only affects modules that consume the domain.' },
+					{ q: 'Which call in `InterestsViewModel` already fits a closed domain?', options: ['`userDataRepository.setTopicIdFollowed(...)`', 'The `UserDataRepository` constructor parameter', 'The import of `core.data.repository.UserDataRepository`', '`getFollowableTopics(sortBy = TopicSortField.NAME)`'], answer: 3, why: 'The read path already goes through a use case in the domain.' }
+				]
+			},
+			{
+				title: 'Fix the follow button',
+				questions: [
+					{ q: 'What do you add?', options: ['A second ViewModel for following', 'A public copy of `OfflineFirstTopicsRepository`', 'A use case in the domain, like `FollowTopicUseCase`, that calls `setTopicIdFollowed`', 'A `@Binds` in `DataModule` for the ViewModel'], answer: 2, why: 'The write now goes through the domain, like the read.' },
+					{ q: 'What does `followTopic` call then?', options: ['The repository, injected by Hilt', 'The new use case', 'Room directly', 'The network data source'], answer: 1, why: 'The ViewModel only knows the domain.' },
+					{ q: 'What does the closed domain cost?', options: ['Slower reads on every screen', 'No more offline mode', 'A second database', 'One more class that does little more than forward the call'], answer: 3, why: 'The app keeps the domain open and lets writes skip it, so it does not need such classes.' },
+					{ q: 'Closed or open, what should the team do with the choice?', options: ['Write it down', 'Keep it out of the docs', 'Revert it after a sprint', 'Leave it to each feature team'], answer: 0, why: 'The next person to see a ViewModel call a repository should find out why.' }
+				]
+			}
 		]
 	},
 	quiz: [

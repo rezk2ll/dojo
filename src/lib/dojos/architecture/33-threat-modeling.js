@@ -109,6 +109,44 @@ export default {
 			'Elevation of privilege: the URL is SSRF waiting to happen. Resolve it, refuse private and reserved ranges, connect only to the checked addresses, and check every redirect again (or follow none).',
 			'Denial of service: a slow endpoint must not block the queue. Short timeouts, a cap on retries, and one queue per customer or a limit per customer. Information disclosure: send only the fields the customer may see, and never return the endpoint\'s response body in your UI as is.',
 			'Repudiation: keep a delivery log with the ticket id, the time, the status code, and who registered the URL, so "we never got it" and "we never asked for it" both have an answer.'
+		],
+		steps: [
+			{
+				title: 'Draw the boundaries',
+				questions: [
+					{ q: 'Which two parties sit outside your trust boundary?', options: ['Your API and your worker', 'The customer admin and the customer\'s endpoint', 'The worker and the database', 'The customer admin and your worker'], answer: 1, why: 'The admin registers the URL and the endpoint receives the POST. You run neither, so both are outside.' },
+					{ q: 'Where does the first trust boundary sit?', options: ['Between your API and the worker', 'Between the worker and its queue', 'Between the customer admin and your API', 'Between the database and its backups'], answer: 2, why: 'The registered URL enters there, from someone you trust less, so that arrow gets the STRIDE questions.' },
+					{ q: 'Where does the second one sit?', options: ['Between your worker and the customer\'s endpoint', 'Between the customer admin and their browser', 'Between two of your own workers', 'Between your API and your load balancer'], answer: 0, why: 'The POST leaves your network there, and the reply comes back from a host you do not control.' },
+					{ q: 'Why does the worker make this design risky?', options: ['It runs on a slower machine than the API', 'It has no access to the database', 'It sends data the customer already has', 'It sits inside your network, and the URL it calls is outside data'], answer: 3, why: 'Outside data drives an inside request. That is the shape of SSRF.' }
+				]
+			},
+			{
+				title: 'Ask spoofing and tampering',
+				questions: [
+					{ q: 'Spoofing: what can the receiver not tell apart?', options: ['Your POST from a forged one', 'A new ticket from an updated one', 'A slow reply from a fast one', 'Your worker from your API'], answer: 0, why: 'Anyone who knows the URL can POST to it. Without proof, the receiver has to trust whatever arrives.' },
+					{ q: 'What lets the receiver check that a POST came from you?', options: ['Sending it from a fixed IP address', 'Signing each body with a per-customer secret, in an HMAC header', 'Adding the ticket id to the URL', 'Using HTTPS only, with no other check'], answer: 1, why: 'A signature with a secret only you and that customer hold proves who sent the body.' },
+					{ q: 'Tampering: someone captures a signed message and sends it again later. What stops it?', options: ['A longer secret', 'A second signature with another secret', 'A timestamp inside the signed data', 'Sending each ticket twice'], answer: 2, why: 'The signature already covers the body. A signed timestamp lets the receiver refuse an old message.' },
+					{ q: 'Which mitigation covers both spoofing and tampering here?', options: ['A rate limit per customer', 'A delivery log', 'Short timeouts', 'The same signature over the body'], answer: 3, why: 'A changed body no longer matches its signature, and a forged one has none that checks.' }
+				]
+			},
+			{
+				title: 'Ask elevation of privilege',
+				questions: [
+					{ q: 'A customer registers `http://169.254.169.254/` as their webhook URL. Which STRIDE letter is this?', options: ['Repudiation', 'Elevation of privilege', 'Information disclosure only', 'Spoofing'], answer: 1, why: 'SSRF is an elevation of privilege: the URL comes from outside, but the request leaves from inside.' },
+					{ q: 'What does the worker do with the host before it connects?', options: ['Resolve it and refuse private and reserved addresses', 'Check it against a list of known bad domains', 'Ping it to see if it answers', 'Ask the customer admin to confirm it'], answer: 0, why: 'Discourse does the same: resolve, drop every private or reserved address, and fetch nothing if none is left.' },
+					{ q: 'After the check, which addresses does the worker connect to?', options: ['Whatever a second DNS lookup returns', 'The first address the OS picks', 'Only the addresses that passed the check', 'Any address, since the host passed'], answer: 2, why: 'Check and connection must use the same DNS answer. Discourse hands those exact addresses to the socket layer.' },
+					{ q: 'The endpoint answers with a redirect to `http://10.0.0.5/admin`. What do you do?', options: ['Follow it, since the first host passed', 'Follow it, but strip the headers', 'Follow it once, then stop', 'Check the target again, or follow no redirects at all'], answer: 3, why: 'Each redirect is a new destination. Check every one again, or follow none.' }
+				]
+			},
+			{
+				title: 'Ask the rest and write it down',
+				questions: [
+					{ q: 'Denial of service: one customer\'s endpoint takes minutes to answer. What protects everyone else?', options: ['Short timeouts, a cap on retries, and a queue or a limit per customer', 'Retrying until it answers', 'A bigger worker machine', 'Sending all tickets in one POST'], answer: 0, why: 'A slow endpoint must not block the queue for every other customer.' },
+					{ q: 'Information disclosure: the endpoint returns an error page. What do you show in your UI?', options: ['The full response body, to help debugging', 'The response headers and body', 'The status code and a short error, never the raw body', 'Nothing, and you drop the delivery'], answer: 2, why: 'The body comes from outside your control and may hold anything. Show a status, not the raw page.' },
+					{ q: 'Repudiation: a customer says "we never got it". What gives you an answer?', options: ['The customer\'s own logs', 'The ticket itself', 'A copy of the HMAC secret', 'A delivery log with ticket id, time, status code and who registered the URL'], answer: 3, why: 'The log answers both "we never got it" and "we never asked for it".' },
+					{ q: 'You find no threat for one letter. What do you write?', options: ['Nothing: skip the letter', '"none found"', 'A threat from another letter', 'The letter with a question mark'], answer: 1, why: 'Writing "none found" shows you asked. A missing letter looks like one you skipped.' }
+				]
+			}
 		]
 	},
 	quiz: [

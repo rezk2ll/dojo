@@ -117,6 +117,44 @@ export default {
 			'(b) Check each synchronous hop. The first suspect is step 4: a mention of an unknown remote account, resolved over the network before saving.',
 			'(c) Step 10: the delivery job is queued or retrying, or Sidekiq is not running. The request (steps 1 to 7) succeeded, so it cannot tell you.',
 			'(d) Step 4 again: resolving the account failed, the error was rescued, and the mention was left as text.'
+		],
+		steps: [
+			{
+				title: 'Split the request from the jobs',
+				questions: [
+					{ q: 'Which steps run inside the user\'s HTTP request?', options: ['1 to 5', '1 to 7', '1 to 10', '8 to 10'], answer: 1, why: 'Step 7 sends the 200 back. Steps 8 to 10 run later in Sidekiq.' },
+					{ q: 'At which step does the post exist?', options: ['Step 3: the service starts', 'Step 7: the 200 goes back', 'Step 5: `@status.save!` in a transaction', 'Step 8: home feeds are filled'], answer: 2, why: 'Once the transaction commits, the post is in PostgreSQL. The steps after decide who sees it.' },
+					{ q: 'What does step 6 do with the fan-out?', options: ['It runs it before answering', 'It skips it for big accounts', 'It sends it straight to the streaming server', 'It enqueues it in Redis, and the response goes back without waiting'], answer: 3, why: '`postprocess_status!` enqueues the workers and returns.' },
+					{ q: 'Which step can make the request wait on a server you do not run?', options: ['Step 4', 'Step 2', 'Step 9', 'Step 10'], answer: 0, why: 'Step 10 also talks to other servers, but it runs after the response. Step 4 runs before the save.' }
+				]
+			},
+			{
+				title: 'Explain (a) and (b)',
+				questions: [
+					{ q: '(a) "401 when I post." Which step?', options: ['Step 4: the mention lookup', 'Step 5: saving the post', 'Step 2: the token is missing, revoked or not valid', 'Step 10: the deliveries'], answer: 2, why: 'Without a valid token, the request stops before any posting code runs.' },
+					{ q: 'What does step 2 require?', options: ['A token with the `write` or `write:statuses` scope', 'A token with the `read` scope', 'A logged-in browser session', 'A WebFinger lookup of the user'], answer: 0, why: 'The controller checks the scope on a token stored in `oauth_access_tokens`.' },
+					{ q: '(b) "My post took 6 seconds." What is the first suspect?', options: ['Step 8: the fan-out to followers', 'Step 4: an unknown remote mention, resolved over the network', 'Step 10: the deliveries', 'Step 9: the pub/sub message'], answer: 1, why: 'It is the one synchronous hop that waits on someone else\'s machine.' },
+					{ q: 'Why is step 8 not a suspect for (b)?', options: ['It is too fast to measure', 'Redis never slows down', 'It runs before step 2', 'It is enqueued, so it adds nothing to the response time'], answer: 3, why: 'Sidekiq pays for a big follower list, and the click returns as fast as for a small one.' }
+				]
+			},
+			{
+				title: 'Explain (c)',
+				questions: [
+					{ q: '(c) "My post is on my profile, but followers on another server never saw it." Which step?', options: ['Step 10: delivery to each remote inbox', 'Step 5: saving the post', 'Step 4: the mention lookup', 'Step 2: the token check'], answer: 0, why: 'The post is saved, so steps 1 to 7 worked. The delivery to other servers is what failed.' },
+					{ q: 'Why can the request not tell the user about it?', options: ['The request crashed before it answered', 'Steps 1 to 7 succeeded, and step 10 runs later in Sidekiq', 'The 200 hid an error inside its JSON', 'The streaming server swallowed the error'], answer: 1, why: 'The 200 says nothing about the async part.' },
+					{ q: 'Which causes fit (c)?', options: ['The token expired, the scope is wrong, or the user is banned', 'PostgreSQL is down, Redis is full, or the disk is full', 'The mention failed, the link crawl failed, or a hashtag is wrong', 'The delivery job is queued or retrying, or Sidekiq is not running'], answer: 3, why: 'Each one leaves the post saved and undelivered.' },
+					{ q: 'A remote server is down. What does the delivery job do?', options: ['It gives up after one try', 'It fails the user\'s request', 'It retries for days', 'It deletes the post'], answer: 2, why: 'The code expects remote servers to be down sometimes, so the job retries.' }
+				]
+			},
+			{
+				title: 'Explain (d)',
+				questions: [
+					{ q: '(d) "The post shows my mention as plain text." Which step?', options: ['Step 9: the pub/sub message', 'Step 6: the enqueue', 'Step 7: the JSON response', 'Step 4 again: resolving the account failed'], answer: 3, why: 'The mention is plain text when the lookup at step 4 found no account.' },
+					{ q: 'What does the code do when the lookup fails with a connection error?', options: ['It answers `502` and drops the post', 'It rescues the error, sets `mentioned_account = nil`, and keeps the text', 'It retries the lookup forever', 'It saves the post as a draft'], answer: 1, why: 'The `rescue` catches WebFinger and connection errors. The post is still published.' },
+					{ q: 'What does the user see?', options: ['No error, only the wait', 'An error message on the post', 'A `401`', 'A draft in their profile'], answer: 0, why: 'The failure is rescued, so only the delay shows.' },
+					{ q: 'A remote server that never answers costs the request at least how long?', options: ['1 second', 'Nothing: the error is rescued', 'The 5 second connect timeout', '30 seconds, every time'], answer: 2, why: '`connect_timeout: 5` sets the floor. The comment puts the worst case for opening a connection at about 15 seconds.' }
+				]
+			}
 		]
 	},
 	quiz: [

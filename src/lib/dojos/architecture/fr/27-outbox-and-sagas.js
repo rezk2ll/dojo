@@ -113,6 +113,44 @@ export default {
 			'Débite la carte ensuite. Si ça échoue, libère la place. Sa propre compensation, un remboursement, coûte cher : garde-la pour le cas où une étape suivante échoue vraiment.',
 			'Envoie le billet par e-mail en dernier. Un e-mail ne peut jamais être « désenvoyé », donc il part seulement après la réussite du débit.',
 			'Chaque service écrit son événement dans sa propre outbox, dans la même transaction que son changement. Chaque consommateur stocke les ids d’événements qu’il a traités et saute les répétitions, pour qu’un doublon ne débite jamais deux fois.'
+		],
+		steps: [
+			{
+				title: 'Ordonne les étapes',
+				questions: [
+					{ q: 'Quelle étape vient en premier ?', options: ['Bloquer la place, avec une expiration', 'Débiter la carte', 'Envoyer le billet par e-mail', 'Les trois en même temps'], answer: 0, why: 'Bloquer une place est l’étape la moins coûteuse à annuler.' },
+					{ q: 'Pourquoi le blocage vient-il en premier ?', options: ['C’est l’étape la plus lente', 'C’est peu coûteux à libérer', 'Il ne peut jamais échouer', 'Le client le veut en premier'], answer: 1, why: 'Si une étape suivante échoue, libérer une place ne coûte presque rien.' },
+					{ q: 'Quelle étape vient en dernier ?', options: ['Bloquer la place', 'Débiter la carte', 'Envoyer le billet par e-mail', 'Libérer la place'], answer: 2, why: 'L’étape qui ne peut jamais être annulée attend que tout le reste ait marché.' },
+					{ q: 'Pourquoi l’e-mail part-il en dernier ?', options: ['L’e-mail est le service le plus lent', 'Les serveurs mail tombent souvent', 'C’est l’étape la moins chère', 'Un e-mail ne peut jamais être « désenvoyé »'], answer: 3, why: 'Il n’a pas de compensation : il part seulement après la réussite du débit.' }
+				]
+			},
+			{
+				title: 'Donne une compensation à chaque étape',
+				questions: [
+					{ q: 'Quelle est la compensation du blocage de la place ?', options: ['Libérer la place', 'Rembourser la carte', 'Envoyer un e-mail d’excuse', 'Rien : un blocage n’a jamais besoin d’être annulé'], answer: 0, why: 'Libérer la place annule le blocage, et l’expiration le fait même si personne n’appelle.' },
+					{ q: 'Le débit de la carte échoue. Que fais-tu ?', options: ['Tu rembourses la carte', 'Tu envoies quand même le billet', 'Tu libères la place', 'Tu réessaies le débit sans fin'], answer: 2, why: 'Le débit n’a pas eu lieu : seule l’étape précédente doit être annulée.' },
+					{ q: 'Quelle est la compensation du débit lui-même ?', options: ['Libérer la place', 'Un remboursement', 'Désenvoyer l’e-mail', 'Supprimer la ligne de commande'], answer: 1, why: 'Un remboursement annule le débit. Il coûte cher : garde-le pour le cas où une étape suivante échoue vraiment.' },
+					{ q: 'En quoi « libérer la place » diffère-t-il d’un rollback de base de données ?', options: ['Il annule l’écriture dans la même transaction', 'Il tourne avant que le blocage soit commité', 'Il supprime l’événement de Kafka', 'C’est une nouvelle action, et d’autres services ont peut-être déjà vu le blocage'], answer: 3, why: 'Le blocage est déjà commité. Une compensation est une nouvelle étape qui annule son effet.' }
+				]
+			},
+			{
+				title: 'Publie chaque événement sans risque',
+				questions: [
+					{ q: 'Qu’est-ce qui tourne mal avec « commiter, puis publier sur le broker » ?', options: ['La publication peut échouer après le commit, et l’événement n’est jamais envoyé', 'Le commit devient plus lent', 'Kafka refuse l’événement', 'Le changement est enregistré deux fois'], answer: 0, why: 'C’est le problème de la double écriture : aucune transaction ne couvre à la fois une base de données et un broker.' },
+					{ q: 'Où chaque service écrit-il son événement ?', options: ['Directement dans Kafka après le commit', 'Dans sa propre outbox, dans la même transaction que son changement', 'Dans une outbox partagée par tous les services', 'Dans un fichier de log'], answer: 1, why: 'Les deux lignes sont commitées, ou aucune : un changement commité a toujours son événement.' },
+					{ q: 'Qui envoie les lignes de l’outbox au broker ?', options: ['Le service, juste après le commit', 'Chaque consommateur', 'Un relais qui interroge la table ou suit le journal de la base', 'Le broker, en lisant la table lui-même'], answer: 2, why: 'Le relais publie plus tard les lignes commitées, par exemple Debezium qui lit le journal.' },
+					{ q: 'Tu fais tourner la réservation en chorégraphie. Qu’est-ce que ça veut dire ?', options: ['Un service envoie des commandes et suit les réponses', 'Les trois services partagent une seule transaction', 'Une personne lance chaque étape', 'Chaque service fait son étape et publie l’événement suivant, et aucun service ne pilote le processus'], answer: 3, why: 'Avec l’orchestration, un service enverrait des commandes. Ici, chaque service réagit à l’événement d’avant.' }
+				]
+			},
+			{
+				title: 'Traite l’id d’événement',
+				questions: [
+					{ q: 'Que garantit le relais ?', options: ['At-least-once', 'Exactly-once', 'At-most-once', 'Aucune garantie'], answer: 0, why: 'Un crash après une publication peut envoyer une ligne deux fois.' },
+					{ q: 'Que fait chaque consommateur de l’id d’événement ?', options: ['Il l’ignore', 'Il stocke les ids qu’il a traités et saute les répétitions', 'Il le renvoie au producteur', 'Il s’en sert comme topic Kafka'], answer: 1, why: 'Un id stocké permet au consommateur de reconnaître une copie déjà traitée.' },
+					{ q: 'Le service de paiement ne dédoublonne pas. Que peut-il se passer ?', options: ['La place n’est jamais bloquée', 'L’e-mail se perd', 'Un événement en double débite la carte deux fois', 'Rien, puisque le relais ne répète jamais'], answer: 2, why: 'At-least-once veut dire qu’une répétition arrivera un jour. Sans dédoublonnage, c’est un deuxième débit.' },
+					{ q: 'Dans l’outbox router de Debezium, où va l’`id` de la ligne ?', options: ['Dans le nom du topic', 'Dans le numéro de partition', 'Nulle part : il est jeté', 'Dans le header `id` du message'], answer: 3, why: 'La doc Debezium dit que ce header sert à « supprimer les messages en double ».' }
+				]
+			}
 		]
 	},
 	quiz: [

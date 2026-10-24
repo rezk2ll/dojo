@@ -92,6 +92,44 @@ export default {
 			'Les jobs : un job de transcodage par résolution (fan-out), pour qu’un job 4K raté ne refasse pas le 480p.',
 			'Le résultat arrive à l’utilisateur par un autre chemin : la page de la vidéo interroge le statut régulièrement, ou une notification dit « ta vidéo est prête ».',
 			'Les échecs : retry avec une limite, puis garde le job dans un dead set **et** passe la vidéo en `failed`, pour que l’utilisateur le voie. Le pire résultat : un job jeté et une ligne bloquée en `processing` pour toujours.'
+		],
+		steps: [
+			{
+				title: 'Garde ce que l’utilisateur peut corriger',
+				questions: [
+					{ q: 'Quelle vérification reste dans la requête d’envoi ?', options: ['Le transcodage en 480p', 'Le type et la taille du fichier', 'Le transcodage en 4K', 'L’envoi de la notification « prête »'], answer: 1, why: 'L’utilisateur peut corriger un mauvais fichier tout de suite, donc cette erreur a sa place dans la réponse.' },
+					{ q: 'Pourquoi la vérification du quota reste-t-elle synchrone ?', options: ['C’est l’étape la plus lente', 'Les workers ne savent pas lire les quotas', 'Les jobs n’ont pas le droit d’échouer', 'L’utilisateur peut agir dessus maintenant, donc l’erreur doit revenir dans la réponse'], answer: 3, why: 'Demande-toi ce que l’appelant doit savoir avant ta réponse. Un quota plein en fait partie.' },
+					{ q: 'Qu’est-ce qui doit exister avant que tu puisses dire « accepté » ?', options: ['Le fichier 4K', 'Les quatre résolutions', 'L’original stocké et une ligne vidéo avec le statut `processing`', 'Une notification envoyée à l’utilisateur'], answer: 2, why: 'Une fois l’original stocké et la ligne enregistrée, l’envoi est à l’abri, même si tous les workers sont en panne.' },
+					{ q: 'Que répond la requête ?', options: ['**202 Accepted** avec l’id de la vidéo', '200 OK avec les quatre URL de la vidéo', '500 quand un worker est en panne', 'Rien tant que le transcodage n’est pas fini'], answer: 0, why: '202 dit que le travail est accepté mais pas fait. L’id permet à l’utilisateur de retrouver le résultat plus tard.' }
+				]
+			},
+			{
+				title: 'Déplace le travail lent',
+				questions: [
+					{ q: 'Combien de jobs de transcodage mets-tu en file par vidéo ?', options: ['Un seul job pour les quatre résolutions', 'Un par résolution, quatre en tout', 'Un par spectateur de la vidéo', 'Aucun : transcode dans la requête'], answer: 1, why: 'C’est un fan-out, comme le job de livraison par inbox de Mastodon.' },
+					{ q: 'Pourquoi un job par résolution ?', options: ['Parce que Redis ne peut pas stocker de gros jobs', 'Pour que les résolutions finissent dans l’ordre', 'Pour qu’un job 4K raté ne refasse pas le 480p', 'Parce que chaque job a besoin de son propre serveur'], answer: 2, why: 'Sidekiq relance un job raté en entier. Des petits jobs ne relancent que ce qui a échoué.' },
+					{ q: 'Que met Mastodon dans les jobs qu’il met en file après un post ?', options: ['Tout le post et ses médias', 'La liste des abonnés', 'La réponse envoyée à l’auteur', 'Seulement l’id du post'], answer: 3, why: '`perform_async(@status.id)` : le job va chercher le reste quand il tourne.' },
+					{ q: 'Tous les workers sont en panne quand l’utilisateur envoie sa vidéo. L’envoi est-il perdu ?', options: ['Oui, les jobs échouent tout de suite', 'Non, l’original et la ligne sont enregistrés avant la réponse', 'Oui, sauf si le navigateur réessaie', 'Non, parce que le navigateur garde une copie'], answer: 1, why: 'Les jobs attendent dans la file. C’est l’original enregistré qui rend « accepté » vrai.' }
+				]
+			},
+			{
+				title: 'Préviens l’utilisateur',
+				questions: [
+					{ q: 'Pourquoi le résultat du transcodage ne peut-il pas revenir dans la réponse à l’envoi ?', options: ['La réponse part avant que le travail tourne', 'HTTP ne peut pas transporter de vidéo', 'Les workers n’ont pas accès au réseau', 'Le statut doit rester secret'], answer: 0, why: 'Un job tourne après la réponse, donc son résultat doit atteindre l’utilisateur par un autre chemin.' },
+					{ q: 'Comment l’utilisateur apprend-il que la vidéo est prête ?', options: ['La requête d’envoi reste ouverte jusqu’à la fin', 'L’utilisateur la renvoie pour vérifier', 'La page de la vidéo interroge le statut, ou une notification dit qu’elle est prête', 'L’utilisateur lit la file dans Redis'], answer: 2, why: 'La ligne vidéo porte le statut. La page peut le lire, ou une notification peut le pousser.' },
+					{ q: 'Que montre la page de la vidéo pendant que les jobs tournent ?', options: ['`failed`', '`processing`', 'Un lecteur vide', 'Une page 404'], answer: 1, why: 'La requête a enregistré la ligne avec le statut `processing`. Les jobs le changent quand ils finissent.' },
+					{ q: 'Mastodon ne prévient personne quand une livraison est jetée. Pourquoi ça ne suffit pas ici ?', options: ['Les vidéos sont plus grosses que les posts', 'Sidekiq l’interdit pour les jobs vidéo', 'L’interrogation du statut ne marche qu’avec un dead set', 'L’utilisateur attend un résultat, et un abandon silencieux le laisse attendre pour toujours'], answer: 3, why: 'Pour un post vers un serveur, Mastodon accepte la perte. Ici, le résultat, c’est la vidéo de l’utilisateur.' }
+				]
+			},
+			{
+				title: 'Fais atterrir les échecs',
+				questions: [
+					{ q: 'Un job de transcodage échoue. Que se passe-t-il d’abord ?', options: ['Il est relancé pour toujours', 'Il est relancé, avec une limite', 'Il est jeté tout de suite', 'La requête d’envoi échoue'], answer: 1, why: 'Un retry corrige une erreur passagère. Une limite empêche un job cassé de tourner en boucle.' },
+					{ q: 'Après le dernier retry, où va le job ?', options: ['Dans un dead set, et la vidéo passe en `failed`', 'Jeté, avec `dead: false`', 'Au début de la file', 'Seulement dans le log de la requête'], answer: 0, why: 'Le dead set le garde pour une personne, et `failed` permet à l’utilisateur de le voir.' },
+					{ q: 'Dans Sidekiq, que fait `dead: false` ?', options: ['Il envoie le job dans le dead set', 'Il relance le job pour toujours', 'Il jette le job après son dernier retry', 'Il supprime l’enregistrement sauvé'], answer: 2, why: 'Dans `job_retry.rb`, `dead == false` veut dire jeté : le job n’arrive jamais dans le dead set.' },
+					{ q: 'Quel est le pire résultat ?', options: ['Un job 4K relancé deux fois', 'Un utilisateur qui voit `failed`', 'Une réponse 202 à l’envoi', 'Un job jeté et une ligne bloquée en `processing` pour toujours'], answer: 3, why: 'Personne ne sait que le travail s’est arrêté, et l’utilisateur attend pour rien.' }
+				]
+			}
 		]
 	},
 	quiz: [

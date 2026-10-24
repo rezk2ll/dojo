@@ -108,6 +108,44 @@ export default {
 			'Traduire : tu gardes les visibilités existantes et tu associes la nouvelle collection exprès dans `StatusParser#visibility`, probablement à `:private`. Seule l’ACL change.',
 			'Dans les deux cas, ce sont les autres serveurs qui ont décidé du changement. Ils sont en amont, et Mastodon est en aval pour les posts entrants : c’est à Mastodon de s’adapter.',
 			'Une bonne réponse dit quand revoir le choix : si les utilisateurs de Mastodon demandent à poster pour leurs mutuels, ajouter la visibilité vaut son coût.'
+		],
+		steps: [
+			{
+				title: 'Lis ce qui se passe aujourd’hui',
+				questions: [
+					{ q: 'Un post arrive adressé à la nouvelle collection « abonnés mutuels uniquement ». Quelle branche de `StatusParser#visibility` prend-il ?', options: ['La première : `:public`', 'La deuxième : `:unlisted`', 'La troisième : `:private`', 'La dernière : `:direct`'], answer: 3, why: 'La collection n’est ni publique ni la collection des abonnés : elle tombe dans la dernière branche, comme toute adresse que le parser ne reconnaît pas.' },
+					{ q: 'Le parser a renvoyé `:direct`. Que peut faire le handler `Create` ensuite ?', options: ['Jeter le post', 'Le requalifier en `:limited`', 'Le passer en `:public`', 'Le renvoyer à l’autre serveur'], answer: 1, why: 'Le handler peut requalifier un tel post en `:limited`. Dans tous les cas, il arrive quand même à quelqu’un.' },
+					{ q: 'Quel est le risque pour l’auteur avec le comportement actuel ?', options: ['Le post peut toucher moins de gens que prévu', 'Le post s’affiche pour tout le serveur', 'Le post est rejeté et réessayé sans fin', 'Le post arrive sans son texte'], answer: 0, why: 'Le post n’est pas perdu, mais le cas par défaut choisit une audience que personne n’a voulue.' },
+					{ q: 'Quelle partie de Mastodon lit les listes `to` et `cc` ?', options: ['La timeline d’accueil', 'Le modèle `Status`', 'Le parser de status, dans l’ACL', 'Le `LikeSerializer`'], answer: 2, why: 'Seule l’anti-corruption layer voit les listes d’adresses. Le code derrière elle ne connaît que `visibility`.' }
+				]
+			},
+			{
+				title: 'Dessine la context map',
+				questions: [
+					{ q: 'Pour les posts entrants, quel côté est en amont ?', options: ['Mastodon', 'Les autres serveurs', 'Le namespace `toot:`', 'Aucun : les deux côtés sont égaux'], answer: 1, why: 'Ce sont les autres serveurs qui ont décidé du changement. Pour les posts entrants, ils sont en amont et Mastodon est en aval.' },
+					{ q: 'Qu’est-ce qui se trouve à la frontière entre les autres serveurs et Mastodon ?', options: ['Une base de données partagée', 'Un shared kernel que les deux côtés modifient', 'Le published language : ActivityPub et ActivityStreams', 'Les extensions `toot:` de Mastodon'], answer: 2, why: 'ActivityPub et ActivityStreams sont le format commun et documenté que chaque serveur parle à la frontière.' },
+					{ q: 'À qui appartient l’anti-corruption layer entrante ?', options: ['À Mastodon, le contexte en aval', 'Aux serveurs en amont', 'Au W3C', 'Aux deux côtés, moitié-moitié'], answer: 0, why: 'Une anti-corruption layer est une traduction qui appartient au côté aval.' },
+					{ q: 'Sur cette carte, que voudrait dire « conformiste » pour Mastodon ?', options: ['Il adopte l’audience de l’amont telle quelle, comme nouvelle visibilité', 'Il associe la nouvelle audience à une ancienne dans son ACL', 'Il ignore tous les posts envoyés à la nouvelle collection', 'Il demande d’abord au W3C de changer la spec'], answer: 0, why: 'Un conformiste reprend le modèle de l’amont tel quel. Ici, ça veut dire une nouvelle visibilité dans le modèle de Mastodon.' }
+				]
+			},
+			{
+				title: 'Pèse les deux options',
+				questions: [
+					{ q: 'Mastodon se conforme. Que change-t-il en premier ?', options: ['Seulement `StatusParser#visibility`', 'La colonne `visibility` de `Status`', 'Le `LikeSerializer`', 'Le namespace `toot:`'], answer: 1, why: 'Se conformer ajoute une valeur au modèle lui-même, à commencer par la colonne `visibility`.' },
+					{ q: 'Une fois la valeur ajoutée à la colonne, qui doit encore l’apprendre ?', options: ['Seulement l’inbox', 'Personne : la colonne suffit', 'Chaque timeline, chaque contrôle de permission et chaque serializer', 'Seulement les serializers sortants'], answer: 2, why: 'Tout ce qui lit `visibility` doit savoir ce que la nouvelle valeur veut dire.' },
+					{ q: 'Mastodon traduit plutôt. Quelle visibilité existante est la cible probable ?', options: ['`:public`', '`:unlisted`', '`:direct`', '`:private`'], answer: 3, why: 'Les abonnés mutuels sont des abonnés : `:private` est l’audience la plus proche que Mastodon a déjà.' },
+					{ q: 'Quel coût de la conformité la traduction évite-t-elle ?', options: ['Prendre en charge un concept dont les utilisateurs n’ont peut-être pas besoin', 'Perdre complètement le post', 'Devoir arrêter de parler ActivityPub', 'Obliger les autres serveurs à changer leur code'], answer: 0, why: 'Traduire garde le modèle tel quel. Se conformer ajoute un concept que tout le code doit porter.' }
+				]
+			},
+			{
+				title: 'Dis où le code change',
+				questions: [
+					{ q: 'Tu choisis de traduire. Quel code change ?', options: ['Chaque requête de timeline', 'Seulement l’ACL, dans `StatusParser#visibility`', 'Le modèle `Status` et sa colonne', 'Le `NoteSerializer`'], answer: 1, why: 'L’association se fait dans le parser : seule l’ACL change.' },
+					{ q: 'Pourquoi associer la collection exprès au lieu de garder le cas par défaut actuel ?', options: ['Aujourd’hui elle tombe dans `:direct` par défaut, pas par choix', 'Le parser plante sur les adresses inconnues', 'ActivityPub interdit les posts directs', 'Les timelines ne savent pas afficher les posts `:direct`'], answer: 0, why: 'La dernière branche attrape toutes les adresses inconnues. Une association explicite dit ce que Mastodon veut vraiment.' },
+					{ q: 'Quand faut-il revoir le choix de traduire ?', options: ['Quand un autre serveur ajoute une deuxième collection', 'Quand les utilisateurs de Mastodon demandent à poster pour leurs mutuels', 'Quand le W3C publie une nouvelle version', 'Jamais : traduire coûte toujours moins cher'], answer: 1, why: 'Dès que les utilisateurs de Mastodon veulent le concept, ajouter la visibilité vaut son coût.' },
+					{ q: 'Pourquoi les timelines peuvent-elles rester intactes si tu traduis ?', options: ['Elles ne connaissent que `visibility`, jamais `to` et `cc`', 'Elles relisent le JSON brut plus tard', 'Les autres serveurs traduisent pour elles', 'La factory jette la nouvelle collection'], answer: 0, why: 'L’ACL garde les mots d’ActivityStreams à la frontière. Les timelines, les filtres et les notifications ne les voient jamais.' }
+				]
+			}
 		]
 	},
 	quiz: [

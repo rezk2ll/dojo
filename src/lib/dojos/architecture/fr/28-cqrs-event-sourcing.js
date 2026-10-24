@@ -109,6 +109,44 @@ export default {
 			'Étape 1 : crée la table et écris la projection pour qu’elle soit idempotente. Enregistre la dernière position d’événement appliquée, ou indexe chaque compte par id d’événement, pour qu’un événement vu deux fois ne compte qu’une fois.',
 			'Étape 2 : rejoue chaque `OrderCancelled` passé, depuis le début du store, dans la projection. Puis garde-la abonnée à partir de la position où le replay s’est arrêté, pour que rien ne tombe dans le trou.',
 			'Étape 3 : vérifie quelques jours au hasard contre un comptage direct sur l’event store. Garde le script de replay : c’est aussi lui qui te servira à reconstruire après le prochain bug de projection.'
+		],
+		steps: [
+			{
+				title: 'Vois ce que la page afficherait',
+				questions: [
+					{ q: 'Tu abonnes seulement la projection aux nouveaux événements. Qu’affiche la page le jour du déploiement ?', options: ['Deux ans d’annulations', 'Zéro, comme si aucune commande n’avait jamais été annulée', 'Une erreur jusqu’à la première annulation', 'Les annulations du jour plus une estimation du passé'], answer: 1, why: 'Sans backfill, la page démarre à zéro. Deux ans d’annulations ont l’air de n’avoir jamais existé.' },
+					{ q: 'Pourquoi la projection rate-t-elle les anciennes annulations ?', options: ['Une projection ne voit que les événements qu’on lui donne', 'Les anciens événements ont été supprimés', 'Les événements de plus d’un an expirent', 'L’event store cache les streams fermés'], answer: 0, why: 'L’abonner aux nouveaux événements ne lui donne que ce qui arrive à partir de maintenant.' },
+					{ q: 'Où sont les deux ans d’anciens `OrderCancelled` ?', options: ['Seulement dans la table `orders`', 'Dans une ancienne projection', 'Dans l’event store, dans le stream de chaque commande', 'Nulle part : un événement est supprimé une fois appliqué'], answer: 2, why: 'L’event store est un journal en ajout seul. Rien n’y est jeté.' },
+					{ q: 'Faut-il modifier le côté écriture pour cette page ?', options: ['Oui : ajouter un compteur à chaque stream de commande', 'Oui : CQRS demande d’abord une nouvelle commande', 'Seulement si tu arrêtes la boutique pendant la construction', 'Non : une projection est une donnée dérivée, construite à partir des événements'], answer: 3, why: 'Un modèle de lecture est façonné pour un écran et construit depuis la source de vérité. Les écritures restent telles quelles.' }
+				]
+			},
+			{
+				title: 'Rends-la sûre à répéter',
+				questions: [
+					{ q: 'Quelle est l’étape 1 ?', options: ['Créer la table et écrire la projection pour qu’elle soit idempotente', 'Rejouer tous les événements passés', 'Vérifier quelques jours au hasard', 'Archiver les anciens streams'], answer: 0, why: 'La projection doit être sûre avant que tu lui donnes deux ans d’événements.' },
+					{ q: 'Pourquoi la projection doit-elle être idempotente ?', options: ['Les événements n’arrivent jamais deux fois, c’est juste plus propre', 'Un événement peut arriver deux fois, et ne doit compter qu’une fois', 'Ça accélère le replay', 'Ça permet à la projection d’écrire dans l’event store'], answer: 1, why: 'Le replay et l’abonnement peuvent livrer le même événement. Le compter deux fois donne une page fausse.' },
+					{ q: 'Quelle est une façon de la rendre idempotente ?', options: ['Ajouter un pour chaque événement reçu', 'Verrouiller le stream pendant le comptage', 'Enregistrer la dernière position d’événement appliquée', 'Lire plutôt la table `orders`'], answer: 2, why: 'Un événement à la position enregistrée ou avant a déjà été appliqué : il est sauté.' },
+					{ q: 'Quelle est une autre façon ?', options: ['Ne compter que le dernier jour', 'Supprimer chaque événement après l’avoir compté', 'Compter chaque message sans vérification', 'Indexer chaque compte par id d’événement'], answer: 3, why: 'Un compte indexé par id d’événement ne peut pas contenir deux fois le même événement.' }
+				]
+			},
+			{
+				title: 'Fais le backfill, puis suis le flux',
+				questions: [
+					{ q: 'Quelle est l’étape 2 ?', options: ['Rejouer chaque `OrderCancelled` passé, depuis le début du store, dans la projection', 'S’abonner seulement aux nouveaux événements', 'Copier les comptes depuis la table `orders`', 'Demander les anciens chiffres au support'], answer: 0, why: 'Le replay remplit les deux ans que l’abonnement seul raterait.' },
+					{ q: 'Après le replay, à partir d’où démarre l’abonnement ?', options: ['À partir du dernier événement au moment du déploiement', 'À partir de la position où le replay s’est arrêté', 'À nouveau à partir du premier événement', 'À partir de minuit le jour du déploiement'], answer: 1, why: 'Démarrer exactement là où le replay s’est arrêté ne laisse aucun trou.' },
+					{ q: 'Le replay dure une heure, puis l’abonnement démarre à partir de « maintenant ». Qu’est-ce qui tourne mal ?', options: ['Le replay est annulé', 'Chaque événement est compté deux fois', 'Les annulations écrites pendant le replay tombent dans le trou', 'Rien : le store les renvoie'], answer: 2, why: 'Le replay s’arrête à une position. Les événements ajoutés après elle, pendant le replay, ne sont jamais donnés à la projection.' },
+					{ q: 'La table de lecture est un peu en retard sur le stream. Est-ce un bug ?', options: ['Oui : elle doit se mettre à jour dans la même transaction', 'Oui : CQRS n’autorise aucun retard', 'Non : elle n’est jamais en retard', 'Non : une projection a toujours un peu de retard sur le stream'], answer: 3, why: 'Tu gardes deux modèles en phase, et le modèle de lecture suit toujours les écritures avec un peu de retard.' }
+				]
+			},
+			{
+				title: 'Vérifie et garde les outils',
+				questions: [
+					{ q: 'Quelle est l’étape 3 ?', options: ['Supprimer le script de replay', 'Vérifier quelques jours au hasard contre un comptage direct sur l’event store', 'Faire confiance aux chiffres dès la fin du replay', 'Comparer avec le rapport de l’an dernier'], answer: 1, why: 'L’event store est la source de vérité : un comptage direct sert de référence.' },
+					{ q: 'Pourquoi garder le script de replay ?', options: ['C’est lui qui te servira à reconstruire après le prochain bug de projection', 'Il accélère les nouvelles écritures', 'L’event store en a besoin pour ajouter', 'Il remplace l’abonnement'], answer: 0, why: 'Un bug dans un modèle de lecture veut dire une reconstruction, et le script en fait déjà une.' },
+					{ q: 'Tu trouves un bug dans la projection. Que fais-tu ?', options: ['Tu modifies les événements stockés', 'Tu supprimes les streams de commande', 'Tu jettes la table et tu la reconstruis en rejouant les événements', 'Tu vis avec des comptes faux'], answer: 2, why: 'Un événement n’est jamais modifié. La projection est dérivée : tu la jettes et tu la reconstruis.' },
+					{ q: 'Pourquoi « chaque type d’événement stocké doit rester lisible » compte-t-il pour ce replay ?', options: ['Seul le format le plus récent est rejoué', 'Les anciens événements sont convertis à chaque déploiement', 'Ça ne compte pas pour un modèle de lecture', 'Le replay lit deux ans d’événements, dans tous les formats où ils ont été écrits'], answer: 3, why: 'Chaque projection doit gérer chaque type d’événement que tu as stocké, tant que tu gardes le journal.' }
+				]
+			}
 		]
 	},
 	quiz: [

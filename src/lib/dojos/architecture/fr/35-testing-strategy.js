@@ -105,6 +105,44 @@ class MemoryStoreTest < StoreTest
 			'(d) Un **consumer-driven contract**. Le service d’e-mails publie les champs qu’il lit (un pact ou un schéma). La CI du service de commandes y fait passer son vrai message publié. Une première étape moins chère : le service de commandes écrit son message capturé dans un fichier de fixture, et le service d’e-mails charge ce fichier au lieu d’une copie écrite à la main.',
 			'(e) Un test de **bout en bout** sur le système construit, avec un faux fournisseur de paiement. Garde-en peu : c’est le plus lent des cinq.',
 			'Si tu as mis (d) dans la suite de bout en bout, regarde à nouveau : une suite qui publie sa propre copie du message reste verte.'
+		],
+		steps: [
+			{
+				title: 'Demande à qui appartient chaque décision',
+				questions: [
+					{ q: 'À qui appartient (a), la règle qui veut qu’une remise ne rende jamais un total négatif ?', options: ['Au service d’e-mails', 'Aux deux services ensemble', 'Au service de commandes seul', 'Au fournisseur de paiement'], answer: 2, why: 'La règle de prix vit à un seul endroit, dans le service de commandes, donc sa propre CI peut la garder.' },
+					{ q: 'À qui appartient (d), les champs de `order.placed` que lit le service d’e-mails ?', options: ['Au service de commandes seul, puisqu’il publie', 'Aux deux : le service de commandes l’écrit et le service d’e-mails le lit', 'Au service d’e-mails seul, puisqu’il lit', 'À personne, puisque c’est juste un message'], answer: 1, why: 'Deux services se sont mis d’accord sur cette forme. Une décision partagée demande un test qui met les deux côtés ensemble.' },
+					{ q: 'Si un seul service possède une décision, où tourne son test ?', options: ['Dans la CI de ce service', 'Dans une suite de bout en bout partagée', 'Dans la CI de chaque consommateur', 'Seulement dans la supervision de production'], answer: 0, why: 'Une règle qui vit dans un service est gardée par un test rapide dans ce service.' },
+					{ q: 'Si deux services partagent une décision, où doit tourner le test ?', options: ['Seulement dans la CI du consommateur', 'Dans un job nocturne qui n’appartient à personne', 'Seulement dans la suite de bout en bout', 'Là où le changement serait fait'], answer: 3, why: 'Le test doit échouer dans la CI de l’équipe qui s’apprête à casser la décision, avant le déploiement.' }
+				]
+			},
+			{
+				title: 'Garde ce qu’un service possède seul',
+				questions: [
+					{ q: 'Quel test protège (a) ?', options: ['Un test d’intégration sur Postgres', 'Un test unitaire de la fonction de prix', 'Un test de bout en bout du paiement', 'Un test de contrat avec le service d’e-mails'], answer: 1, why: 'La fonction de prix ne fait aucune I/O. Un test unitaire avec des paniers littéraux tourne en quelques millisecondes.' },
+					{ q: 'De quelles doublures le test de (a) a-t-il besoin ?', options: ['D’une fausse base de données', 'D’une fausse API de paiement', 'D’aucune : la fonction ne fait aucune I/O', 'D’un message `order.placed` écrit à la main'], answer: 2, why: 'Une fonction pure prend des entrées simples. Il n’y a rien à remplacer.' },
+					{ q: 'Quel test protège (b), une commande rejouée enregistrée une seule fois ?', options: ['Un test d’intégration sur un vrai Postgres', 'Un test unitaire avec un stockage en mémoire', 'Un test de bout en bout dans le navigateur', 'Un consumer-driven contract'], answer: 0, why: 'La règle vit dans un index unique et une transaction, donc le test a besoin de la vraie base.' },
+					{ q: 'Dans le test de (b), qu’est-ce qui est une doublure ?', options: ['La base Postgres', 'Le handler de commande', 'L’index unique', 'L’API de paiement et le service d’e-mails'], answer: 3, why: 'Tout ce que le service de commandes ne possède pas est une doublure. Sa base est ce dont la règle dépend, donc elle reste réelle.' }
+				]
+			},
+			{
+				title: 'Compare la doublure au vrai',
+				questions: [
+					{ q: 'Quel type de test protège (c), le repository en mémoire qui se comporte comme Postgres ?', options: ['Un test de contrat d’adaptateur', 'Un test unitaire du repository en mémoire seul', 'Un consumer-driven contract', 'Un test de bout en bout'], answer: 0, why: 'Un test de contrat vérifie une doublure contre la vraie chose qu’elle remplace.' },
+					{ q: 'Comment ce test est-il construit ?', options: ['Deux fichiers de test séparés, un par repository', 'Un seul jeu de tests partagé, lancé contre la version en mémoire et contre Postgres', 'Une comparaison des deux fichiers source', 'Un test qui tourne seulement contre Postgres'], answer: 1, why: 'Rails écrit `CacheStoreBehavior` une fois et l’inclut dans les tests des stores mémoire, fichier, Memcached et Redis.' },
+					{ q: 'D’où vient Postgres dans ce passage de CI ?', options: ['D’un réplica de production', 'D’une base de staging partagée', 'De Docker', 'Du repository en mémoire lui-même'], answer: 2, why: 'Le vrai stockage doit tourner dans la CI. Docker donne à chaque passage son propre Postgres.' },
+					{ q: 'Rails saute ses tests Redis quand Redis n’est pas lancé. Quel est le risque ?', options: ['Les tests du store mémoire échouent aussi', 'Redis reçoit de mauvaises données', 'La suite de tests tourne deux fois', 'Un service absent peut se cacher derrière un passage vert'], answer: 3, why: 'Un test sauté n’est pas un échec. Si le vrai stockage ne démarre jamais, la comparaison n’a jamais lieu, sans bruit.' }
+				]
+			},
+			{
+				title: 'Garde le message partagé et le câblage',
+				questions: [
+					{ q: 'Quel test protège (d) ?', options: ['Un consumer-driven contract', 'Un test de bout en bout', 'Un test unitaire dans le service d’e-mails', 'Un test d’intégration dans le service de commandes'], answer: 0, why: 'Le service d’e-mails écrit les champs qu’il lit, et la CI du service de commandes vérifie son vrai message contre eux.' },
+					{ q: 'Quelle première étape moins chère pour (d) ?', options: ['Plus de messages écrits à la main dans le service d’e-mails', 'Une règle de revue de code pour les renommages', 'Le service de commandes écrit son message capturé dans un fichier de fixture que le service d’e-mails charge', 'Un canal Slack partagé entre les équipes'], answer: 2, why: 'Le service d’e-mails teste alors contre le vrai message au lieu de sa propre copie.' },
+					{ q: 'Quel test protège (e), un panier payé qui devient une commande et un e-mail ?', options: ['Un test unitaire du panier', 'Un test de bout en bout sur le système construit, avec un faux fournisseur de paiement', 'Un test de contrat de l’API de paiement', 'Un test d’intégration du service d’e-mails'], answer: 1, why: 'Seul le système construit, piloté comme par un utilisateur, montre que les services sont câblés ensemble.' },
+					{ q: 'Pourquoi ne pas mettre (d) dans la suite de bout en bout ?', options: ['Les tests de bout en bout ne savent pas lire de messages', 'Ça rendrait la suite trop rapide', 'Le service d’e-mails possède cette suite', 'Une suite qui publie sa propre copie du message reste verte'], answer: 3, why: 'Si le test utilise sa propre copie, il ne compare jamais le producteur au consommateur, ce qui est tout l’objet de (d).' }
+				]
+			}
 		]
 	},
 	quiz: [

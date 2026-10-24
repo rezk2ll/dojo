@@ -111,6 +111,44 @@ export default {
 			'Reminder rules: **core**, if getting paid faster is why customers choose you. Build them in-house with your best people, on an adopted job scheduler.',
 			'Branded payment page: supporting. Customers expect it, but a simple template is enough, so build it cheaply.',
 			'One feature here holds three kinds of subdomain, so you sort each part on its own.'
+		],
+		steps: [
+			{
+				title: 'Ask the two questions',
+				questions: [
+					{ q: 'Which question tells you a part is core?', options: ['Is it the hardest part to build?', 'Would a customer pick this product over a competitor because of it?', 'Is it the newest code in the repo?', 'Does it need a database?'], answer: 1, why: 'Core is what makes you different. Hard or new is not the test.' },
+					{ q: 'Which question tells you a part is generic?', options: ['Does it change often?', 'Can the customer see it?', 'Has someone already solved it well?', 'Is it fun to build?'], answer: 2, why: 'Generic means everyone has the problem and a good answer exists to buy or adopt.' },
+					{ q: 'What makes a part supporting?', options: ['It is what makes you different', 'It is a problem everyone already solved', 'Nobody uses it', 'The business needs it, but it gives no edge, and it is usually simple'], answer: 3, why: 'Needed, but no customer picks you for it, so you keep it plain.' },
+					{ q: 'Why sort the parts at all?', options: ['Without it, the best people tend to drift to technical infrastructure', 'To pick a cloud provider', 'To cut the number of lines of code', 'To choose one language for all of it'], answer: 0, why: 'Evans warns that skilled developers gravitate to infrastructure, and the core gets whoever is free.' }
+				]
+			},
+			{
+				title: 'Sort each part',
+				questions: [
+					{ q: 'Card payments: core, supporting or generic?', options: ['Core', 'Supporting', 'Generic', 'None of the three'], answer: 2, why: 'Everyone needs it, and payment providers already solve it well.' },
+					{ q: 'A payment page with the customer\'s branding?', options: ['Core', 'Supporting', 'Generic', 'None of the three'], answer: 1, why: 'Customers expect it, but nobody picks an invoicing tool for its payment page.' },
+					{ q: 'Reminders on a schedule each customer can tune, when getting paid faster is why customers choose you?', options: ['Core', 'Supporting', 'Generic', 'None of the three'], answer: 0, why: 'It is the reason customers pick you over a competitor. That is core.' },
+					{ q: 'A PDF receipt?', options: ['Core', 'Supporting', 'Generic', 'None of the three'], answer: 2, why: 'Nobody switches invoicing tools for a PDF renderer, and good ones exist.' }
+				]
+			},
+			{
+				title: 'Build or adopt',
+				questions: [
+					{ q: 'Card payments: build or adopt?', options: ['Build card processing in-house', 'Adopt a payment provider', 'Give it to your best engineer', 'Leave it out of the feature'], answer: 1, why: 'Building it brings compliance work and gives customers no reason to choose you.' },
+					{ q: 'Reminder rules: build or adopt?', options: ['Adopt a reminder product as it is', 'Build them in-house, including your own job queue', 'Build them in-house with your best people, on an adopted job scheduler', 'Let support send them by hand'], answer: 2, why: 'Build the core, but not the generic bricks under it. Mastodon writes its own timeline rules and stores the home feeds in Redis.' },
+					{ q: 'The branded payment page: how do you build it?', options: ['Put your best engineer on it', 'Write a full theme engine first', 'Adopt the payment provider\'s page and drop the branding', 'Build it cheaply, with a simple template'], answer: 3, why: 'Supporting parts are built cheaply and kept simple.' },
+					{ q: 'PDF receipts: build or adopt?', options: ['Adopt a PDF library or service', 'Write your own PDF renderer', 'Treat it as core, since every invoice has one', 'Give it to the senior engineer'], answer: 0, why: 'For a generic part, the default answer is "adopt".' }
+				]
+			},
+			{
+				title: 'Check it against Mastodon',
+				questions: [
+					{ q: 'Mastodon\'s timelines are core. Where does it store home feeds?', options: ['In a storage engine of its own', 'In Redis sorted sets', 'In Elasticsearch', 'In S3'], answer: 1, why: 'The core rules are in-house, and the storage under them is adopted.' },
+					{ q: 'Where do you see what Mastodon adopted?', options: ['In `app/services`', 'In the README', 'In the ActivityPub spec', 'In the `Gemfile`'], answer: 3, why: 'Devise, Doorkeeper, Sidekiq and Chewy are all listed there.' },
+					{ q: 'What does an adopted payment provider cost you, like Doorkeeper in Mastodon?', options: ['Nothing: adopted parts are free', 'It makes the core slower', 'A dependency you do not control, whose data model limits yours', 'A rewrite every year'], answer: 2, why: 'Every Mastodon post points at a Doorkeeper table, so replacing it would touch every post.' },
+					{ q: 'One feature holds three kinds of subdomain. What follows?', options: ['You sort each part on its own', 'You label the whole feature core', 'You label it generic and adopt it all', 'You let the team vote once for the feature'], answer: 0, why: 'The labels belong to parts, not features. Each part gets its own answer.' }
+				]
+			}
 		]
 	},
 	quiz: [

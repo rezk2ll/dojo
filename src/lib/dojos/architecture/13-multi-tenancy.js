@@ -94,6 +94,44 @@ export default {
 			'Their own **workers**: nothing in the multisite code you read gives one site its own queues. The queue comes from the job or the caller, not from the site. To get their own workers, they need a separate install.',
 			'A **dedicated deployment**: their own app, PostgreSQL, Redis and Sidekiq. Cost: one more full stack to upgrade and watch, for one customer.',
 			'The architect\'s move: before picking, ask what they fear. Another tenant reading their data is already blocked by separate databases. Another tenant **slowing them down** needs separate compute.'
+		],
+		steps: [
+			{
+				title: 'See what is shared',
+				questions: [
+					{ q: 'How does Discourse find the site for a request?', options: ['From a `tenant_id` column', 'From the request\'s host name', 'From a login cookie', 'From the Sidekiq queue name'], answer: 1, why: 'The middleware looks up the host in `config/multisite.yml`. An unknown host gets a 404.' },
+					{ q: 'What does each site already get on its own?', options: ['Its own Redis server', 'Its own Sidekiq workers', 'Its own PostgreSQL database', 'Its own app processes'], answer: 2, why: 'Each entry in `multisite.yml` names its own `database`. The rest is shared.' },
+					{ q: 'What do all sites share today?', options: ['One set of tables with a tenant column', 'Nothing but the code', 'Only the database server', 'The processes, one Redis server and the Sidekiq queues'], answer: 3, why: 'Redis keys are prefixed per site, and jobs carry `current_site_id`, but the servers and queues are the same.' },
+					{ q: 'Where does multisite sit on the spectrum?', options: ['Left: shared everything, one database', 'Middle: shared processes, a database per site', 'Right: a deployment per tenant', 'Off the spectrum: it shares nothing'], answer: 1, why: 'Isolated data, shared compute. That is the middle of the diagram.' }
+				]
+			},
+			{
+				title: 'Split the database server',
+				questions: [
+					{ q: 'Can one site get its own database server?', options: ['Yes, each `multisite.yml` entry is a database config and can name its own `host`', 'No, all sites must share one database server', 'Only with a separate install', 'Only by forking `rails_multisite`'], answer: 0, why: 'An entry has `adapter` and `database` like any database config, so a `host` fits there too.' },
+					{ q: 'What does that cost?', options: ['One full stack per customer', 'A tenant filter on every query', 'One more server to run, while Redis and Sidekiq stay shared', 'Leaving multisite for good'], answer: 2, why: 'It moves only the data. The processes, Redis and the workers are still shared.' },
+					{ q: 'With their own database server, can another site\'s burst of jobs still slow them?', options: ['No, their data is on another server', 'Yes, the Sidekiq queues are still shared', 'No, the middleware blocks other sites', 'Only when Redis is down'], answer: 1, why: 'One site\'s burst waits in the same queues as every other site\'s jobs.' },
+					{ q: 'Which risk was already blocked before this change?', options: ['A burst of jobs in shared queues', 'Load on the shared processes', 'Memory use on the shared Redis', 'Another tenant reading their data'], answer: 3, why: 'Separate databases already stop a query from reaching another site\'s rows.' }
+				]
+			},
+			{
+				title: 'Split the compute',
+				questions: [
+					{ q: 'Can multisite give one site its own Sidekiq queues?', options: ['Yes, set a queue per site in `multisite.yml`', 'Yes, `Jobs.enqueue` picks the queue from the site', 'No, the queue comes from the job or the caller, never the site', 'No, Sidekiq allows only one queue'], answer: 2, why: '`Jobs.enqueue` takes the queue from `opts[:queue]` or the job class. The site plays no part.' },
+					{ q: 'So how do they get workers no one else uses?', options: ['Pass `all_sites: true` on their jobs', 'A separate install', 'Call `without_namespace`', 'Add a `queue` key to their `multisite.yml` entry'], answer: 1, why: 'Nothing in the multisite code you read splits the workers per site. A separate install does.' },
+					{ q: 'What does a dedicated deployment give them?', options: ['Their own app, PostgreSQL, Redis and Sidekiq', 'Only their own database', 'Only their own Redis keys', 'A larger share of the shared workers'], answer: 0, why: 'It is the right end of the spectrum: nothing shared but the code.' },
+					{ q: 'What does a dedicated deployment cost?', options: ['Data leaks through Redis', 'Jobs that run on every site', 'A 404 for their host name', 'One more full stack to upgrade and watch, for one customer'], answer: 3, why: 'The strongest isolation means one more deployment to run and upgrade.' }
+				]
+			},
+			{
+				title: 'Ask what they fear',
+				questions: [
+					{ q: 'Before picking one, what do you ask them?', options: ['Which cloud they prefer', 'What they fear: their data being read, or being slowed down', 'How many admins they have', 'Whether they already use Redis'], answer: 1, why: 'The two fears need different answers, and one is already handled.' },
+					{ q: 'They fear another tenant reading their data. What do you answer?', options: ['Separate databases already block that', 'They need a dedicated deployment', 'They need their own Redis server', 'They need their own workers'], answer: 0, why: 'Another site\'s data is in another database. A query bug cannot cross that line.' },
+					{ q: 'They fear another tenant slowing them down. What do you answer?', options: ['Their own database is enough', 'Prefix their Redis keys', 'They need separate compute, so their own install', 'Return 404 to every other host'], answer: 2, why: 'A noisy neighbour comes from shared compute. Only separate workers and processes remove it.' },
+					{ q: 'Why not give every customer a dedicated deployment?', options: ['It leaks data through shared tables', 'It needs a `tenant_id` column on every table', 'Sidekiq cannot run per customer', 'Each is a full stack to run, while shared compute makes a quiet forum cost almost nothing'], answer: 3, why: 'More isolation costs more to run. Multisite lets one install hold many small sites.' }
+				]
+			}
 		]
 	},
 	quiz: [

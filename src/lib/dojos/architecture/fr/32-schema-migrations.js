@@ -118,6 +118,44 @@ export default {
 			'Release 2 (migrate) : le code lit `total` et écrit toujours les deux. Revenir à la release 1 est sans danger, parce que `amount` est toujours à jour.',
 			'Release 3 (contract) : le code arrête d’écrire `amount` et la marque dans `ignored_columns`. Supprime la colonne dans une migration post-déploiement d’une release suivante, une fois qu’aucune version vers laquelle tu pourrais revenir ne la lit.',
 			'Ou demande-toi si le renommage en vaut la peine. Le `alias_attribute :total, :amount` de Rails laisse le code dire `total` pendant que la colonne garde son nom : le code se lit bien et le schéma ne bouge jamais.'
+		],
+		steps: [
+			{
+				title: 'Étends le schéma',
+				questions: [
+					{ q: 'Pourquoi ne peux-tu pas livrer un seul `rename_column` avec le déploiement ?', options: ['Rails n’a pas de `rename_column` pour PostgreSQL', 'Anciens et nouveaux pods tournent ensemble, et l’un d’eux rate sa colonne', 'Un renommage verrouille toujours la table pendant des heures', 'Le renommage perdrait toutes les valeurs de `amount`'], answer: 1, why: 'Lance le renommage en premier et les anciens pods interrogent une colonne qui n’existe plus. Lance-le en dernier et les nouveaux pods en interrogent une qui n’existe pas encore.' },
+					{ q: 'Que fait la migration de la release 1 ?', options: ['Renommer `amount` en `total`', 'Ajouter `total` en NOT NULL avec 0 par défaut', 'Supprimer `amount` et ajouter `total`', 'Ajouter `total` comme colonne nullable'], answer: 3, why: 'Une nouvelle colonne nullable est invisible pour le code qui ne la nomme pas, donc la release en cours continue de marcher.' },
+					{ q: 'Dans la release 1, quelle colonne le code lit-il ?', options: ['`amount`', '`total`', 'Celle qui n’est pas nulle', 'Les deux, et il les compare'], answer: 0, why: '`total` est encore vide pour les anciennes lignes, donc le code lit `amount` jusqu’à la fin du backfill.' },
+					{ q: 'Dans la release 1, quelles colonnes le code écrit-il ?', options: ['Seulement `amount`, comme avant', 'Seulement `total`, le nouveau nom', '`amount` et `total`', 'Aucune : le backfill remplit `total`'], answer: 2, why: 'Écrire les deux garde `total` à jour pour les nouvelles lignes. Sans helper de trigger, c’est le code qui fait la copie que ferait le trigger de GitLab.' }
+				]
+			},
+			{
+				title: 'Remplis les anciennes lignes',
+				questions: [
+					{ q: 'Quand lances-tu le backfill ?', options: ['Avant la release 1, pour que `total` soit plein dès le début', 'Une fois la release 1 entièrement déployée', 'Dans la migration qui ajoute `total`', 'Après que la release 3 a supprimé `amount`'], answer: 1, why: 'Tant que chaque pod ne tourne pas en release 1, un ancien pod peut encore écrire `amount` tout seul. Lance la copie après le déploiement et elle ne rate rien.' },
+					{ q: 'Quelles lignes le backfill touche-t-il ?', options: ['Toutes les lignes, en écrasant `total`', 'Seulement les lignes créées aujourd’hui', 'Seulement les lignes où `amount` est null', 'Les lignes où `total` est null'], answer: 3, why: 'Les lignes écrites par la release 1 ont déjà `total`. Seules les plus anciennes ont besoin de la copie.' },
+					{ q: 'Comment copie-t-il sur une grosse table `orders` ?', options: ['Par lots', 'En un seul `UPDATE` dans une transaction', 'En exportant puis réimportant la table', 'Ligne par ligne depuis l’application, à la lecture'], answer: 0, why: 'GitLab copie par lots, et pour les grosses tables déplace la copie dans une batched background migration. Un gros update, c’est une longue charge et des verrous.' },
+					{ q: '`rename_column_concurrently` de GitLab copie dans la migration. Que dit sa doc à ce sujet ?', options: ['C’est le bon choix pour toutes les tables', 'Ce n’est adapté qu’aux petites tables', 'Ça doit tourner dans une transaction', 'Ça n’a pas besoin de trigger sous PostgreSQL'], answer: 1, why: 'La doc prévient que la procédure n’est « only appropriate for small tables » (adaptée qu’aux petites tables). Les grosses passent par un job en arrière-plan sur plusieurs releases.' }
+				]
+			},
+			{
+				title: 'Bascule les lectures',
+				questions: [
+					{ q: 'Dans la release 2, quelle colonne le code lit-il ?', options: ['`amount`, comme en release 1', '`total`', 'Les deux, en préférant `amount`', 'Aucune : il lit une vue'], answer: 1, why: 'Après le backfill, chaque ligne a `total`, donc le code peut lire le nouveau nom.' },
+					{ q: 'Dans la release 2, quelles colonnes le code écrit-il encore ?', options: ['Seulement `total`', 'Seulement `amount`', 'Aucune : un trigger s’en charge', '`amount` et `total`'], answer: 3, why: 'Écrire les deux garde `amount` à jour, et c’est ce qui rend sûr un retour à la release 1.' },
+					{ q: 'Tu reviens de la release 2 à la release 1. Pourquoi ça marche ?', options: ['La release 1 lit `amount`, et `amount` est toujours à jour', 'Rails reconstruit `amount` depuis `total` au démarrage', 'La migration est inversée pendant le retour arrière', 'La release 1 lit aussi `total` quand elle existe'], answer: 0, why: 'Jusqu’à l’étape contract, la release précédente tourne encore sur le schéma actuel.' },
+					{ q: 'Quelle règle chaque état du schéma doit-il suivre ?', options: ['Il doit correspondre exactement à la dernière release', 'Il ne doit avoir aucune donnée en double', 'Il doit marcher pour le code juste avant et juste après', 'Il doit être atteint en une seule migration'], answer: 2, why: 'Pendant un déploiement progressif, les deux versions du code tournent en même temps contre une seule base.' }
+				]
+			},
+			{
+				title: 'Contracte en dernier',
+				questions: [
+					{ q: 'Dans la release 3, que fait le code avec `amount` ?', options: ['Il la supprime dans une migration normale', 'Il la renomme en `amount_old`', 'Il arrête de l’écrire et la marque dans `ignored_columns`', 'Il continue de l’écrire jusqu’à sa suppression'], answer: 2, why: 'Une colonne ignorée n’apparaît jamais dans les requêtes SQL, donc un processus en cours ne casse pas quand elle disparaît.' },
+					{ q: 'Pourquoi marquer la colonne ignorée avant de la supprimer ?', options: ['ActiveRecord met les colonnes en cache au démarrage, et une colonne disparue peut casser un processus en cours', 'Rails refuse de supprimer une colonne qui n’est pas ignorée', 'Ça accélère la migration de suppression', 'Ça copie les données dans `total` une dernière fois'], answer: 0, why: 'Le guide de GitLab donne la raison : aucun code ne doit lever d’erreur à cause d’un schéma en cache quand la migration tourne.' },
+					{ q: 'Quand supprimes-tu `amount` ?', options: ['En release 3, avec le changement `ignored_columns`', 'Dans une release suivante, une fois qu’aucune version vers laquelle tu pourrais revenir ne la lit', 'Juste après la fin du backfill', 'Jamais : les données restent en double par sécurité'], answer: 1, why: 'Supprimer une colonne est destructif et dur à annuler. Ça vient après que le code a cessé de l’utiliser, souvent une release plus tard.' },
+					{ q: 'Où va la suppression ?', options: ['Dans la migration de la release 1, derrière un flag', 'Dans une migration normale qui tourne avant le nouveau code', 'Dans un script SQL lancé à la main par un admin', 'Dans une migration post-déploiement'], answer: 3, why: 'Une migration post-déploiement ne tourne qu’une fois que chaque serveur fait tourner le nouveau code.' }
+				]
+			}
 		]
 	},
 	quiz: [

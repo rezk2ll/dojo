@@ -101,6 +101,44 @@ export default {
 			'Réponds vite au webhook, et envoie l’e-mail depuis un job. C’est justement un endpoint lent qui déclenche les retries du prestataire.',
 			'L’ordre compte quand même : insérer, puis envoyer. Un crash entre les deux fait perdre un e-mail. Décide ce qui est le pire pour toi : un e-mail manquant ou un e-mail en double.',
 			'Garde les lignes plus longtemps que la fenêtre de retry du prestataire, sinon un retry tardif passe à travers.'
+		],
+		steps: [
+			{
+				title: 'Vois pourquoi il y en a deux',
+				questions: [
+					{ q: 'Ton endpoint est lent, et l’appel du prestataire part en timeout. Que sait le prestataire de ton handler ?', options: ['Qu’il a échoué, donc un retry est sans risque', 'Qu’il a réussi, donc il peut s’arrêter', 'Rien : il a peut-être tourné, peut-être pas, donc il réessaie', 'Que ton serveur a annulé le travail'], answer: 2, why: 'Un timeout ne fait que libérer l’appelant. Il ne dit rien de ce qui s’est passé de ton côté.' },
+					{ q: 'Pourquoi le retry envoie-t-il un deuxième e-mail ?', options: ['Le prestataire envoie exprès deux événements différents', 'Le handler n’est pas idempotent : le lancer deux fois envoie deux fois', 'Le serveur mail copie chaque e-mail', 'Le timeout a annulé le premier e-mail'], answer: 1, why: 'Idempotent veut dire que deux fois a le même effet qu’une fois. Envoyer un e-mail ne l’est pas.' },
+					{ q: 'Quelle partie du handler n’est pas sûre à répéter ?', options: ['Lire le corps du webhook', 'Logger la requête', 'Envoyer l’e-mail', 'Répondre 200'], answer: 2, why: 'Lire et logger ne changent rien pour le client. L’e-mail est l’effet qu’il voit deux fois.' },
+					{ q: 'Le prestataire réessaie jusqu’à ce que tu répondes à temps. Quelle promesse de livraison est-ce ?', options: ['Exactement une fois', 'Au plus une fois', 'Une fois par heure', 'Au moins une fois'], answer: 3, why: 'Avec des retries, un appel peut arriver plus d’une fois. Le destinataire doit rendre la répétition sans effet.' }
+				]
+			},
+			{
+				title: 'Choisis la clé',
+				questions: [
+					{ q: 'Quelle valeur fait une bonne clé d’idempotence ici ?', options: ['L’id d’événement du prestataire, ou l’id du paiement', 'Un id aléatoire que tu génères à la réception', 'L’heure d’arrivée du webhook', 'L’adresse e-mail du client'], answer: 0, why: 'Chaque retry la répète, donc le deuxième appel porte la même clé que le premier.' },
+					{ q: 'Pourquoi pas un id aléatoire généré à la réception ?', options: ['Les id aléatoires sont trop longs pour une colonne', 'Chaque retry en aurait un nouveau, donc aucune répétition ne serait repérée', 'Le prestataire le refuserait', 'Il ferait fuiter les données du client'], answer: 1, why: 'La clé doit être la même à chaque retry d’un événement. Un nouvel id aléatoire ne correspond jamais.' },
+					{ q: 'Pourquoi ne pas prendre l’adresse e-mail du client comme clé ?', options: ['Les adresses e-mail sont trop longues à indexer', 'Les adresses e-mail changent de casse', 'Un client peut payer deux fois, et chaque paiement est un événement à part', 'Le prestataire ne l’envoie pas'], answer: 2, why: 'La clé doit désigner un événement, pas une personne. Sinon, un vrai deuxième paiement n’aurait pas d’e-mail.' },
+					{ q: 'Dans Mastodon, qui choisit l’`Idempotency-Key` d’un nouveau post ?', options: ['Le serveur, quand il enregistre le post', 'Redis, quand le verrou est pris', 'Sidekiq, quand le job est mis en file', 'Le client, une fois par post, renvoyée à chaque retry'], answer: 3, why: 'La doc de l’API conseille un hash ou un UUID généré côté client, gardé pour chaque retry de ce post.' }
+				]
+			},
+			{
+				title: 'Stocke-la',
+				questions: [
+					{ q: 'Qu’est-ce que tu stockes ?', options: ['Le texte complet de chaque e-mail envoyé', 'Une ligne comme `(event_id, processed_at)` avec une **contrainte d’unicité**', 'Un compteur de retries par client', 'Rien : le prestataire s’en souvient pour toi'], answer: 1, why: 'Tu ne peux pas demander au serveur mail ce qu’il a envoyé, donc tu t’en souviens toi-même, une ligne par événement.' },
+					{ q: 'Tu insères d’abord, ou tu vérifies d’abord ?', options: ['Insère d’abord, et laisse la contrainte d’unicité rejeter une répétition', 'Vérifie avec un `SELECT`, puis insère', 'Envoie l’e-mail, puis insère', 'Insère une fois par jour, par lot'], answer: 0, why: 'Deux copies au même moment passeraient toutes les deux un `SELECT`. La contrainte ne laisse gagner qu’une seule insertion.' },
+					{ q: 'L’insertion échoue parce que c’est un doublon. Que réponds-tu ?', options: ['500, pour que le prestataire réessaie', '409, comme une erreur', '200, et ne fais rien', '202, et renvoie l’e-mail'], answer: 2, why: 'L’événement a déjà été traité. Un 200 arrête les retries, et rien d’autre ne doit se passer.' },
+					{ q: 'Mastodon prend un verrou autour de la recherche de sa clé. Pourquoi ?', options: ['Redis a besoin d’un verrou pour lire une clé', 'Pour ralentir les retries exprès', 'Pour faire expirer la clé', 'Deux copies au même moment rateraient toutes les deux la clé et enregistreraient toutes les deux'], answer: 3, why: 'C’est la même course que ferme ta contrainte d’unicité. Avec le verrou, la seconde copie reçoit un 503 et son retry trouve la clé.' }
+				]
+			},
+			{
+				title: 'Bouche les trous',
+				questions: [
+					{ q: 'Le handler est lent parce qu’il envoie l’e-mail lui-même. Que changes-tu ?', options: ['Augmente le timeout du prestataire', 'Relance l’e-mail trois fois dans la requête', 'Réponds vite, et envoie l’e-mail depuis un job', 'Demande au prestataire d’arrêter les retries'], answer: 2, why: 'C’est justement un endpoint lent qui déclenche les retries du prestataire.' },
+					{ q: 'Tu insères, puis tu envoies. Le processus plante entre les deux. Que se passe-t-il ?', options: ['L’e-mail part deux fois', 'Un e-mail est perdu', 'La ligne est annulée', 'Le prestataire envoie un nouvel id d’événement'], answer: 1, why: 'La ligne dit « fait », donc le retry passe son tour. Décide ce qui est le pire pour toi : un e-mail manquant ou un doublon.' },
+					{ q: 'Combien de temps gardes-tu les lignes ?', options: ['Plus longtemps que la fenêtre de retry du prestataire', 'Une heure, comme Mastodon', 'Jusqu’à l’envoi de l’e-mail', 'Seulement pendant la requête en cours'], answer: 0, why: 'Un retry qui arrive après la disparition de la ligne est traité comme nouveau, et renvoie l’e-mail.' },
+					{ q: 'La clé de Mastodon vit une heure. Un client réessaie un post au bout de deux heures. Que se passe-t-il ?', options: ['Il récupère le même post', 'Il reçoit un 503', 'Il est rejeté avec un 409', 'Il crée un deuxième post'], answer: 3, why: 'La clé est stockée 3 600 secondes. Après ça, rien ne se souvient de la première requête.' }
+				]
+			}
 		]
 	},
 	quiz: [

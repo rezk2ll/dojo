@@ -111,6 +111,44 @@ export default {
 			'Règles de relance : **cœur**, si se faire payer plus vite est la raison pour laquelle les clients te choisissent. Construis-les en interne avec tes meilleurs éléments, sur un planificateur de jobs adopté.',
 			'Page de paiement personnalisée : support. Les clients s’y attendent, mais un template simple suffit, donc construis-la à moindre coût.',
 			'Cette seule fonctionnalité contient trois sortes de sous-domaines, donc tu classes chaque partie séparément.'
+		],
+		steps: [
+			{
+				title: 'Pose les deux questions',
+				questions: [
+					{ q: 'Quelle question te dit qu’une partie relève du cœur ?', options: ['Est-ce la partie la plus dure à construire ?', 'Un client choisirait-il ce produit plutôt qu’un concurrent grâce à elle ?', 'Est-ce le code le plus récent du dépôt ?', 'A-t-elle besoin d’une base de données ?'], answer: 1, why: 'Le cœur, c’est ce qui te distingue. Dur ou nouveau, ce n’est pas le critère.' },
+					{ q: 'Quelle question te dit qu’une partie est générique ?', options: ['Change-t-elle souvent ?', 'Le client la voit-il ?', 'Quelqu’un l’a-t-il déjà bien résolue ?', 'Est-elle amusante à construire ?'], answer: 2, why: 'Générique veut dire que tout le monde a le problème et qu’une bonne réponse existe à acheter ou à adopter.' },
+					{ q: 'Qu’est-ce qui fait qu’une partie relève du support ?', options: ['C’est ce qui te distingue', 'C’est un problème que tout le monde a déjà résolu', 'Personne ne s’en sert', 'Le métier en a besoin, mais elle ne donne aucun avantage, et elle est en général simple'], answer: 3, why: 'Nécessaire, mais aucun client ne te choisit pour elle, donc tu la gardes simple.' },
+					{ q: 'Pourquoi classer les parties ?', options: ['Sans ça, les meilleurs ont tendance à partir vers l’infrastructure technique', 'Pour choisir un fournisseur cloud', 'Pour réduire le nombre de lignes de code', 'Pour choisir un seul langage pour tout'], answer: 0, why: 'Evans prévient que les développeurs qualifiés gravitent vers l’infrastructure, et le cœur revient à celui qui est disponible.' }
+				]
+			},
+			{
+				title: 'Classe chaque partie',
+				questions: [
+					{ q: 'Paiement par carte : cœur, support ou générique ?', options: ['Cœur', 'Support', 'Générique', 'Aucun des trois'], answer: 2, why: 'Tout le monde en a besoin, et les prestataires de paiement le résolvent déjà bien.' },
+					{ q: 'Une page de paiement aux couleurs du client ?', options: ['Cœur', 'Support', 'Générique', 'Aucun des trois'], answer: 1, why: 'Les clients s’y attendent, mais personne ne choisit un outil de facturation pour sa page de paiement.' },
+					{ q: 'Des relances selon un calendrier que chaque client règle, quand se faire payer plus vite est la raison pour laquelle les clients te choisissent ?', options: ['Cœur', 'Support', 'Générique', 'Aucun des trois'], answer: 0, why: 'C’est la raison pour laquelle les clients te préfèrent à un concurrent. C’est le cœur.' },
+					{ q: 'Un reçu en PDF ?', options: ['Cœur', 'Support', 'Générique', 'Aucun des trois'], answer: 2, why: 'Personne ne change d’outil de facturation pour un moteur de rendu PDF, et il en existe de bons.' }
+				]
+			},
+			{
+				title: 'Construis ou adopte',
+				questions: [
+					{ q: 'Paiement par carte : construire ou adopter ?', options: ['Construire le traitement des cartes en interne', 'Adopter un prestataire de paiement', 'Le confier à ton meilleur ingénieur', 'Le sortir de la fonctionnalité'], answer: 1, why: 'Le construire t’apporte du travail de conformité et ne donne aux clients aucune raison de te choisir.' },
+					{ q: 'Règles de relance : construire ou adopter ?', options: ['Adopter un produit de relance tel quel', 'Les construire en interne, y compris ta propre file de jobs', 'Les construire en interne avec tes meilleurs éléments, sur un planificateur de jobs adopté', 'Laisser le support les envoyer à la main'], answer: 2, why: 'Construis le cœur, mais pas les briques génériques en dessous. Mastodon écrit ses propres règles de timeline et stocke les fils d’accueil dans Redis.' },
+					{ q: 'La page de paiement personnalisée : comment la construis-tu ?', options: ['Mets ton meilleur ingénieur dessus', 'Écris d’abord un moteur de thèmes complet', 'Adopte la page du prestataire et laisse tomber les couleurs du client', 'Construis-la à moindre coût, avec un template simple'], answer: 3, why: 'Les parties support se construisent à moindre coût et restent simples.' },
+					{ q: 'Reçus PDF : construire ou adopter ?', options: ['Adopter une bibliothèque ou un service PDF', 'Écrire ton propre moteur de rendu PDF', 'Le traiter comme du cœur, puisque chaque facture en a un', 'Le confier à l’ingénieur senior'], answer: 0, why: 'Pour une partie générique, la réponse par défaut est « adopter ».' }
+				]
+			},
+			{
+				title: 'Compare avec Mastodon',
+				questions: [
+					{ q: 'Les timelines de Mastodon relèvent du cœur. Où stocke-t-il les fils d’accueil ?', options: ['Dans un moteur de stockage à lui', 'Dans des sorted sets Redis', 'Dans Elasticsearch', 'Dans S3'], answer: 1, why: 'Les règles du cœur sont maison, et le stockage en dessous est adopté.' },
+					{ q: 'Où vois-tu ce que Mastodon a adopté ?', options: ['Dans `app/services`', 'Dans le README', 'Dans la spec ActivityPub', 'Dans le `Gemfile`'], answer: 3, why: 'Devise, Doorkeeper, Sidekiq et Chewy y sont tous listés.' },
+					{ q: 'Que te coûte un prestataire de paiement adopté, comme Doorkeeper dans Mastodon ?', options: ['Rien : les parties adoptées sont gratuites', 'Il ralentit le cœur', 'Une dépendance que tu ne contrôles pas, dont le modèle de données limite le tien', 'Une réécriture chaque année'], answer: 2, why: 'Chaque post de Mastodon pointe vers une table Doorkeeper, donc la remplacer toucherait chaque post.' },
+					{ q: 'Une seule fonctionnalité contient trois sortes de sous-domaines. Qu’en déduis-tu ?', options: ['Tu classes chaque partie séparément', 'Tu classes toute la fonctionnalité en cœur', 'Tu la classes en générique et tu adoptes tout', 'Tu fais voter l’équipe une fois pour la fonctionnalité'], answer: 0, why: 'Les étiquettes s’appliquent aux parties, pas aux fonctionnalités. Chaque partie a sa propre réponse.' }
+				]
+			}
 		]
 	},
 	quiz: [

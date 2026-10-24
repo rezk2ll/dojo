@@ -106,6 +106,44 @@ export default {
 			'(b) Clé : l’URL du JWKS. Périmé : le fournisseur fait une rotation de ses clés. Invalidé par : le TTL. Pire cas : les tokens signés avec la nouvelle clé sont rejetés pendant jusqu’à 5 minutes. Une correction courante : refaire un fetch une fois quand un token cite un id de clé (`kid`) absent du jeu en cache.',
 			'(c) Clé : classe, id et `updated_at`. Périmé : jamais pour cet enregistrement, puisqu’un changement crée une nouvelle clé. Invalidé par : le propriétaire, en enregistrant. Pire cas : un fragment englobant qui l’embarque reste périmé, sauf si l’enfant utilise `touch: true`.',
 			'Si tu n’as pas su répondre à « qui invalide » pour un de tes propres caches, regarde celui-là en premier.'
+		],
+		steps: [
+			{
+				title: 'Nomme les clés',
+				questions: [
+					{ q: '(a) Quelle est la clé du cache de tokens de kube-apiserver ?', options: ['Le token brut', 'Un HMAC du token et de ses audiences', 'Le nom d’utilisateur de la réponse', 'L’URL du webhook'], answer: 1, why: '`keyFunc` hache le token avec ses audiences et un secret aléatoire généré au démarrage.' },
+					{ q: 'Pourquoi (a) ne prend-il pas le token brut comme clé ?', options: ['Un hash se compare plus vite', 'Les tokens bruts sont trop courts pour être uniques', 'Les maps Go ne gardent pas les longues chaînes', 'Ça garde les tokens hors de la mémoire'], answer: 3, why: 'Le commentaire du code le dit. Un dump du cache ne fait pas fuiter de tokens utilisables.' },
+					{ q: '(b) Quelle est la clé du cache JWKS de la gateway ?', options: ['La signature de chaque token', 'L’id d’utilisateur dans le token', 'L’URL du JWKS', 'L’heure du dernier fetch'], answer: 2, why: 'La gateway garde un jeu de clés par fournisseur, récupéré à cette URL.' },
+					{ q: '(c) Qu’est-ce qui entre dans une clé `cache_key_with_version` ?', options: ['La classe, l’id et le `updated_at` de l’enregistrement', 'L’URL de la page', 'Un id aléatoire par requête', 'Le nom du fichier de vue'], answer: 0, why: 'La version vient de `updated_at`, donc la clé change à chaque enregistrement.' }
+				]
+			},
+			{
+				title: 'Dis ce qui la périme',
+				questions: [
+					{ q: '(a) Quand une réponse de token en cache est-elle périmée ?', options: ['Quand le webhook redémarre', 'Quand le token est révoqué', 'Quand l’utilisateur se reconnecte', 'Quand une deuxième requête arrive'], answer: 1, why: 'Le cache dit encore oui, mais le propriétaire, le webhook, dirait maintenant non.' },
+					{ q: '(b) Quand le jeu de clés en cache est-il périmé ?', options: ['Quand un utilisateur se déconnecte', 'Quand un token expire', 'Quand la gateway redémarre', 'Quand le fournisseur fait une rotation de ses clés'], answer: 3, why: 'Les nouveaux tokens sont alors signés avec une clé que le jeu en cache n’a pas.' },
+					{ q: '(c) Quand un fragment pour un enregistrement est-il périmé ?', options: ['Après chaque enregistrement', 'Jamais pour cet enregistrement, puisqu’un changement crée une nouvelle clé', 'À chaque requête', 'Après chaque déploiement'], answer: 1, why: 'Un enregistrement déplace la clé. Plus aucune lecture ne demande l’ancienne.' },
+					{ q: 'En général, que veut dire « périmé » ?', options: ['La réponse en cache ne correspond plus aux données du propriétaire', 'L’entrée a plus d’un jour', 'La recherche a fait un miss', 'Personne n’a encore lu l’entrée'], answer: 0, why: 'L’âge seul n’est pas le critère. Ce qui compte, c’est si la source a changé.' }
+				]
+			},
+			{
+				title: 'Dis qui invalide',
+				questions: [
+					{ q: '(a) Qui retire l’entrée quand un token est révoqué ?', options: ['Le webhook, en appelant l’API server', 'L’admin qui l’a révoqué', 'Personne : c’est le TTL, 2 minutes par défaut', 'Le groupe `singleflight`'], answer: 2, why: 'Aucun code n’invalide l’entrée. Seul `--authentication-token-webhook-cache-ttl` le fait.' },
+					{ q: '(b) Qui rafraîchit le jeu de clés quand le fournisseur fait une rotation ?', options: ['Le fournisseur, en poussant les nouvelles clés', 'Personne : c’est le TTL de 5 minutes', 'Chaque service derrière la gateway', 'L’admin du SSO, à la main'], answer: 1, why: 'La gateway ne refait un fetch que quand l’entrée expire.' },
+					{ q: '(c) Qui invalide le fragment ?', options: ['Le propriétaire, en enregistrant l’enregistrement', 'Un cron qui supprime les vieux fragments', 'Un TTL réglé sur la vue', 'Le stockage de cache, en vérifiant la base'], answer: 0, why: 'La propre écriture du propriétaire change `updated_at`, et donc la clé.' },
+					{ q: 'Dans (a), le webhook est en panne et renvoie une erreur. Cette réponse est-elle mise en cache ?', options: ['Oui, pendant deux minutes', 'Oui, jusqu’au retour du webhook', 'Seulement comme token rejeté', 'Non : `cacheErrs` vaut false, donc la requête suivante réessaie'], answer: 3, why: 'Les erreurs sont écartées, donc une courte panne ne fait pas échouer les requêtes pendant tout un TTL.' }
+				]
+			},
+			{
+				title: 'Nomme le pire cas',
+				questions: [
+					{ q: '(a) Quel est le pire cas pendant qu’une entrée est périmée ?', options: ['Des tokens valides sont rejetés', 'Dix appels au webhook pour un seul token', 'Un token révoqué continue de marcher jusqu’à 2 minutes, pour chaque API server', 'L’API server ne répond plus'], answer: 2, why: 'Chaque API server a son propre cache, et chacun fait confiance à son entrée jusqu’à la fin du TTL.' },
+					{ q: '(b) Quel est le pire cas pendant que le jeu de clés est périmé ?', options: ['Les tokens signés avec la nouvelle clé sont rejetés pendant jusqu’à 5 minutes', 'Les vieux tokens marchent pour toujours', 'Chaque requête refait un fetch des clés', 'Les tokens révoqués passent encore'], answer: 0, why: 'La gateway ne peut pas vérifier une signature faite avec une clé qu’elle n’a pas.' },
+					{ q: 'Comment réduis-tu le pire cas de (b) ?', options: ['Revérifie la signature avec les clés en cache', 'Refais un fetch une fois quand un token cite un `kid` absent du jeu en cache', 'Garde les clés en cache une journée', 'Rejette chaque token qui a un `kid`'], answer: 1, why: 'Un id de clé inconnu est le signe d’une rotation, donc un seul fetch règle le problème tout de suite.' },
+					{ q: '(c) Quel est le pire cas ?', options: ['Le produit affiche un vieux prix pour toujours', 'Chaque page est rendue deux fois', 'L’enregistrement du produit échoue', 'Un fragment englobant qui l’embarque reste périmé, sauf si l’enfant utilise `touch: true`'], answer: 3, why: 'La clé englobante porte le `updated_at` du parent, qui ne bouge pas quand seul l’enfant change.' }
+				]
+			}
 		]
 	},
 	quiz: [

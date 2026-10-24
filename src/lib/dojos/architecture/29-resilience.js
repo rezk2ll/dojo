@@ -110,6 +110,44 @@ export default {
 			'While open, fail at once. Degrade honestly: save the invoice as a draft marked "tax pending" and finish it later. Never guess a tax rate.',
 			'After a wait (`waitDurationInOpenState`), go half-open and let a few trial calls through. Good results close the breaker, bad ones reopen it.',
 			'Make it visible: log every state change and graph it, so "tax API down" shows on a dashboard before support tickets arrive. Keep it out of the liveness probe.'
+		],
+		steps: [
+			{
+				title: 'Choose which errors count',
+				questions: [
+					{ q: 'Which failures should count toward tripping the breaker?', options: ['Timeouts, connection errors and 5xx', 'Every exception, `400` included', 'Only `400` answers', 'Only calls slower than 60 seconds'], answer: 0, why: 'Those say the tax API is sick. Other errors say something else.' },
+					{ q: 'The tax API answers `400` for a bad address. Does it count?', options: ['Yes: an error is an error', 'No: it is the caller\'s fault, not a sick API', 'Only after 100 of them', 'Only in the half-open state'], answer: 1, why: 'A wrong request says nothing about the API\'s health, so it must not trip the breaker.' },
+					{ q: 'In resilience4j, which settings choose what counts?', options: ['`waitDurationInOpenState`', '`allowHealthIndicatorToFail`', '`recordExceptions` and `ignoreExceptions`', 'Only `slowCallDurationThreshold`'], answer: 2, why: 'One lists the exceptions to record, the other the ones to ignore.' },
+					{ q: 'Should slow calls count too?', options: ['No: only errors count', 'Yes, but only past the 10 seconds', 'Only when the answer is a 5xx', 'Yes, with a `slowCallDurationThreshold` well below the 10 seconds'], answer: 3, why: 'A hanging API hurts as much as a failing one.' }
+				]
+			},
+			{
+				title: 'Decide what the user gets',
+				questions: [
+					{ q: 'The breaker is open. What does the tax call do?', options: ['Fail at once', 'Wait 10 seconds, then fail', 'Retry until the API answers', 'Call the API anyway'], answer: 0, why: 'An open breaker refuses the call without touching the dependency, so no thread waits.' },
+					{ q: 'What happens to the invoice?', options: ['It uses the last known tax rate', 'It is saved as a draft marked "tax pending" and finished later', 'It uses a 0% rate', 'The user gets a `500` page'], answer: 1, why: 'The draft keeps the work, and the tax is added once the API is back.' },
+					{ q: 'Why never guess a tax rate?', options: ['Guessing is slower than waiting', 'The breaker blocks any guess', 'A fallback must stay correct, and a guessed rate may be wrong', 'The API would reject the invoice later'], answer: 2, why: 'Degrade honestly: leave the tax out rather than put a wrong one on an invoice.' },
+					{ q: 'What is that behavior called?', options: ['Backpressure', 'A bulkhead', 'Rate limiting', 'Graceful degradation'], answer: 3, why: 'The app keeps serving what still works and leaves out what does not.' }
+				]
+			},
+			{
+				title: 'Close it again',
+				questions: [
+					{ q: 'After `waitDurationInOpenState`, which state comes next?', options: ['Closed', 'Half-open', 'Open again', 'Disabled'], answer: 1, why: 'The breaker does not trust the API at once. It tests it first.' },
+					{ q: 'What happens in half-open?', options: ['A few trial calls go through', 'All calls go through', 'No call goes through', 'Calls go to a backup API'], answer: 0, why: 'resilience4j hands out a fixed number of trial permits, 10 by default.' },
+					{ q: 'The trial calls go well. What next?', options: ['The breaker opens again', 'It stays half-open for good', 'The breaker closes', 'The pod restarts'], answer: 2, why: 'Below the failure threshold, the breaker closes and normal traffic resumes.' },
+					{ q: 'The trial calls fail. What next?', options: ['The breaker closes', 'The pod restarts', 'It stays half-open for good', 'The breaker opens again'], answer: 3, why: 'At or over the failure threshold, it opens again and waits once more.' }
+				]
+			},
+			{
+				title: 'Make it visible',
+				questions: [
+					{ q: 'How do you make the breaker visible?', options: ['Log every state change and graph it', 'Log only the `500`s', 'Email support for each failed invoice', 'You do not: it heals on its own'], answer: 0, why: 'A state change is the moment the tax API got sick or got better.' },
+					{ q: 'What does the graph give you?', options: ['A slower breaker', 'A threshold that tunes itself', 'Fewer calls to the tax API', '"Tax API down" on a dashboard before support tickets arrive'], answer: 3, why: 'You hear it from your own data, not from your customers.' },
+					{ q: 'Should an open breaker fail the liveness probe?', options: ['Yes: the app is unhealthy', 'No: restarting the app does not heal the tax API', 'Yes, after 10 minutes', 'No: liveness only checks the disk'], answer: 1, why: 'A failed liveness probe restarts the container, and that fixes nothing here.' },
+					{ q: 'The app runs on 6 pods. How many breakers are there?', options: ['1, shared by all pods', 'One per invoice', '6, each learning on its own', 'None: Kubernetes runs the breaker'], answer: 2, why: 'The state lives inside each process, so for a while some pods refuse calls that others still send.' }
+				]
+			}
 		]
 	},
 	quiz: [

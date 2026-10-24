@@ -100,6 +100,44 @@ drwho:
 			'PM : redémarrer l’agent du nœud, par exemple pendant une mise à jour, ne retire plus un instant les services sains de la rotation. Coût : un service vraiment cassé pendant ce redémarrage est repéré une probe plus tard.',
 			'Directrice : « La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. C’est le comportement par défaut depuis Kubernetes 1.35. »',
 			'Vérifie : les mêmes faits dans les trois ? Un gain et un coût pour chacune ? Rien au dernier étage que tu ne pourrais pas appuyer par une ligne de la KEP ?'
+		],
+		steps: [
+			{
+				title: 'Fixe d’abord les faits',
+				questions: [
+					{ q: 'Quel est le gain de la KEP-4781, en une ligne ?', options: ['Les pods redémarrent plus vite après une mise à jour de nœud', 'Les probes tournent moins souvent, donc les nœuds consomment moins de CPU', 'Un redémarrage du kubelet ne marque plus tous les pods « pas Ready »', 'Les conteneurs cassés sont repérés plus tôt'], answer: 2, why: 'La KEP garde le dernier statut connu au lieu de le remettre à zéro, donc les pods sains restent dans la rotation.' },
+					{ q: 'Quel est le coût, en une ligne ?', options: ['Un conteneur qui a cassé pendant que le kubelet était arrêté reste Ready jusqu’au prochain cycle de probe', 'Chaque pod redémarre une fois après le redémarrage du kubelet', 'Le kubelet a besoin de plus de mémoire', 'Les readiness probes ne marchent plus'], answer: 0, why: 'La KEP nomme elle-même ce risque : le trafic peut aller vers un pod déclaré Ready qui n’est plus en bonne santé.' },
+					{ q: 'Entre les trois versions, qu’est-ce qui peut changer ?', options: ['Les faits, simplifiés à chaque étage', 'La décision, adaptée à chaque public', 'Seulement la longueur, avec le même détail', 'Le détail et la conséquence sur laquelle chaque personne agit'], answer: 3, why: 'L’altitude change les mots et le détail. Si les faits changent, tu as décrit trois décisions.' },
+					{ q: 'Avant d’écrire, que te demandes-tu sur chaque personne ?', options: ['Son niveau d’ancienneté', 'Ce qu’elle va **faire** de ta réponse', 'Combien elle connaît Kubernetes', 'Si elle a lu la KEP'], answer: 1, why: 'Le développeur la construit et l’exploite, le PM planifie les mises à jour et le support, la directrice décide si ça compte pour les clients.' }
+				]
+			},
+			{
+				title: 'Écris la version salle des machines',
+				questions: [
+					{ q: 'De quoi le développeur a-t-il besoin que les autres n’ont pas ?', options: ['Du mécanisme : quels statuts sont gardés, et comment le désactiver', 'De l’impact sur le budget', 'D’un résumé du risque en une phrase', 'De la seule date de sortie'], answer: 0, why: 'Les gens de la salle des machines construisent sur le mécanisme, donc il doit être écrit en clair.' },
+					{ q: 'Quels statuts le kubelet garde-t-il pour les conteneurs qui tournaient déjà ?', options: ['Seulement `Ready`', '`Started` et `Ready`', 'Seulement `Started`', 'Tous les statuts, y compris les compteurs de redémarrage'], answer: 1, why: 'Au lieu de les remettre à false, le kubelet garde les deux pour les conteneurs qui tournaient.' },
+					{ q: 'Un pod n’était pas Ready avant le redémarrage. Que lui arrive-t-il ?', options: ['Il devient Ready, puisque son statut est gardé', 'Il est redémarré', 'Il est supprimé', 'Il reste « pas Ready » jusqu’à ce que sa probe passe'], answer: 3, why: 'Garder le dernier statut marche dans les deux sens : un pod « pas Ready » le reste.' },
+					{ q: 'Qu’est-ce qui rétablit l’ancien comportement ?', options: ['Redémarrer le kubelet deux fois', 'Retirer la readiness probe', 'Le gate `ChangeContainerStatusOnKubeletRestart`', 'Un flag sur chaque pod'], answer: 2, why: 'Le développeur a besoin de l’interrupteur, donc nomme le gate.' }
+				]
+			},
+			{
+				title: 'Écris la version du PM',
+				questions: [
+					{ q: 'Quel gain convient au PM, en mots simples ?', options: ['Le kubelet garde les champs `Started` et `Ready`', 'Redémarrer l’agent du nœud, pendant une mise à jour, ne retire plus les services sains de la rotation', 'Les probes sont plus précises', 'Kubernetes 1.35 est plus rapide'], answer: 1, why: 'Le PM planifie les mises à jour et le support, donc le gain se dit comme ce qui arrive aux services pendant une mise à jour.' },
+					{ q: 'Quel coût convient au PM ?', options: ['Un service vraiment cassé pendant ce redémarrage est repéré une probe plus tard', 'Les mises à jour prennent deux fois plus de temps', 'La fonctionnalité coûte des licences en plus', 'Le support doit redémarrer les pods à la main'], answer: 0, why: 'Le même coût que pour le développeur, dit comme ce que verra le support.' },
+					{ q: 'Pourquoi ne pas donner les noms de champs au PM ?', options: ['Ils sont secrets', 'Ils changent à chaque release', 'Ils sont faux à cette altitude', 'Le PM ne peut rien en faire'], answer: 3, why: 'Le mécanisme est vrai, mais inutile pour planifier. Donne plutôt la conséquence.' },
+					{ q: 'Quelle longueur fait la version du PM ?', options: ['Une phrase', 'Cinq lignes', 'Deux lignes', 'Une page entière'], answer: 2, why: 'La consigne la fixe : 5 lignes, 2 lignes, 1 phrase, de la salle des machines vers le haut.' }
+				]
+			},
+			{
+				title: 'Écris la version penthouse et vérifie',
+				questions: [
+					{ q: 'Quelle phrase convient à la directrice ?', options: ['« Le kubelet garde désormais les champs de statut des conteneurs à travers les redémarrages. »', '« La maintenance courante des nœuds ne causera plus de brèves fausses pannes, au prix d’une réaction un peu plus lente à une vraie panne pendant cette fenêtre. »', '« Nous suivons les bonnes pratiques, donc les redémarrages sont sans risque. »', '« Les mises à jour de nœuds sont désormais sans aucun risque. »'], answer: 1, why: 'Un gain et un coût honnête, avec des mots sur lesquels une directrice peut agir.' },
+					{ q: 'Pourquoi garder le coût dans la phrase de la directrice ?', options: ['Une directrice qui n’entend que le gain apprend le coût plus tard, par quelqu’un d’autre', 'Les directrices préfèrent les mauvaises nouvelles', 'Le template l’exige', 'Ça allonge la phrase'], answer: 0, why: 'Si la version du dernier étage cache le coût, la confiance part la première fois que le coût se montre.' },
+					{ q: 'Quel fait peux-tu ajouter, appuyé par les sources ?', options: ['Ça supprime toutes les pannes', 'Ça sort dans Kubernetes 2.0', 'C’est le comportement par défaut depuis Kubernetes 1.35', 'Ce n’est encore qu’une proposition'], answer: 2, why: 'Le changement est sorti dans Kubernetes 1.35, comme le montrent les sources du chapitre.' },
+					{ q: 'Quelle est la dernière vérification avant d’envoyer ?', options: ['Que chaque version utilise des faits différents', 'Que la version de la directrice soit la plus longue', 'Que la version du développeur n’ait aucun coût', 'Les mêmes faits dans les trois, un gain et un coût chacune, rien que tu ne puisses appuyer par la KEP'], answer: 3, why: 'Les trois personnes se retrouveront un jour dans la même réunion. Les faits doivent correspondre.' }
+				]
+			}
 		]
 	},
 	quiz: [

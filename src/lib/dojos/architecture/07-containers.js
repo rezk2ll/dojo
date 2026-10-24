@@ -106,6 +106,44 @@ export default {
 			'Containers: PostgreSQL, the Sidekiq process, the streaming server, the React web app (it runs in the browser), Elasticsearch (when enabled), and the S3 bucket (you own its data).',
 			'Not containers: the image (one build that runs as two containers, `web` and `sidekiq`) and `PostStatusService` (a class inside the Rails app, a component at level 3).',
 			'The trap is the image. `web` and `sidekiq` share code but run as separate processes, so Sidekiq can die while the API keeps answering.'
+		],
+		steps: [
+			{
+				title: 'Set the test',
+				questions: [
+					{ q: 'Which question do you ask of each item?', options: ['Is it packaged as a Docker image?', 'Does it have its own Git repository?', 'Does it run, or store data, on its own, and can it crash while the rest keeps going?', 'Does it expose a REST API?'], answer: 2, why: 'A container is something that must be running for the system to work, as its own process or store.' },
+					{ q: 'What does "container" mean in C4?', options: ['A Docker container', 'A runtime boundary: a process or store you start, stop, deploy and monitor on its own', 'A Kubernetes pod', 'A folder of code in the repo'], answer: 1, why: 'Simon Brown chose the word so it says nothing about how the thing is run.' },
+					{ q: 'Two pieces of code sit on the two sides of a process boundary. What can they not do?', options: ['Talk over a network', 'Talk through a queue', 'Crash one without the other', 'Share memory'], answer: 3, why: 'They talk over a network, a queue or a file, and either side can crash alone.' },
+					{ q: 'At which C4 level do containers appear?', options: ['Level 2', 'Level 1, context', 'Level 3, components', 'Level 4, code'], answer: 0, why: 'Level 2 opens the system box from the context diagram.' }
+				]
+			},
+			{
+				title: 'Sort what runs',
+				questions: [
+					{ q: 'PostgreSQL?', options: ['Not a container: it has no API of its own', 'A container: a data store that must be running', 'An external system', 'A component of `web`'], answer: 1, why: 'Accounts, posts and follows live there. A database with no API is still a container.' },
+					{ q: 'The React web app?', options: ['Not a container: `web` serves it', 'Not a container: it has no Docker image', 'A container: it runs in the user\'s browser', 'An external system: the browser is not ours'], answer: 2, why: 'It runs on its own, in the browser, so it is a container of its own.' },
+					{ q: 'The streaming server?', options: ['Part of the `web` container', 'A component inside Rails', 'An external system', 'A container: its own image, Node.js on port 4000'], answer: 3, why: 'It is built from its own Dockerfile and you scale it on its own.' },
+					{ q: 'The Sidekiq process?', options: ['A container: it runs as its own process', 'Not a container: it shares the `web` image', 'A component of Redis', 'Part of the `web` container'], answer: 0, why: 'It starts, crashes and scales apart from `web`.' }
+				]
+			},
+			{
+				title: 'Sort the edge cases',
+				questions: [
+					{ q: 'Elasticsearch?', options: ['Never a container: it is optional', 'An external system', 'A container when enabled, drawn dashed', 'A component of PostgreSQL'], answer: 2, why: 'Mastodon offers search "when Elasticsearch is available", so it gets a dashed box.' },
+					{ q: 'The S3 bucket for media?', options: ['A container: someone else hosts it, but you own the data', 'An external system: someone else hosts it', 'Not a container: it only holds files', 'A component of `web`'], answer: 0, why: 'What counts is who owns the data, not who runs the hardware.' },
+					{ q: 'The `PostStatusService` class?', options: ['A container: it does work on its own', 'An external system', 'A container, since Sidekiq calls it', 'Not a container: a class inside the Rails app, a component at level 3'], answer: 3, why: 'A class runs inside a process. It cannot crash on its own.' },
+					{ q: 'The streaming server reads PostgreSQL directly. Why does that matter?', options: ['It makes streaming part of `web`', 'A schema change has to work for both containers', 'It makes PostgreSQL an external system', 'It does not matter: reads are free'], answer: 1, why: 'Two containers on one database means one schema serves both.' }
+				]
+			},
+			{
+				title: 'Spot the image trap',
+				questions: [
+					{ q: 'The `ghcr.io/mastodon/mastodon` image?', options: ['A container: it is in `docker-compose.yml`', 'An external system: it lives on ghcr.io', 'Not a container: one build that runs as two containers, `web` and `sidekiq`', 'Two containers drawn in one box'], answer: 2, why: 'An image is only the build a container starts from.' },
+					{ q: 'In `docker-compose.yml`, what differs between `web` and `sidekiq`?', options: ['The image', 'The `env_file`', 'The `restart` policy', 'The `command`'], answer: 3, why: 'Same image, different command: `puma` for one, `sidekiq` for the other.' },
+					{ q: 'Sidekiq dies. What does the API do?', options: ['It keeps answering: posts are saved and jobs wait in Redis', 'It fails too, since they share an image', 'It runs the jobs itself', 'It drops the queued jobs'], answer: 0, why: 'Separate processes fail apart. Feeds and other servers get the post once Sidekiq runs again.' },
+					{ q: 'One image, two commands. How many boxes on the container diagram?', options: ['One', 'Two', 'None', 'Three'], answer: 1, why: 'C4 draws one box per process or store, not per image.' }
+				]
+			}
 		]
 	},
 	quiz: [

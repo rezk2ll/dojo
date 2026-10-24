@@ -88,6 +88,44 @@ export default {
 			'Outbox : il faut un stockage qui écrive le fichier et un enregistrement « à copier » d’un seul coup. Un bucket de stockage ne le permet pas. Tu pourrais écrire l’enregistrement en base d’abord, mais la base et le bucket forment alors une nouvelle double écriture.',
 			'Réconciliation : un job liste les deux régions et copie ce qui manque. Chaque passage liste les deux buckets en entier, ce qui prend du temps et peut coûter de l’argent.',
 			'Copier deux fois ne pose aucun problème si le nom d’un fichier vient de son contenu, ou si la copie écrase avec les mêmes octets. Avec une réparation idempotente, tu peux la lancer aussi souvent que tu veux.'
+		],
+		steps: [
+			{
+				title: 'Suis le crash',
+				questions: [
+					{ q: 'Le processus meurt après la première écriture et avant l’événement. Que reste-t-il ?', options: ['Aucun fichier dans aucune région', 'Le fichier dans la première région seulement, et aucun événement « copier plus tard »', 'Les deux copies, et un événement en attente', 'Le fichier dans la deuxième région seulement'], answer: 1, why: 'Une écriture est passée, l’autre non, et l’événement qui aurait réparé n’a jamais été envoyé.' },
+					{ q: 'Quel genre d’écriture est cet upload ?', options: ['Une seule écriture atomique dans les deux régions', 'Une écriture d’outbox', 'Une étape de réconciliation', 'Une double écriture : deux stockages, sans rien qui garantisse que les deux réussissent ou que les deux échouent'], answer: 3, why: 'Deux stockages écrits séparément, ici en parallèle, sans rien autour des deux écritures.' },
+					{ q: 'Un `try/catch` autour des deux écritures peut-il corriger ça ?', options: ['Oui, attrape l’erreur et envoie l’événement', 'Non, un `catch` ne tourne que si le processus est vivant', 'Oui, si le `catch` relance l’écriture', 'Non, parce que les buckets ne lèvent pas d’erreur'], answer: 1, why: 'Un crash saute le `catch`. Le trou reste ouvert.' },
+					{ q: 'Pourquoi le worker de copie ne répare-t-il jamais ?', options: ['Il ne copie que quand il reçoit un événement « copier plus tard », et aucun n’a été envoyé', 'La deuxième région refuse les copies', 'La première copie est cassée', 'Il ne tourne qu’une fois par jour'], answer: 0, why: 'La réparation dépend de l’événement, et l’événement, c’est justement l’écriture qui n’a pas eu lieu.' }
+				]
+			},
+			{
+				title: 'Trouve quand ça se voit',
+				questions: [
+					{ q: 'Où la lecture vidéo lit-elle ?', options: ['Toujours dans la deuxième région', 'Dans les deux régions, et elle compare', 'Dans la première région, et la deuxième seulement en cas d’erreur', 'Dans la région la plus proche'], answer: 2, why: 'La deuxième copie n’est lue que quand la première échoue.' },
+					{ q: 'Quand est-ce que quelqu’un remarque la copie manquante ?', options: ['À la prochaine lecture', 'Le jour où la première région tombe', 'Quand le worker réessaie', 'Au prochain upload'], answer: 1, why: 'Tant que la première région marche, les lectures ne touchent jamais la deuxième.' },
+					{ q: 'Pourquoi est-ce le pire moment pour le découvrir ?', options: ['C’est le seul jour où on a besoin de la deuxième copie', 'Les uploads sont plus lents ce jour-là', 'Le worker est occupé ce jour-là', 'Les utilisateurs regardent moins de vidéos ce jour-là'], answer: 0, why: 'La copie sert à couvrir une panne de région, et c’est pendant la panne qu’on découvre qu’elle manque.' },
+					{ q: 'Qu’est-ce qui rendrait le trou visible avant ce jour-là ?', options: ['Plus de trafic de lecture', 'Des timeouts plus longs sur l’upload', 'Une première région plus grande', 'Un job qui compare les deux régions'], answer: 3, why: 'Rien sur le chemin normal ne lit la deuxième copie. Seule une vérification qui regarde les deux régions trouve le trou.' }
+				]
+			},
+			{
+				title: 'Pèse compensation et outbox',
+				questions: [
+					{ q: 'La compensation supprimerait le fichier de la première région. Pourquoi est-ce un mauvais choix ici ?', options: ['La suppression est trop lente', 'L’upload a été accepté et la première copie est saine', 'La compensation demande d’abord une outbox', 'Elle supprimerait aussi la deuxième copie'], answer: 1, why: 'Annuler une bonne écriture jette la seule copie que tu as.' },
+					{ q: 'De quoi une outbox a-t-elle besoin ?', options: ['D’un stockage qui enregistre les données et le message en une seule écriture', 'D’un deuxième broker', 'D’un job de réconciliation derrière elle', 'D’un cache devant le stockage'], answer: 0, why: 'L’outbox marche parce que données et message arrivent dans la même écriture : un crash garde les deux ou aucun.' },
+					{ q: 'Un bucket de stockage peut-il écrire le fichier et un enregistrement « à copier » d’un seul coup ?', options: ['Oui, tous les buckets gèrent les transactions', 'Oui, si les deux régions partagent un seul bucket', 'Non, un bucket ne le permet pas', 'Seulement pour les fichiers sous une certaine taille'], answer: 2, why: 'L’outbox demande une seule écriture pour les deux. Un bucket ne te l’offre pas.' },
+					{ q: 'Tu écris d’abord l’enregistrement « à copier » en base, puis le fichier. Qu’as-tu construit ?', options: ['Une vraie outbox', 'Un upload atomique', 'Un job de réconciliation', 'Une nouvelle double écriture, entre la base et le bucket'], answer: 3, why: 'La base et le bucket ne partagent aucune transaction, donc le même crash peut les séparer.' }
+				]
+			},
+			{
+				title: 'Réconcilie, sans risque',
+				questions: [
+					{ q: 'Que fait le job de réconciliation ?', options: ['Il liste les deux régions et copie ce qui manque', 'Il supprime chaque fichier présent dans une seule région', 'Il demande aux utilisateurs de renvoyer leurs vidéos', 'Il compare seulement le nombre de fichiers'], answer: 0, why: 'Il répare l’écart quelle qu’en soit la cause, y compris le crash qu’aucun événement n’a vu.' },
+					{ q: 'Qu’est-ce que ça coûte ?', options: ['Rien : il lit une seule ligne', 'Il bloque les uploads pendant qu’il tourne', 'Chaque passage liste les deux buckets en entier, ce qui prend du temps et peut coûter de l’argent', 'Il a besoin d’un relais d’outbox'], answer: 2, why: 'La réconciliation lit tout. Certains fournisseurs de stockage facturent ces requêtes de listing.' },
+					{ q: 'Quand copier un fichier deux fois est-il sans danger ?', options: ['Jamais : une deuxième copie le corrompt toujours', 'Quand le nom vient du contenu, ou que la copie écrase avec les mêmes octets', 'Seulement pour les petits fichiers', 'Seulement quand le job tourne la nuit'], answer: 1, why: 'La réparation est alors idempotente, et tu peux la lancer aussi souvent que tu veux.' },
+					{ q: 'Quel outil de Mastodon fait le même genre de réparation ?', options: ['Le set Redis `chewy:queue`', 'La stratégie Chewy qui met les ids de côté', 'L’ordre `import!`, puis `srem`', '`tootctl media remove-orphans`, qui confronte chaque fichier stocké aux enregistrements'], answer: 3, why: 'Il réconcilie le stockage objet avec Postgres en parcourant chaque fichier, et il prévient qu’il sera lent.' }
+				]
+			}
 		]
 	},
 	quiz: [

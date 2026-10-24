@@ -106,6 +106,44 @@ export default {
 			'Ask what order you need. If consumers only need each ticket\'s events in order, key by ticket id. The big tenant\'s traffic then spreads over all partitions.',
 			'If some consumer needs per-tenant order, keep a tenant-keyed topic for it, and publish a ticket-keyed one for the rest. Or give the big tenant its own topic.',
 			'Change the key or the count once, between two clear points: drain the old topic, then start a new one with the new layout, so no key is split across both.'
+		],
+		steps: [
+			{
+				title: 'Follow the hot key',
+				questions: [
+					{ q: 'How does the producer pick a partition for a keyed record?', options: ['Round robin over all partitions', 'The partition with the least lag', 'The murmur2 hash of the key, modulo the partition count', 'A lookup in a tenant directory'], answer: 2, why: '`partitionForKey` hashes the key and takes it modulo the count. Same key, same partition.' },
+					{ q: 'Where do all of the big tenant\'s events go today?', options: ['To one partition', 'Spread evenly over the 12 partitions', 'To the partition with the most free space', 'To a new partition per ticket'], answer: 0, why: 'The key is the tenant id, so every one of its events hashes to the same partition.' },
+					{ q: 'Why is one consumer hours behind?', options: ['Kafka slows down partitions with many keys', 'Its partition takes 40% of all updates', 'The other consumers steal its events', 'The topic has too few replicas'], answer: 1, why: 'A key with ten times the traffic puts ten times the load on **one** partition, and one consumer reads it.' },
+					{ q: 'Would more replicas help that consumer keep up?', options: ['Yes: each replica takes a share of the writes', 'Yes: followers can process events for the leader', 'Only with replication factor 3', 'No: every copy takes every write'], answer: 3, why: 'All writes go to the partition leader and followers copy its log. Replicas add no write capacity.' }
+				]
+			},
+			{
+				title: 'Test the 48-partition idea',
+				questions: [
+					{ q: 'After the move to 48, where does the big tenant\'s traffic go?', options: ['Still to one partition', 'Spread over 4 partitions', 'Spread over all 48', 'To the newest partition'], answer: 0, why: 'One key still hashes to one partition, whatever the count. The hot partition stays hot.' },
+					{ q: 'What happens to the other tenants during the change?', options: ['Nothing: keys keep the partition they first had', 'Kafka moves their old events to match the new layout', 'New events can land on a different partition than their unread old ones', 'The producer stops until consumers catch up'], answer: 2, why: '`hash(key) % 48` can differ from `% 12`, and Kafka will not redistribute existing data. Order breaks for a while.' },
+					{ q: 'If 48 turns out to be a mistake, can you go back to 12?', options: ['Yes, with a config change', 'Yes, once consumers are idle', 'Only if no new keys were written', 'No: Kafka does not support reducing partitions'], answer: 3, why: 'The operations doc says Kafka does not currently support reducing the number of partitions for a topic.' },
+					{ q: 'So does the teammate\'s change fix the lagging consumer?', options: ['Yes: 48 partitions spread the load four times wider', 'No: the big tenant\'s key still lands on one partition', 'Yes, once Kafka moves the old events to the new partitions', 'Only if the topic also gets more replicas'], answer: 1, why: 'More partitions spread **many** keys. They cannot split **one** key.' }
+				]
+			},
+			{
+				title: 'Choose the key by the order you need',
+				questions: [
+					{ q: 'What question comes before picking a new key?', options: ['Which order consumers need: per tenant or per ticket', 'How many brokers the cluster has', 'How big each event is', 'Which consumer group is fastest'], answer: 0, why: 'The key decides what stays in order. Pick it from what consumers really need.' },
+					{ q: 'Consumers only need each ticket\'s events in order. What key do you use?', options: ['Tenant id, as today', 'No key at all', 'A random number per event', 'Ticket id'], answer: 3, why: 'Same ticket, same partition, so each ticket keeps its order, and the big tenant\'s many tickets spread out.' },
+					{ q: 'Why not send the events with no key?', options: ['Kafka refuses records without a key', 'Keyless records all go to partition 0', 'Keyless records spread with no order between them', 'Keyless records are not replicated'], answer: 2, why: 'With no key the built-in partitioner sticks to a partition per batch and moves on, so one ticket\'s events can arrive out of order.' },
+					{ q: 'One consumer really needs per-tenant order. What do you do?', options: ['Keep tenant id as the key for every consumer', 'Keep a tenant-keyed topic for it, and publish a ticket-keyed one for the rest', 'Let it sort events by timestamp after reading', 'Give it more partitions than the others'], answer: 1, why: 'Each consumer gets the layout it needs. Giving the big tenant its own topic is the other option.' }
+				]
+			},
+			{
+				title: 'Plan the switch',
+				questions: [
+					{ q: 'How many times do you change the key or the count?', options: ['Once, between two clear points', 'Gradually, a few partitions a week', 'Every time a tenant grows', 'Twice: once up, once back'], answer: 0, why: 'Each change can split a key across layouts. Doing it once keeps that window to one.' },
+					{ q: 'What do you do with the old topic before starting the new one?', options: ['Delete it right away', 'Keep writing to both forever', 'Drain it', 'Rename it to the new name'], answer: 2, why: 'Draining lets consumers read every old event first, so no key is split across both topics.' },
+					{ q: 'Why start a new topic instead of changing the key on the old one?', options: ['Kafka forbids changing keys on a topic', 'New topics are faster', 'Old topics cannot be read once a key changes', 'So no key has events in both layouts at once'], answer: 3, why: 'Change the key in place and a ticket\'s older events sit under the old key while its new ones go elsewhere. Draining, then starting fresh, keeps the two layouts apart.' },
+					{ q: 'Why does this choice deserve care?', options: ['Partitioning is a one-way door: undoing it means moving data again', 'Topic names cannot be reused', 'Consumers must restart in a fixed order', 'Brokers need a reboot after every change'], answer: 0, why: 'Once data is spread by a key, changing the key or the count moves data and can break order.' }
+				]
+			}
 		]
 	},
 	quiz: [

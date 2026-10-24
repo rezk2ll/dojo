@@ -103,6 +103,44 @@ export default {
 			'Fail closed : toutes les connexions sont refusées tant que le compteur est injoignable. L’attaquant est arrêté, et chaque utilisateur honnête aussi.',
 			'Repli local : chaque processus compte dans sa propre mémoire. La limite s’applique toujours, mais elle est multipliée par le nombre de processus, et un redémarrage la remet à zéro. Tu as aussi plus de code à maintenir.',
 			'Une réponse et une mesure possibles : « les connexions continuent de marcher ; au plus 25 × (nombre de processus web) tentatives par IP toutes les 5 minutes atteignent la vérification du mot de passe tant que Redis est en panne. » Tes nombres peuvent être différents, mais la mesure doit être un nombre.'
+		],
+		steps: [
+			{
+				title: 'Écris les quatre premières parties',
+				questions: [
+					{ q: 'Quelle partie change par rapport au scénario du chapitre ?', options: ['La source : un autre attaquant', 'Le stimulus : moins de connexions', 'L’environnement : Redis est injoignable', 'L’artefact : la vérification du mot de passe'], answer: 2, why: 'Même attaquant, même attaque. Seul l’état du système à son arrivée change.' },
+					{ q: 'Quel est le stimulus ?', options: ['Un attaquant avec des mots de passe fuités', '1000 connexions en 5 minutes', 'Les limites de connexion', 'Redis injoignable pendant 10 minutes'], answer: 1, why: 'Le stimulus est l’événement qui arrive sur le système. L’attaquant, c’est la source.' },
+					{ q: 'Quel est l’artefact ?', options: ['Les limites de connexion dans Rack::Attack', 'Le serveur Redis', 'La vérification du mot de passe dans Rails', 'Le formulaire de connexion dans le navigateur'], answer: 0, why: 'L’artefact est la partie qui reçoit le coup. Rack::Attack voit chaque `POST /auth/sign_in` en premier.' },
+					{ q: 'Pourquoi écrire un scénario à part pour Redis en panne ?', options: ['Redis en panne, c’est un autre attaquant', 'La QA ne teste qu’un scénario par sprint', 'La mesure reste la même, seuls les mots changent', 'La même attaque peut demander une autre réponse dans un autre environnement'], answer: 3, why: 'En charge normale, pendant un déploiement ou avec Redis en panne, la même rafale peut demander sa propre réponse.' }
+				]
+			},
+			{
+				title: 'Regarde ce que fait le code aujourd’hui',
+				questions: [
+					{ q: 'Redis est en panne. Que renvoie le cache Rails pour le compteur ?', options: ['Une erreur qui arrête la requête', '`nil`, après avoir avalé l’erreur', 'Le dernier compte qu’il connaissait', 'Zéro, lu dans PostgreSQL'], answer: 1, why: 'Le cache Redis de Rails avale les erreurs de connexion et renvoie `nil`.' },
+					{ q: 'Comment Rack::Attack lit-il ce `nil` ?', options: ['Comme un compte au-dessus de la limite', 'Comme une erreur à lever', 'Comme un compte de 1', 'Comme une raison de refuser la requête'], answer: 2, why: '`Cache#do_count` compte `nil` comme 1, donc chaque tentative ressemble à la première.' },
+					{ q: 'Que fait donc la limite tant que Redis est en panne ?', options: ['Du fail open : rien n’est limité', 'Du fail closed : chaque connexion reçoit un `429`', 'Elle renvoie un `500` à chaque connexion', 'Elle compte dans PostgreSQL à la place'], answer: 0, why: 'Aucun compte ne dépasse jamais 1, donc aucune tentative n’est jamais arrêtée.' },
+					{ q: 'En fail open, qui gagne pendant 10 minutes de panne de Redis ?', options: ['Les utilisateurs honnêtes, qui sont bloqués', 'La QA, qui peut lancer plus de tests', 'Personne, puisque les connexions s’arrêtent', 'L’attaquant, qui a 10 minutes sans limite'], answer: 3, why: 'Les connexions marchent pour tout le monde, attaquant compris.' }
+				]
+			},
+			{
+				title: 'Pèse les trois choix',
+				questions: [
+					{ q: 'Tu fais du fail closed. Que se passe-t-il ?', options: ['Seul l’attaquant est refusé', 'Toutes les connexions sont refusées : l’attaquant, et chaque utilisateur honnête aussi', 'Les connexions marchent sans limite', 'Chaque processus compte de son côté'], answer: 1, why: 'Sans le compteur, la limite ne distingue pas l’attaquant des autres.' },
+					{ q: 'Tu te rabats sur un compteur dans la mémoire de chaque processus. Que devient la limite ?', options: ['25 par IP, exactement comme avant', 'Zéro, donc toute connexion est refusée', 'Multipliée par le nombre de processus, et remise à zéro par un redémarrage', 'Partagée entre les processus par la mémoire'], answer: 2, why: 'Chaque processus ne compte que ce qu’il voit, et sa mémoire disparaît au redémarrage.' },
+					{ q: 'Quel autre coût apporte le repli local ?', options: ['Plus de code à maintenir', 'Un `429` à chaque connexion', 'Un `500` à chaque connexion', 'Une nouvelle dépendance à PostgreSQL'], answer: 0, why: 'Un deuxième chemin de comptage, c’est du code que quelqu’un doit posséder et tester.' },
+					{ q: 'Quelle question t’aide à choisir entre les trois ?', options: ['Lequel demande le moins de lignes de code ?', 'Lequel Rails choisit-il par défaut ?', 'Lequel la QA teste-t-elle le plus vite ?', 'Qui souffre pendant la panne : l’attaquant, ou chaque utilisateur honnête ?'], answer: 3, why: 'Chaque choix protège une caractéristique différente. Nomme qui en paie le prix.' }
+				]
+			},
+			{
+				title: 'Écris la réponse et la mesure',
+				questions: [
+					{ q: 'Tu choisis le repli local. Quelle réponse convient ?', options: ['Chaque connexion reçoit un `429`', 'Les connexions continuent de marcher', 'Les connexions renvoient un `500`', 'Les connexions attendent le retour de Redis'], answer: 1, why: 'Le repli garde les connexions ouvertes et applique quand même une limite.' },
+					{ q: 'Quelle mesure convient au repli local ?', options: ['Au plus 25 tentatives par IP toutes les 5 minutes, comme avant', 'Aucune tentative n’atteint la vérification du mot de passe', 'Au plus 25 × (nombre de processus web) tentatives par IP toutes les 5 minutes atteignent la vérification du mot de passe', 'La limite reste aussi sécurisée que possible'], answer: 2, why: 'C’est un nombre que la QA peut vérifier, et il dit honnêtement que la limite est multipliée.' },
+					{ q: 'Pourquoi « 25 × nombre de processus » et pas 25 ?', options: ['Chaque processus ne compte que les tentatives qu’il voit', 'Redis multiplie la limite quand il redémarre', 'Rack::Attack double les limites en cas d’erreur', 'La limite par compte ajoute ses propres 25'], answer: 0, why: 'Un attaquant dont les tentatives se répartissent sur tous les processus en obtient 25 dans chacun.' },
+					{ q: 'Un collègue écrit la mesure « la limite reste sécurisée ». Qu’est-ce qui ne va pas ?', options: ['Elle appartient à la partie stimulus', 'Elle nomme le mauvais environnement', 'Rien : elle nomme la caractéristique', 'Ce n’est pas un nombre que la QA peut vérifier'], answer: 3, why: 'La mesure tranche entre réussi et raté. Tes nombres peuvent être différents, mais ce doit être un nombre.' }
+				]
+			}
 		]
 	},
 	quiz: [

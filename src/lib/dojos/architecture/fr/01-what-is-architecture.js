@@ -80,6 +80,44 @@ CACHES = {
 			'La proposition met de l’état dans le processus applicatif, contre la décision « appli stateless ». Il te faudrait des sticky sessions (toujours la même copie pour un utilisateur donné) ou un stockage partagé pour les morceaux.',
 			'Les sticky sessions apportent un nouveau compromis : une copie qui meurt emporte les uploads de ses utilisateurs, et la charge se répartit mal.',
 			'En architecte, tu ne te contentes pas de dire non. Tu dis : « ça change une décision sur laquelle on s’appuie, voilà ce que ça coûte, est-ce que ça vaut le coup ? »'
+		],
+		steps: [
+			{
+				title: 'Lis l’installation',
+				questions: [
+					{ q: 'À l’étape 3, combien de copies de l’appli Django tournent derrière le load balancer ?', options: ['Une', 'Deux', 'Trois', 'Six'], answer: 2, why: 'L’étape 3 ajoute l’appli 2 et l’appli 3 à côté de la première, toutes derrière le même load balancer.' },
+					{ q: 'Où la boutique garde-t-elle son état à l’étape 3 ?', options: ['Dans la mémoire de chaque processus applicatif', 'Dans PostgreSQL et Redis', 'Dans le load balancer', 'Dans le navigateur des clients'], answer: 1, why: 'L’appli est **stateless** : sessions et commandes sont dans PostgreSQL, les pages en cache dans Redis.' },
+					{ q: 'À quelle copie le load balancer peut-il envoyer une requête donnée ?', options: ['À n’importe laquelle des trois copies', 'Toujours à l’appli 1', 'À la copie qui a servi cet utilisateur la dernière fois', 'À la copie qui a le plus de mémoire'], answer: 0, why: 'N’importe quelle copie sert n’importe quel client, donc le load balancer est libre de choisir.' },
+					{ q: 'Que change la proposition du collègue dans cette installation ?', options: ['Le nombre de copies de l’appli', 'La base de données de la boutique', 'La façon dont le load balancer choisit une copie', 'L’endroit où vivent les morceaux à moitié uploadés : la mémoire de l’appli'], answer: 3, why: 'La proposition met de l’état dans le processus applicatif, le seul endroit que l’étape 3 laisse vide.' }
+				]
+			},
+			{
+				title: 'Suis les morceaux',
+				questions: [
+					{ q: 'Le morceau 1 arrive sur l’appli 1 et reste dans sa mémoire. Où peut arriver le morceau 2 ?', options: ['Seulement sur l’appli 1', 'Sur n’importe laquelle des trois copies, appli 2 comprise', 'Dans Redis, tout seul', 'Dans PostgreSQL, tout seul'], answer: 1, why: 'Rien n’attache un utilisateur à une copie, donc le load balancer peut envoyer le morceau 2 n’importe où.' },
+					{ q: 'Le morceau 2 arrive sur l’appli 2. Que sait l’appli 2 du morceau 1 ?', options: ['Rien : le morceau 1 est dans la mémoire de l’appli 1', 'Tout : Django synchronise la mémoire entre processus', 'Elle lit le morceau 1 dans PostgreSQL', 'Elle demande le morceau 1 au load balancer'], answer: 0, why: 'Un processus garde sa mémoire pour lui. L’appli 2 n’a jamais vu le morceau 1.' },
+					{ q: 'Qu’obtient l’utilisateur ?', options: ['Un upload plus lent qui marche quand même', 'Un upload qui marche une fois le cache chaud', 'Un upload qui échoue ou un fichier corrompu', 'Un upload qui marche, relancé sur l’appli 1'], answer: 2, why: 'Le morceau 2 arrive sur une copie qui n’a jamais vu le morceau 1, donc le fichier ne peut pas être reconstitué.' },
+					{ q: 'Quel réglage par défaut de Django a le même défaut que la proposition ?', options: ['`SESSION_ENGINE` avec le backend `db`', 'Le `LocMemCache` par défaut dans `CACHES`', 'Le cache Redis de l’étape 2', 'La table des commandes dans PostgreSQL'], answer: 1, why: 'Avec `LocMemCache`, chaque processus a son propre cache privé. L’état reste dans un processus, comme les morceaux.' }
+				]
+			},
+			{
+				title: 'Nomme la décision',
+				questions: [
+					{ q: 'Contre quelle décision d’architecture va la proposition ?', options: ['Les commandes sont stockées dans PostgreSQL', 'Le trafic arrive à la boutique en HTTPS', 'Les pages sont mises en cache dans Redis', 'Le processus applicatif ne garde aucun état entre les requêtes'], answer: 3, why: 'Des morceaux en mémoire, c’est de l’état dans le processus applicatif. Exactement ce que le shared-nothing interdit.' },
+					{ q: 'Pourquoi « appli stateless » est-elle une décision d’architecture et pas un détail ?', options: ['Elle concerne le framework, Django', 'Elle coûte cher à changer plus tard et d’autres décisions en dépendent', 'Elle a été prise par l’architecte principal', 'Elle est écrite dans un ADR'], answer: 1, why: 'Le critère, c’est le coût d’un changement d’avis plus tard. Le passage à l’échelle par copies repose sur cette règle.' },
+					{ q: 'Qu’est-ce que la décision stateless a permis à la boutique pour le Black Friday ?', options: ['Ajouter des copies par un changement de déploiement, sans réécriture', 'Se passer de la base pour les sessions', 'Tourner sans load balancer', 'Mettre le cache dans chaque processus'], answer: 0, why: 'Le code n’a pas bougé. Passer d’une machine à trois n’a demandé qu’un changement de déploiement.' },
+					{ q: 'Quel coût l’appli stateless paie-t-elle déjà, celui que le collègue veut éviter ?', options: ['Une réécriture à chaque copie ajoutée', 'Des paniers perdus quand une copie plante', 'Un aller-retour réseau vers la base ou le cache à chaque requête', 'Une charge mal répartie entre les copies'], answer: 2, why: 'Chaque requête paie un aller-retour réseau pour un état qui aurait pu rester en mémoire. C’est cette vitesse que le collègue veut récupérer.' }
+				]
+			},
+			{
+				title: 'Réponds au collègue',
+				questions: [
+					{ q: 'Quelles deux solutions font remarcher l’upload par morceaux ?', options: ['Plus de copies de l’appli, ou un plus gros load balancer', 'Des sticky sessions, ou un stockage partagé pour les morceaux', 'Un cache local, ou plus de mémoire par copie', 'Relancer le morceau 2, ou l’envoyer deux fois'], answer: 1, why: 'Soit chaque morceau arrive sur la même copie, soit chaque copie peut lire chaque morceau.' },
+					{ q: 'Que fait une sticky session ?', options: ['Elle envoie toujours un utilisateur vers la même copie', 'Elle copie la mémoire de session entre les copies', 'Elle range les sessions dans PostgreSQL', 'Elle verrouille l’upload jusqu’à la fin'], answer: 0, why: 'Sticky veut dire que le load balancer attache chaque utilisateur à une copie.' },
+					{ q: 'Quel nouveau coût apportent les sticky sessions ?', options: ['Chaque requête paie un aller-retour vers Redis', 'Les sessions ne peuvent plus aller en base', 'Le load balancer doit copier la mémoire entre les copies', 'Une copie qui meurt emporte les uploads de ses utilisateurs, et la charge se répartit mal'], answer: 3, why: 'L’état est revenu dans un processus. Tu perds le processus, tu perds l’état.' },
+					{ q: 'En architecte, que réponds-tu au collègue ?', options: ['« Non : on a décidé que l’appli est stateless, le sujet est clos. »', '« Oui : la mémoire est plus rapide, on livre et on corrigera après. »', '« Ça change une décision sur laquelle on s’appuie. Voilà ce que ça coûte. Est-ce que ça vaut le coup ? »', '« Essaie sur une copie d’abord, puis déploie sur les autres. »'], answer: 2, why: 'Tu ne te contentes pas de dire non. Tu nommes la décision et son coût, et tu laisses le compromis trancher.' }
+				]
+			}
 		]
 	},
 	quiz: [

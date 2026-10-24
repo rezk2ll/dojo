@@ -100,6 +100,44 @@ export default {
 			'(c) Booking is the owner. The price paid is a fact about the sale, a snapshot like Online Boutique\'s `OrderItem.cost`.',
 			'(d) Accounts is the owner. Booking keeps a **reference** (the customer id) and asks when it sends a mail, or a copy fed by "email changed" events.',
 			'(e) Events owns the seat. Booking keeps a **reference**: the seat id on the ticket.'
+		],
+		steps: [
+			{
+				title: 'Name each owner',
+				questions: [
+					{ q: 'Who owns (a), a concert\'s date?', options: ['Booking', 'Events', 'Accounts', 'Every service that prints it'], answer: 1, why: 'Events holds the concerts. It is the one place that changes a date.' },
+					{ q: 'Who owns (b), the number of free seats?', options: ['Booking, since it sells the seats', 'Accounts, since customers take the seats', 'Events, since it holds the seat map', 'Events and Booking together'], answer: 2, why: 'The count follows from the seat map, and the seat map is Events\' data. Two writers would mean two sets of rules.' },
+					{ q: 'Who owns (c), the price paid for a ticket?', options: ['Events, since it owns the concert', 'Accounts, since the customer paid', 'Whichever service sends the receipt', 'Booking: it is a fact about the sale'], answer: 3, why: 'The price paid is recorded by the sale, like `OrderItem.Cost` in Online Boutique.' },
+					{ q: 'Who owns (d), a customer\'s email?', options: ['Booking', 'Events', 'Accounts', 'The mail server'], answer: 2, why: 'Accounts holds the customers, so it is the only service that writes their email.' }
+				]
+			},
+			{
+				title: 'Ask what Booking needs',
+				questions: [
+					{ q: 'For the price paid, does Booking need today\'s value or the value at the sale?', options: ['Today\'s value, read from Events', 'The value at the moment of sale', 'Neither: it never shows a price', 'Both, kept in step'], answer: 1, why: 'The ticket records what the customer agreed to pay. A later price change must not touch it.' },
+					{ q: 'Which question helps you name the owner?', options: ['Which service runs fastest?', 'Which table is the biggest?', 'Who must keep a rule about it true?', 'Which service read it first?'], answer: 2, why: 'The owner is the one service that keeps the invariants about that data.' },
+					{ q: 'Booking mails a customer. Which email does it need?', options: ['The email at the moment of sale', 'The email from the first booking', 'None: Booking never sends mail', 'The current one, so the mail reaches the customer'], answer: 3, why: 'An old email may no longer work. That is why Booking asks Accounts when it sends.' },
+					{ q: 'In Online Boutique, which value does an order keep for each item?', options: ['The catalog\'s current price, read again on each view', 'The `Cost` at the moment of sale', 'Only the product id', 'The price in USD before conversion'], answer: 1, why: 'Checkout copies the price into `OrderItem.Cost`, a snapshot that later catalog changes never update.' }
+				]
+			},
+			{
+				title: 'Own, copy or reference',
+				questions: [
+					{ q: '(a) Booking prints the concert date on the ticket. What does it keep?', options: ['A copy fed by "concert rescheduled" events', 'Its own date, which it owns', 'A copy it edits when the venue calls', 'No date: tickets never show it'], answer: 0, why: 'A copy is fine as long as only the owner\'s events change it.' },
+					{ q: '(c) What is the price paid, for Booking?', options: ['A copy fed by Events', 'A reference to Events\' price', 'Data Booking owns, a snapshot of the sale', 'A value it asks Events for each time'], answer: 2, why: 'The price paid is a new fact created by the sale, and Booking records the sale.' },
+					{ q: '(e) What does a ticket keep about its seat?', options: ['Ownership of the seat', 'A copy of the whole seat map', 'Nothing at all', 'A reference: the seat id'], answer: 3, why: 'Events owns the seat. An id needs no keeping in step.' },
+					{ q: '(d) Booking must mail the customer. Which of these is safe to keep?', options: ['Its own email column that it edits', 'A reference, the customer id, and ask Accounts when mailing', 'A copy typed in at booking and never updated', 'The email from the last booking'], answer: 1, why: 'A reference cannot go stale. A copy is safe only when Accounts\' "email changed" events feed it.' }
+				]
+			},
+			{
+				title: 'Say how Booking gets it',
+				questions: [
+					{ q: 'How does Booking take seats for a sale?', options: ['It asks Events to hold the seats, and never writes the count', 'It writes the count in Events\' table', 'It keeps its own count of free seats', 'It copies the seat map every night'], answer: 0, why: 'Only the owner writes. Booking asks, and Events keeps the count right.' },
+					{ q: 'A concert is rescheduled. How does Booking\'s copy of the date change?', options: ['Booking edits it when a customer complains', 'Booking reads Events\' database each night', 'It never changes once a ticket is sold', 'Events publishes "concert rescheduled", and Booking updates its copy from it'], answer: 3, why: 'The owner sends the change, and the copy follows. No one reads Events\' tables.' },
+					{ q: 'Who may change Booking\'s copy of a customer\'s email?', options: ['Booking, when a customer calls', 'Any service that has the id', 'Only the owner, through an "email changed" event from Accounts', 'Nobody, once it is stored'], answer: 2, why: 'Only the owner changes a copy. Mastodon rejects an `Update` about an account the sender does not own.' },
+					{ q: 'Booking reads Events\' seat table directly, read-only. What goes wrong?', options: ['Nothing: a read-only query cannot break anything', 'Events can no longer change its tables without breaking Booking', 'Booking becomes the owner of the seats', 'Events must publish more events'], answer: 1, why: 'The table becomes an integration database. The owner loses the right to change its own schema.' }
+				]
+			}
 		]
 	},
 	quiz: [

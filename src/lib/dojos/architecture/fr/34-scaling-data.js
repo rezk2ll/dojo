@@ -106,6 +106,44 @@ export default {
 			'Demande-toi quel ordre il te faut. Si les consommateurs ont seulement besoin des événements de chaque ticket dans l’ordre, prends l’id du ticket comme clé. Le trafic du gros tenant se répartit alors sur toutes les partitions.',
 			'Si un consommateur a besoin de l’ordre par tenant, garde un topic avec le tenant comme clé pour lui, et publie un topic avec le ticket comme clé pour les autres. Ou donne au gros tenant son propre topic.',
 			'Change la clé ou le nombre une seule fois, entre deux points nets : vide l’ancien topic, puis démarre un nouveau topic avec la nouvelle disposition, pour qu’aucune clé ne soit à cheval sur les deux.'
+		],
+		steps: [
+			{
+				title: 'Suis la clé chaude',
+				questions: [
+					{ q: 'Comment le producteur choisit-il la partition d’un enregistrement avec clé ?', options: ['En tourniquet sur toutes les partitions', 'La partition avec le moins de retard', 'Le hash murmur2 de la clé, modulo le nombre de partitions', 'Une recherche dans un annuaire de tenants'], answer: 2, why: '`partitionForKey` hache la clé et prend le modulo du nombre. Même clé, même partition.' },
+					{ q: 'Où vont aujourd’hui tous les événements du gros tenant ?', options: ['Sur une seule partition', 'Répartis à égalité sur les 12 partitions', 'Sur la partition qui a le plus de place', 'Sur une nouvelle partition par ticket'], answer: 0, why: 'La clé est l’id du tenant, donc chacun de ses événements se hache vers la même partition.' },
+					{ q: 'Pourquoi un consommateur a-t-il des heures de retard ?', options: ['Kafka ralentit les partitions qui ont beaucoup de clés', 'Sa partition reçoit 40 % de toutes les mises à jour', 'Les autres consommateurs lui volent ses événements', 'Le topic a trop peu de réplicas'], answer: 1, why: 'Une clé avec dix fois plus de trafic met dix fois plus de charge sur **une** partition, et un seul consommateur la lit.' },
+					{ q: 'Plus de réplicas aideraient-ils ce consommateur à rattraper ?', options: ['Oui : chaque réplica prend une part des écritures', 'Oui : les followers peuvent traiter des événements pour le leader', 'Seulement avec un facteur de réplication de 3', 'Non : chaque copie prend chaque écriture'], answer: 3, why: 'Toutes les écritures vont au leader de la partition et les followers copient son journal. Les réplicas n’ajoutent aucune capacité d’écriture.' }
+				]
+			},
+			{
+				title: 'Teste l’idée des 48 partitions',
+				questions: [
+					{ q: 'Après le passage à 48, où va le trafic du gros tenant ?', options: ['Toujours sur une seule partition', 'Réparti sur 4 partitions', 'Réparti sur les 48', 'Sur la partition la plus récente'], answer: 0, why: 'Une clé se hache toujours vers une seule partition, quel que soit le nombre. La partition chaude reste chaude.' },
+					{ q: 'Qu’arrive-t-il aux autres tenants pendant le changement ?', options: ['Rien : les clés gardent leur première partition', 'Kafka déplace leurs anciens événements selon la nouvelle disposition', 'Les nouveaux événements peuvent partir vers une autre partition que leurs anciens, pas encore lus', 'Le producteur s’arrête jusqu’à ce que les consommateurs rattrapent'], answer: 2, why: '`hash(key) % 48` peut différer de `% 12`, et Kafka ne redistribue pas les données existantes. L’ordre casse pendant un moment.' },
+					{ q: 'Si 48 s’avère une erreur, peux-tu revenir à 12 ?', options: ['Oui, avec un changement de config', 'Oui, une fois les consommateurs au repos', 'Seulement si aucune nouvelle clé n’a été écrite', 'Non : Kafka ne sait pas réduire le nombre de partitions'], answer: 3, why: 'La doc d’exploitation dit que Kafka ne sait pas, pour l’instant, réduire le nombre de partitions d’un topic.' },
+					{ q: 'Alors, le changement du collègue règle-t-il le consommateur en retard ?', options: ['Oui : 48 partitions répartissent la charge quatre fois plus large', 'Non : la clé du gros tenant tombe toujours sur une seule partition', 'Oui, une fois que Kafka a déplacé les anciens événements vers les nouvelles partitions', 'Seulement si le topic a aussi plus de réplicas'], answer: 1, why: 'Plus de partitions répartissent **beaucoup** de clés. Elles ne peuvent pas découper **une** clé.' }
+				]
+			},
+			{
+				title: 'Choisis la clé selon l’ordre voulu',
+				questions: [
+					{ q: 'Quelle question vient avant de choisir une nouvelle clé ?', options: ['Quel ordre il faut aux consommateurs : par tenant ou par ticket', 'Combien de brokers a le cluster', 'Quelle taille fait chaque événement', 'Quel groupe de consommateurs est le plus rapide'], answer: 0, why: 'La clé décide de ce qui reste dans l’ordre. Choisis-la d’après ce dont les consommateurs ont vraiment besoin.' },
+					{ q: 'Les consommateurs ont seulement besoin des événements de chaque ticket dans l’ordre. Quelle clé prends-tu ?', options: ['L’id du tenant, comme aujourd’hui', 'Aucune clé', 'Un nombre aléatoire par événement', 'L’id du ticket'], answer: 3, why: 'Même ticket, même partition, donc chaque ticket garde son ordre, et les nombreux tickets du gros tenant se répartissent.' },
+					{ q: 'Pourquoi ne pas envoyer les événements sans clé ?', options: ['Kafka refuse les enregistrements sans clé', 'Les enregistrements sans clé vont tous sur la partition 0', 'Les enregistrements sans clé se répartissent sans ordre entre eux', 'Les enregistrements sans clé ne sont pas répliqués'], answer: 2, why: 'Sans clé, le partitionneur intégré reste sur une partition le temps d’un lot puis passe à la suivante, donc les événements d’un ticket peuvent arriver dans le désordre.' },
+					{ q: 'Un consommateur a vraiment besoin de l’ordre par tenant. Que fais-tu ?', options: ['Garder l’id du tenant comme clé pour tous les consommateurs', 'Garder pour lui un topic avec le tenant comme clé, et publier un topic avec le ticket comme clé pour les autres', 'Le laisser trier les événements par horodatage après lecture', 'Lui donner plus de partitions qu’aux autres'], answer: 1, why: 'Chaque consommateur reçoit la disposition dont il a besoin. Donner son propre topic au gros tenant est l’autre option.' }
+				]
+			},
+			{
+				title: 'Prépare la bascule',
+				questions: [
+					{ q: 'Combien de fois changes-tu la clé ou le nombre ?', options: ['Une seule fois, entre deux points nets', 'Petit à petit, quelques partitions par semaine', 'Chaque fois qu’un tenant grossit', 'Deux fois : une à la hausse, une retour'], answer: 0, why: 'Chaque changement peut mettre une clé à cheval sur deux dispositions. Le faire une fois limite cette fenêtre à une.' },
+					{ q: 'Que fais-tu de l’ancien topic avant de démarrer le nouveau ?', options: ['Le supprimer tout de suite', 'Continuer d’écrire dans les deux pour toujours', 'Le vider', 'Le renommer avec le nouveau nom'], answer: 2, why: 'Le vider laisse les consommateurs lire d’abord chaque ancien événement, pour qu’aucune clé ne soit à cheval sur les deux topics.' },
+					{ q: 'Pourquoi démarrer un nouveau topic au lieu de changer la clé sur l’ancien ?', options: ['Kafka interdit de changer les clés sur un topic', 'Les nouveaux topics sont plus rapides', 'Les anciens topics deviennent illisibles quand la clé change', 'Pour qu’aucune clé n’ait d’événements dans les deux dispositions à la fois'], answer: 3, why: 'Change la clé sur place, et les anciens événements d’un ticket restent sous l’ancienne clé pendant que les nouveaux partent ailleurs. Vider l’ancien topic, puis repartir sur un neuf, garde les deux dispositions séparées.' },
+					{ q: 'Pourquoi ce choix mérite-t-il du soin ?', options: ['Partitionner est une porte à sens unique : revenir en arrière, c’est déplacer les données à nouveau', 'Les noms de topics ne peuvent pas être réutilisés', 'Les consommateurs doivent redémarrer dans un ordre fixe', 'Les brokers doivent redémarrer après chaque changement'], answer: 0, why: 'Une fois les données réparties par une clé, changer la clé ou le nombre déplace des données et peut casser l’ordre.' }
+				]
+			}
 		]
 	},
 	quiz: [

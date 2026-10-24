@@ -103,6 +103,44 @@ export default {
 			'Fail closed: every login is refused while the counter is unreachable. The attacker is stopped, and so is every honest user.',
 			'Local fallback: each process counts in its own memory. The limit still applies, but it is multiplied by the number of processes, and a restart resets it. You also have more code to maintain.',
 			'A possible response and measure: "logins keep working; at most 25 × (number of web processes) attempts per IP per 5 minutes reach the password check while Redis is down." Your numbers may differ, but the measure must be a number.'
+		],
+		steps: [
+			{
+				title: 'Write the first four parts',
+				questions: [
+					{ q: 'Which part changes from the chapter\'s scenario?', options: ['The source: a different attacker', 'The stimulus: fewer logins', 'The environment: Redis is unreachable', 'The artifact: the password check'], answer: 2, why: 'Same attacker, same attack. Only the state of the system when it arrives is different.' },
+					{ q: 'What is the stimulus?', options: ['An attacker with leaked passwords', '1000 logins in 5 minutes', 'The login throttles', 'Redis unreachable for 10 minutes'], answer: 1, why: 'The stimulus is the event that reaches the system. The attacker is the source.' },
+					{ q: 'What is the artifact?', options: ['The login throttles in Rack::Attack', 'The Redis server', 'The password check in Rails', 'The login form in the browser'], answer: 0, why: 'The artifact is the part that gets hit. Rack::Attack sees every `POST /auth/sign_in` first.' },
+					{ q: 'Why write a separate scenario for Redis down?', options: ['Redis down is a different attacker', 'QA only tests one scenario per sprint', 'The measure stays the same, only the words change', 'The same attack can need a different answer in a different environment'], answer: 3, why: 'Normal load, a deploy and Redis down can each need their own answer to the same burst.' }
+				]
+			},
+			{
+				title: 'See what the code does today',
+				questions: [
+					{ q: 'Redis is down. What does the Rails cache return for the counter?', options: ['An error that stops the request', '`nil`, after swallowing the error', 'The last count it knew', 'Zero, read from PostgreSQL'], answer: 1, why: 'The Rails Redis cache swallows connection errors and returns `nil`.' },
+					{ q: 'How does Rack::Attack read that `nil`?', options: ['As a count over the limit', 'As an error to raise', 'As a count of 1', 'As a reason to refuse the request'], answer: 2, why: '`Cache#do_count` counts `nil` as 1, so every attempt looks like the first.' },
+					{ q: 'So what does the throttle do while Redis is down?', options: ['It fails open: nothing is throttled', 'It fails closed: every login gets a `429`', 'It returns a `500` on each login', 'It counts in PostgreSQL instead'], answer: 0, why: 'No count ever passes 1, so no attempt is ever stopped.' },
+					{ q: 'With fail open, who wins during 10 minutes of Redis outage?', options: ['Honest users, who get locked out', 'QA, who can run more tests', 'Nobody, since logins stop', 'The attacker, who gets 10 minutes with no limit'], answer: 3, why: 'Logins keep working for everyone, attacker included.' }
+				]
+			},
+			{
+				title: 'Weigh the three choices',
+				questions: [
+					{ q: 'You fail closed. What happens?', options: ['Only the attacker is refused', 'Every login is refused: the attacker, and every honest user too', 'Logins keep working with no limit', 'Each process counts on its own'], answer: 1, why: 'Without the counter, the throttle cannot tell the attacker from anyone else.' },
+					{ q: 'You fall back to a counter in each process\'s memory. What does the limit become?', options: ['25 per IP, exactly as before', 'Zero, so every login is refused', 'Multiplied by the number of processes, and reset by a restart', 'Shared between processes through memory'], answer: 2, why: 'Each process counts only what it sees, and its memory is gone after a restart.' },
+					{ q: 'What other cost does the local fallback bring?', options: ['More code to maintain', 'A `429` on every login', 'A `500` on every login', 'A new dependency on PostgreSQL'], answer: 0, why: 'A second counting path is code someone has to own and test.' },
+					{ q: 'Which question helps you choose between the three?', options: ['Which one needs the fewest lines of code?', 'Which one does Rails pick by default?', 'Which one can QA test the fastest?', 'Who suffers during the outage: the attacker, or every honest user?'], answer: 3, why: 'Each choice protects a different characteristic. Name who pays for it.' }
+				]
+			},
+			{
+				title: 'Write the response and measure',
+				questions: [
+					{ q: 'You pick the local fallback. Which response fits?', options: ['Every login gets a `429`', 'Logins keep working', 'Logins return a `500`', 'Logins wait until Redis is back'], answer: 1, why: 'The fallback keeps logins open and still applies a limit.' },
+					{ q: 'Which measure fits the local fallback?', options: ['At most 25 attempts per IP per 5 minutes, as before', 'No attempt reaches the password check', 'At most 25 × (number of web processes) attempts per IP per 5 minutes reach the password check', 'The throttle stays as secure as possible'], answer: 2, why: 'It is a number QA can check, and it is honest about the multiplied limit.' },
+					{ q: 'Why "25 × number of processes" and not 25?', options: ['Each process counts only the attempts it sees', 'Redis multiplies the limit when it restarts', 'Rack::Attack doubles limits on errors', 'The per-account throttle adds its own 25'], answer: 0, why: 'An attacker whose attempts spread over every process gets 25 in each.' },
+					{ q: 'A teammate writes the measure as "the throttle stays secure". What is wrong?', options: ['It belongs in the stimulus part', 'It names the wrong environment', 'Nothing: it names the characteristic', 'It is not a number QA can check'], answer: 3, why: 'The measure decides pass or fail. Your numbers may differ, but it must be a number.' }
+				]
+			}
 		]
 	},
 	quiz: [

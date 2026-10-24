@@ -90,6 +90,44 @@ export default {
 			'One fix is to leave the input alone: take a read-only input and **return** a new list, `List<Discount> withLoyalty(List<Discount> in)`. The caller\'s list is never touched, so any `List` works.',
 			'Another fix narrows the type: accept an interface of your own with only the method you need, like `DiscountSink.add`, so nobody can pass an unmodifiable list by mistake.',
 			'Either fix costs one more type or one more copy. Today the limit is written only in the Javadoc.'
+		],
+		steps: [
+			{
+				title: 'Say what happens',
+				questions: [
+					{ q: 'Does `addDiscounts(List.of(promo))` compile?', options: ['No: `List.of` does not return a `List`', 'Yes: `List.of` returns a `List`', 'Only with an explicit cast', 'Only on old Java versions'], answer: 1, why: 'The type is `List`, so the compiler is happy. The problem waits for run time.' },
+					{ q: 'What happens when `addDiscounts` appends the loyalty discount?', options: ['The discount is added as usual', 'The call silently does nothing', '`add` throws `UnsupportedOperationException`', 'Java makes a copy and adds to it'], answer: 2, why: 'Every mutator of an immutable collection throws `UnsupportedOperationException`.' },
+					{ q: 'Why does `add` throw here?', options: ['`List.of` returns an unmodifiable list', 'The list is already full', '`Discount` is an immutable class', 'The teammate forgot to call `new`'], answer: 0, why: '`List.of` returns a class from `ImmutableCollections`, where `add` exists only to throw.' },
+					{ q: 'Your test passes an `ArrayList`. Does it catch the bug?', options: ['Yes: every list behaves the same', 'No: only the path that passes `List.of` fails', 'Yes, as long as it runs in CI', 'No: tests cannot call `add`'], answer: 1, why: 'An `ArrayList` supports `add`, so the test passes. The bug shows up only with `List.of`.' }
+				]
+			},
+			{
+				title: 'Name the broken principle',
+				questions: [
+					{ q: 'Two lists both compile as `List`. One works, one throws. Which principle bends?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 2, why: 'An implementation that throws where others work cannot stand in for them. The caller has to know which one it got.' },
+					{ q: '`addDiscounts` only needs to add, but depends on all of `List`. Which principle would a narrower type serve?', options: ['Single responsibility', 'Open/closed', 'Liskov substitution', 'Interface segregation'], answer: 3, why: 'A caller should not depend on methods it does not use. A narrow type offers only what it needs.' },
+					{ q: 'Where is the rule "this list may not support `add`" written today?', options: ['In the type', 'Only in the Javadoc', 'In a compiler warning', 'In the `Discount` class'], answer: 1, why: '`List.add` is documented as an "optional operation". Nothing in the type says which kind of list you hold.' },
+					{ q: 'Why did the Java designers keep optional operations in `List`?', options: ['Splitting would need about twenty interfaces and five iterators', 'They did not think of immutable lists', 'Exceptions run faster than extra types', 'Liskov substitution was not known yet'], answer: 0, why: 'The design FAQ explains it: four wide interfaces were judged cheaper than twenty narrow ones.' }
+				]
+			},
+			{
+				title: 'Pick a design fix',
+				questions: [
+					{ q: 'Fix one is `List<Discount> withLoyalty(List<Discount> in)`. What does it do?', options: ['Appends to `in` and returns it', 'Takes a read-only input and returns a new list', 'Casts `in` to `ArrayList` first', 'Catches the exception and retries'], answer: 1, why: 'It never touches the input. It builds and returns a new list.' },
+					{ q: 'After fix one, which lists can a caller pass?', options: ['Only `ArrayList`', 'Only `List.of`', 'Any `List`', 'Only a `LinkedList`'], answer: 2, why: 'The method only reads its input, and every `List` supports reading.' },
+					{ q: 'Fix two narrows the type. What does `addDiscounts` accept then?', options: ['A `Collection<Discount>`', 'An `Object`', 'An array of discounts', 'An interface of your own with only `add`, like `DiscountSink`'], answer: 3, why: 'An interface with only the method you need is the narrow type, and you own it.' },
+					{ q: 'Why does fix two stop the mistake before production?', options: ['Nobody can pass an unmodifiable list where a `DiscountSink` is expected', 'It logs a warning when the list is unmodifiable', 'It adds a test for `List.of`', 'It copies the list before adding'], answer: 0, why: 'The limit moves from the Javadoc into the type, so the wrong call no longer fits.' }
+				]
+			},
+			{
+				title: 'Weigh the cost',
+				questions: [
+					{ q: 'What does each fix cost?', options: ['Nothing at all', 'One more type or one more copy', 'A rewrite of `OrderService`', 'A newer JDK'], answer: 1, why: 'A returned list is a copy. A narrow interface is a type to write and keep.' },
+					{ q: 'You do not own `java.util.List`. How do you get a narrow type?', options: ['Edit `List` in the JDK', 'Remove `add` with reflection', 'Wrap it in a narrower type of your own and keep that adapter', 'Ask every caller to read the Javadoc'], answer: 2, why: 'You cannot split an interface you do not own. You can only wrap it, and maintain the wrapper.' },
+					{ q: 'Which fix lets the teammate keep calling with `List.of(promo)`?', options: ['Returning a new list', 'Narrowing to `DiscountSink`', 'Casting the input to `ArrayList`', 'Removing the loyalty discount'], answer: 0, why: 'Fix one only reads its input, so an unmodifiable list works fine.' },
+					{ q: '`AbstractImmutableCollection` overrides seven mutators. What does a narrow interface spare an implementation like it?', options: ['All exceptions in the code', 'The need for any tests', 'Filling in methods it cannot support', 'Generic types'], answer: 2, why: 'With a narrow interface, an implementation never has to fill in methods it cannot support.' }
+				]
+			}
 		]
 	},
 	quiz: [

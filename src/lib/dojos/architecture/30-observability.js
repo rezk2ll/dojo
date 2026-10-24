@@ -131,6 +131,44 @@ module.exports.charge = async request => {
 			'Target: 99.5% available and 95% under 1 s, over 28 days.',
 			'Page on the burn rate, the speed at which the error budget is spent, instead of on one bad minute. The SRE workbook suggests starting with 2% of the budget spent in 1 hour or 5% in 6 hours for a page, and 10% in 3 days for a ticket.',
 			'Do not page on CPU or one pod restarting: they are causes, and you look at them after the symptom alert fires.'
+		],
+		steps: [
+			{
+				title: 'Pick the good events',
+				questions: [
+					{ q: 'What ratio does an SLO need?', options: ['Good events over all events', 'Errors over CPU time', 'Spans over log lines', 'Calls per pod'], answer: 0, why: 'An SLI is the share of events that went well, and the SLO is a target for it.' },
+					{ q: 'Which spans make the first availability SLI?', options: ['Every span of the whole shop', 'Payment server spans whose status is not `Error`, over all of them', 'Only checkout\'s client spans', 'Spans that carry a `transactionId`'], answer: 1, why: 'The SLO is for the payment service, so you count the requests it served.' },
+					{ q: 'What status does `charge` set today for an expired card?', options: ['`Ok`', '`Unset`', '`Error`', 'No span is created'], answer: 2, why: 'The task warns that `charge` sets `ERROR` when the card is invalid or expired.' },
+					{ q: 'So what is wrong with that first SLI?', options: ['It counts too few spans', 'It needs a log line per span', 'It cannot be read from span metrics', 'It blames the service for its customers\' cards'], answer: 3, why: 'An expired card is the customer\'s problem, and the SLI counts it as yours.' }
+				]
+			},
+			{
+				title: 'Fix the signal',
+				questions: [
+					{ q: 'What do you fix first?', options: ['Tell "the caller\'s fault" from "our fault" in the code', 'Lower the target until it passes', 'Drop the availability SLI', 'Alert on CPU instead'], answer: 0, why: 'The SLI can only be as honest as the signal under it.' },
+					{ q: 'How can the code tell the two apart?', options: ['A longer timeout', 'A different error type or gRPC status', 'A log line with the card number', 'A retry on every failure'], answer: 1, why: 'Different errors give different values, and the metrics can then split on them.' },
+					{ q: 'Where does that distinction go next?', options: ['Into the card number attribute', 'Into the liveness probe', 'As a dimension on the span metrics connector', 'Into a separate pod'], answer: 2, why: 'A new dimension on the connector shows it in the metrics, so you count only your faults.' },
+					{ q: 'Why not add `transactionId` as a dimension too?', options: ['It is not unique', 'Prometheus cannot store strings', 'It would leak the CVV', 'One time series per transaction makes the metric store fall over'], answer: 3, why: 'A label with one value per transaction creates one series per value. It belongs in the log line.' }
+				]
+			},
+			{
+				title: 'Write the SLO',
+				questions: [
+					{ q: 'What is the latency SLI?', options: ['The share of payment server spans under 1 s, from the duration histogram', 'The average duration of every span', 'The slowest call of each day', 'CPU time per call'], answer: 0, why: 'A share under a threshold reads straight from the histogram, and it says how many users waited.' },
+					{ q: 'Which target does the chapter propose?', options: ['100% available, always', '99.5% available and 95% under 1 s, over 28 days', '99.5% available over 1 hour', '95% available and 99.5% under 1 s'], answer: 1, why: 'Two targets, one window: 99.5% available, 95% under 1 s, over 28 days.' },
+					{ q: 'With 99.5% available over 28 days, what is the error budget?', options: ['5% of payments', '0.05% of payments', '0.5% of payments', '99.5% of payments'], answer: 2, why: 'The 0.5% left over is the error budget.' },
+					{ q: 'Why set the SLO over a window like 28 days?', options: ['Metrics expire after 28 days', 'Prometheus requires that window', 'It makes alerts fire faster', 'An SLO is a target over a window, so one bad minute does not break it'], answer: 3, why: 'The window is what lets you spend a budget instead of failing on every blip.' }
+				]
+			},
+			{
+				title: 'Write the alert',
+				questions: [
+					{ q: 'What do you page on?', options: ['The burn rate', 'One bad minute', 'CPU at 80%', 'One pod restarting'], answer: 0, why: 'The burn rate says users are hurting fast enough to spend the budget.' },
+					{ q: 'What is the burn rate?', options: ['The CPU used by the payment pods', 'The speed at which the error budget is spent', 'The number of requests per second', 'The share of spans that are sampled'], answer: 1, why: 'A high burn rate means the budget will run out well before the window ends.' },
+					{ q: 'Which thresholds does the SRE workbook suggest as a start for a page?', options: ['10% of the budget in 3 days', '50% of the budget in 1 minute', '2% of the budget in 1 hour, or 5% in 6 hours', '1% of the budget in 28 days'], answer: 2, why: 'For a page, the workbook suggests 2% of the budget in 1 hour or 5% in 6 hours. 10% in 3 days is the threshold for a ticket.' },
+					{ q: 'A pod restarts and CPU is at 80%. Do you page?', options: ['Yes: both are urgent', 'Yes, for the CPU only', 'Yes, for the restart only', 'No: those are causes, you look at them after a symptom alert'], answer: 3, why: 'Cause alerts fire often and rarely mean users are affected, so people learn to ignore pages.' }
+				]
+			}
 		]
 	},
 	quiz: [

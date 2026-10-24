@@ -95,6 +95,44 @@ export default {
 			'Data owner: 4. Only the invoicing service knows who created the invoice, whether it is already sent, and Alice\'s role in that company.',
 			'503. The gateway does not know if the token is bad, so it must not say "unauthorized". 401 means "your credentials are not valid", and a client may react by logging the user out. 503 says "try again later".',
 			'Bonus: the owner can repeat 3 and 5 cheaply. That protects it if someone reaches it without going through the gateway.'
+		],
+		steps: [
+			{
+				title: 'Pick the test',
+				questions: [
+					{ q: 'Which question sorts each check into gateway or data owner?', options: ['Is the check fast to run?', 'Does it run before the user logs in?', 'Does it need to read the data to decide?', 'Is it written in the same language as the service?'], answer: 2, why: 'If the check needs the data, only the service holding that data can answer it.' },
+					{ q: 'What is authentication?', options: ['Deciding what Alice may do on this invoice', 'Checking who the caller is', 'Limiting the requests per IP', 'Hiding a private post from strangers'], answer: 1, why: 'A password once, then a token on each request. It says who, not what they may do.' },
+					{ q: 'What is authorization?', options: ['Checking a token\'s signature', 'Logging in once for many apps', 'Answering a CORS preflight', 'Deciding what this caller may do on this data'], answer: 3, why: 'It needs the data\'s rules, so the owner of the data does it.' },
+					{ q: 'Why can a gateway not decide "may Alice see this post"?', options: ['It has none of the data the rule needs', 'It cannot read tokens', 'It runs after the service', 'It is not allowed to return 404'], answer: 0, why: 'Visibility, follows and blocks live in the posts service. A gateway in front has none of this.' }
+				]
+			},
+			{
+				title: 'Sort the gateway checks',
+				questions: [
+					{ q: '(1) A rate limit per IP. Where does it go?', options: ['Gateway: it needs no invoice data', 'Data owner: it knows the invoices', 'The SSO, at login time', 'The browser app, before sending'], answer: 0, why: 'A cross-cutting check, written and tested once, in the gateway.' },
+					{ q: '(2) A CORS preflight. Where does it go?', options: ['The data owner, since it serves the invoice', 'The gateway, once for every service', 'The SSO, with the token', 'Each service, in its own way'], answer: 1, why: 'It is about the request, not the invoice. One place handles it for all services.' },
+					{ q: '(3) Is this token signed by our SSO and not expired?', options: ['Only the data owner can check that', 'The SSO checks it on every request', 'The gateway, against the SSO\'s published keys', 'The browser app, before it sends'], answer: 2, why: 'Envoy\'s JWT filter checks the signature against the JWKS, then the issuer and the expiry.' },
+					{ q: '(5) Is this token meant for the invoicing API?', options: ['Data owner: it needs the invoice to tell', 'Nobody: Envoy checks audiences by default', 'The SSO, when the user logs in', 'Gateway: set `audiences`, since Envoy skips the check without it'], answer: 3, why: '"If not specified, the audiences in JWT will not be checked." A token for another service would pass.' }
+				]
+			},
+			{
+				title: 'Give the rest to the owner',
+				questions: [
+					{ q: '(4) May Alice edit this invoice?', options: ['The gateway, with a copy of the rule', 'The SSO, since it knows Alice', 'The invoicing service, which owns the invoice', 'The browser app, before sending'], answer: 2, why: 'The rule needs the invoice\'s data, so the service holding it decides.' },
+					{ q: 'What does the invoicing service know that the gateway does not?', options: ['Alice\'s IP address', 'Who created the invoice, whether it is sent, and Alice\'s role', 'The token\'s signature', 'The CORS rules'], answer: 1, why: 'Those are facts about the invoice and the company. They live with the owner.' },
+					{ q: 'You also copy the edit rule into the gateway. What happens over time?', options: ['It drifts away from the data it protects', 'It makes the service faster', 'The SSO takes it over', 'Nothing, as long as both run'], answer: 0, why: 'When the owner changes its rule, the copy in the gateway falls out of date.' },
+					{ q: 'In Mastodon, what does `doorkeeper_authorize! :write` tell the controller?', options: ['That Alice owns the post', 'That the post is public', 'That Alice follows the author', 'That this app may write posts, not which posts'], answer: 3, why: 'The scope is part of authentication. `StatusPolicy` still decides on each post.' }
+				]
+			},
+			{
+				title: 'Answer the outage',
+				questions: [
+					{ q: 'The gateway cannot reach the identity provider. What does it know about the token?', options: ['That it is bad', 'That it is good', 'Nothing: it cannot tell whether the token is valid', 'That it has expired'], answer: 2, why: 'No answer from the provider is not a "no". The token may be fine.' },
+					{ q: 'Which status does the gateway return?', options: ['401', '403', '404', '503'], answer: 3, why: '503 says "try again later", which is the truth here.' },
+					{ q: 'Why not 401?', options: ['401 says the credentials are not valid, and a client may log the user out', '401 is only for wrong passwords', '401 cannot carry a body', 'Browsers cache 401 forever'], answer: 0, why: 'The gateway does not know the token is bad, so it must not say "unauthorized".' },
+					{ q: 'Why should the owner repeat checks 3 and 5 as well?', options: ['Because the gateway never checks them', 'To protect it if someone reaches it without the gateway', 'To make each request slower on purpose', 'Because the SSO requires two checks'], answer: 1, why: 'They are cheap to repeat, and they cover a path that skips the gateway.' }
+				]
+			}
 		]
 	},
 	quiz: [

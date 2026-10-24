@@ -91,6 +91,44 @@ export default {
 			'Check: is each one tied to a need you could say out loud, like Kafka\'s "real-time log aggregation"?',
 			'Check: can you name one decision each forces? A characteristic that forces no decision does not drive the design, so cut it.',
 			'Check: did you cut something painful to cut? If all three were easy, the list is probably too generic.'
+		],
+		steps: [
+			{
+				title: 'Start from the needs',
+				questions: [
+					{ q: 'Where do you start when you pick the top three?', options: ['From the standard catalog of "-ilities", top to bottom', 'From what would make users or the business angry if it broke', 'From the technologies the team already knows', 'From the list "fast, secure, scalable, simple, reliable, cheap"'], answer: 1, why: 'A characteristic protects something that matters. Start from what hurts when it breaks.' },
+					{ q: 'What did Kafka\'s design doc write down before any design?', options: ['The classes and their methods', 'The default value of `linger.ms`', 'Three needs: high throughput, large backlogs, low-latency delivery', 'How much page cache a broker gets'], answer: 2, why: 'The doc starts from what Kafka must do. The decisions come after.' },
+					{ q: 'A team wants "fast, secure, scalable, simple, reliable, cheap", all at the maximum. What is wrong with that list?', options: ['It names features, not characteristics', 'It is too short to cover the system', 'It cannot help the team choose between two designs', 'It leaves out latency'], answer: 2, why: 'If everything matters at the maximum, nothing tells you which design to pick.' },
+					{ q: 'Kafka\'s first need says "high" throughput, with no number. What does that mean for now?', options: ['Nobody can test it yet', 'It is a feature, not a characteristic', 'It does not drive the design', 'It must be cut from the list'], answer: 0, why: '"High" and "low" have no number yet, so nobody can check them.' }
+				]
+			},
+			{
+				title: 'Check each is a characteristic',
+				questions: [
+					{ q: 'Which one is a characteristic, not a feature?', options: ['Can export a report', 'Can export to CSV and to PDF', 'The export finishes in under a minute for a year of data', 'Can schedule an export every Monday'], answer: 2, why: 'A time limit says how the export must be built. The others say what users can do.' },
+					{ q: '"Consumers can rewind and read old messages again." What is it?', options: ['A characteristic: throughput', 'A feature', 'A characteristic: availability', 'A driving characteristic'], answer: 1, why: 'It describes what the system does, so it is a feature.' },
+					{ q: 'What separates a characteristic from a feature?', options: ['A characteristic is cheaper to build', 'A feature is always tested, a characteristic is not', 'A feature lives in code, a characteristic only in docs', 'A characteristic is about how the system is built, a feature about what it does'], answer: 3, why: 'Features are the what. Characteristics are the how, and they shape the design.' },
+					{ q: '"A broker serves consumers at close to network speed." What is it?', options: ['A characteristic: it says nothing about what the system does', 'A feature: it describes what consumers get', 'A feature: users can see the speed', 'Neither: it is an implementation detail'], answer: 0, why: 'It adds no behavior. It decides how the broker must be built.' }
+				]
+			},
+			{
+				title: 'Tie each to a decision',
+				questions: [
+					{ q: 'Which two decisions did Kafka\'s throughput need force?', options: ['TLS, and a big in-process cache', 'A week of retention, and `linger.ms`', 'Batching into message sets, and zero-copy from page cache to socket', 'Indexes, and sharding'], answer: 2, why: 'One network trip and one disk write carry many messages, and file bytes go straight to the socket.' },
+					{ q: 'Which decision came from the large backlog need?', options: ['Zero-copy from page cache to socket', 'An append-only log on disk, with messages kept about a week', 'A producer wait of `linger.ms`', 'TLS between brokers'], answer: 1, why: 'Appends and reads cost the same however much is stored, so Kafka can keep messages for a set time.' },
+					{ q: 'Which decision came from the low-latency need?', options: ['The producer waits at most `linger.ms` before it sends', 'The log keeps messages about a week', 'The broker reads files into a 32 KB buffer', 'The broker builds its own cache'], answer: 0, why: 'Latency caps the batching: wait a few milliseconds, then send anyway.' },
+					{ q: 'One of your characteristics forces no decision. What do you do?', options: ['Keep it: it is still a quality you want', 'Turn it into a feature', 'Make it the first of the three', 'Cut it: it does not drive the design'], answer: 3, why: 'A characteristic that forces no decision does not shape anything, so it does not belong on the list.' }
+				]
+			},
+			{
+				title: 'Cut to three',
+				questions: [
+					{ q: 'Why stop at three?', options: ['A design doc must fit on one page', 'Each one costs design effort, and they often conflict', 'The standard catalog only defines three', 'Managers cannot follow more than three'], answer: 1, why: 'Supporting a characteristic costs complexity, and they trade against each other.' },
+					{ q: 'Which Kafka example shows two characteristics fighting?', options: ['Batching for throughput makes the log larger', 'The page cache makes restarts slower', 'TLS for security turns off the zero-copy path built for throughput', 'Retention makes the broker stateless'], answer: 2, why: 'The broker reads the file into a buffer to encrypt it, so `sendfile` is not used.' },
+					{ q: 'All the cuts you made were easy. What does that suggest?', options: ['The list is probably too generic', 'The list is done and correct', 'You should add a fourth one', 'You picked features by mistake'], answer: 0, why: 'A real top three costs you something. If nothing hurt, you did not choose.' },
+					{ q: 'What can you do once three are written down?', options: ['Skip writing a design doc for now', 'Ignore feature requests until next year', 'Promise all six qualities at the maximum', 'Turn work down: "Does this help one of the three? No? It waits."'], answer: 3, why: 'A short list gives you a reason to say no, and newcomers can trace each decision to a need.' }
+				]
+			}
 		]
 	},
 	quiz: [

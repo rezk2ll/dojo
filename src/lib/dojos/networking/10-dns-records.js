@@ -118,6 +118,44 @@ docs:
 			'Lines 9 and 10 give `blog` both a CNAME and a TXT record. BIND 9.20.29 in this session: `dns_master_load: /z/task.zone:10: blog.example.org: CNAME and other data`, then `zone example.org/IN: not loaded due to errors.` The whole zone stays down, the apex and `www` included.',
 			'With line 10 removed, the zone loads, with a warning: `example.org/MX \'mail.example.org\' is a CNAME (illegal)`. Line 5 points the MX at `mail`, which line 7 makes an alias. RFC 2181 says an MX value "must not be an alias". Point the MX at `mx.mailhost.example.` directly.',
 			'Line 8 is fine: `www` holds only a CNAME, and its target `example.org` has its own A record on line 4. Line 4 is the right way to give the apex an address.'
+		],
+		steps: [
+			{
+				title: 'List the aliases',
+				questions: [
+					{ q: 'Which names in this zone hold a CNAME?', options: ['`mail`, `www` and `blog`', '`@`, `www` and `blog`', '`ns1`, `mail` and `www`', 'Only `blog`'], answer: 0, why: 'Lines 7, 8 and 9 are the CNAME records. The apex `@` holds an SOA, an NS, an A and an MX.' },
+					{ q: 'What is the rule for a name that holds a CNAME?', options: ['It may hold one record of each other type', 'It may hold no other data, apart from DNSSEC records', 'It may hold other data if the TTLs match', 'It may hold TXT records only'], answer: 1, why: 'RFC 1034: "If a CNAME RR is present at a node, no other data should be present".' },
+					{ q: 'Which records does the apex always hold?', options: ['An A and an MX', 'A CNAME and an NS', 'The SOA and the NS records', 'An A and a TXT'], answer: 2, why: 'Every zone apex holds its SOA and NS records. That is why `@` can never be a CNAME.' },
+					{ q: 'Is line 4, `@ IN A 192.0.2.10`, a problem?', options: ['Yes: the apex must use a CNAME', 'Yes: the apex may hold only SOA and NS', 'Yes: `www` already points there', 'No: an A record at the apex is the right way to give it an address'], answer: 3, why: 'The apex can hold A records next to its SOA and NS, as `kubernetes.io` does with its two Netlify addresses.' }
+				]
+			},
+			{
+				title: 'Check blog',
+				questions: [
+					{ q: 'What does `blog` hold?', options: ['A CNAME on line 9 and a TXT on line 10', 'Only a CNAME', 'Only a TXT', 'Two CNAME records'], answer: 0, why: 'Both lines have the owner name `blog`.' },
+					{ q: 'What does `named-checkzone` report for it?', options: ['A warning, and the zone loads', '`blog.example.org: CNAME and other data`', '`blog` is a CNAME (illegal)', 'Nothing, because TXT records are exempt'], answer: 1, why: 'BIND reads line 10 and refuses the second record for a name that already has a CNAME.' },
+					{ q: 'What happens to the rest of the zone?', options: ['Only `blog` stops resolving', 'BIND skips line 10 and loads the rest', 'The whole zone is not loaded, the apex and `www` included', 'Only the TXT record is dropped'], answer: 2, why: 'BIND prints `not loaded due to errors`. One bad line takes the whole zone down.' },
+					{ q: 'How do you fix it?', options: ['Move the CNAME to the apex', 'Add a second CNAME for `blog`', 'Change the TTL of the TXT', 'Remove line 10, or move the TXT to a name with no CNAME'], answer: 3, why: 'A name with a CNAME may hold no other data. With line 10 gone, the zone loads.' }
+				]
+			},
+			{
+				title: 'Check the MX',
+				questions: [
+					{ q: 'Where does the MX on line 5 point?', options: ['At `mail.example.org`, which line 7 makes an alias', 'At `mx.mailhost.example.`, directly', 'At the apex', 'At `ns1.example.org`'], answer: 0, why: 'Line 5 names `mail.example.org.`, and line 7 is `mail IN CNAME mx.mailhost.example.`.' },
+					{ q: 'What does RFC 2181 say about an MX value?', options: ['It may be an alias in the same zone', 'It "must not be an alias"', 'It must be in the same zone', 'It must have a preference of 1'], answer: 1, why: 'RFC 2181 forbids aliases as MX and NS targets.' },
+					{ q: 'With line 10 removed, what does `named-checkzone` print?', options: ['`CNAME and other data`, and the zone fails', 'Nothing at all', '`MX \'mail.example.org\' is a CNAME (illegal)`, then the zone loads', '`not loaded due to errors`'], answer: 2, why: 'BIND flags it as "(illegal)" but still loads the zone, so the mistake is easy to miss.' },
+					{ q: 'What is the fix?', options: ['Delete line 7 and keep the MX as is', 'Make `mail` an A record of the apex', 'Raise the MX preference to 1', 'Point the MX at `mx.mailhost.example.` directly'], answer: 3, why: 'The MX then names the real mail host, with no alias in between.' }
+				]
+			},
+			{
+				title: 'Check www',
+				questions: [
+					{ q: 'Is `www IN CNAME example.org.` valid?', options: ['Yes: `www` holds only that CNAME', 'No: a CNAME cannot target the apex', 'No: `www` must have an A record', 'No: the target must be in another zone'], answer: 0, why: 'The rule is about what the alias holds. `www` holds nothing else.' },
+					{ q: 'What does a resolver get for `www.example.org A`?', options: ['An empty answer', 'The CNAME, plus the A record of `example.org` from line 4', 'Only the A record, with the alias hidden', 'A referral to another zone'], answer: 1, why: 'The target is in the same zone, so the server adds its A record, as it does for `www.kubernetes.io`.' },
+					{ q: 'The address on line 4 changes. What do you edit?', options: ['Lines 4 and 8', 'Line 8 only', 'Line 4 only', 'Every CNAME in the zone'], answer: 2, why: 'A CNAME keeps one copy of the data: `www` follows its target with no edit.' },
+					{ q: 'You also want a TXT record on `www`. Can it go there?', options: ['Yes: TXT records are exempt from the CNAME rule', 'Yes, if it has the same TTL as the CNAME', 'Yes, as long as it holds a single string', 'No: `www` holds a CNAME, so it is the same mistake as `blog`'], answer: 3, why: 'A name with a CNAME may hold no other data, apart from DNSSEC records. The TXT belongs on a name with no alias.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -155,6 +193,28 @@ docs:
 			why: 'When a name holds a CNAME, the server includes it and restarts the query at the target. `kubernetes.io` is in the same zone, so the server adds its A records to the same answer, as `dig` showed in this session.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Load the task\'s zone into BIND\'s `named-checkzone`, read its errors, and fix the zone one line at a time.',
+		steps: [
+			'Write the zone from the task into a new folder: `mkdir dnslab && cd dnslab && printf \'%s\\n\' \'$TTL 3600\' \'@ IN SOA ns1.example.org. hostmaster.example.org. 1 7200 3600 1209600 300\' \'@ IN NS ns1.example.org.\' \'@ IN A 192.0.2.10\' \'@ IN MX 10 mail.example.org.\' \'ns1 IN A 192.0.2.53\' \'mail IN CNAME mx.mailhost.example.\' \'www IN CNAME example.org.\' \'blog IN CNAME example.ghost.io.\' \'blog IN TXT "v=spf1 -all"\' > task.zone`.',
+			'Check it with BIND: `docker run --rm -v "$PWD:/z:ro" --entrypoint named-checkzone internetsystemsconsortium/bind9:9.20 example.org /z/task.zone; echo "exit=$?"`.',
+			'Drop the TXT line and check again: `grep -v \'blog IN TXT\' task.zone > step2.zone`, then rerun step 2 with `/z/step2.zone`.',
+			'Point the MX at the real host: `sed \'s/MX 10 mail.example.org./MX 10 mx.mailhost.example./\' step2.zone > step3.zone`, then check `/z/step3.zone`.',
+			'Try the mistake from the hook, a CNAME at the apex: `sed \'s/^@ IN A 192.0.2.10$/@ IN CNAME myapp.netlify.app./\' step3.zone > apex.zone`, then check `/z/apex.zone`.'
+		],
+		done: [
+			'`task.zone` fails with `blog.example.org: CNAME and other data`, `not loaded due to errors` and `exit=1`.',
+			'`step2.zone` loads with `MX \'mail.example.org\' is a CNAME (illegal)`, then `OK`.',
+			'`step3.zone` prints `OK`, with only a warning that the out-of-zone MX host has no address records here.',
+			'`apex.zone` fails with `example.org: CNAME and other data`.'
+		],
+		solution: [
+			'A name with a CNAME may hold no other data, so `blog` with a TXT stops the whole zone from loading, not only `blog`.',
+			'An MX pointing at an alias still loads, with "(illegal)" as a warning. RFC 2181 says the value "must not be an alias", so point it at the real host.',
+			'The apex always holds the SOA and NS records, so a CNAME there breaks the same rule as `blog`. Give the apex A records instead, as `kubernetes.io` does.'
+		]
+	},
 	recall: {
 		q: 'Which records does every zone apex hold, and what does that mean for a CNAME on the bare domain?',
 		a: 'The SOA record and the NS records. A name with a CNAME may hold no other data, so `@ IN CNAME ...` is refused: BIND reports "CNAME and other data", and `kubernetes.io` uses A records instead.'

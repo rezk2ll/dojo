@@ -115,6 +115,44 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 			'`redis.cache` (1 point) : `redis.cache.shop.svc.cluster.local` (NXDOMAIN), puis `redis.cache.svc.cluster.local` (trouvé). 2 requêtes.',
 			'`api.stripe.com` (2 points) : avec `.shop.svc.cluster.local`, `.svc.cluster.local` puis `.cluster.local`, trois NXDOMAIN, puis `api.stripe.com` tel quel. 4 requêtes, 8 si le programme demande aussi l’AAAA. `api.stripe.com.` finit par un point : 1 requête.',
 			'`dnsConfig: { options: [ { name: ndots, value: "2" } ] }`. `api.stripe.com` a maintenant 2 points, le seuil de `ndots:2` : la glibc l’essaie d’abord tel quel. `redis.cache` n’a qu’un point et passe toujours par la liste.'
+		],
+		steps: [
+			{
+				title: 'Compte les points',
+				questions: [
+					{ q: 'Combien de points a `redis.cache`, et passe-t-il par la liste de recherche avec `ndots:5` ?', options: ['2 points, il est essayé tel quel', '1 point, la liste de recherche passe d’abord', '0 point, seule la liste de recherche sert', '1 point, il est d’abord essayé tel quel'], answer: 1, why: 'Un point, c’est moins que 5 : la glibc ajoute les domaines de recherche avant d’essayer le nom tel quel.' },
+					{ q: 'Et `api.stripe.com` ?', options: ['3 points, il est d’abord essayé tel quel', '2 points, il est d’abord essayé tel quel', '2 points, la liste de recherche passe d’abord', '3 points, la liste de recherche passe d’abord'], answer: 2, why: '`api.stripe.com` a 2 points, toujours moins que 5 : il passe lui aussi par la liste de recherche.' },
+					{ q: 'Qu’est-ce qui change pour `api.stripe.com.` ?', options: ['Le point final le rend absolu : pas de liste de recherche', 'Le point en plus le porte à 3, toujours sous 5', 'La glibc retire le point et le traite comme `api.stripe.com`', 'Seul le dernier domaine de recherche est essayé'], answer: 0, why: 'Un nom qui finit par un point est un FQDN. Le stub resolver l’envoie tel quel, sans liste de recherche.' },
+					{ q: 'Quel nom, sans point final, est d’abord essayé tel quel dans un Pod avec `ndots:5` ?', options: ['`redis.cache.svc.cluster`', '`api.eu.stripe.com`', '`a.b.c.d.e.example`', '`_http._tcp.my-svc.my-namespace.svc`'], answer: 2, why: '`a.b.c.d.e.example` a 5 points, ce qui n’est pas moins que 5. Les autres en ont 4 ou moins : la liste de recherche passe d’abord.' }
+				]
+			},
+			{
+				title: 'Suis le nom court',
+				questions: [
+					{ q: 'Quelle est la première requête A envoyée par la glibc pour `redis.cache` ?', options: ['`redis.cache.shop.svc.cluster.local`', '`redis.cache.svc.cluster.local`', '`redis.cache`', '`redis.cache.cluster.local`'], answer: 0, why: 'La glibc ajoute les domaines de recherche dans l’ordre de la ligne `search`, et le premier est `shop.svc.cluster.local`.' },
+					{ q: 'Que répond le DNS du cluster à cette première requête ?', options: ['L’adresse du Service', '`SERVFAIL`', '`NXDOMAIN`', 'Un CNAME vers le namespace cache'], answer: 2, why: 'Le Service vit dans le namespace `cache`, pas `shop` : `redis.cache.shop.svc.cluster.local` n’existe pas.' },
+					{ q: 'Quelle requête trouve le Service ?', options: ['`redis.cache.cluster.local`, la troisième', '`redis.cache`, le nom tel quel', '`redis.cache.shop.svc.cluster.local`, la première', '`redis.cache.svc.cluster.local`, la deuxième'], answer: 3, why: 'Les noms de Service suivent `<service>.<namespace>.svc.<domaine du cluster>` : le deuxième domaine de recherche donne le vrai nom.' },
+					{ q: 'Combien de requêtes A coûte `redis.cache` au total ?', options: ['1', '2', '4', '8'], answer: 1, why: 'Un `NXDOMAIN`, puis une réussite. La glibc s’arrête au premier nom qui existe.' }
+				]
+			},
+			{
+				title: 'Suis le nom externe',
+				questions: [
+					{ q: 'Combien des trois domaines de recherche échouent pour `api.stripe.com` ?', options: ['Les trois', 'Seulement le premier', 'Les deux premiers', 'Aucun : le DNS du cluster les transmet'], answer: 0, why: 'Aucun nom comme `api.stripe.com.shop.svc.cluster.local` n’existe : chaque domaine ajouté renvoie `NXDOMAIN`.' },
+					{ q: 'Combien de requêtes A coûte `api.stripe.com` ?', options: ['3', '1', '4', '6'], answer: 2, why: 'Trois domaines de recherche en échec, puis le nom tel quel : 4 requêtes.' },
+					{ q: 'Le programme demande A et AAAA. Combien de requêtes maintenant ?', options: ['4', '5', '6', '8'], answer: 3, why: 'Chaque nom est demandé dans les deux types : les 4 requêtes A deviennent 8 au total.' },
+					{ q: 'Combien de requêtes pour `api.stripe.com.` ?', options: ['4, comme sans le point', '1', '2, une par domaine restant', '3, les domaines de recherche seulement'], answer: 1, why: 'Le point final le rend absolu : la glibc l’envoie une fois, tel quel.' }
+				]
+			},
+			{
+				title: 'Écris le dnsConfig',
+				questions: [
+					{ q: 'Quel `dnsConfig` réduit `api.stripe.com` à une requête sans toucher au code ?', options: ['`searches: [ stripe.com ]`', '`options: [ { name: attempts, value: "1" } ]`', '`options: [ { name: ndots, value: "2" } ]`', '`options: [ { name: rotate } ]`'], answer: 2, why: 'Avec `ndots:2`, un nom à 2 points atteint le seuil et est d’abord essayé tel quel.' },
+					{ q: 'Avec le `dnsPolicy` par défaut du Pod, que deviennent les autres réglages quand tu ajoutes cette option ?', options: ['Ils sont effacés : il faut relister les domaines de recherche', 'Le Pod reprend le `resolv.conf` du nœud', 'Kubelet refuse le Pod tant que `dnsPolicy` n’est pas `None`', 'Kubelet la fusionne par-dessus, et la liste de recherche reste'], answer: 3, why: 'Avec toute politique autre que `None`, `dnsConfig.options` est fusionné par-dessus les valeurs de kubelet : le 2 remplace le 5.' },
+					{ q: 'Avec `ndots:2`, que devient `redis.cache` ?', options: ['Il passe toujours par la liste de recherche', 'Il est d’abord essayé tel quel', 'Il ne se résout plus', 'Il lui faut un point final'], answer: 0, why: '`redis.cache` a 1 point, moins que 2 : la liste de recherche passe toujours d’abord, et le nom court marche encore.' },
+					{ q: 'Quel est le coût d’un `ndots` plus bas pour ce Pod ?', options: ['Les noms courts ne marchent plus dans le namespace', 'Les noms à 2 points ou plus partent d’abord tels quels vers l’amont', 'Chaque résolution coûte deux requêtes de plus', 'Le Pod perd son serveur DNS de cluster'], answer: 1, why: 'Un nom court comme `redis.cache.svc` part maintenant vers les serveurs amont en nom absolu, avant la liste de recherche.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ func (c *Configurer) generateSearchesForDNSClusterFirst(hostSearch []string, pod
 			why: 'Le nom a 3 points, moins de 5 : chaque domaine de recherche passe en premier. Kubelet avait ajouté les domaines du nœud après ceux du cluster, et le programme demandait A et AAAA pour chacun.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Compter les requêtes envoyées par la glibc pour un seul nom, avec le `ndots:5` de Kubernetes et sans.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/ndots-lab && cd ~/ndots-lab`. Crée `db.cluster.local` avec : `$ORIGIN cluster.local.`, `@ 30 IN SOA ns.cluster.local. admin.cluster.local. 1 7200 900 1209600 30`, `@ 30 IN NS ns.cluster.local.`, `ns 30 IN A 127.0.0.1`, `redis.cache.svc 30 IN A 10.96.0.20`.',
+			'Crée `db.pay.test` de la même façon avec `$ORIGIN pay.test.`, ses propres lignes SOA et NS, et `api 30 IN A 192.0.2.50`. Crée `Corefile` avec une ligne chacun : `cluster.local {`, `file /lab/db.cluster.local`, `log`, `}`, `pay.test {`, `file /lab/db.pay.test`, `log`, `}`.',
+			'Écris un fichier de résolveur comme celui d’un Pod : `printf \'nameserver 127.0.0.1\\nsearch shop.svc.cluster.local svc.cluster.local cluster.local\\noptions ndots:5\\n\' > resolv.conf`.',
+			'Lance CoreDNS : `docker run -d --name coredns-lab -v "$PWD":/lab coredns/coredns:1.11.3 -conf /lab/Corefile`. Résous ensuite un nom depuis un conteneur qui partage son réseau : `docker run --rm --network container:coredns-lab -v "$PWD/resolv.conf":/etc/resolv.conf:ro debian:12-slim getent ahostsv4 api.pay.test`.',
+			'Lis les requêtes avec `docker logs coredns-lab 2>&1 | grep "A IN"`. Recommence avec `redis.cache` et `api.pay.test.`, puis remplace `ndots:5` par `ndots:2` dans `resolv.conf` et résous de nouveau `api.pay.test`.'
+		],
+		done: [
+			'Avec `ndots:5`, `api.pay.test` montre 4 requêtes dans le log : 3 `NXDOMAIN` avec un domaine de recherche ajouté, puis `api.pay.test.` en `NOERROR`.',
+			'`redis.cache` montre 2 requêtes et se résout en `10.96.0.20`. `api.pay.test.` ajoute exactement une requête.',
+			'Avec `ndots:2`, `api.pay.test` ajoute exactement une requête.'
+		],
+		solution: [
+			'`api.pay.test` a 2 points, moins que 5 : la glibc essaie `.shop.svc.cluster.local`, `.svc.cluster.local` et `.cluster.local` avant le nom lui-même.',
+			'`getent ahostsv4` ne demande que des enregistrements A. Un programme qui demande aussi l’AAAA double chaque compte.',
+			'Nettoie avec `docker rm -f coredns-lab`.'
+		]
+	},
 	recall: {
 		q: 'Avec le `ndots:5` par défaut de Kubernetes, combien de requêtes A la glibc envoie-t-elle pour résoudre `api.github.com`, et quel est le plus petit changement dans l’app pour n’en avoir qu’une ?',
 		a: '4 : les trois domaines de recherche du cluster ajoutés tour à tour, tous en `NXDOMAIN`, puis le nom lui-même. Écrire `api.github.com.` avec un point final ramène à une requête.'

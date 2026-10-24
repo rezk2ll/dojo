@@ -106,6 +106,44 @@ for page in reader.pages:
 			'Frontmatter: `name: release`, `description: Cut a release: bump the version, update CHANGELOG.md, tag and publish to npm. Use when the user asks to release or publish.`, `disable-model-invocation: true`.',
 			'`disable-model-invocation: true` keeps `npm publish` behind you typing `/release`. It also takes the description out of the listing, so the skill costs no context until you run it.',
 			'Optional: `allowed-tools: Bash(npm version *) Bash(git tag *)` lets those commands run without a prompt during the `/release` turn only. `npm publish` stays outside it and still prompts. Delete the 180 lines from `CLAUDE.md`.'
+		],
+		steps: [
+			{
+				title: 'Lay out the folder',
+				questions: [
+					{ q: 'Where does the release skill live?', options: ['`.claude/release.md`', 'Under a `## Release` heading in `CLAUDE.md`', '`.claude/skills/release/SKILL.md`', '`.claude/rules/release.md`'], answer: 2, why: 'A skill is a folder under `.claude/skills/` with a `SKILL.md` file in it.' },
+					{ q: 'Where do the 120 lines of changelog format go?', options: ['In `changelog-format.md`, next to `SKILL.md`', 'In the body of `SKILL.md`', 'They stay in `CLAUDE.md`', 'In the `description` field'], answer: 0, why: 'Claude needs them only while it writes the changelog, so they go in a file of their own.' },
+					{ q: 'When does `changelog-format.md` load?', options: ['At session start', 'Only when Claude opens it', 'Together with the `SKILL.md` body', 'Never: Claude cannot read it'], answer: 1, why: 'Files next to `SKILL.md` are the third level: they cost nothing until Claude opens them.' },
+					{ q: 'How does Claude know to open it?', options: ['An `@changelog-format.md` import line', 'A `paths:` field in the frontmatter', 'Claude Code opens every file in the folder', '`SKILL.md` says "Before you write CHANGELOG.md, read changelog-format.md"'], answer: 3, why: 'The body points to the file, as the pdf skill does with "read FORMS.md".' }
+				]
+			},
+			{
+				title: 'Write the frontmatter',
+				questions: [
+					{ q: 'Which `name` gives you the `/release` command?', options: ['`SKILL`', '`release`', '`release-procedure.md`', '`CLAUDE.release`'], answer: 1, why: 'The skill in `.claude/skills/release/` is named `release`, and you run it by typing `/release`.' },
+					{ q: 'What belongs in the `description`?', options: ['The 40 lines of steps', 'The current version number', 'What the skill does and when to use it', 'The license terms'], answer: 2, why: 'The description is what Claude reads to decide when a skill applies.' },
+					{ q: 'In the listing, where is each entry\'s `description` plus `when_to_use` cut?', options: ['At 500 lines', 'At 5,000 tokens', 'At 1% of the context window', 'At 1,536 characters'], answer: 3, why: 'Each entry is cut at 1,536 characters. The 1% is the budget for the whole listing.' },
+					{ q: 'Which field keeps `npm publish` behind you?', options: ['`disable-model-invocation: true`', '`allowed-tools: Bash(npm publish *)`', '`license`', '`when_to_use`'], answer: 0, why: 'With that field, only you can start the skill.' }
+				]
+			},
+			{
+				title: 'Keep the publish in your hands',
+				questions: [
+					{ q: 'With `disable-model-invocation: true`, who can start the skill?', options: ['Claude, when the code looks ready', 'Both you and Claude', 'Only you, by typing `/release`', 'Nobody until you restart'], answer: 2, why: 'Claude cannot invoke it. You start it with the slash command.' },
+					{ q: 'What happens to its description in the skill listing?', options: ['It loads in full', 'It stays out of the context', 'It is cut to 1,536 characters', 'It moves to `CLAUDE.md`'], answer: 1, why: 'With that field set, the description stays out of the context.' },
+					{ q: 'You reply "looks good, ship it" with no slash command. What does Claude do?', options: ['It runs the release skill', 'It copies the steps into Bash and runs them', 'It reads `SKILL.md` and asks before each step', 'It cannot start the skill and suggests `/release`'], answer: 3, why: 'With that field, Claude cannot invoke the skill. If it tries anyway, Claude Code blocks the call and tells it not to reproduce the steps another way.' },
+					{ q: 'With that field set, how much context does the skill take before you type `/release`?', options: ['None', 'One description line', 'The 40 lines of steps', 'All 180 lines'], answer: 0, why: 'The description is out of the listing, so nothing loads until you run it.' }
+				]
+			},
+			{
+				title: 'Grant tools, then clean up',
+				questions: [
+					{ q: 'What does `allowed-tools: Bash(npm version *) Bash(git tag *)` do?', options: ['It allows those commands for the rest of the session', 'It lets them run without a prompt during the `/release` turn', 'It saves them to `.claude/settings.local.json`', 'It forbids every other tool'], answer: 1, why: 'The grant applies during the turn that invokes the skill.' },
+					{ q: 'Does `npm publish` still prompt during `/release`?', options: ['No, the skill approves every step', 'No, `npm version` covers it', 'Yes, it is not in `allowed-tools`', 'Only on the first release'], answer: 2, why: 'Leaving it out keeps one prompt on the step that cannot be taken back.' },
+					{ q: 'After the release you send another message, and Claude runs `git tag`. Does it prompt?', options: ['Yes, the grant clears when you send your next message', 'No, the grant lasts until the session ends', 'No, the skill text is still in context', 'Only if the tag already exists'], answer: 0, why: 'The skill text stays in context, but the `allowed-tools` grant ends with the turn.' },
+					{ q: 'What is the last step of the move?', options: ['Keep the 180 lines as a backup', 'Import the skill from `CLAUDE.md`', 'Move the lines to `CLAUDE.local.md`', 'Delete the 180 lines from `CLAUDE.md`'], answer: 3, why: 'Left in place, they would still load in every session, which is what the move was for.' }
+				]
+			}
 		]
 	},
 	quiz: [

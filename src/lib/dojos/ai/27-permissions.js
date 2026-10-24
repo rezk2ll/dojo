@@ -93,6 +93,44 @@ export default {
 			'`npm run test` and `git commit -m "fix"` run with no prompt. `git push origin main` prompts even after you approve a plan, because ask rules are checked before allow rules and no mode auto-approves them.',
 			'`Read(./.env)` blocks the Read tool on `.env`, and also `cat .env` or `head .env` in Bash. It does not stop `grep -r KEY .` or a Node script that opens the file itself. The sandbox blocks those at the OS level.',
 			'`git -C . push origin main` does not match `Bash(git push *)`, because the rule matches the text `git push`. With no other rule, the mode decides: plan mode prompts or sends it to the classifier, and Manual mode prompts.'
+		],
+		steps: [
+			{
+				title: 'Write the allow list',
+				questions: [
+					{ q: 'Which rule lets any `npm run` script run without a prompt?', options: ['`Bash(npm run)`', '`Bash(npm *)`', '`Bash(npm run *)`', '`Bash(run *)`'], answer: 2, why: '`npm run` then `*` covers `npm run build`, `npm run test` and every other script, and nothing else.' },
+					{ q: 'Which rule allows `git commit -m "fix"` and no other git command?', options: ['`Bash(git commit)`', '`Bash(git commit *)`', '`Bash(git *)`', '`Bash(commit *)`'], answer: 1, why: 'The `*` after `git commit` covers any message and flags. Without it, only the bare command matches.' },
+					{ q: 'Why not allow `Bash(git *)` and be done?', options: ['Wildcards are not allowed in allow rules', 'It matches no git command', 'It would block `git commit`', 'It also allows `git push` and `git reset --hard`'], answer: 3, why: 'A broad allow rule covers every command that starts with the same text.' },
+					{ q: 'In a rule like `Bash(git log *)`, what about the text before the `*`?', options: ['It must match as written', 'It is ignored', 'Its words can come in any order', 'It only has to match the first word'], answer: 0, why: 'Everything before the first `*` must match as written, so `Bash(git log *)` covers only `git log`.' }
+				]
+			},
+			{
+				title: 'Add the ask and deny rules',
+				questions: [
+					{ q: 'Where does `Bash(git push *)` go?', options: ['In `allow`', 'In `ask`', 'In `deny`', 'In `defaultMode`'], answer: 1, why: 'The task wants a prompt before every push, not a block.' },
+					{ q: 'Which entry keeps Claude from reading `.env`?', options: ['`Read(./.env)` in `ask`', '`Edit(./.env)` in `deny`', '"Never read .env" in CLAUDE.md', '`Read(./.env)` in `deny`'], answer: 3, why: 'A deny rule is enforced by the client before the tool runs.' },
+					{ q: 'Does `Read(./.env)` in deny also stop `cat .env` in Bash?', options: ['No, it only covers the Read tool', 'Yes, it blocks `cat .env` and `head .env` too', 'Only in plan mode', 'Only with the sandbox on'], answer: 1, why: 'The answer lists `cat .env` and `head .env` among the commands that rule blocks.' },
+					{ q: 'Which call can still reach `.env` despite that rule?', options: ['`cat .env`', '`head .env`', '`grep -r KEY .`', 'The Read tool on `.env`'], answer: 2, why: 'A recursive `grep` opens the file without naming it. The sandbox blocks that at the OS level.' }
+				]
+			},
+			{
+				title: 'Start in plan mode',
+				questions: [
+					{ q: 'Which key makes every session start in plan mode?', options: ['`"defaultMode": "plan"`', '`"mode": "plan"`', '`"plan": true`', '`"startMode": "plan"`'], answer: 0, why: '`defaultMode` sets the mode a session starts in.' },
+					{ q: 'Where does `defaultMode` sit in the file?', options: ['At the top level, next to `permissions`', 'Inside `permissions`, next to the three lists', 'Inside the `allow` list', 'In CLAUDE.md'], answer: 1, why: 'The answer puts it inside `permissions`, with `allow`, `ask` and `deny`.' },
+					{ q: 'What does plan mode let Claude do?', options: ['Edit any file in the working directory', 'Run every Bash command with no prompt', 'Nothing until you type a plan', 'Read and explore, with no edits to source until you approve the plan'], answer: 3, why: '`plan` blocks edits to source until you approve the plan.' },
+					{ q: 'You approve the plan. Does `git push origin main` still prompt?', options: ['Yes, ask rules come before allow and no mode auto-approves them', 'No, the approved plan covers it', 'No, plan mode allows pushes', 'Only if the push goes to `main`'], answer: 0, why: 'The docs list explicit ask rules among what no mode auto-approves, `bypassPermissions` included.' }
+				]
+			},
+			{
+				title: 'Test `git -C . push`',
+				questions: [
+					{ q: 'Does `git -C . push origin main` match `Bash(git push *)`?', options: ['Yes, it is still a push', 'Yes, Claude Code reads git options', 'No, the rule matches the text `git push`', 'Only in plan mode'], answer: 2, why: 'A Bash rule matches the command text, and `git -C . push` does not start with `git push`.' },
+					{ q: 'No rule matches. What decides what happens?', options: ['The deny list, by default', 'The permission mode', 'The model, from CLAUDE.md', 'The last rule in the file'], answer: 1, why: 'When no rule matches the call, the permission mode decides.' },
+					{ q: 'In Manual mode, what happens to that push?', options: ['It prompts you', 'It runs with no prompt', 'It is blocked', 'It is saved as a new rule'], answer: 0, why: '`default` runs reads only and asks for the rest.' },
+					{ q: 'Which other push also slips past `Bash(git push *)`?', options: ['`git push origin main`', '`git push --force origin main`', '`git push origin dev`', '`git \'push\' origin main`'], answer: 3, why: 'Quoting the word changes the text, so the rule no longer matches.' }
+				]
+			}
 		]
 	},
 	quiz: [

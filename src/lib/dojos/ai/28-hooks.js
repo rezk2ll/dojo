@@ -115,6 +115,44 @@ def main():
 			'`"PreToolUse": [{ "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/no-migrations.sh" }] }]`.',
 			'`"PostToolUse": [{ "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "jq -r \'.tool_input.file_path\' | grep \'\\\\.py$\' | xargs -r ruff format" }] }]`. The `grep` skips files that are not Python.',
 			'Exit 2 matters: with `exit 1`, Claude Code reports a hook error and the edit to `migrations/0042_users.py` still goes through. The hook never sees a `sed -i` run through Bash. An `Edit(migrations/**)` deny rule also covers file commands that Claude Code recognizes in Bash, such as `sed` and `tee`.'
+		],
+		steps: [
+			{
+				title: 'Pick the events',
+				questions: [
+					{ q: 'Which event can stop an edit to `migrations/` before it happens?', options: ['`PostToolUse`', '`PreToolUse`', 'A line in CLAUDE.md', 'Any event, if it exits 1'], answer: 1, why: '`PreToolUse` fires before the tool call runs, so a hook on it can block the call.' },
+					{ q: 'Which event runs `ruff format` on a file Claude just edited?', options: ['`PreToolUse`', 'Either one', '`PostToolUse`', 'Neither: a line in CLAUDE.md'], answer: 2, why: 'Formatting needs the written file, and `PostToolUse` fires after the tool call succeeds.' },
+					{ q: 'Which matcher do both entries use?', options: ['`Edit|Write`', '`Bash`', '`*.py`', '`migrations/`'], answer: 0, why: 'A matcher picks tools, not paths. `Edit|Write` matches either of the two file tools.' },
+					{ q: 'Why a hook for formatting instead of a line in CLAUDE.md?', options: ['Hooks use fewer tokens', 'CLAUDE.md cannot name commands', 'A hook runs faster than Claude', 'Claude Code runs the hook, so Claude cannot skip it'], answer: 3, why: 'In the hook story, Claude ran Prettier after 11 of 12 edits. A hook runs every time.' }
+				]
+			},
+			{
+				title: 'Write the blocking script',
+				questions: [
+					{ q: 'Where in the event JSON is the path of the file Claude wants to edit?', options: ['`tool_input.command`', '`tool_input.file_path`', '`tool_name`', '`hook_event_name`'], answer: 1, why: 'For `Edit` and `Write`, the target path is in `tool_input.file_path`.' },
+					{ q: 'How does the script get that JSON?', options: ['As its first argument, `$1`', 'From an environment variable', 'On stdin, read with `jq`', 'From a file Claude Code writes'], answer: 2, why: 'Each command hook gets the event as JSON on stdin.' },
+					{ q: 'Which exit code makes Claude Code block the edit?', options: ['0', '1', '-1', '2'], answer: 3, why: 'Only exit 2 blocks. Exit 0 means no objection.' },
+					{ q: 'Where does the "Blocked: ... is a migration" message on stderr go?', options: ['To Claude, as the reason for the block', 'Only to your terminal', 'To a log file under `.claude/`', 'Nowhere: stderr is dropped'], answer: 0, why: 'For `PreToolUse`, the hook\'s stderr goes to Claude, which can then write a new migration instead.' }
+				]
+			},
+			{
+				title: 'Register both hooks',
+				questions: [
+					{ q: 'What do you run on `no-migrations.sh` so the hook can start it?', options: ['`source` on it', '`chmod +x` on it', '`ruff format` on it', 'Nothing: hooks run any file'], answer: 1, why: 'The hook command runs the script directly, so it has to be executable.' },
+					{ q: 'In the `PostToolUse` command, what is `grep \'\\.py$\'` for?', options: ['It skips files that are not Python', 'It finds the migration files', 'It blocks the edit on a match', 'It formats the file'], answer: 0, why: 'The matcher sees every `Edit` and `Write`, so the path filter has to live in the command.' },
+					{ q: 'What does `jq -r \'.tool_input.file_path\'` pass to `ruff format`?', options: ['The whole event JSON', 'The text of the command', 'The path of the edited file', 'The name of the tool'], answer: 2, why: '`jq -r` prints the raw path, and `xargs` hands it to `ruff format`.' },
+					{ q: 'The `PostToolUse` hook exits 2. Can it undo the edit?', options: ['Yes, Claude Code reverts the file', 'Yes, Claude Code asks you first', 'It blocks the next edit instead', 'No: the file is written, and stderr goes to Claude'], answer: 3, why: '`PostToolUse` fires after the tool succeeded. Exit 2 there only shows stderr to Claude.' }
+				]
+			},
+			{
+				title: 'Check the gaps',
+				questions: [
+					{ q: 'The script exits 1 by mistake. What happens to an edit of `migrations/0042_users.py`?', options: ['It is blocked anyway', 'It goes through, and the transcript shows a hook error', 'Claude Code asks you', 'The session stops'], answer: 1, why: 'Any exit code other than 0 and 2 is a non-blocking error, so the tool runs.' },
+					{ q: 'Claude runs `sed -i` on a migration through Bash. Does the hook see it?', options: ['Yes, it sees every file change', 'Yes, `sed` counts as `Edit`', 'No: the matcher is `Edit|Write`, not `Bash`', 'Only if the path contains `migrations/`'], answer: 2, why: 'The hook only fires for the tools its matcher names.' },
+					{ q: 'Which addition also covers `sed` and `tee` on migrations?', options: ['An `Edit(migrations/**)` deny rule', 'A second hook that exits 1', 'A line in CLAUDE.md', 'A `PostToolUse` hook on `Bash`'], answer: 0, why: 'That deny rule covers file commands Claude Code recognizes in Bash, such as `sed` and `tee`.' },
+					{ q: 'Someone runs the session with `--dangerously-skip-permissions`. Does the hook still block?', options: ['No, that flag skips every check', 'No, it only logs the decision', 'Only for `Write`, not `Edit`', 'Yes, it blocks in every permission mode'], answer: 3, why: 'A `PreToolUse` hook that exits 2 blocks the call in every mode, `bypassPermissions` included.' }
+				]
+			}
 		]
 	},
 	quiz: [

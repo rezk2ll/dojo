@@ -100,6 +100,44 @@ Based on the above changes:
 			'`/triage 1234` puts `1234` in place of `$0`. The two `gh` commands run without a prompt during that turn only.',
 			'Plugin layout: `triage-tools/.claude-plugin/plugin.json` with `{ "name": "triage-tools", "version": "1.0.0" }`, `triage-tools/commands/triage.md` and `triage-tools/commands/triage-week.md`.',
 			'Installed, the commands run as `/triage-tools:triage 1234` and `/triage-tools:triage-week`. Add the plugin to a `.claude-plugin/marketplace.json` with `"source": "./triage-tools"`, and teammates install it with `/plugin install triage-tools@<marketplace>`.'
+		],
+		steps: [
+			{
+				title: 'Write the command file',
+				questions: [
+					{ q: 'Which file gives you `/triage`?', options: ['`.claude/triage.md`', '`.claude/commands/triage.md`', '`.claude/commands/triage/run.md`', '`.claude/commands/triage.json`'], answer: 1, why: 'The command name comes from the file name in `.claude/commands/`. A subfolder would give `/triage:run`.' },
+					{ q: 'How does `1234` reach the body of the file?', options: ['Through a line `` !`1234` ``', 'Through an `ISSUE` environment variable', 'Through `$0`, or `$ARGUMENTS`', 'Claude asks you for it'], answer: 2, why: 'Arguments reach the file through `$ARGUMENTS` or `$0`.' },
+					{ q: 'Which `allowed-tools` lets the two `gh` steps run, and no other `gh` command?', options: ['`Bash(gh issue view *) Bash(gh issue edit *)`', '`Bash(gh *)`', '`Bash(git push:*)`', '`Read`'], answer: 0, why: 'One entry per command the task needs. `Bash(gh *)` would also let `gh pr merge` through.' },
+					{ q: 'How long does that grant last?', options: ['For the rest of the session', 'Until the plugin is updated', 'Forever, once you approve it', 'During that turn only'], answer: 3, why: '`allowed-tools` lets the listed commands run without a prompt during the turn that runs the command.' }
+				]
+			},
+			{
+				title: 'Run it once',
+				questions: [
+					{ q: 'You type `/triage 1234`. What replaces `$0`?', options: ['`/triage`', '`1234`', 'The issue title', 'Nothing until Claude calls `gh`'], answer: 1, why: 'The first argument after the command name fills `$0`.' },
+					{ q: 'If the file had a line `` !`git status` ``, when would `git` run?', options: ['Before Claude reads the file, with the output in place of the line', 'When Claude decides to call the Bash tool', 'Once at startup, cached for the session', 'Never: Claude reads it as text'], answer: 0, why: 'Dynamic context injection runs each `` !`command` `` first, so Claude gets the output, not the command.' },
+					{ q: 'During `/triage`, Claude tries `gh issue close 1234`. What happens?', options: ['It runs, since `gh issue` is allowed', 'It is blocked by the command file', 'It goes through the normal permission rules', 'The command stops with an error'], answer: 2, why: 'A command the `allowed-tools` list does not match still goes through the permission rules.' },
+					{ q: 'You mistype an entry in `allowed-tools`. What do you see?', options: ['An error when Claude Code loads the file', 'A warning in `/context`', 'The command refuses to run', 'No error: the command just prompts'], answer: 3, why: 'As `git checkout --branch:*` shows, a wrong entry fails silently and the command falls back to a prompt.' }
+				]
+			},
+			{
+				title: 'Package the plugin',
+				questions: [
+					{ q: 'Where does the plugin manifest go?', options: ['`triage-tools/.claude-plugin/plugin.json`', '`triage-tools/plugin.json`', '`triage-tools/.claude/settings.json`', '`.claude-plugin/marketplace.json`'], answer: 0, why: 'A plugin is a directory with a manifest at `.claude-plugin/plugin.json`.' },
+					{ q: 'What does the answer put in that manifest?', options: ['The list of command files', '`"name": "triage-tools"` and `"version": "1.0.0"`', 'The `allowed-tools` of each command', 'The URL of the marketplace'], answer: 1, why: 'The manifest names the plugin and its version. The `commit-commands` plugin does the same.' },
+					{ q: 'Where do `triage.md` and `triage-week.md` go inside the plugin?', options: ['`triage-tools/.claude/commands/`', '`triage-tools/.claude-plugin/`', '`triage-tools/commands/`', '`triage-tools/skills/`'], answer: 2, why: 'In a plugin, commands live in `commands/<file>.md`.' },
+					{ q: 'Besides commands, what else can the plugin carry?', options: ['Only more commands', 'Only a `settings.json`', 'Only `CLAUDE.md` files', 'Skills, agents, hooks and MCP servers'], answer: 3, why: 'A plugin installs commands, skills, agents, hooks and MCP servers as one unit.' }
+				]
+			},
+			{
+				title: 'Name the commands and ship',
+				questions: [
+					{ q: 'Once installed, what do you type to triage issue 1234?', options: ['`/triage 1234`', '`/triage-tools:triage 1234`', '`/triage-tools/triage 1234`', '`/plugin triage 1234`'], answer: 1, why: 'Plugin commands get the plugin name as a prefix.' },
+					{ q: 'What pattern builds a plugin command name?', options: ['`/<file>`', '`/<file>:<plugin>`', '`/<plugin>:<file>`', '`/<marketplace>:<file>`'], answer: 2, why: '`commands/<file>.md` in a plugin runs as `/<plugin>:<file>`.' },
+					{ q: 'How do teammates install the plugin?', options: ['`/plugin install triage-tools@<marketplace>`', 'Copy the files into `.claude/commands/`', '`git clone` the plugin folder', '`npm install triage-tools`'], answer: 0, why: 'You list it in a `marketplace.json` with `"source": "./triage-tools"`, and they install from that marketplace.' },
+					{ q: 'Enabled but unused in a session, what does the plugin cost?', options: ['Nothing until a command runs', 'The full text of both commands every turn', 'One line naming the plugin', 'The name and description of each command Claude can invoke, every turn'], answer: 3, why: 'Those names and descriptions stay in the context so Claude knows they exist. The full text loads only when used.' }
+				]
+			}
 		]
 	},
 	quiz: [

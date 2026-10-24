@@ -93,6 +93,44 @@ export default {
 			'`npm run test` et `git commit -m "fix"` tournent sans demande. `git push origin main` demande même après validation du plan, car les règles ask passent avant les règles allow et aucun mode ne les approuve tout seul.',
 			'`Read(./.env)` bloque l’outil Read sur `.env`, et aussi `cat .env` ou `head .env` en Bash. Elle n’arrête pas `grep -r KEY .` ni un script Node qui ouvre le fichier lui-même. Le sandbox bloque ces cas au niveau de l’OS.',
 			'`git -C . push origin main` ne correspond pas à `Bash(git push *)`, car la règle compare le texte `git push`. Sans autre règle, c’est le mode qui tranche : le mode plan demande ou passe la commande au classifieur, et le mode Manual demande.'
+		],
+		steps: [
+			{
+				title: 'Écris la liste allow',
+				questions: [
+					{ q: 'Quelle règle laisse tourner n’importe quel script `npm run` sans demande ?', options: ['`Bash(npm run)`', '`Bash(npm *)`', '`Bash(npm run *)`', '`Bash(run *)`'], answer: 2, why: '`npm run` puis `*` couvre `npm run build`, `npm run test` et tous les autres scripts, et rien d’autre.' },
+					{ q: 'Quelle règle autorise `git commit -m "fix"` et aucune autre commande git ?', options: ['`Bash(git commit)`', '`Bash(git commit *)`', '`Bash(git *)`', '`Bash(commit *)`'], answer: 1, why: 'Le `*` après `git commit` couvre n’importe quel message et options. Sans lui, seule la commande nue correspond.' },
+					{ q: 'Pourquoi ne pas autoriser `Bash(git *)` et en finir ?', options: ['Les jokers sont interdits dans les règles allow', 'Elle ne correspond à aucune commande git', 'Elle bloquerait `git commit`', 'Elle autorise aussi `git push` et `git reset --hard`'], answer: 3, why: 'Une règle allow large couvre toutes les commandes qui commencent par le même texte.' },
+					{ q: 'Dans une règle comme `Bash(git log *)`, qu’en est-il du texte avant le `*` ?', options: ['Il doit correspondre tel quel', 'Il est ignoré', 'Ses mots peuvent venir dans n’importe quel ordre', 'Seul le premier mot doit correspondre'], answer: 0, why: 'Tout ce qui précède le premier `*` doit correspondre tel quel, donc `Bash(git log *)` ne couvre que `git log`.' }
+				]
+			},
+			{
+				title: 'Ajoute les règles ask et deny',
+				questions: [
+					{ q: 'Où va `Bash(git push *)` ?', options: ['Dans `allow`', 'Dans `ask`', 'Dans `deny`', 'Dans `defaultMode`'], answer: 1, why: 'La tâche veut une demande avant chaque push, pas un blocage.' },
+					{ q: 'Quelle entrée empêche Claude de lire `.env` ?', options: ['`Read(./.env)` dans `ask`', '`Edit(./.env)` dans `deny`', '« Never read .env » dans CLAUDE.md', '`Read(./.env)` dans `deny`'], answer: 3, why: 'Une règle deny est appliquée par le client avant que l’outil tourne.' },
+					{ q: '`Read(./.env)` en deny arrête-t-il aussi `cat .env` en Bash ?', options: ['Non, elle ne couvre que l’outil Read', 'Oui, elle bloque aussi `cat .env` et `head .env`', 'Seulement en mode plan', 'Seulement avec le sandbox'], answer: 1, why: 'La réponse range `cat .env` et `head .env` parmi les commandes que cette règle bloque.' },
+					{ q: 'Quel appel peut encore atteindre `.env` malgré cette règle ?', options: ['`cat .env`', '`head .env`', '`grep -r KEY .`', 'L’outil Read sur `.env`'], answer: 2, why: 'Un `grep` récursif ouvre le fichier sans le nommer. Le sandbox bloque ce cas au niveau de l’OS.' }
+				]
+			},
+			{
+				title: 'Démarre en mode plan',
+				questions: [
+					{ q: 'Quelle clé fait démarrer chaque session en mode plan ?', options: ['`"defaultMode": "plan"`', '`"mode": "plan"`', '`"plan": true`', '`"startMode": "plan"`'], answer: 0, why: '`defaultMode` fixe le mode de départ d’une session.' },
+					{ q: 'Où se place `defaultMode` dans le fichier ?', options: ['Au premier niveau, à côté de `permissions`', 'Dans `permissions`, à côté des trois listes', 'Dans la liste `allow`', 'Dans CLAUDE.md'], answer: 1, why: 'La réponse le met dans `permissions`, avec `allow`, `ask` et `deny`.' },
+					{ q: 'Que laisse faire le mode plan à Claude ?', options: ['Modifier n’importe quel fichier du répertoire de travail', 'Lancer toute commande Bash sans demande', 'Rien tant que tu n’as pas tapé de plan', 'Lire et explorer, sans modifier le code source avant que tu valides le plan'], answer: 3, why: '`plan` bloque les modifications du code source jusqu’à la validation du plan.' },
+					{ q: 'Tu valides le plan. `git push origin main` demande-t-il encore ?', options: ['Oui, les règles ask passent avant allow et aucun mode ne les approuve tout seul', 'Non, le plan validé le couvre', 'Non, le mode plan autorise les push', 'Seulement si le push va vers `main`'], answer: 0, why: 'La doc range les règles ask explicites parmi ce qu’aucun mode n’approuve tout seul, `bypassPermissions` compris.' }
+				]
+			},
+			{
+				title: 'Teste `git -C . push`',
+				questions: [
+					{ q: '`git -C . push origin main` correspond-il à `Bash(git push *)` ?', options: ['Oui, c’est quand même un push', 'Oui, Claude Code lit les options de git', 'Non, la règle compare le texte `git push`', 'Seulement en mode plan'], answer: 2, why: 'Une règle Bash porte sur le texte de la commande, et `git -C . push` ne commence pas par `git push`.' },
+					{ q: 'Aucune règle ne correspond. Qu’est-ce qui décide ?', options: ['La liste deny, par défaut', 'Le mode de permission', 'Le modèle, d’après CLAUDE.md', 'La dernière règle du fichier'], answer: 1, why: 'Quand aucune règle ne correspond à l’appel, c’est le mode de permission qui tranche.' },
+					{ q: 'En mode Manual, que devient ce push ?', options: ['Il te demande ton accord', 'Il tourne sans demande', 'Il est bloqué', 'Il est enregistré comme nouvelle règle'], answer: 0, why: '`default` ne lance que les lectures et demande pour le reste.' },
+					{ q: 'Quel autre push passe aussi à côté de `Bash(git push *)` ?', options: ['`git push origin main`', '`git push --force origin main`', '`git push origin dev`', '`git \'push\' origin main`'], answer: 3, why: 'Mettre le mot entre guillemets change le texte, donc la règle ne correspond plus.' }
+				]
+			}
 		]
 	},
 	quiz: [

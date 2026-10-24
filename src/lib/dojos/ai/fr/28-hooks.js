@@ -115,6 +115,44 @@ def main():
 			'`"PreToolUse": [{ "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/no-migrations.sh" }] }]`.',
 			'`"PostToolUse": [{ "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "jq -r \'.tool_input.file_path\' | grep \'\\\\.py$\' | xargs -r ruff format" }] }]`. Le `grep` écarte les fichiers qui ne sont pas du Python.',
 			'Le code 2 compte : avec `exit 1`, Claude Code signale une erreur de hook et la modification de `migrations/0042_users.py` passe quand même. Le hook ne voit jamais un `sed -i` lancé en Bash. Une règle deny `Edit(migrations/**)` couvre aussi les commandes de fichiers que Claude Code reconnaît en Bash, comme `sed` et `tee`.'
+		],
+		steps: [
+			{
+				title: 'Choisis les événements',
+				questions: [
+					{ q: 'Quel événement peut arrêter une modification de `migrations/` avant qu’elle ait lieu ?', options: ['`PostToolUse`', '`PreToolUse`', 'Une ligne dans CLAUDE.md', 'N’importe lequel, s’il sort en 1'], answer: 1, why: '`PreToolUse` part avant l’exécution de l’appel d’outil, donc un hook branché dessus peut le bloquer.' },
+					{ q: 'Quel événement lance `ruff format` sur un fichier que Claude vient de modifier ?', options: ['`PreToolUse`', 'L’un ou l’autre', '`PostToolUse`', 'Aucun : une ligne dans CLAUDE.md'], answer: 2, why: 'Le formatage a besoin du fichier écrit, et `PostToolUse` part après un appel réussi.' },
+					{ q: 'Quel matcher les deux entrées utilisent-elles ?', options: ['`Edit|Write`', '`Bash`', '`*.py`', '`migrations/`'], answer: 0, why: 'Un matcher choisit des outils, pas des chemins. `Edit|Write` vise l’un ou l’autre des deux outils de fichiers.' },
+					{ q: 'Pourquoi un hook pour le formatage plutôt qu’une ligne dans CLAUDE.md ?', options: ['Un hook consomme moins de tokens', 'CLAUDE.md ne peut pas nommer de commandes', 'Un hook tourne plus vite que Claude', 'Claude Code lance le hook, donc Claude ne peut pas le sauter'], answer: 3, why: 'Dans l’histoire du début, Claude a lancé Prettier après 11 modifications sur 12. Un hook tourne à chaque fois.' }
+				]
+			},
+			{
+				title: 'Écris le script qui bloque',
+				questions: [
+					{ q: 'Où se trouve, dans le JSON de l’événement, le chemin du fichier que Claude veut modifier ?', options: ['`tool_input.command`', '`tool_input.file_path`', '`tool_name`', '`hook_event_name`'], answer: 1, why: 'Pour `Edit` et `Write`, le chemin visé est dans `tool_input.file_path`.' },
+					{ q: 'Comment le script reçoit-il ce JSON ?', options: ['En premier argument, `$1`', 'Par une variable d’environnement', 'Sur stdin, lu avec `jq`', 'Dans un fichier écrit par Claude Code'], answer: 2, why: 'Chaque hook de type commande reçoit l’événement en JSON sur stdin.' },
+					{ q: 'Quel code de sortie fait bloquer la modification par Claude Code ?', options: ['0', '1', '-1', '2'], answer: 3, why: 'Seul le code 2 bloque. Le code 0 veut dire « pas d’objection ».' },
+					{ q: 'Où va le message « Blocked: … is a migration » écrit sur stderr ?', options: ['Chez Claude, comme raison du blocage', 'Seulement dans ton terminal', 'Dans un fichier de log sous `.claude/`', 'Nulle part : stderr est jeté'], answer: 0, why: 'Pour `PreToolUse`, le stderr du hook part chez Claude, qui peut alors écrire une nouvelle migration à la place.' }
+				]
+			},
+			{
+				title: 'Déclare les deux hooks',
+				questions: [
+					{ q: 'Que lances-tu sur `no-migrations.sh` pour que le hook puisse le démarrer ?', options: ['`source` dessus', '`chmod +x` dessus', '`ruff format` dessus', 'Rien : un hook lance n’importe quel fichier'], answer: 1, why: 'La commande du hook lance le script directement, il doit donc être exécutable.' },
+					{ q: 'Dans la commande `PostToolUse`, à quoi sert `grep \'\\.py$\'` ?', options: ['Il écarte les fichiers qui ne sont pas du Python', 'Il trouve les fichiers de migration', 'Il bloque la modification s’il trouve quelque chose', 'Il formate le fichier'], answer: 0, why: 'Le matcher voit chaque `Edit` et `Write`, donc le filtre sur le chemin doit vivre dans la commande.' },
+					{ q: 'Que passe `jq -r \'.tool_input.file_path\'` à `ruff format` ?', options: ['Tout le JSON de l’événement', 'Le texte de la commande', 'Le chemin du fichier modifié', 'Le nom de l’outil'], answer: 2, why: '`jq -r` affiche le chemin brut, et `xargs` le donne à `ruff format`.' },
+					{ q: 'Le hook `PostToolUse` sort en 2. Peut-il annuler la modification ?', options: ['Oui, Claude Code remet le fichier d’avant', 'Oui, Claude Code te demande d’abord', 'Il bloque la modification suivante à la place', 'Non : le fichier est écrit, et stderr part chez Claude'], answer: 3, why: '`PostToolUse` part après la réussite de l’outil. Le code 2 n’y fait que montrer stderr à Claude.' }
+				]
+			},
+			{
+				title: 'Vérifie les trous',
+				questions: [
+					{ q: 'Le script sort en 1 par erreur. Que devient une modification de `migrations/0042_users.py` ?', options: ['Elle est bloquée quand même', 'Elle passe, et le transcript montre une erreur de hook', 'Claude Code te demande ton accord', 'La session s’arrête'], answer: 1, why: 'Tout code autre que 0 et 2 est une erreur non bloquante, donc l’outil tourne.' },
+					{ q: 'Claude lance `sed -i` sur une migration en Bash. Le hook le voit-il ?', options: ['Oui, il voit chaque changement de fichier', 'Oui, `sed` compte comme un `Edit`', 'Non : le matcher est `Edit|Write`, pas `Bash`', 'Seulement si le chemin contient `migrations/`'], answer: 2, why: 'Le hook ne part que pour les outils que nomme son matcher.' },
+					{ q: 'Quel ajout couvre aussi `sed` et `tee` sur les migrations ?', options: ['Une règle deny `Edit(migrations/**)`', 'Un second hook qui sort en 1', 'Une ligne dans CLAUDE.md', 'Un hook `PostToolUse` sur `Bash`'], answer: 0, why: 'Cette règle deny couvre les commandes de fichiers que Claude Code reconnaît en Bash, comme `sed` et `tee`.' },
+					{ q: 'Quelqu’un lance la session avec `--dangerously-skip-permissions`. Le hook bloque-t-il encore ?', options: ['Non, cette option saute toutes les vérifications', 'Non, il ne fait que noter sa décision', 'Seulement pour `Write`, pas pour `Edit`', 'Oui, il bloque dans tous les modes de permission'], answer: 3, why: 'Un hook `PreToolUse` qui sort en 2 bloque l’appel dans tous les modes, `bypassPermissions` compris.' }
+				]
+			}
 		]
 	},
 	quiz: [

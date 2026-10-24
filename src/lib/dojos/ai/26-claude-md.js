@@ -121,6 +121,44 @@ environment variables in workflow logs.`,
 			'Move the 200 React lines to `.claude/rules/web.md` with `paths: ["src/web/**"]`. They now load only when Claude reads or edits a file under `src/web/`.',
 			'Cut the 120 lines of directory layout. Claude can list the directories itself, and the docs list directory layouts among the content `/doctor` proposes to trim.',
 			'Move the staging URL to `CLAUDE.local.md` and add that file to `.gitignore`. For `.env`, keep the line and add a `deny` rule such as `Read(./.env)` in `.claude/settings.json`, which the client enforces. The file is now about 25 lines.'
+		],
+		steps: [
+			{
+				title: 'Keep what every session needs',
+				questions: [
+					{ q: 'Where do the 20 lines of build and test commands go?', options: ['To `.claude/rules/build.md`', 'They stay in `CLAUDE.md`', 'Out of the file: Claude can guess them', 'To `CLAUDE.local.md`'], answer: 1, why: 'They are needed in every session, which is what the project `CLAUDE.md` is for.' },
+					{ q: 'Why do those lines stay?', options: ['Claude needs them in every session and cannot always guess them', 'They are the longest block in the file', 'Rule files cannot hold commands', 'CI reads them from `CLAUDE.md`'], answer: 0, why: 'A command Claude would otherwise get wrong is worth a line in every session.' },
+					{ q: 'How do the docs want an instruction written?', options: ['As short as possible, like "Test your changes"', 'In capital letters, so it stands out', 'Concrete enough to verify, like "Run `npm test` before committing"', 'As a link to a wiki page'], answer: 2, why: 'The docs ask for instructions "concrete enough to verify".' },
+					{ q: 'What size do the docs target for one `CLAUDE.md`?', options: ['Under 450 lines', 'Under 25 lines', 'Under 1,000 lines', 'Under 200 lines'], answer: 3, why: 'The docs target "under 200 lines per CLAUDE.md file".' }
+				]
+			},
+			{
+				title: 'Scope the React rules',
+				questions: [
+					{ q: 'Where do the 200 lines of React rules go?', options: ['`.claude/rules/web.md` with `paths: ["src/web/**"]`', 'Five files pulled in with `@path` imports', '`CLAUDE.local.md`', '`~/.claude/CLAUDE.md`'], answer: 0, why: 'A path-scoped rule holds text that only matters for some files.' },
+					{ q: 'When does that rule file load?', options: ['At launch, with the other files', 'When Claude reads or edits a file under `src/web/`', 'After every `/compact`', 'When you run `/memory`'], answer: 1, why: 'A rule with `paths:` loads only when Claude touches a matching file.' },
+					{ q: 'Why not move them to an imported file such as `@docs/react.md`?', options: ['Imports are capped at 20 lines', 'Imports only work in the user file', 'Imported files also load at launch, so they cost the same context', 'Claude cannot follow an import'], answer: 2, why: 'The docs: imported files "also load at launch". Splitting does not shrink the context.' },
+					{ q: 'After `/compact`, does the React rule file come back?', options: ['Yes, it is read again from disk at once', 'Only when a matching file is touched again', 'No, never again in that session', 'Only if you run `/memory`'], answer: 1, why: 'Only the project root `CLAUDE.md` is re-read after `/compact`. Path rules return when a matching file is touched.' }
+				]
+			},
+			{
+				title: 'Cut what Claude can read itself',
+				questions: [
+					{ q: 'What do you do with the 120 lines of directory layout?', options: ['Keep them in `CLAUDE.md`', 'Move them to a path rule', 'Import them from a separate file', 'Cut them'], answer: 3, why: 'They cost context in every session and tell Claude nothing it cannot find.' },
+					{ q: 'Why can they go?', options: ['A layout breaks the Markdown parser', 'Claude can list the directories itself', 'Layouts must stay private', 'Any block over 100 lines is dropped'], answer: 1, why: 'Claude reads the code and lists directories with its own tools.' },
+					{ q: 'Which command do the docs say proposes to trim directory layouts?', options: ['`/doctor`', '`/compact`', '`/memory`', '`/context`'], answer: 0, why: 'The docs list directory layouts among the content `/doctor` proposes to trim.' },
+					{ q: 'Why does a shorter file matter, beyond the token count?', options: ['Claude Code refuses files over 200 lines', 'Git rejects large Markdown files', 'Longer files "reduce adherence"', 'Imports stop working past 200 lines'], answer: 2, why: 'The docs: "Longer files consume more context and reduce adherence".' }
+				]
+			},
+			{
+				title: 'Move the personal and the critical',
+				questions: [
+					{ q: 'Where does your own staging URL go?', options: ['It stays in `CLAUDE.md`', '`CLAUDE.local.md`, added to `.gitignore`', '`.claude/settings.json`', '`.claude/rules/staging.md`'], answer: 1, why: 'It is yours, not the team\'s, so it goes in the personal file that is not committed.' },
+					{ q: 'When does `CLAUDE.local.md` load?', options: ['Right after `CLAUDE.md` in the same directory', 'Before every other file', 'Only when Claude opens it with a tool', 'Only after `/compact`'], answer: 0, why: 'In each directory, `CLAUDE.local.md` is appended after `CLAUDE.md`.' },
+					{ q: 'Why is the line "Never open `.env`" not enough on its own?', options: ['Claude cannot read dotfiles anyway', 'Lines about files are skipped', 'It sits past line 200, so it never loads', '`CLAUDE.md` is a user message Claude follows with no guarantee'], answer: 3, why: 'Claude tries to follow `CLAUDE.md`, but nothing enforces it.' },
+					{ q: 'What do you add so `.env` stays closed even when Claude ignores the line?', options: ['The same line in capital letters', 'A copy of the line in `CLAUDE.local.md`', 'A `deny` rule such as `Read(./.env)` in `.claude/settings.json`', 'A repeat of the line in `~/.claude/CLAUDE.md`'], answer: 2, why: 'Permission rules are checked by the client before the tool runs, whatever Claude decided.' }
+				]
+			}
 		]
 	},
 	quiz: [

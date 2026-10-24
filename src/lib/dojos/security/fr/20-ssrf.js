@@ -133,7 +133,7 @@ export default {
 				questions: [
 					{ q: 'Qui envoie la requête du webhook ?', options: ['Le navigateur du propriétaire du projet', 'Le serveur GitLab, depuis son propre réseau', 'Le serveur qui reçoit', 'Le résolveur DNS'], answer: 1, why: 'C’est ce qui en fait une SSRF : la requête atteint tout ce que le serveur atteint.' },
 					{ q: 'Avec les réglages sortants par défaut, que vaut `allow_local_network` ?', options: ['true', 'true pour les admins seulement', 'false', 'Il ne sert pas'], answer: 2, why: 'Les webhooks n’ont pas le droit d’appeler le réseau local : la ligne 22 ne sort pas tout de suite et les contrôles tournent.' },
-					{ q: 'Sur quelles valeurs portent la plupart des contrôles ?', options: ['Les adresses IP que renvoie le DNS', 'Seulement le texte du nom d’hôte', 'Seulement le port', 'Le chemin'], answer: 0, why: 'Un nom à l’air public peut résoudre vers une IP interne : les contrôles regardent les adresses.' },
+					{ q: 'Lesquelles des quatre URL ont besoin d’une réponse DNS avant que les contrôles d’adresse disent quoi que ce soit ?', options: ['(3) et (4), les deux noms d’hôte', '(1) et (2), les IP en clair', 'Les quatre', 'Aucune : les contrôles lisent le texte de l’URL'], answer: 0, why: '(1) et (2) sont déjà des adresses. Pour (3) et (4), seule l’adresse résolue dit où partirait la requête.' },
 					{ q: 'Quel contrôle tourne aussi sur le nom, avant le DNS ?', options: ['Le contrôle loopback', 'Le contrôle du réseau privé', 'Le contrôle du port', 'Le contrôle des métadonnées cloud'], answer: 3, why: '`validate_cloud_metadata_hostname!` reconnaît l’IP des métadonnées écrite en clair, avant toute résolution.' }
 				]
 			},
@@ -158,9 +158,9 @@ export default {
 			{
 				title: 'Ferme les derniers trous',
 				questions: [
-					{ q: 'Que fait `dns_rebind_protection` pour (4) ?', options: ['Il résout le nom deux fois', 'Il se connecte à l’IP vérifiée, en gardant `ci.example.org` pour TLS', 'Il bloque HTTPS', 'Il garde le DNS en cache un jour'], answer: 1, why: 'Les lignes 6 à 8 mettent l’IP vérifiée dans l’URI : une seconde réponse DNS ne peut pas glisser une adresse interne.' },
+					{ q: 'Juste après le contrôle, `ci.example.org` se met à résoudre vers `10.0.0.5`. Avec `dns_rebind_protection` actif, où part le webhook ?', options: ['Vers `10.0.0.5`', 'Vers l’IP publique qui a été vérifiée', 'Nulle part : la nouvelle réponse lève une erreur', 'Vers les deux adresses, l’une après l’autre'], answer: 1, why: 'Les lignes 6 à 8 mettent l’IP vérifiée dans l’URI : le client ne redemande jamais le DNS. La nouvelle réponse n’est jamais vue.' },
 					{ q: 'Quelle attaque cet épinglage arrête-t-il ?', options: ['La CSRF', 'Le credential stuffing', 'Le DNS rebinding', 'L’injection SQL'], answer: 2, why: 'Le nom résout vers une IP publique au contrôle et vers une IP interne à la connexion. L’épinglage supprime la seconde résolution.' },
-					{ q: 'Le serveur de (4) répond par une redirection vers `http://10.0.0.5/`. Que doit-il se passer ?', options: ['La redirection doit être revérifiée ou refusée', 'La suivre : la première URL est passée', 'La suivre seulement pour un `GET`', 'La suivre si le port est 80'], answer: 0, why: 'Une redirection est une nouvelle URL. Sans nouveau contrôle, elle passe droit à côté du filtre.' },
+					{ q: 'Un attaquant réécrit (1) en `http://[::1]:6379/`. Que se passe-t-il ?', options: ['Refusée : le contrôle loopback teste aussi `ipv6_loopback?`', 'Acceptée : seules les adresses IPv4 sont contrôlées', 'Refusée par le contrôle des métadonnées', 'Acceptée, puisqu’aucune résolution DNS n’a lieu'], answer: 0, why: 'La ligne 31 refuse si une adresse est `ipv4_loopback?` ou `ipv6_loopback?`, et `::1` est le loopback IPv6.' },
 					{ q: 'Quel contrôle reste actif même si un admin autorise le réseau local ?', options: ['Le contrôle loopback', 'Le contrôle du réseau privé', 'Le contrôle `any?`', '`validate_cloud_metadata!`, qui tourne avant la liste d’autorisation'], answer: 3, why: '`allow_local_network` ne le saute pas. La doc des webhooks le date de GitLab 19.5.' }
 				]
 			}

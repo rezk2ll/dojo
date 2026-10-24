@@ -137,7 +137,7 @@ def should_autorenew(lineage: storage.RenewableCert,
 				title: 'Find the renewal time',
 				questions: [
 					{ q: 'With no ARI and no `renew_before_expiry`, which function sets the renewal time?', options: ['`_ari_renewal_time`', '`_default_renewal_time`', '`lineage.ocsp_revoked`', '`crypto_util.notAfter`'], answer: 1, why: 'The last branch of `should_autorenew` falls back to `_default_renewal_time` when neither is set.' },
-					{ q: 'Which factor applies to a 45-day certificate?', options: ['1/2, since 45 days is short', '3/4', '2/3, since the lifetime is above 10 days', '1/3'], answer: 2, why: 'certbot uses half only below `10 * 86400` seconds of lifetime.' },
+					{ q: 'Which two fields of the `shop.example.com` certificate does `_default_renewal_time` read?', options: ['The issuer and the subject', 'The SAN list and the key size', '`not_valid_before_utc` and `not_valid_after_utc`', 'None: it only reads the current time'], answer: 2, why: 'The lifetime is `not_valid_after_utc - not_before`, here 45 days, and the renewal time is counted from `not_before`, 1 March at 00:00.' },
 					{ q: 'So when is the certificate due?', options: ['31 March 2028 at 00:00 UTC', '16 March 2028 at 00:00 UTC', '15 April 2028 at 00:00 UTC', '1 April 2028 at 12:00 UTC'], answer: 0, why: '2/3 of 45 days is 30 days after 1 March.' },
 					{ q: 'When is the first attempt at the latest?', options: ['31 March at 00:00, exactly', '30 March at 12:00', '1 April at 00:00', '31 March at 12:00'], answer: 3, why: 'certbot renews on the first run where `now > default_renewal_time`, and the runs are at 00:00 and 12:00.' }
 				]

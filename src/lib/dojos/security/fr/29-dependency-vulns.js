@@ -129,8 +129,8 @@ export default {
 			{
 				title: 'Lis les plages',
 				questions: [
-					{ q: 'Quand une version est-elle touchée par une plage OSV ?', options: ['Quand elle vaut `fixed`', 'Quand elle est supérieure ou égale à `introduced` et inférieure à `fixed`', 'Quand elle est sous `introduced`', 'Quand elle est au-dessus de `fixed`'], answer: 1, why: 'La plage vaut `[introduced, fixed)` : `introduced` est inclus, `fixed` non.' },
-					{ q: 'La version `fixed` elle-même est-elle touchée ?', options: ['Oui, c’est la dernière vulnérable', 'Seulement s’il n’y a pas d’événement `limit`', 'Non : `fixed` est exclusif', 'Seulement pour les paquets Maven'], answer: 2, why: '`IsVulnerable` remet `vulnerable` à `false` à `fixed`. L’événement qui nomme une dernière version incluse, c’est `last_affected`.' },
+					{ q: 'GHSA-jfh8-c2jp-5v3q est l’identifiant GitHub de cet enregistrement. Quelle CVE ses trois plages décrivent-elles ?', options: ['CVE-2021-45046', 'CVE-2021-44228, Log4Shell', 'CVE-2021-44832', 'CVE-2025-68161'], answer: 1, why: 'Ce sont les plages de CVE-2021-44228, avec 2.15.0 comme premier `fixed`. Chacune des autres CVE a son propre enregistrement et ses propres plages.' },
+					{ q: 'Un cinquième service livre 2.3.2. Cet enregistrement le touche-t-il ?', options: ['Oui, dans `[2.0-beta9, 2.3.1)`', 'Oui, dans `[2.4, 2.12.2)`', 'Non : il tombe entre la deuxième plage et la troisième', 'Oui : il est entre `2.0-beta9` et `2.12.2`'], answer: 2, why: '2.3.2 est au-dessus ou égal au `fixed` 2.3.1 et sous l’`introduced` 2.4, donc aucune plage ne le couvre. Les plages sont distinctes, pas une seule étendue du plus bas `introduced` au plus haut `fixed`.' },
 					{ q: 'Combien de plages cet enregistrement donne-t-il pour `log4j-core` ?', options: ['Trois', 'Une', 'Deux', 'Quatre'], answer: 0, why: '`[2.13.0, 2.15.0)`, `[2.0-beta9, 2.3.1)` et `[2.4, 2.12.2)`.' },
 					{ q: 'Dans combien d’entre elles une version doit-elle tomber pour être touchée ?', options: ['Les trois', 'Au moins deux', 'Exactement la dernière', 'Au moins une'], answer: 3, why: 'Chaque plage est une série distincte de versions vulnérables. Une seule suffit.' }
 				]

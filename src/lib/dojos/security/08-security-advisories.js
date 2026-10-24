@@ -116,8 +116,8 @@ export default {
 				title: 'Match each copy to a range',
 				questions: [
 					{ q: 'Is 7.5.1 vulnerable?', options: ['No: it is above 7.0.0', 'Yes: it is in `>= 7.0.0, < 7.5.2`', 'No: only 6.x and 5.x are affected', 'Only on old Node.js versions'], answer: 1, why: 'The fix on the 7.x line is 7.5.2.' },
-					{ q: 'Which version fixes the 6.x copy?', options: ['6.3.0', '7.5.2', '6.3.1', '6.4.0'], answer: 2, why: 'The first release with the fix on the 6.x line is 6.3.1.' },
-					{ q: 'Is 5.7.1 vulnerable, and where does it go?', options: ['Yes: move it to 5.7.2', 'No: 5.x is older than the bug', 'Yes: move it to 6.3.1', 'Yes, and 5.x has no fix'], answer: 0, why: 'The range is `>= 2.0.0-alpha, < 5.7.2`, and 5.7.2 is the fix for everything before 6.0.0.' },
+					{ q: 'Which advisory range holds the `tool-a` copy, 6.3.0?', options: ['`< 5.7.2`', '`>= 7.0.0, < 7.5.2`', '`>= 6.0.0, < 6.3.1`', 'None: 6.3.0 is safe'], answer: 2, why: '6.3.0 is at or above 6.0.0 and below 6.3.1, the first fixed release of its line.' },
+					{ q: 'Which advisory range holds the `tool-b` copy, 5.7.1?', options: ['`>= 2.0.0-alpha, < 5.7.2`', '`>= 6.0.0, < 6.3.1`', '`>= 7.0.0, < 7.5.2`', 'None: 5.x predates the bug'], answer: 0, why: 'The oldest range covers everything from 2.0.0-alpha up to, not including, 5.7.2. 5.7.1 is the last release before that fix.' },
 					{ q: 'Why stay inside the same major, like 6.3.0 to 6.3.1?', options: ['Two majors cannot be installed side by side', 'npm refuses major upgrades in a lockfile', 'It is the only version on the registry', 'The parent that asked for `^6.0.0` still gets a version it accepts'], answer: 3, why: 'Staying on the line keeps the parent\'s range happy. An override to 7.x runs a major it was never tested with.' }
 				]
 			},
@@ -125,7 +125,7 @@ export default {
 				title: 'Rank by exposure',
 				questions: [
 					{ q: 'Which copy receives `req.query.range`?', options: ['The root 7.5.1, used by the API', 'The 6.3.0 under `tool-a`', 'The 5.7.1 under `tool-b`', 'All three, the same way'], answer: 0, why: 'Only the API calls `satisfies` with a range from the query string.' },
-					{ q: 'Why does that make it urgent?', options: ['The 7.x line has the highest CVSS score', 'The API copy is the newest one', 'The API serves the most users', 'Untrusted input goes straight into `new Range` through `satisfies`'], answer: 3, why: 'The advisory needs "untrusted user data" as a range. A crafted string keeps the event loop busy, and the API answers nothing else.' },
+					{ q: 'Someone sends the API one crafted `?range=` value. What happens to the other users?', options: ['Nothing: only that request fails', 'Their sessions leak to the attacker', 'Their `satisfies` calls return wrong results', 'They get no answer until the regex finishes'], answer: 3, why: 'Node.js runs the regex on the event loop, so the process answers no other request while it backtracks. The CVSS vector says `A:H`: availability only.' },
 					{ q: 'Why are the `tool-a` and `tool-b` copies less urgent?', options: ['Older copies run more slowly', 'They read ranges from files you control', '`npm audit` skips nested copies', 'They only run on developer laptops'], answer: 1, why: 'No outside input reaches them. They still get fixed, in the next routine upgrade.' },
 					{ q: 'What does `npm audit` say about this ranking?', options: ['It puts the API copy first', 'It hides the build-tool copies', 'It gives every copy the same severity', 'It marks nested copies as safe'], answer: 2, why: '`npm audit` matches versions against ranges. It cannot see which copy takes outside input, so the ranking stays manual.' }
 				]
@@ -134,7 +134,7 @@ export default {
 				title: 'Fix and verify',
 				questions: [
 					{ q: 'What do you run first?', options: ['`npm install semver@latest --force`', 'Delete `package-lock.json` and reinstall', '`npm audit fix`', 'An `overrides` entry for every copy'], answer: 2, why: 'It updates within the ranges your dependencies allow. `--force` and `overrides` come only when that is not enough.' },
-					{ q: '`npm audit fix` says the fix needs `--force`. What does that mean?', options: ['The registry has no fixed version yet', 'A dependency range must change all the way up to your project', 'The lockfile is corrupt', 'The package is only a dev dependency'], answer: 1, why: 'The npm docs say such a fix "will require the --force option", which can mean a major bump. Read the plan with `--dry-run` first.' },
+					{ q: 'After `npm audit fix`, `npm explain semver` still shows 6.3.0 under `tool-a`. What do you check next?', options: ['Whether deleting `node_modules/tool-a` by hand helps', 'Whether a newer `tool-a` already pulls in 6.3.1', 'Nothing: nested copies are never reachable', 'Whether semver 7.5.2 can be forced everywhere'], answer: 1, why: 'A newer parent keeps the fix inside the range it was tested with. An `overrides` entry comes after that, and forcing 7.x runs a major `tool-a` never tested.' },
 					{ q: 'Where does an `overrides` entry go?', options: ['In any `package.json` under `node_modules`', 'In `package-lock.json`', 'In `.npmrc`', 'In the root `package.json` only'], answer: 3, why: 'npm reads `overrides` only in the root `package.json` of your project.' },
 					{ q: 'Which output proves you are done?', options: ['`npm explain semver` shows patched versions, and `npm audit` exits 0', '`npm install` prints no warnings', '`npm audit` lists fewer findings than before', '`npm outdated` prints nothing'], answer: 0, why: 'Check every copy against the patched version of its line. The docs say `npm audit` exits 0 when it finds no vulnerabilities.' }
 				]

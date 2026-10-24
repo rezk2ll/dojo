@@ -143,10 +143,10 @@ func isJPEG(r io.Reader) bool {
 			{
 				title: 'Vérifie le test de type',
 				questions: [
-					{ q: 'D’où vient `f.mimetype` ?', options: ['Des premiers octets du fichier', 'De l’en-tête `Content-Type` de la partie, écrit par le client', 'De Pillow, qui ouvre le fichier', 'De l’extension de `f.filename`'], answer: 1, why: '`FileStorage.mimetype`, dans Werkzeug, est l’en-tête `Content-Type` de la partie, en minuscules. Il ne lit jamais les octets.' },
+					{ q: 'Une partie arrive avec `Content-Type: IMAGE/PNG`. Que vaut `f.mimetype`, et le test passe-t-il ?', options: ['`IMAGE/PNG`, donc le test échoue', '`image/png`, en minuscules, donc le test passe', 'Vide, donc le test échoue', '`application/octet-stream`, donc le test échoue'], answer: 1, why: 'Werkzeug passe l’en-tête de la partie en minuscules avant la comparaison. Jouer sur la casse n’aide ni ne gêne : l’en-tête reste l’affirmation du client.' },
 					{ q: 'Un script envoie `me.html` avec `Content-Type: image/png`. Que fait le test ?', options: ['Il le refuse avec un 400', 'Il le renomme en `me.png`', 'Il le laisse passer', 'Il le convertit en PNG'], answer: 2, why: 'Le test ne compare que l’en-tête écrit par le client. N’importe quels octets peuvent porter n’importe quel en-tête.' },
 					{ q: 'Comment l’OWASP qualifie-t-elle le `Content-Type` d’un envoi ?', options: ['"trivial to spoof"', '"safe once lowercased"', '"set by the browser only"', '"checked by the web server"'], answer: 0, why: 'Le client l’écrit, il dit donc seulement ce que le client affirme.' },
-					{ q: 'Dans la CVE de GitLab, que vérifiait-on avant de lancer ExifTool ?', options: ['Les octets, avec `http.DetectContentType`', 'L’en-tête `Content-Type`', 'Rien du tout', 'Seulement le nom, contre `.jpg`, `.jpeg` ou `.tiff`'], answer: 3, why: 'Avant le correctif, `IsExifFile` ne testait que le nom. ExifTool choisissait ensuite son lecteur d’après les octets.' }
+					{ q: 'Après le correctif de GitLab, un fichier DjVu nommé `cat.jpg` arrive dans Workhorse. Que devient-il ?', options: ['ExifTool tourne dessus, puisque le nom finit par `.jpg`', 'L’envoi est refusé avec un 400', 'Il est renommé en `cat.djvu`', 'Il est stocké tel quel, et ExifTool ne tourne jamais'], answer: 3, why: '`isJPEG` ne voit pas `FF D8 FF` au début : Workhorse écrit "invalid content type, not running exiftool" et transmet le fichier sans le toucher.' }
 				]
 			},
 			{
@@ -172,8 +172,8 @@ func isJPEG(r io.Reader) bool {
 				questions: [
 					{ q: 'Comment vérifies-tu le format ?', options: ['Comparer `f.mimetype` à une liste d’autorisation', 'Vérifier que le nom finit par `.png`', '`Image.open(f.stream, formats=["PNG", "JPEG"])`', 'Lire seulement le premier octet'], answer: 2, why: 'Pillow lit les octets et lève `UnidentifiedImageError` pour tout autre format.' },
 					{ q: 'Qu’écris-tu sur le disque ?', options: ['`img.convert("RGB")` enregistré en nouveau JPEG', 'Les octets d’origine, tels quels', 'Les octets avec un suffixe `.jpg`', 'Une copie en base64 de l’envoi'], answer: 0, why: 'Réencoder écrit un fichier dans un format que tu as choisi, sans les métadonnées d’origine.' },
-					{ q: 'Où, et sous quel nom ?', options: ['`static/avatars/<secure_filename>`', '`/var/lib/shop/avatars/<uuid4>.jpg`', '`static/avatars/<uuid4>.jpg`', '`/tmp/<nom d’origine>`'], answer: 1, why: 'Un nom aléatoire hors de la racine web : l’utilisateur ne choisit jamais l’extension ni l’URL.' },
-					{ q: 'Comment le sers-tu ?', options: ['Depuis une vue avec `send_from_directory`', 'Sous `/static/` comme le CSS', 'En redirigeant vers le chemin du fichier', 'En passant d’abord par ExifTool'], answer: 0, why: 'La vue décide quoi envoyer, depuis un dossier que le serveur web ne sert pas tout seul.' }
+					{ q: 'Avec la réécriture, deux utilisateurs envoient chacun `avatar.png`. Qu’y a-t-il sur le disque ?', options: ['Le second fichier écrase le premier', 'Deux fichiers, chacun sous son propre nom `<uuid4>.jpg`', 'Le second envoi échoue', 'Un seul JPEG qui contient les deux images'], answer: 1, why: 'Le nom du client ne sert jamais. Chaque envoi reçoit un nom aléatoire neuf : aucun utilisateur ne peut atteindre ni remplacer le fichier d’un autre en le nommant.' },
+					{ q: 'La vue envoie `<uuid4>.jpg` avec `send_from_directory`. Quel `Content-Type` part ?', options: ['`image/jpeg`, d’après le nom `.jpg` choisi par le serveur', 'Ce que disait `f.mimetype` à l’envoi', '`text/html`', 'Aucun : le navigateur devine'], answer: 0, why: 'Le type vient toujours de l’extension, mais c’est maintenant le serveur qui l’a écrite, et les octets sont vraiment un JPEG qu’il a encodé.' }
 				]
 			}
 		]

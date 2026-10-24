@@ -143,10 +143,10 @@ func isJPEG(r io.Reader) bool {
 			{
 				title: 'Check the type test',
 				questions: [
-					{ q: 'Where does `f.mimetype` come from?', options: ['The first bytes of the file', 'The `Content-Type` header of the part, which the client writes', 'Pillow, which opens the file', 'The extension of `f.filename`'], answer: 1, why: 'Werkzeug’s `FileStorage.mimetype` is the part’s `Content-Type` header, lowercased. It never reads the bytes.' },
+					{ q: 'A part arrives with `Content-Type: IMAGE/PNG`. What is `f.mimetype`, and does the check pass?', options: ['`IMAGE/PNG`, so the check fails', '`image/png`, lowercased, so the check passes', 'Empty, so the check fails', '`application/octet-stream`, so the check fails'], answer: 1, why: 'Werkzeug lowercases the part’s header before the comparison. Case tricks neither help nor hurt: the header is the client’s claim either way.' },
 					{ q: 'A script sends `me.html` with `Content-Type: image/png`. What does the check do?', options: ['Rejects it with 400', 'Renames it to `me.png`', 'Lets it through', 'Converts it to PNG'], answer: 2, why: 'The check only compares the header the client wrote. Any bytes can carry any header.' },
 					{ q: 'What does OWASP call the `Content-Type` of an upload?', options: ['"trivial to spoof"', '"safe once lowercased"', '"set by the browser only"', '"checked by the web server"'], answer: 0, why: 'The client writes it, so it only tells you what the client claimed.' },
-					{ q: 'In GitLab’s CVE, what was checked before ExifTool ran?', options: ['The bytes, with `http.DetectContentType`', 'The `Content-Type` header', 'Nothing at all', 'Only the name, against `.jpg`, `.jpeg` or `.tiff`'], answer: 3, why: 'Before the fix, `IsExifFile` matched only the name. ExifTool then chose its reader from the bytes.' }
+					{ q: 'After GitLab’s fix, a DjVu file named `cat.jpg` reaches Workhorse. What happens to it?', options: ['ExifTool runs on it, since the name ends in `.jpg`', 'The upload is rejected with 400', 'It is renamed to `cat.djvu`', 'It is stored as it came, and ExifTool never runs'], answer: 3, why: '`isJPEG` sees no `FF D8 FF` at the start, so Workhorse logs "invalid content type, not running exiftool" and passes the file on unchanged.' }
 				]
 			},
 			{
@@ -172,8 +172,8 @@ func isJPEG(r io.Reader) bool {
 				questions: [
 					{ q: 'How do you check the format?', options: ['Compare `f.mimetype` to an allow-list', 'Check that the name ends in `.png`', '`Image.open(f.stream, formats=["PNG", "JPEG"])`', 'Read the first byte only'], answer: 2, why: 'Pillow reads the bytes and raises `UnidentifiedImageError` for any other format.' },
 					{ q: 'What do you write to disk?', options: ['`img.convert("RGB")` saved as a new JPEG', 'The original bytes, unchanged', 'The bytes plus a `.jpg` suffix', 'A base64 copy of the upload'], answer: 0, why: 'Re-encoding writes a file in a format you chose, without the original metadata.' },
-					{ q: 'Where, and under which name?', options: ['`static/avatars/<secure_filename>`', '`/var/lib/shop/avatars/<uuid4>.jpg`', '`static/avatars/<uuid4>.jpg`', '`/tmp/<original name>`'], answer: 1, why: 'A random name outside the web root means the user never picks the extension or the URL.' },
-					{ q: 'How do you serve it?', options: ['From a view with `send_from_directory`', 'Under `/static/` like the CSS', 'By redirecting to the file path', 'Through ExifTool first'], answer: 0, why: 'The view decides what to send, from a folder the web server does not serve on its own.' }
+					{ q: 'With the rewrite, two users both upload `avatar.png`. What ends up on disk?', options: ['The second file overwrites the first', 'Two files, each under its own `<uuid4>.jpg` name', 'The second upload fails', 'One JPEG holding both images'], answer: 1, why: 'The client’s name is never used. Each upload gets a fresh random name, so no user can reach or replace another’s file by naming it.' },
+					{ q: 'The view sends `<uuid4>.jpg` with `send_from_directory`. Which `Content-Type` goes out?', options: ['`image/jpeg`, from the `.jpg` name the server chose', 'Whatever `f.mimetype` said at upload', '`text/html`', 'None: the browser guesses'], answer: 0, why: 'The type still comes from the extension, but now the server wrote that extension, and the bytes really are a JPEG it encoded.' }
 				]
 			}
 		]

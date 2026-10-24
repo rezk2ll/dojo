@@ -127,7 +127,7 @@ export default {
 				title: 'Predict the install',
 				questions: [
 					{ q: 'Which version does the next build install?', options: ['1.4.2, from the internal index', '9000.0.0, from PyPI', 'Neither: pip stops on the name clash', 'Whichever index answers first'], answer: 1, why: 'pip looks in both places and picks the highest version that fits.' },
-					{ q: 'Does pip prefer the index given in `--extra-index-url`?', options: ['Yes, extra indexes are always searched first', 'Only for names that PyPI does not have', 'Only when PyPI is down or slow', 'No: "There is no priority" between them'], answer: 3, why: 'Every location is checked, and the "best" match by version number is selected.' },
+					{ q: 'A teammate moves the internal URL first in `pip.conf`, before PyPI. What does the next build install?', options: ['1.4.2, since the first index wins', '1.4.2, but only on a cold cache', 'Nothing: pip stops on the conflict', 'Still 9000.0.0: the order of indexes changes nothing'], answer: 3, why: 'pip checks every location and selects the "best" match by version number, wherever the index sits in the list.' },
 					{ q: 'What lets 9000.0.0 win here?', options: ['The requirement `acme-billing` has no version constraint', 'PyPI has a higher priority', 'The internal index is slower', 'pip caches PyPI results'], answer: 0, why: 'With no `==`, any version satisfies the requirement, so the highest one wins.' },
 					{ q: 'In Birsan’s tests, when did the uploaded packages run their code?', options: ['Only when an app imported them', 'Never: the registries only stored them', 'During installation, on the machine that installed them', 'Only on production servers'], answer: 2, why: 'Birsan’s packages ran during installation (on npm through a `preinstall` script), before anyone’s own code was imported.' }
 				]
@@ -137,7 +137,7 @@ export default {
 				questions: [
 					{ q: 'Which flag makes pip ask only the internal index?', options: ['`--extra-index-url` twice', '`--index-url https://pypi.internal.example/simple`', '`--no-deps`', '`--pre`'], answer: 1, why: '`--index-url` replaces PyPI instead of adding to it.' },
 					{ q: 'With only the internal index, what does the build install?', options: ['1.4.2', '9000.0.0', 'Nothing, the name is blocked', 'Both versions'], answer: 0, why: 'PyPI is no longer searched, so the public 9000.0.0 is never seen.' },
-					{ q: 'What is the npm version of the same fix?', options: ['`npm audit` in CI to flag unknown names', '`--ignore-scripts` on every install', 'A higher internal version like 9999.0.0', 'Scoped names with `@acme:registry` set'], answer: 3, why: 'Once the scope has a registry, "any `npm install` for a package with that scope will request packages from that registry instead".' },
+					{ q: 'With `--index-url` internal only, who decides which `acme-billing` the build gets?', options: ['Anyone with a PyPI account', 'Whichever index answers first', 'Nobody: pip picks one at random', 'Whoever can publish to the internal index'], answer: 3, why: 'The internal index is now the only source, so the trust moves there. A file changed on it would still be installed, unless something checks its content.' },
 					{ q: 'Why not just keep the internal names secret?', options: ['Names are case insensitive', 'They leak, for example inside public JavaScript bundles', 'PyPI publishes every private name', 'pip logs them publicly'], answer: 1, why: 'Birsan found many names inside public JavaScript files. A name alone is not a secret.' }
 				]
 			},
@@ -145,7 +145,7 @@ export default {
 				title: 'Pin and hash',
 				questions: [
 					{ q: 'What goes in `requirements.txt`?', options: ['`acme-billing>=1.4.2`', '`acme-billing==1.4.2 --hash=sha256:...`', '`acme-billing`', '`acme-billing~=1.4`'], answer: 1, why: 'The exact version and the hash of the file you reviewed.' },
-					{ q: 'Do you need hashes for the transitive dependencies too?', options: ['No, only for the top package', 'Only for packages from PyPI', 'Yes: one `--hash` turns the mode on for every requirement', 'Only when `--require-hashes` is passed'], answer: 2, why: 'pip hash-checking is "all-or-nothing": every requirement, including each transitive one, must be pinned and hashed.' },
+					{ q: '`acme-billing` 1.4.2 ships one wheel for Linux and one for macOS, and CI runs on both. How many `--hash` values does its line need?', options: ['One, for the package as a whole', 'None: wheels carry their own signature', 'Two: one for each file pip might install', 'One per index'], answer: 2, why: 'A hash names one file. Each platform downloads a different wheel, so the line lists one `--hash` per file you might install.' },
 					{ q: 'Which install flag goes with it?', options: ['`--require-hashes`', '`--force-reinstall`', '`--user`', '`--upgrade`'], answer: 0, why: '`--require-hashes` makes pip refuse any package without a matching hash.' },
 					{ q: 'What does the `==1.4.2` pin alone do against 9000.0.0?', options: ['Nothing, the higher version still wins', 'It blocks it: 9000.0.0 does not satisfy `==1.4.2`', 'It installs both', 'It makes pip ask PyPI first'], answer: 1, why: 'A `9000.0.0` changes nothing for a build that asks for `==1.4.2`.' }
 				]

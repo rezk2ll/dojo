@@ -110,7 +110,7 @@ export default {
 					{ q: 'What does `Object.assign(user, body)` copy?', options: ['Only the keys the form shows', 'Only keys `user` already has', 'Every own key of `body`', 'Only string values'], answer: 2, why: '`Object.assign` copies every own key of the source, whether or not the target had it.' },
 					{ q: 'A client sends `{ "role": "admin" }`. What happens?', options: ['The `role` column is set to `admin`', 'SvelteKit drops it, since the form lacks it', 'The save fails with a type error', 'Nothing: `role` is read only'], answer: 0, why: 'The client controls every field in the body, including fields the form never showed.' },
 					{ q: 'What is this kind of hole called?', options: ['Path traversal', 'Mass assignment', 'Unsafe deserialization', 'Cross-site request forgery'], answer: 1, why: 'Passing a whole request hash to a model in one call is mass assignment. GitHub’s 2012 incident came from it.' },
-					{ q: 'Why not just delete `role` and `email_verified` from `body`?', options: ['It is slower than a schema', 'JavaScript cannot delete keys from parsed JSON', 'Zod forbids it', 'A deny-list misses the next column a migration adds'], answer: 3, why: 'A deny-list must name every sensitive column, including next year’s. An allow-list keeps them all out by default.' }
+					{ q: 'Besides `role`, which column lets a client skip a step the app relies on?', options: ['`name`', '`bio`', '`email`', '`email_verified`, which marks an address as proven without the email check'], answer: 3, why: 'A body with `"email_verified": true` sets the flag directly. The form never shows it, but `Object.assign` copies it all the same.' }
 				]
 			},
 			{
@@ -126,7 +126,7 @@ export default {
 				title: 'Pick the object mode',
 				questions: [
 					{ q: 'Unknown fields must be rejected with a 400. Which zod builder?', options: ['`z.object`', '`z.strictObject`', '`z.looseObject`', '`z.record`'], answer: 1, why: '`z.strictObject` reports an `unrecognized_keys` issue for any field it does not declare.' },
-					{ q: 'What would plain `z.object` do with `"role": "admin"`?', options: ['Strip it from the result', 'Throw an `unrecognized_keys` error', 'Keep it in the result', 'Throw because `role` has no type'], answer: 0, why: 'The zod docs: "By default, unrecognized keys are *stripped* from the parsed result".' },
+					{ q: 'An old client misspells a field and sends `emial`. What does the strict schema do?', options: ['Reports an `unrecognized_keys` issue, so the typo fails in tests', 'Saves `emial` as a new column', 'Ignores `emial` and saves the rest', 'Renames it to `email`'], answer: 0, why: 'Strict mode refuses any key it does not declare. A wrong field name shows up at once instead of being lost quietly.' },
 					{ q: 'And `z.looseObject`?', options: ['Strips it', 'Throws on it', 'Converts it to a string', 'Keeps it in the result'], answer: 3, why: '`z.looseObject` passes unknown keys through, so `role` would reach the model.' },
 					{ q: 'Why might another endpoint pick `z.object` over strict?', options: ['It runs faster', 'It checks types more strictly', 'Old clients still send a removed field, and strict mode would break them', 'It also checks the user’s rights'], answer: 2, why: 'Strict rejection breaks old clients. You choose the mode per endpoint.' }
 				]

@@ -117,7 +117,7 @@ export default {
 			{
 				title: 'Count part 1',
 				questions: [
-					{ q: 'With `limit: 5`, which request in a window is the first to get `429`?', options: ['The 5th', 'The 6th', 'The 4th', 'The 20th'], answer: 1, why: 'Line 19 throttles when `count > current_limit`. A count of 5 is not above 5.' },
+					{ q: 'The first burst arrives at 1,000,019. How long is left in window 50,000 at that moment?', options: ['20 seconds', '1 second', '19 seconds', 'None: the window already closed'], answer: 1, why: 'Window 50,000 covers 1,000,000 to 1,000,019. The next one starts at 1,000,020, one second later.' },
 					{ q: 'The first burst of 5 lands in window 50,000. How many pass?', options: ['4', '0', '1', '5'], answer: 3, why: 'Counts 1 to 5 are all at or below the limit.' },
 					{ q: 'The second burst of 5 lands in window 50,001. How many pass?', options: ['5', '0', '1', '4'], answer: 0, why: 'It is a new counter, so the second burst also counts from 1 to 5.' },
 					{ q: 'So how many of the 10 attempts reach the app, and over what time?', options: ['5, over 20 seconds', '6, over 1 second', '10, within about one second', '10, over 40 seconds'], answer: 2, why: 'The two bursts straddle a window edge, so a fixed window lets twice the limit through in about a second.' }
@@ -126,9 +126,9 @@ export default {
 			{
 				title: 'Read the part 2 traffic',
 				questions: [
-					{ q: '50,000 IPs each send one login. What does each `logins/ip` counter reach?', options: ['1', '5', '50,000', '6'], answer: 0, why: 'The throttle counts per discriminator, and each IP sends only one request.' },
-					{ q: 'Each request is for a different account. What does each `logins/email` counter reach?', options: ['5', '50,000', '0', '1'], answer: 3, why: 'One try per account, so every email counter stays at 1.' },
-					{ q: 'So how many requests get `429`?', options: ['45,000', 'None', 'All of them after the 5th', 'Half'], answer: 1, why: '`count > 5` is false for every counter. The rate limit does not see this attack.' },
+					{ q: 'Say all 50,000 requests land in one 20-second window. How many `logins/ip` keys does the cache hold for it?', options: ['50,000, one per IP', '1', '5', '6'], answer: 0, why: 'The key holds the discriminator, here the IP. Each IP gets its own counter, and each one holds a single request.' },
+					{ q: 'What would the attacker have to do to trip `logins/email`?', options: ['Use more IPs', 'Send each request faster', 'Switch to another leaked list', 'Send a 6th try for one account within one 20-second window'], answer: 3, why: 'That throttle counts per account. Credential stuffing never needs a second try on the same account, so it never gets there.' },
+					{ q: 'As far as the two throttles can tell, how does one of these requests differ from Ann logging in?', options: ['It comes from a new IP', 'It does not: one try from one IP for one account looks like a normal login', 'Its password is longer', 'It uses another HTTP method'], answer: 1, why: 'The throttles see only counts per IP and per email. Each request adds 1 to a fresh counter, exactly like a real user.' },
 					{ q: 'What is this attack called?', options: ['Password spraying', 'Session fixation', 'Credential stuffing', 'Account lockout'], answer: 2, why: 'Credential stuffing tries username and password pairs from another site’s breach, one per account.' }
 				]
 			},
@@ -138,7 +138,7 @@ export default {
 					{ q: 'Which defence does the OWASP Credential Stuffing cheat sheet name first?', options: ['Multi-factor authentication', 'A lower throttle limit', 'Longer usernames', 'Blocking all foreign IPs'], answer: 0, why: 'A reused password is not enough when a second factor is required.' },
 					{ q: 'What does OWASP also list, which acts on the password itself?', options: ['Forcing a password change every 30 days', 'Hashing passwords twice', 'Hiding the login form', 'Checking passwords against breached lists such as Pwned Passwords'], answer: 3, why: 'A password already in a breach list is the exact password this attack uses.' },
 					{ q: 'What did the ICO name as missing in the 23andMe fine?', options: ['A CAPTCHA', 'A per-IP throttle', 'Mandatory multi-factor authentication', 'A web application firewall'], answer: 2, why: 'The ICO listed missing "mandatory multi-factor authentication, secure password protocols, or unpredictable usernames".' },
-					{ q: 'Why not just lower `logins/email` to 1 attempt per window?', options: ['Rack::Attack does not allow it', 'It still counts 1 per account, and lets an attacker lock real users out', 'It would slow down the cache', 'It only works with `GET`'], answer: 1, why: 'Stuffing sends one try per account anyway, and a tight per-account limit lets anyone who knows an email keep its owner out.' }
+					{ q: 'MFA is now required. One of the 50,000 leaked passwords is right. What does the attacker get?', options: ['A logged-in session', 'A prompt for the second factor, which they cannot answer', 'A `429`', 'A password reset email'], answer: 1, why: 'The right password only passes the first factor. Without the user’s second factor, the login stops there.' }
 				]
 			}
 		]

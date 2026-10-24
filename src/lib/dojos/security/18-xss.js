@@ -139,9 +139,9 @@ export default {
 				title: 'Predict lines 1 and 2',
 				questions: [
 					{ q: 'What does line 1 print for `<b>"Bob"</b>`?', options: ['`Hello <b>"Bob"</b>`', '`Hello &lt;b&gt;&#34;Bob&#34;&lt;/b&gt;`', '`Hello Bob`', '`Hello #ZgotmplZ`'], answer: 1, why: 'The HTML escaper encodes `<`, `>` and `"`, so the browser shows the tags as characters.' },
-					{ q: 'Which schemes does `isSafeURL` accept?', options: ['Any scheme', 'Only `https`', 'Relative URLs and `http`, `https` and `mailto`', '`http`, `https` and `javascript`'], answer: 2, why: 'Anything outside that list is treated as unsafe.' },
-					{ q: 'What does line 2 print for `javascript:alert(1)`?', options: ['`href="javascript:alert(1)"`', '`href="javascript%3aalert%281%29"`', '`href=""`', '`href="#ZgotmplZ"`'], answer: 3, why: '`urlfilter` replaces the whole value with `#ZgotmplZ` instead of trying to clean it.' },
-					{ q: 'Why does escaping alone not protect the `href`?', options: ['`javascript:alert(1)` has no characters an HTML escaper would change', 'Attributes are never escaped', 'Go skips escaping inside tags', 'The browser decodes everything twice'], answer: 0, why: 'The danger is the scheme, not a special character. That is why the URL context gets its own filter.' }
+					{ q: 'Say `Site` were `https://bob.example/?a=1&b=2`. What would line 2 print?', options: ['`href="#ZgotmplZ"`', '`href="https%3a%2f%2fbob.example%2f%3fa%3d1%26b%3d2"`', '`href="https://bob.example/?a=1&amp;b=2"`', '`href="https://bob.example/"`'], answer: 2, why: 'An `https` URL passes `urlfilter`. The normalizer keeps its `?`, `=` and `&`, and only the attribute escaper turns `&` into `&amp;`.' },
+					{ q: 'A visitor clicks the `site` link that line 2 renders. What happens?', options: ['`alert(1)` runs', 'The browser blocks the click with an error', 'The link opens `javascript:alert(1)` in a new tab', 'The page jumps to the `#ZgotmplZ` fragment, and no script runs'], answer: 3, why: 'The value was swapped for `#ZgotmplZ`, a harmless fragment of the same page. Seeing it in the HTML tells you a filter refused a value.' },
+					{ q: 'Say line 2 were `<a href="/go?u={{.Site}}">`. What would it print for `javascript:alert(1)`?', options: ['`href="/go?u=javascript%3aalert%281%29"`', '`href="/go?u=#ZgotmplZ"`', '`href="/go?u=javascript:alert(1)"`', '`href="#ZgotmplZ"`'], answer: 0, why: 'The value now sits in the query, not at the start of the URL, so it gets `urlescaper` and no filter. The link starts with `/go`, so the scheme cannot be `javascript:`.' }
 				]
 			},
 			{

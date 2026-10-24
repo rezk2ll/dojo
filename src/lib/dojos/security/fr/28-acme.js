@@ -137,7 +137,7 @@ def should_autorenew(lineage: storage.RenewableCert,
 				title: 'Trouve l’heure de renouvellement',
 				questions: [
 					{ q: 'Sans ARI ni `renew_before_expiry`, quelle fonction fixe l’heure de renouvellement ?', options: ['`_ari_renewal_time`', '`_default_renewal_time`', '`lineage.ocsp_revoked`', '`crypto_util.notAfter`'], answer: 1, why: 'La dernière branche de `should_autorenew` se rabat sur `_default_renewal_time` quand aucun des deux n’est posé.' },
-					{ q: 'Quel facteur s’applique à un certificat de 45 jours ?', options: ['1/2, car 45 jours c’est court', '3/4', '2/3, car la durée de vie dépasse 10 jours', '1/3'], answer: 2, why: 'certbot ne prend la moitié qu’en dessous de `10 * 86400` secondes de durée de vie.' },
+					{ q: 'Quels deux champs du certificat de `shop.example.com` lit `_default_renewal_time` ?', options: ['L’émetteur et le sujet', 'La liste SAN et la taille de clé', '`not_valid_before_utc` et `not_valid_after_utc`', 'Aucun : elle ne lit que l’heure actuelle'], answer: 2, why: 'La durée de vie vaut `not_valid_after_utc - not_before`, ici 45 jours, et l’heure de renouvellement se compte depuis `not_before`, le 1er mars à 00:00.' },
 					{ q: 'Quand le certificat est-il donc à renouveler ?', options: ['Le 31 mars 2028 à 00:00 UTC', 'Le 16 mars 2028 à 00:00 UTC', 'Le 15 avril 2028 à 00:00 UTC', 'Le 1er avril 2028 à 12:00 UTC'], answer: 0, why: '2/3 de 45 jours, c’est 30 jours après le 1er mars.' },
 					{ q: 'Quand a lieu la première tentative, au plus tard ?', options: ['Le 31 mars à 00:00 pile', 'Le 30 mars à 12:00', 'Le 1er avril à 00:00', 'Le 31 mars à 12:00'], answer: 3, why: 'certbot renouvelle au premier passage où `now > default_renewal_time`, et les passages ont lieu à 00:00 et 12:00.' }
 				]

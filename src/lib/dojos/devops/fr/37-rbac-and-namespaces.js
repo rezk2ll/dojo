@@ -113,6 +113,44 @@ roleRef:
 			'Dans `shop` : un ServiceAccount pour la CI, avec son propre RoleBinding. La pipeline utilise son token, jamais un compte humain.',
 			'Dans `blog` : un ResourceQuota avec `requests.cpu: "2"`. Les pods sans requests CPU seront refusés, donc donne au namespace un LimitRange avec des valeurs par défaut, ou préviens l’équipe.',
 			'Vérifie : `kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci` doit répondre `no`.'
+		],
+		steps: [
+			{
+				title: 'Donne une place à chaque équipe',
+				questions: [
+					{ q: 'Quel est le premier objet à créer pour chaque équipe ?', options: ['Un node pool', 'Un ClusterRole', 'Un namespace', 'Une NetworkPolicy'], answer: 2, why: 'Les namespaces disent où vivent les ressources. Tout le reste pour l’équipe va dedans.' },
+					{ q: 'Les deux équipes veulent un Deployment nommé `api`. Y a-t-il conflit ?', options: ['Non : les noms sont uniques dans un namespace, pas entre eux', 'Oui : les noms sont globaux au cluster', 'Seulement s’ils utilisent la même image', 'Oui, sauf si l’un utilise un StatefulSet'], answer: 0, why: 'Chaque namespace a son propre ensemble de noms.' },
+					{ q: 'Avec seulement les deux namespaces, l’équipe shop peut-elle supprimer un Deployment de blog ?', options: ['Non : les namespaces bloquent l’accès tout seuls', 'Seulement avec un ClusterRole', 'Non : kubectl refuse les autres namespaces', 'Peut-être : les namespaces seuls ne bloquent rien'], answer: 3, why: 'Les namespaces ne sont que des noms tant que tu n’ajoutes pas de règles RBAC.' },
+					{ q: 'Lequel de ces objets n’est dans aucun namespace ?', options: ['Un Deployment', 'Un node', 'Un ServiceAccount', 'Un ResourceQuota'], answer: 1, why: 'Les nodes et les PersistentVolumes sont globaux au cluster.' }
+				]
+			},
+			{
+				title: 'Laisse l’équipe shop déployer',
+				questions: [
+					{ q: 'Quelle paire permet à l’équipe shop de déployer seulement dans `shop` ?', options: ['Un ClusterRoleBinding vers `edit`', 'Un Role et un RoleBinding dans `shop`', 'Un ResourceQuota dans `shop`', 'Un ServiceAccount nommé `shop`'], answer: 1, why: 'Le Role liste les verbes, le RoleBinding dit qui les reçoit, dans `shop`.' },
+					{ q: 'Le RoleBinding peut-il pointer vers le ClusterRole intégré `edit` ?', options: ['Oui, et il n’accorde quand même que dans `shop`', 'Non : un RoleBinding ne peut utiliser qu’un Role', 'Oui, et il accorde alors dans tous les namespaces', 'Seulement pour les service accounts'], answer: 0, why: 'Un RoleBinding accorde dans son propre namespace, même quand il pointe vers un ClusterRole.' },
+					{ q: 'Qui le binding doit-il nommer ?', options: ['Chaque personne, un sujet par nom', 'Le service account `default`', 'L’admin du cluster', 'Le groupe de l’équipe shop'], answer: 3, why: 'Lie le groupe, et tu gères les personnes hors du cluster, comme des groupes Unix.' },
+					{ q: 'Pourquoi rien de plus n’est nécessaire pour les bloquer dans `blog` ?', options: ['Le quota de `blog` les bloque', 'RBAC a une règle de refus par défaut par namespace', 'RBAC ne fait qu’accorder, et rien ne leur accorde de droits dans `blog`', 'kubectl cache les autres namespaces'], answer: 2, why: 'Sans droit accordé là-bas, ils ne peuvent rien faire dans `blog`.' }
+				]
+			},
+			{
+				title: 'Donne une identité propre à la CI',
+				questions: [
+					{ q: 'Sous quelle identité la pipeline doit-elle s’authentifier ?', options: ['Le compte du lead dev', 'Un ServiceAccount créé pour elle, comme `ci` dans `shop`', 'Le service account `default`', 'L’admin du cluster'], answer: 1, why: 'Un programme reçoit sa propre identité, jamais le compte d’une personne. `default` est partagé par tous les pods qui ne nomment aucun compte.' },
+					{ q: 'De quoi d’autre le ServiceAccount de CI a-t-il besoin ?', options: ['Son propre RoleBinding dans `shop`', 'Rien : les service accounts peuvent tout faire', 'Un ResourceQuota', 'Un node à lui'], answer: 0, why: 'Une identité sans binding n’a aucun droit. Lie-la comme n’importe quel sujet.' },
+					{ q: 'Quel nom d’utilisateur Kubernetes voit-il pour lui ?', options: ['`ci@shop`', '`shop/ci`', '`system:serviceaccount:shop:ci`', '`serviceaccount-ci`'], answer: 2, why: 'Les noms des service accounts ont la forme `system:serviceaccount:<namespace>:<nom>`.' },
+					{ q: 'Comment vérifies-tu qu’il ne peut pas déployer dans `blog` ?', options: ['Lancer la pipeline et regarder', 'Lire le YAML du Role', '`kubectl get rolebindings -A`', '`kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci`'], answer: 3, why: 'La commande pose la question directement à l’API server, et doit répondre `no`.' }
+				]
+			},
+			{
+				title: 'Plafonne l’équipe blog',
+				questions: [
+					{ q: 'Quel objet plafonne l’équipe blog à 2 CPU ?', options: ['Un LimitRange', 'Un ResourceQuota avec `requests.cpu: "2"`', 'Un PodDisruptionBudget', 'Un Role avec `cpu` dans ses règles'], answer: 1, why: 'Un ResourceQuota plafonne la somme de tous les pods du namespace.' },
+					{ q: 'Un pod ferait dépasser le quota du namespace. Que se passe-t-il ?', options: ['Il est refusé avec `403 Forbidden`', 'Il tourne, bridé', 'Il attend en `Pending`', 'Il part dans un autre namespace'], answer: 0, why: 'Le quota est vérifié à la création du pod, et l’API server le refuse.' },
+					{ q: 'Un pod de blog ne déclare aucune request CPU. Que se passe-t-il avec le quota actif ?', options: ['Il tourne avec un CPU illimité', 'Il compte pour zéro', 'Il est refusé', 'Il reçoit 2 CPU'], answer: 2, why: 'Avec un quota CPU actif, chaque pod doit déclarer des requests ou des limits pour que le quota le compte.' },
+					{ q: 'Comment éviter ces refus à l’équipe blog ?', options: ['Retirer le quota', 'Lui donner un ClusterRole', 'Utiliser un PDB', 'Ajouter un LimitRange avec des requests par défaut, ou prévenir l’équipe'], answer: 3, why: 'Un LimitRange remplit des valeurs par défaut pour les pods qui oublient.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -150,6 +188,27 @@ roleRef:
 			why: 'Avec un quota CPU actif, les pods doivent déclarer des requests ou des limits pour que le quota puisse les compter. Un LimitRange peut remplir des valeurs par défaut pour les équipes qui oublient.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Monter deux namespaces d’équipe avec RBAC et un quota CPU, puis prouver chaque règle avec `kubectl auth can-i` et un pod refusé.',
+		steps: [
+			'Démarre un cluster local avec `minikube start`, puis crée les namespaces : `kubectl create namespace shop && kubectl create namespace blog`.',
+			'Donne au groupe de l’équipe shop le rôle intégré `edit` dans `shop` : `kubectl -n shop create rolebinding shop-team-edit --clusterrole=edit --group=shop-team`.',
+			'Donne à la CI sa propre identité : `kubectl -n shop create serviceaccount ci && kubectl -n shop create rolebinding ci-edit --clusterrole=edit --serviceaccount=shop:ci`.',
+			'Interroge l’API server, pour les deux namespaces : `kubectl auth can-i create deployments -n shop --as=alice --as-group=shop-team`, puis la même avec `-n blog`, puis `kubectl auth can-i create deployments -n blog --as=system:serviceaccount:shop:ci`.',
+			'Plafonne `blog` avec un petit quota qui tient sur un portable : `kubectl -n blog create quota cpu --hard=requests.cpu=500m`. Lance `kubectl -n blog create deployment web --image=nginx:1.27` et lis `kubectl -n blog get events --field-selector reason=FailedCreate`. Puis `kubectl -n blog set resources deployment web --requests=cpu=200m`, `kubectl -n blog scale deployment web --replicas=3`, et `kubectl -n blog describe quota cpu`. Nettoie avec `kubectl delete namespace shop blog`.'
+		],
+		done: [
+			'`can-i` répond `yes` pour Alice et pour la CI dans `shop`, et `no` pour les deux dans `blog`.',
+			'Avant `set resources`, `kubectl -n blog get pods` ne montre rien et les events disent `must specify requests.cpu`.',
+			'Après le scale à 3, seuls 2 pods tournent, le quota montre `400m` utilisés sur `500m`, et les events disent `exceeded quota`.'
+		],
+		solution: [
+			'Un RoleBinding n’accorde que dans son propre namespace, même quand il pointe vers le ClusterRole `edit`. RBAC n’a pas de règle de refus : Alice et la CI sont refusées dans `blog` parce que rien ne leur y accorde quoi que ce soit.',
+			'`--as` et `--as-group` empruntent l’identité d’un utilisateur, c’est comme ça que tu testes des règles sans son compte.',
+			'Avec un quota CPU actif, un pod sans request CPU est refusé. Deux pods à `200m` utilisent `400m`, et un troisième atteindrait `600m`, au-dessus du plafond de `500m`. Un LimitRange avec une request par défaut aurait évité le premier refus.'
+		]
+	},
 	recall: {
 		q: 'Alice a un RoleBinding dans `team-a`, et rien d’autre. Que peut-elle faire dans `team-b`, et pourquoi ?',
 		a: 'Rien. Un RoleBinding n’accorde des droits que dans son propre namespace, et RBAC n’a pas de règle de refus : sans binding dans `team-b`, elle n’y a aucun droit.'

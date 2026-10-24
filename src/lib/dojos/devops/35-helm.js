@@ -122,6 +122,44 @@ spec:
 			'History now shows revision **6**, a copy of revision 4. Revisions 1 to 5 are still there.',
 			'Before the next upgrade, `helm template shop ./chart -f prod.yaml --set image.tag=2.4.1` prints the rendered manifests, so you can read or diff them first.',
 			'Then fix the bug in the chart or the image, in Git, so the next upgrade does not bring it back.'
+		],
+		steps: [
+			{
+				title: 'Find the last good revision',
+				questions: [
+					{ q: 'Which command lists the revisions of `shop`?', options: ['`helm list shop`', '`helm history shop`', '`kubectl get revisions`', '`helm status shop --all`'], answer: 1, why: '`helm history` lists each numbered revision of a release.' },
+					{ q: 'Where does Helm keep those revisions by default?', options: ['In Secrets in the release namespace', 'In a file next to `Chart.yaml`', 'In the chart repository', 'In your shell history'], answer: 0, why: 'Helm stores each revision in the cluster, in Secrets in the release namespace by default.' },
+					{ q: 'The crash came with revision 5. Which revision is the likely last good one?', options: ['Revision 1, always', 'Revision 6', 'Revision 0', 'Revision 4, the one before the upgrade'], answer: 3, why: 'The upgrade that crashed created revision 5. The one before it was running fine.' },
+					{ q: 'What added revision 5?', options: ['The crash itself', 'A `kubectl edit` by a teammate', 'The `helm upgrade` you ran', 'Helm, once a day'], answer: 2, why: 'Every install, upgrade or rollback adds 1 to the revision number.' }
+				]
+			},
+			{
+				title: 'Roll back',
+				questions: [
+					{ q: 'Which command goes back to revision 4?', options: ['`helm rollback shop 4`', '`helm upgrade shop --revision 4`', '`helm uninstall shop`', '`kubectl rollout undo shop`'], answer: 0, why: '`helm rollback` takes the release name and the revision to apply again.' },
+					{ q: 'What does `helm rollback shop` do with no revision number?', options: ['It fails with a usage error', 'It rolls back to revision 1', 'It rolls back to the previous revision', 'It deletes revision 5'], answer: 2, why: 'With no number, Helm goes back to the previous revision.' },
+					{ q: 'What does Helm send to the cluster on rollback?', options: ['Nothing: it only edits the history', 'A delete of every object in the release', 'The chart from your local folder again', 'The manifests of revision 4, sent again to the API server'], answer: 3, why: 'Helm applies revision 4 again. The controllers then roll the Pods back to the old image.' },
+					{ q: 'A teammate fixed it with `kubectl set image` instead. What is the problem?', options: ['The release no longer matches the cluster', 'kubectl cannot change images', 'Helm deletes the Deployment', 'The Pods stop'], answer: 0, why: 'A hand edit is not in any revision. The next `helm upgrade` can undo it, and the history no longer tells the truth.' }
+				]
+			},
+			{
+				title: 'Read the history after',
+				questions: [
+					{ q: 'After `helm rollback shop 4`, what is the newest revision number?', options: ['4', '5', '6', '1'], answer: 2, why: 'A rollback is recorded like any other change, as the next number: 6.' },
+					{ q: 'What does revision 6 contain?', options: ['A copy of revision 4', 'The broken image `2.4.0`', 'Nothing: it is a marker', 'Chart defaults only'], answer: 0, why: 'Revision 6 applies the content of revision 4 again.' },
+					{ q: 'Is revision 5, the broken one, still in the history?', options: ['No: rollback deletes it', 'No: it is renamed to 4', 'Only if you passed `--keep`', 'Yes: revisions 1 to 5 stay'], answer: 3, why: 'Rollback never rewrites the past. The broken revision stays, which shows what happened.' },
+					{ q: 'Why does it help that the rollback is a new revision?', options: ['It frees disk space', 'The history shows every change in order, rollbacks included', 'It makes the next upgrade faster', 'It hides the crash from the team'], answer: 1, why: 'You can read the release story top to bottom: what went out, what broke, what you went back to.' }
+				]
+			},
+			{
+				title: 'Preview the next upgrade',
+				questions: [
+					{ q: 'Which command prints the YAML Helm would send, without touching the cluster?', options: ['`helm install --force`', '`helm get values shop`', '`helm template shop ./chart -f prod.yaml --set image.tag=2.4.1`', '`kubectl diff shop`'], answer: 2, why: '`helm template` renders the templates locally with your values and prints plain manifests.' },
+					{ q: 'Why pass the same `-f prod.yaml` to `helm template`?', options: ['Without it you see chart defaults, not what production gets', 'helm template refuses to run without a file', 'It uploads the file to the cluster', 'It locks the release'], answer: 0, why: 'Values change what the templates produce. Preview with the values you will really use.' },
+					{ q: 'Both `prod.yaml` and `--set` set `image.tag`. Which wins?', options: ['`prod.yaml`', 'The chart default', 'The first one Helm reads', '`--set`'], answer: 3, why: 'Chart defaults, then `-f` files, then `--set`, which wins over all.' },
+					{ q: 'Where does the real fix go, so the next upgrade does not bring the crash back?', options: ['A note in the release history', 'In Git, in the chart or the image', 'A `kubectl patch` on the Deployment', 'Nowhere: rollback is enough'], answer: 1, why: 'Rollback only buys time. The bug is still in `2.4.0` until someone fixes the code or the chart.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,28 @@ spec:
 			why: 'Every install, upgrade or rollback adds a revision. The rollback is recorded as revision 4, with the content of revision 1.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Ship a bad upgrade with Helm, roll it back, read the history, and preview the YAML before the next upgrade.',
+		steps: [
+			'Start a local cluster with `minikube start`, then make a chart: `mkdir -p ~/helm-lab && cd ~/helm-lab && helm create shop`.',
+			'Install it and upgrade it once: `helm install shop ./shop --set image.tag=1.27`, then `helm upgrade shop ./shop --set image.tag=1.27 --set replicaCount=2`.',
+			'Ship a broken release: `helm upgrade shop ./shop --set image.tag=does-not-exist`. Wait a few seconds, then run `kubectl get pods -l app.kubernetes.io/instance=shop` and `helm history shop`.',
+			'Go back to the last good revision: `helm rollback shop 2`, then `helm history shop` and `kubectl get secrets -l owner=helm`.',
+			'Preview the next upgrade without touching the cluster: `helm template shop ./shop --set image.tag=1.27 | grep image:`. Clean up with `helm uninstall shop`.'
+		],
+		done: [
+			'After the bad upgrade, one new Pod sits in `ErrImagePull` or `ImagePullBackOff`, and `helm history shop` shows revision 3 as `deployed`.',
+			'After the rollback, `helm history shop` shows revision 4 with the description `Rollback to 2`, and revisions 1 to 3 are still listed.',
+			'`kubectl get secrets -l owner=helm` lists one Secret per revision, `sh.helm.release.v1.shop.v1` to `v4`.',
+			'`helm template` prints `image: "nginx:1.27"` for the Deployment (the `busybox` line is the chart\'s test Pod), and `helm list` is unchanged by it.'
+		],
+		solution: [
+			'Revision 2 was the last good one: it set the tag `1.27` and 2 replicas. `helm rollback shop 2` sends its manifests again and records that as revision 4.',
+			'`helm upgrade` with `--set` starts again from the chart defaults: that is why every upgrade above repeats `image.tag=1.27`.',
+			'The broken revision stays in the history, so the record shows what went out and what you went back to. The real fix still goes in Git.'
+		]
+	},
 	recall: {
 		q: 'You run `helm upgrade` on a chart with defaults in `values.yaml`, two `-f` files and one `--set`. Which value wins?',
 		a: '`--set` wins over everything. Among the `-f` files the rightmost wins, and the chart defaults in `values.yaml` come last.'

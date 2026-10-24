@@ -106,6 +106,44 @@ spec:
 			'Before the drains, add a PDB for the payment API (`minAvailable: 2`), so a drain moves only one of its pods at a time.',
 			'The batch worker will be down while its pod moves. Accept that, or run two replicas. A PDB on a one-replica app with `minAvailable: 1` would just block the drain.',
 			'Nodes: add a pool at the new version, `kubectl drain --ignore-daemonsets` each old node, check the apps, delete the old pool.'
+		],
+		steps: [
+			{
+				title: 'Plan the version path',
+				questions: [
+					{ q: 'Can you go from 1.30 straight to 1.32?', options: ['Yes, if every node is drained first', 'Yes, on a managed cluster', 'No: the API server must not skip a minor version', 'No: you must reinstall the cluster'], answer: 2, why: 'You go one minor version at a time: 1.30 to 1.31, then 1.31 to 1.32.' },
+					{ q: 'How many upgrade rounds does that make?', options: ['One', 'Two', 'Three', 'One per node'], answer: 1, why: 'Two minor versions, one round each.' },
+					{ q: 'What do you read before each round?', options: ['The changelog, for removed APIs', 'The HPA metrics', 'The node pool bill', 'The PDB of every app'], answer: 0, why: 'A round can remove APIs your manifests still use. Find them before the upgrade, not after.' },
+					{ q: 'Why upgrade a few times a year at all?', options: ['New versions are faster', 'Nodes stop booting after a year', 'The HPA needs the newest version', 'Only the three most recent minor releases get patches'], answer: 3, why: 'A cluster that falls behind the three supported minor releases gets no more security patches.' }
+				]
+			},
+			{
+				title: 'Order control plane and nodes',
+				questions: [
+					{ q: 'In each round, what goes first?', options: ['The nodes', 'The control plane', 'The apps', 'Whatever has the most pods'], answer: 1, why: 'Control plane first, nodes after.' },
+					{ q: 'Why that order?', options: ['A kubelet must never be newer than the API server', 'The scheduler only runs on new nodes', 'Nodes upgrade themselves after the control plane', 'etcd refuses old kubelets'], answer: 0, why: 'Kubelets may be older than the API server, never newer.' },
+					{ q: 'The control plane is on 1.31 and nodes are on 1.30. Is that safe?', options: ['No: all versions must match', 'Only for one hour', 'Yes: a kubelet may be up to three minor versions older', 'Only if no pod restarts until the nodes reach 1.31 as well'], answer: 2, why: 'Old nodes keep working during the upgrade, which is what lets you move one node at a time.' },
+					{ q: 'Which state would be unsupported?', options: ['Control plane 1.31, nodes 1.30', 'Control plane 1.31, nodes 1.32', 'Control plane 1.32, nodes 1.31', 'Control plane 1.32, nodes 1.32'], answer: 1, why: 'Nodes newer than the API server break the rule. Upgrading nodes first would land you there.' }
+				]
+			},
+			{
+				title: 'Protect the apps',
+				questions: [
+					{ q: 'Which PDB fits the 3-replica payment API?', options: ['`minAvailable: 3`', '`minAvailable: 0`', '`maxUnavailable: 3`', '`minAvailable: 2`'], answer: 3, why: 'Two must stay up, so a drain moves only one of its pods at a time.' },
+					{ q: 'Two drains run in parallel, each node holds one payment pod. What happens?', options: ['One pod is evicted, the other waits for a healthy replacement', 'Both pods go at once', 'Both drains fail at once with an error about the PDB, and you retry', 'The PDB is ignored during upgrades'], answer: 0, why: 'The Eviction API refuses an eviction that would break the PDB, and drain retries until it can go on.' },
+					{ q: 'Why not put `minAvailable: 1` on the 1-replica batch worker?', options: ['PDBs only work on Deployments with 3 pods', 'It would block the drain forever', 'It would delete the worker', 'It would double the replicas'], answer: 1, why: 'Zero disruptions are ever allowed, so the drain can never evict that pod.' },
+					{ q: 'What are your real options for the batch worker?', options: ['Add a PDB with `maxUnavailable: 0`', 'Skip draining its node', 'Accept a short outage while it moves, or run two replicas', 'Delete it during the upgrade'], answer: 2, why: 'One replica means downtime when it moves. Either accept that, or give it a second copy.' }
+				]
+			},
+			{
+				title: 'Replace the nodes',
+				questions: [
+					{ q: 'On a managed cluster, how do you move nodes to the new version?', options: ['Patch each node in place over SSH', 'Add a new pool at the new version, move the pods, delete the old pool', 'Reinstall the kubelet on every node at once', 'Wait for the cluster autoscaler to replace the old nodes with new ones over time'], answer: 1, why: 'You replace nodes instead of patching them. A node pool is upgraded or resized as one unit.' },
+					{ q: 'Which command empties an old node?', options: ['`kubectl delete node`', '`kubectl cordon` alone', '`kubectl uncordon`', '`kubectl drain --ignore-daemonsets`'], answer: 3, why: 'Drain cordons the node, then evicts its pods through the Eviction API, which honours the PDBs.' },
+					{ q: 'Why `--ignore-daemonsets`?', options: ['DaemonSet pods run on every node, so evicting them would not move them', 'It skips the PDB checks for system pods, so the drain never gets stuck on them', 'It makes the drain faster by deleting pods', 'DaemonSets block upgrades'], answer: 0, why: 'A DaemonSet keeps one pod per node. Drain leaves them, and they go away with the node.' },
+					{ q: 'After draining an old node, what do you do before deleting the old pool?', options: ['Remove all PDBs', 'Uncordon the old node', 'Check the apps run on the new nodes', 'Restart the control plane'], answer: 2, why: 'Check the apps after each drain. Only then delete the old pool.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -143,6 +181,28 @@ spec:
 			why: 'The HPA only changes the pod count. The cluster autoscaler watches for pods that cannot be scheduled and adds nodes so they fit.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Drain a node and watch two PodDisruptionBudgets at work: one that lets a pod move, one that blocks the drain for good.',
+		steps: [
+			'Start a one-node local cluster with `minikube start`. Run a 3-replica payment API and a 1-replica worker: `kubectl create deployment pay --image=nginx:1.27 --replicas=3` and `kubectl create deployment batch --image=nginx:1.27`.',
+			'Add a PDB to each: `kubectl create pdb pay --selector=app=pay --min-available=2` and `kubectl create pdb batch --selector=app=batch --min-available=1`. Then `kubectl get pdb`.',
+			'Drain the node, limited to these two apps so the system pods stay: `kubectl drain $(kubectl get nodes -o name | head -n 1) --ignore-daemonsets --pod-selector="app in (pay,batch)" --timeout=40s`.',
+			'Look at what happened: `kubectl get pods -l "app in (pay,batch)"`, `kubectl get pdb` and `kubectl get nodes`.',
+			'Bring the node back: `kubectl uncordon $(kubectl get nodes -o name | head -n 1)`, then `kubectl get pods -l "app in (pay,batch)"`. Clean up with `kubectl delete pdb pay batch && kubectl delete deployment pay batch`.'
+		],
+		done: [
+			'Before the drain, `kubectl get pdb` shows ALLOWED DISRUPTIONS `1` for `pay` and `0` for `batch`.',
+			'The drain prints `Cannot evict pod as it would violate the pod\'s disruption budget.`, retries, and stops at the timeout.',
+			'During the drain, one `pay` pod is `Pending`, the node shows `Ready,SchedulingDisabled`, and the `batch` pod never moved.',
+			'After `uncordon`, all four pods are `Running`.'
+		],
+		solution: [
+			'`pay` has 3 replicas and `minAvailable: 2`, so one eviction is allowed. Its replacement stays `Pending` because the only node is cordoned, and the PDB then refuses the next eviction.',
+			'`batch` has 1 replica and `minAvailable: 1`: zero disruptions are ever allowed, so the drain can never evict it. On a real cluster, accept the short outage or run two replicas.',
+			'On a multi-node cluster the replacement would start on another node, and the drain would go on one pod at a time.'
+		]
+	},
 	recall: {
 		q: 'In which order do you upgrade a cluster, and what stops a drain from evicting too many pods of one app?',
 		a: 'The control plane first, then the nodes, one minor version per round. A PodDisruptionBudget: with 3 replicas and `minAvailable: 2`, the Eviction API lets only one pod go at a time.'

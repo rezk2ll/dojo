@@ -109,6 +109,44 @@ export default {
 			'Step 1: create the table and write the projection so it is idempotent. Record the last event position it applied, or key each count by event id, so an event seen twice is counted once.',
 			'Step 2: replay every past `OrderCancelled` from the start of the store into the projection. Then keep it subscribed from the position where the replay stopped, so nothing falls in the gap.',
 			'Step 3: spot check a few days against a direct count over the event store. Keep the replay script: it is also how you rebuild after the next projection bug.'
+		],
+		steps: [
+			{
+				title: 'See what the page would show',
+				questions: [
+					{ q: 'You only subscribe the projection to new events. What does the page show on deploy day?', options: ['Two years of cancellations', 'Zero, as if no order was ever cancelled', 'An error until the first cancellation', 'Today\'s cancellations plus an estimate for the past'], answer: 1, why: 'Without a backfill, the page starts at zero. Two years of cancellations look like they never happened.' },
+					{ q: 'Why does the projection miss the old cancellations?', options: ['A projection only sees the events it is fed', 'The old events were deleted', 'Events older than a year expire', 'The event store hides closed streams'], answer: 0, why: 'Subscribing to new events feeds it only what happens from now on.' },
+					{ q: 'Where are the two years of old `OrderCancelled` events?', options: ['Only in the `orders` table', 'In an old projection', 'In the event store, in each order\'s stream', 'Nowhere: events are deleted once applied'], answer: 2, why: 'The event store is an append-only log. Nothing in it is thrown away.' },
+					{ q: 'Do you need to change the write side for this page?', options: ['Yes: add a counter to each order stream', 'Yes: CQRS needs a new command first', 'Only if you stop the shop during the build', 'No: a projection is derived data, built from the events'], answer: 3, why: 'A read model is shaped for one screen and built from the source of truth. The writes stay as they are.' }
+				]
+			},
+			{
+				title: 'Make it safe to repeat',
+				questions: [
+					{ q: 'What is step 1?', options: ['Create the table and write the projection so it is idempotent', 'Replay every past event', 'Spot check a few days', 'Archive the old streams'], answer: 0, why: 'The projection must be safe before you feed it two years of events.' },
+					{ q: 'Why must the projection be idempotent?', options: ['Events never arrive twice, so it is just tidy', 'An event can arrive twice, and must be counted once', 'It makes the replay faster', 'It lets the projection write to the event store'], answer: 1, why: 'A replay and a subscription can both deliver the same event. Counting it twice gives a wrong page.' },
+					{ q: 'Which is one way to make it idempotent?', options: ['Add one for every event received', 'Lock the stream while counting', 'Record the last event position it applied', 'Read the `orders` table instead'], answer: 2, why: 'An event at or before the recorded position was already applied, so it is skipped.' },
+					{ q: 'Which is another way?', options: ['Count only the latest day', 'Delete each event after counting it', 'Count every message with no check', 'Key each count by event id'], answer: 3, why: 'A count keyed by event id cannot hold the same event twice.' }
+				]
+			},
+			{
+				title: 'Backfill, then follow',
+				questions: [
+					{ q: 'What is step 2?', options: ['Replay every past `OrderCancelled` from the start of the store into the projection', 'Subscribe to new events only', 'Copy the counts from the `orders` table', 'Ask support for the old numbers'], answer: 0, why: 'The replay fills in the two years the subscription alone would miss.' },
+					{ q: 'After the replay, where does the live subscription start?', options: ['From the newest event at deploy time', 'From the position where the replay stopped', 'From the first event again', 'From midnight of deploy day'], answer: 1, why: 'Starting exactly where the replay stopped leaves no gap.' },
+					{ q: 'The replay takes an hour, and the subscription then starts from "now". What goes wrong?', options: ['The replay is undone', 'Every event is counted twice', 'Cancellations written during the replay fall in the gap', 'Nothing: the store resends them'], answer: 2, why: 'The replay stops at one position. Events appended after it, while the replay ran, are never fed to the projection.' },
+					{ q: 'The read table lags a little behind the stream. Is that a bug?', options: ['Yes: it must update in the same transaction', 'Yes: CQRS does not allow lag', 'No: it never lags at all', 'No: a projection lags a little behind the stream'], answer: 3, why: 'You keep two models in step, and the read model always trails the writes a little.' }
+				]
+			},
+			{
+				title: 'Check it and keep the tools',
+				questions: [
+					{ q: 'What is step 3?', options: ['Delete the replay script', 'Spot check a few days against a direct count over the event store', 'Trust the numbers once the replay ends', 'Compare with last year\'s report'], answer: 1, why: 'The event store is the source of truth, so a direct count is the reference.' },
+					{ q: 'Why keep the replay script?', options: ['It is how you rebuild after the next projection bug', 'It speeds up new writes', 'The event store needs it to append', 'It replaces the live subscription'], answer: 0, why: 'A bug in a read model means a rebuild, and the script already does one.' },
+					{ q: 'You find a bug in the projection. What do you do?', options: ['Edit the stored events', 'Delete the order streams', 'Drop the table and rebuild it by replaying the events', 'Live with the wrong counts'], answer: 2, why: 'Events are never edited. The projection is derived, so you throw it away and build it again.' },
+					{ q: 'Why does "every stored event type must stay readable" matter for this replay?', options: ['Only the newest format is replayed', 'Old events are converted on each deploy', 'It does not matter for a read model', 'The replay reads two years of events, in every format they were written in'], answer: 3, why: 'Every projection must handle every event type you ever stored, for as long as you keep the log.' }
+				]
+			}
 		]
 	},
 	quiz: [

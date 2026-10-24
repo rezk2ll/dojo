@@ -113,6 +113,44 @@ export default {
 			'Charge the card next. If it fails, release the seat. Its own compensation, a refund, is costly, so keep it for when a later step really fails.',
 			'Email the ticket last. An email can never be unsent, so it goes only after the charge succeeded.',
 			'Each service writes its event to its own outbox, in the same transaction as its change. Each consumer stores the event ids it handled and skips a repeat, so a duplicate never charges twice.'
+		],
+		steps: [
+			{
+				title: 'Order the steps',
+				questions: [
+					{ q: 'Which step goes first?', options: ['Hold the seat, with an expiry', 'Charge the card', 'Email the ticket', 'All three at once'], answer: 0, why: 'Holding a seat is the cheapest step to undo.' },
+					{ q: 'Why does the hold come first?', options: ['It is the slowest step', 'It is cheap to release', 'It can never fail', 'The customer wants it first'], answer: 1, why: 'If a later step fails, releasing a seat costs almost nothing.' },
+					{ q: 'Which step goes last?', options: ['Hold the seat', 'Charge the card', 'Email the ticket', 'Release the seat'], answer: 2, why: 'The step that can never be undone waits until everything else has worked.' },
+					{ q: 'Why does the email go last?', options: ['Email is the slowest service', 'Mail servers are often down', 'It is the cheapest step', 'An email can never be unsent'], answer: 3, why: 'It has no compensation, so it goes only after the charge succeeded.' }
+				]
+			},
+			{
+				title: 'Give each step a compensation',
+				questions: [
+					{ q: 'What is the compensation for holding the seat?', options: ['Release the seat', 'Refund the card', 'Send an apology email', 'Nothing: a hold never needs undoing'], answer: 0, why: 'Releasing the seat undoes the hold, and the expiry does it even if nobody calls.' },
+					{ q: 'The card charge fails. What do you do?', options: ['Refund the card', 'Email the ticket anyway', 'Release the seat', 'Retry the charge forever'], answer: 2, why: 'The charge did not happen, so only the earlier step needs undoing.' },
+					{ q: 'What is the compensation for the charge itself?', options: ['Releasing the seat', 'A refund', 'Unsending the email', 'Deleting the order row'], answer: 1, why: 'A refund undoes the charge. It is costly, so keep it for when a later step really fails.' },
+					{ q: 'How does "release the seat" differ from a database rollback?', options: ['It undoes the write inside the same transaction', 'It runs before the hold commits', 'It deletes the event from Kafka', 'It is a new action, and other services may already have seen the hold'], answer: 3, why: 'The hold already committed. A compensation is a new step that undoes its effect.' }
+				]
+			},
+			{
+				title: 'Publish each event safely',
+				questions: [
+					{ q: 'What goes wrong with "commit, then publish to the broker"?', options: ['The publish can fail after the commit, and the event is never sent', 'The commit gets slower', 'Kafka refuses the event', 'The change is saved twice'], answer: 0, why: 'That is the dual-write problem: no transaction spans a database and a broker.' },
+					{ q: 'Where does each service write its event?', options: ['Straight to Kafka after the commit', 'To its own outbox, in the same transaction as its change', 'To one outbox shared by all services', 'To a log file'], answer: 1, why: 'Both rows commit or neither does, so a committed change always has its event.' },
+					{ q: 'Who sends the outbox rows to the broker?', options: ['The service, right after the commit', 'Each consumer', 'A relay that polls the table or tails the database log', 'The broker, by reading the table itself'], answer: 2, why: 'The relay publishes committed rows later, for example Debezium reading the log.' },
+					{ q: 'You run booking by choreography. What does that mean?', options: ['One service sends commands and tracks the replies', 'All three services share one transaction', 'A person starts each step', 'Each service does its step and publishes the next event, and no single service runs the process'], answer: 3, why: 'With orchestration, one service would send commands. Here each service reacts to the event before it.' }
+				]
+			},
+			{
+				title: 'Handle the event id',
+				questions: [
+					{ q: 'What does the relay guarantee?', options: ['At-least-once', 'Exactly-once', 'At-most-once', 'No guarantee at all'], answer: 0, why: 'A crash after a publish can send a row twice.' },
+					{ q: 'What does each consumer do with the event id?', options: ['Ignore it', 'Store the ids it handled and skip a repeat', 'Send it back to the producer', 'Use it as the Kafka topic'], answer: 1, why: 'A stored id lets the consumer recognize a copy it already handled.' },
+					{ q: 'The payment service skips the dedupe. What can happen?', options: ['The seat is never held', 'The email is lost', 'A duplicate event charges the card twice', 'Nothing, since the relay never repeats'], answer: 2, why: 'At-least-once means a repeat will come one day. Without dedupe, it is a second charge.' },
+					{ q: 'In Debezium\'s outbox router, where does the row\'s `id` go?', options: ['Into the topic name', 'Into the partition number', 'Nowhere: it is dropped', 'Into the message\'s `id` header'], answer: 3, why: 'The Debezium docs say the header is there "to remove duplicate messages".' }
+				]
+			}
 		]
 	},
 	quiz: [

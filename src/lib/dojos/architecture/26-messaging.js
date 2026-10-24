@@ -107,6 +107,44 @@ export default {
 			'`OrderPaid`: find the cause in the logs first and fix it. Then replay, but only if the handler dedupes on the message id, or you check which orders already removed their stock.',
 			'Decide per message type, never for the whole DLQ at once, and write that decision down where the person on call will find it.',
 			'Set up an alert on the DLQ\'s depth, so the person on call hears about the first dead message on the day it lands, not on Monday.'
+		],
+		steps: [
+			{
+				title: 'Read what is in the DLQ',
+				questions: [
+					{ q: 'The teammate wants to push all 40 back at once. What is wrong with that?', options: ['The broker cannot replay more than 10 at a time', 'Each message type needs its own decision', 'Replaying from a DLQ is never allowed', 'Nothing: replaying is safe for every message'], answer: 1, why: 'A replay that is safe for one type can undo the truth for another.' },
+					{ q: 'Which questions do you ask for each kind of message?', options: ['Is it safe to apply twice? Could an old one undo a newer truth?', 'Which consumer thread handled it?', 'How large is each message?', 'Who wrote the handler?'], answer: 0, why: 'Duplicates and stale data are the two ways a replay goes wrong.' },
+					{ q: 'Why did these messages land in the DLQ?', options: ['They were handled and confirmed', 'The main queue was full', 'They failed too many times, so the broker moved them', 'Someone moved them there by hand'], answer: 2, why: 'The broker puts a message in the DLQ after too many failed tries.' },
+					{ q: 'A message fails on every retry because of bad data. What is it called?', options: ['A duplicate', 'A competing consumer', 'A dead letter in transit', 'A poison message'], answer: 3, why: 'A poison message fails every time. The DLQ moves it out so the messages behind it keep flowing.' }
+				]
+			},
+			{
+				title: 'Decide for PriceChanged',
+				questions: [
+					{ q: 'You replay a `PriceChanged` from last week. What happens?', options: ['It puts back a price that was changed twice since', 'Nothing: a price update is safe to repeat', 'The broker refuses an old message', 'It confirms the current price'], answer: 0, why: 'The old message carries an old price, and it overwrites the newer one.' },
+					{ q: 'So what do you do with the 3 `PriceChanged`?', options: ['Replay them in the order they arrived', 'Do not replay: read the current price from the catalog\'s source of truth, then drop them', 'Replay them twice to be sure', 'Leave them in the DLQ for good'], answer: 1, why: 'The catalog knows today\'s price. The messages only know last week\'s.' },
+					{ q: 'The stock handler dedupes on the message id. Does that make replaying `PriceChanged` safe?', options: ['Yes: dedupe stops every replay problem', 'Yes, if you replay them in order', 'No: it was never applied, so dedupe lets it through, and it is still old', 'No: price messages have no id'], answer: 2, why: 'Dedupe stops a second copy. It does nothing about a first copy that arrives too late.' },
+					{ q: 'Which of the two risks from the hint is this?', options: ['Applying it twice', 'An old message undoing a newer truth', 'Losing the message forever', 'Blocking the queue'], answer: 1, why: 'The price is not doubled, it goes back in time.' }
+				]
+			},
+			{
+				title: 'Decide for OrderPaid',
+				questions: [
+					{ q: 'What do you do first with the 37 `OrderPaid`?', options: ['Find the cause in the logs and fix it', 'Replay them right away', 'Drop them all', 'Move them to a second DLQ'], answer: 0, why: 'Replaying before the fix sends them straight back to the DLQ.' },
+					{ q: 'Why can replaying an `OrderPaid` hurt?', options: ['It refunds the customer', 'It changes the price', 'It blocks the queue for good', 'One that half succeeded would drop the stock twice'], answer: 3, why: 'A message that failed halfway already did part of its work.' },
+					{ q: 'When is replaying them safe?', options: ['When you replay them at night', 'When the handler dedupes on the message id, or you check which orders already removed their stock', 'When you replay one per minute', 'When fewer than 50 messages are waiting'], answer: 1, why: 'Either the handler skips repeats, or you skip them yourself before the replay.' },
+					{ q: 'Which delivery guarantee makes that dedupe necessary?', options: ['At-most-once', 'Exactly-once', 'At-least-once', 'Best effort'], answer: 2, why: 'At-least-once never loses a message, but may deliver it twice. The consumer dedupes.' }
+				]
+			},
+			{
+				title: 'Hear about it sooner',
+				questions: [
+					{ q: 'What do you set up so you hear about it before Monday?', options: ['A weekly review of the DLQ', 'More retries before the DLQ', 'An alert on the DLQ\'s depth', 'A larger DLQ'], answer: 2, why: 'An alert on depth fires on the first dead message.' },
+					{ q: 'When should the person on call hear about the first dead message?', options: ['On the day it lands', 'On Monday morning', 'When the DLQ is full', 'At the end of the month'], answer: 0, why: 'The sooner someone looks, the fewer messages pile up behind the same cause.' },
+					{ q: 'Where do you write the per-type decision?', options: ['In a private note', 'Where the person on call will find it', 'Only in a commit message', 'Nowhere: it is obvious'], answer: 1, why: 'The next person on call faces the same 40 messages and needs the same answer.' },
+					{ q: 'Besides the alert, what else does a DLQ need?', options: ['A second broker', 'A larger disk', 'A single consumer', 'A runbook per message type, and a way to replay'], answer: 3, why: 'A DLQ nobody reads just stores the problem. Mastodon has no one to read failed deliveries, so it drops them instead.' }
+				]
+			}
 		]
 	},
 	quiz: [

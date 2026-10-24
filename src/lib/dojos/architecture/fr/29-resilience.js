@@ -110,6 +110,44 @@ export default {
 			'Pendant qu’il est ouvert, échoue tout de suite. Dégrade honnêtement : enregistre la facture comme brouillon marqué « taxe en attente » et termine-la plus tard. Ne devine jamais un taux de taxe.',
 			'Après une attente (`waitDurationInOpenState`), passe en half-open et laisse passer quelques appels d’essai. De bons résultats ferment le breaker, de mauvais le rouvrent.',
 			'Rends-le visible : logue chaque changement d’état et fais-en un graphe, pour que « API de taxe en panne » apparaisse sur un dashboard avant les tickets du support. Garde-le hors de la probe de liveness.'
+		],
+		steps: [
+			{
+				title: 'Choisis les erreurs qui comptent',
+				questions: [
+					{ q: 'Quels échecs doivent compter pour déclencher le breaker ?', options: ['Les timeouts, les erreurs de connexion et les 5xx', 'Toutes les exceptions, `400` compris', 'Seulement les réponses `400`', 'Seulement les appels de plus de 60 secondes'], answer: 0, why: 'Ceux-là disent que l’API de taxe est malade. Les autres erreurs disent autre chose.' },
+					{ q: 'L’API de taxe répond `400` pour une adresse invalide. Est-ce que ça compte ?', options: ['Oui : une erreur est une erreur', 'Non : c’est la faute de l’appelant, pas une API malade', 'Seulement après 100 d’entre elles', 'Seulement dans l’état half-open'], answer: 1, why: 'Une requête fausse ne dit rien de la santé de l’API : elle ne doit pas déclencher le breaker.' },
+					{ q: 'Dans resilience4j, quels réglages choisissent ce qui compte ?', options: ['`waitDurationInOpenState`', '`allowHealthIndicatorToFail`', '`recordExceptions` et `ignoreExceptions`', 'Seulement `slowCallDurationThreshold`'], answer: 2, why: 'L’un liste les exceptions à enregistrer, l’autre celles à ignorer.' },
+					{ q: 'Les appels lents doivent-ils compter aussi ?', options: ['Non : seules les erreurs comptent', 'Oui, mais seulement au-delà des 10 secondes', 'Seulement quand la réponse est un 5xx', 'Oui, avec un `slowCallDurationThreshold` bien en dessous des 10 secondes'], answer: 3, why: 'Une API qui pend fait autant de mal qu’une API qui échoue.' }
+				]
+			},
+			{
+				title: 'Décide ce que reçoit l’utilisateur',
+				questions: [
+					{ q: 'Le breaker est ouvert. Que fait l’appel de taxe ?', options: ['Il échoue tout de suite', 'Il attend 10 secondes, puis échoue', 'Il réessaie jusqu’à ce que l’API réponde', 'Il appelle l’API quand même'], answer: 0, why: 'Un breaker ouvert refuse l’appel sans toucher la dépendance : aucun thread n’attend.' },
+					{ q: 'Que devient la facture ?', options: ['Elle prend le dernier taux de taxe connu', 'Elle est enregistrée comme brouillon marqué « taxe en attente » et terminée plus tard', 'Elle prend un taux à 0 %', 'L’utilisateur reçoit une page `500`'], answer: 1, why: 'Le brouillon garde le travail, et la taxe est ajoutée quand l’API revient.' },
+					{ q: 'Pourquoi ne jamais deviner un taux de taxe ?', options: ['Deviner est plus lent qu’attendre', 'Le breaker bloque toute supposition', 'Un repli doit rester correct, et un taux deviné peut être faux', 'L’API rejetterait la facture plus tard'], answer: 2, why: 'Dégrade honnêtement : laisse la taxe de côté plutôt que d’en mettre une fausse sur une facture.' },
+					{ q: 'Comment s’appelle ce comportement ?', options: ['La backpressure', 'Un bulkhead', 'Le rate limiting', 'La dégradation gracieuse'], answer: 3, why: 'L’appli continue de servir ce qui marche et laisse de côté ce qui ne marche pas.' }
+				]
+			},
+			{
+				title: 'Referme-le',
+				questions: [
+					{ q: 'Après `waitDurationInOpenState`, quel état vient ensuite ?', options: ['Fermé', 'Half-open', 'Ouvert à nouveau', 'Désactivé'], answer: 1, why: 'Le breaker ne fait pas confiance à l’API tout de suite. Il la teste d’abord.' },
+					{ q: 'Que se passe-t-il en half-open ?', options: ['Quelques appels d’essai passent', 'Tous les appels passent', 'Aucun appel ne passe', 'Les appels partent vers une API de secours'], answer: 0, why: 'resilience4j distribue un nombre fixe de permis d’essai, 10 par défaut.' },
+					{ q: 'Les appels d’essai se passent bien. Et ensuite ?', options: ['Le breaker se rouvre', 'Il reste half-open pour de bon', 'Le breaker se ferme', 'Le pod redémarre'], answer: 2, why: 'Sous le seuil d’échec, le breaker se ferme et le trafic normal reprend.' },
+					{ q: 'Les appels d’essai échouent. Et ensuite ?', options: ['Le breaker se ferme', 'Le pod redémarre', 'Il reste half-open pour de bon', 'Le breaker se rouvre'], answer: 3, why: 'Au seuil d’échec ou au-delà, il se rouvre et attend à nouveau.' }
+				]
+			},
+			{
+				title: 'Rends-le visible',
+				questions: [
+					{ q: 'Comment rends-tu le breaker visible ?', options: ['Tu logues chaque changement d’état et tu en fais un graphe', 'Tu ne logues que les `500`', 'Tu écris au support pour chaque facture ratée', 'Tu ne fais rien : il se répare tout seul'], answer: 0, why: 'Un changement d’état, c’est le moment où l’API de taxe est tombée malade ou s’est rétablie.' },
+					{ q: 'Que t’apporte le graphe ?', options: ['Un breaker plus lent', 'Un seuil qui se règle tout seul', 'Moins d’appels à l’API de taxe', '« API de taxe en panne » sur un dashboard avant les tickets du support'], answer: 3, why: 'Tu l’apprends par tes propres données, pas par tes clients.' },
+					{ q: 'Un breaker ouvert doit-il faire échouer la probe de liveness ?', options: ['Oui : l’appli est en mauvaise santé', 'Non : redémarrer l’appli ne soigne pas l’API de taxe', 'Oui, au bout de 10 minutes', 'Non : la liveness ne vérifie que le disque'], answer: 1, why: 'Une probe de liveness en échec redémarre le conteneur, et ça ne répare rien ici.' },
+					{ q: 'L’appli tourne sur 6 pods. Combien y a-t-il de breakers ?', options: ['1, partagé par tous les pods', 'Un par facture', '6, qui apprennent chacun de leur côté', 'Aucun : c’est Kubernetes qui fait le breaker'], answer: 2, why: 'L’état vit dans chaque processus : pendant un moment, certains pods refusent des appels que d’autres envoient encore.' }
+				]
+			}
 		]
 	},
 	quiz: [

@@ -150,7 +150,7 @@ export default {
 					{ q: 'With no index on `created_at`, how many bytes does a row store read for the report, before compression?', options: ['About 10 GB', 'About 800 MB', 'About 160 MB', 'About 2 GB'], answer: 0, why: '50 million rows of 200 bytes is about 10 GB, and every page is read.' },
 					{ q: 'Why does it read all of that for two columns?', options: ['It decompresses every page first', 'Each page holds whole rows, so `total` comes with the 38 other columns', 'It reads every index as well', 'PostgreSQL reads each row twice'], answer: 1, why: 'The two columns are spread across every page of the table, between the other columns.' },
 					{ q: 'You add an index on `created_at`. Why does the report stay expensive?', options: ['Indexes cannot be used for `sum`', 'The index is ignored on timestamps', '2026 is a fifth of the table, and each row read is still a whole row', 'The index makes the pages bigger'], answer: 2, why: 'An index finds rows, but each row it finds still brings all 40 columns with it.' },
-					{ q: 'What is the row store good at, then?', options: ['Revenue per month over five years', 'Counting distinct visitors over a year', 'Averages across all past orders', 'Reading or writing one whole order, as checkout does'], answer: 3, why: 'A whole row sits in one page, so one order is one page read or write.' }
+					{ q: 'With 8 kB pages, about how many pages is that 10 GB scan?', options: ['About 120,000', 'About 12 million', 'About 50 million', 'About 1.2 million'], answer: 3, why: '10 GB / 8 kB is about 1.2 million pages, each read in full for two columns.' }
 				]
 			},
 			{
@@ -158,7 +158,7 @@ export default {
 				questions: [
 					{ q: 'How many bytes per row does the report need?', options: ['16', '200', '8', '40'], answer: 0, why: '`created_at` is 8 bytes and `total` is 8 bytes.' },
 					{ q: 'How many bytes does the column store read for those two columns, before skipping anything?', options: ['About 10 GB', 'About 800 MB', 'About 160 MB', 'About 80 MB'], answer: 1, why: '50 million rows times 16 bytes is 800 MB.' },
-					{ q: 'Why does it never touch the other 38 columns?', options: ['They are compressed to nothing', 'A zonemap skips them', 'Each column is stored on its own, and the query names only two', 'It keeps an index on every column'], answer: 2, why: 'A query reads only the columns it names. The others sit in their own files, untouched.' },
+					{ q: 'DuckDB splits the table into row groups of the default size. About how many does `orders` get?', options: ['32', 'About 40', 'About 407', 'About 4,070'], answer: 2, why: 'A row group holds 122,880 rows by default: 50,000,000 / 122,880 is about 407.' },
 					{ q: 'What makes the real number smaller still?', options: ['Bigger row groups', 'A B-tree on each column', 'Sampling a fraction of the rows', 'Compression: values of one column look alike'], answer: 3, why: 'A column of one type and one meaning compresses well, so even fewer bytes come off the disk.' }
 				]
 			},
@@ -168,7 +168,7 @@ export default {
 					{ q: 'What does a zonemap keep for each row group?', options: ['The min and max of the column', 'Every value, sorted', 'A hash of each value', 'The number of NULLs only'], answer: 0, why: 'A filter that falls outside the min-max range skips the row group without reading it.' },
 					{ q: 'Why can row groups before 2026 be skipped here?', options: ['DuckDB knows the current year', 'The orders were inserted in date order, so their max is below the filter', 'Old row groups are compressed harder', 'Old row groups are deleted at checkpoint'], answer: 1, why: 'Zonemaps pay off when the data is roughly sorted on the filtered column, as dates inserted over time are.' },
 					{ q: 'One year out of five is left. How many bytes is that, before compression?', options: ['About 800 MB', 'About 10 GB', 'About 160 MB', 'About 16 MB'], answer: 2, why: 'A fifth of 800 MB is 160 MB.' },
-					{ q: 'If the orders had been loaded in random date order, what would change?', options: ['Nothing: zonemaps sort the data', 'More row groups would be skipped', 'The column store would refuse the filter', 'Every row group would span all dates, so none could be skipped'], answer: 3, why: 'With random values, DuckDB "will likely be unable to skip any row groups".' }
+					{ q: 'The date order also helps `created_at` compress. What did DuckDB\'s indexing guide measure for an ordered timestamp column?', options: ['The same size as an unordered one', 'Larger, since sorting adds metadata', 'About 2.5 times smaller than an unordered one', 'No compression at all'], answer: 2, why: 'Neighboring values in sorted data are close, so the encodings pack them tighter.' }
 				]
 			},
 			{

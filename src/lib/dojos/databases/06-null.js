@@ -137,7 +137,7 @@ export default {
 			{
 				title: 'Predict the `<>` count',
 				questions: [
-					{ q: 'For the `docs` row, what is `status <> \'archived\'`?', options: ['true', 'false', 'NULL', 'An error'], answer: 2, why: 'A comparison with NULL gives NULL. The docs: "7 = NULL yields null, as does 7 <> NULL".' },
+					{ q: 'For the `web` row, what is `status <> \'archived\'`?', options: ['true', 'false', 'NULL', 'An error'], answer: 1, why: '`\'archived\' <> \'archived\'` is a plain comparison of two equal values. No NULL is involved, so it is false.' },
 					{ q: 'Which rows does WHERE keep?', options: ['Rows where the condition is true or NULL', 'Rows where the condition is true', 'Rows where the condition is not false', 'Every row, then it filters later'], answer: 1, why: 'The docs: if the result "is false or null, it is discarded". Only true survives.' },
 					{ q: 'So what does (a) return?', options: ['1', '2', '3', '0'], answer: 0, why: 'Only `api`. `web` is false, and `docs` is NULL, so both are dropped.' },
 					{ q: 'You try `WHERE status = NULL` to find `docs`. What do you get?', options: ['The `docs` row', 'An error about NULL', 'Every row', 'No rows'], answer: 3, why: '`x = NULL` is NULL even when `x` is NULL. Only `status IS NULL` tests for a missing value.' }
@@ -149,7 +149,7 @@ export default {
 					{ q: 'What does (b), with `IS DISTINCT FROM`, return?', options: ['1', '2', '3', '0'], answer: 1, why: '`api` and `docs`. It treats the NULL as a value that differs from `\'archived\'`.' },
 					{ q: 'What can `status IS DISTINCT FROM \'archived\'` return?', options: ['Only true or false, never NULL', 'True, false or NULL', 'Only NULL when `status` is NULL', 'The value of `status`'], answer: 0, why: 'That is its whole point: it compares NULL like an ordinary value.' },
 					{ q: 'Which other condition also keeps `docs`?', options: ['`status <> \'archived\' AND status IS NOT NULL`', '`NOT (status = \'archived\')`', '`status != \'archived\'`', '`COALESCE(status, \'none\') <> \'archived\'`'], answer: 3, why: '`COALESCE` replaces the NULL with `\'none\'` before the compare. The other three still meet a NULL, or drop it on purpose.' },
-					{ q: 'Which rows does Django\'s `exclude(status="archived")` return here?', options: ['Only `api`', 'Only `docs`', '`api` and `docs`', 'None'], answer: 2, why: 'Django sends `NOT (status = \'archived\' AND status IS NOT NULL)`, which is true for a NULL status. It matches (b), not (a).' }
+					{ q: 'Which condition finds `docs` the way `status IS NULL` does?', options: ['`status = NULL`', '`status <> NULL`', '`status IS NOT DISTINCT FROM NULL`', '`NOT (status = NULL)`'], answer: 2, why: '`IS NOT DISTINCT FROM` compares NULL like an ordinary value, so NULL against NULL is true. The other three are NULL for every row.' }
 				]
 			},
 			{
@@ -157,7 +157,7 @@ export default {
 				questions: [
 					{ q: 'The subquery returns `1` and `NULL`. What does `id NOT IN (1, NULL)` mean?', options: ['`id <> 1 OR id <> NULL`', '`id <> 1 AND id <> NULL`', '`id <> 1`, NULLs are skipped', '`id IS NOT NULL AND id <> 1`'], answer: 1, why: '`NOT IN` must differ from every value in the list, so the tests join with AND.' },
 					{ q: 'For `web` (id 2), what is `2 <> 1 AND 2 <> NULL`?', options: ['true', 'false', 'An error', 'NULL'], answer: 3, why: '`true AND NULL` is NULL, so WHERE drops the row.' },
-					{ q: 'So what does (c) return?', options: ['No rows', '`web` and `docs`', '`docs` only', 'All three projects'], answer: 0, why: 'One NULL in the subquery makes every `NOT IN` NULL or false, never true.' },
+					{ q: 'Member 11\'s `project_id` is set to 3 instead of NULL. What does (c) return now?', options: ['No rows', '`web` only', '`web` and `docs`', '`docs` only'], answer: 1, why: 'The list is now `(1, 3)`, with no NULL. `2 <> 1 AND 2 <> 3` is true, so `web` stays, and `docs` (id 3) now has a member.' },
 					{ q: 'Which query returns `web` and `docs`, as you meant?', options: ['`... WHERE id NOT IN (SELECT DISTINCT project_id FROM members)`', '`... WHERE id <> ALL (SELECT project_id FROM members)`', '`... WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.project_id = p.id)`', '`... WHERE id NOT IN (SELECT project_id FROM members ORDER BY 1)`'], answer: 2, why: '`NOT EXISTS` still returns the rows with no match when the subquery holds a NULL. The other three keep the NULL in the list.' }
 				]
 			},
@@ -167,7 +167,7 @@ export default {
 					{ q: 'What does (d), `count(*), count(status)`, return?', options: ['3 and 3', '2 and 2', '3 and 2', '3 and NULL'], answer: 2, why: '`count(*)` counts rows. `count(status)` counts the rows where status is not NULL.' },
 					{ q: 'Why does NULL help `avg(price)` more than a stored 0?', options: ['It keeps the missing price out, while a 0 would pull the average down', 'Averages are faster on NULL columns', 'A 0 makes `avg` return NULL', 'There is no difference'], answer: 0, why: 'Aggregates skip NULLs. A 0 looks like real data.' },
 					{ q: 'What does `SELECT name, COALESCE(status, \'none\') FROM projects` change in the table?', options: ['It writes `none` into the `docs` row', 'It adds a default to the column', 'It makes `status` NOT NULL', 'Nothing: it only changes what the query shows'], answer: 3, why: '`COALESCE` returns its first argument that is not NULL. It works on the output, not on the stored data.' },
-					{ q: '`UNIQUE (user_id, team_id)` with the defaults, and you insert `(7, NULL)` twice. What happens?', options: ['Both inserts succeed', 'The second insert fails', 'The first insert fails', 'The second replaces the first'], answer: 0, why: 'By default "null values in a unique column are not considered equal". `NULLS NOT DISTINCT` (PostgreSQL 15 and later) rejects the second one.' }
+					{ q: 'What does `SELECT count(DISTINCT status) FROM projects` return?', options: ['3', '2', '1', 'NULL'], answer: 1, why: 'Aggregates skip NULLs. It counts `active` and `archived`, and leaves out the NULL of `docs`.' }
 				]
 			}
 		]

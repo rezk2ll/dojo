@@ -113,7 +113,7 @@ export default {
 			{
 				title: 'Rappelle la règle',
 				questions: [
-					{ q: 'Avec les réglages par défaut, quand autovacuum passe-t-il sur une table ?', options: ['Chaque nuit à heure fixe', 'Quand ses lignes mortes dépassent 50 + 20 % de ses lignes, plafonné à 100 000 000', 'Quand la table atteint 1 GB sur disque', 'Tous les 1 000 updates, quelle que soit la taille de la table'], answer: 1, why: 'Seuil de base 50, facteur d’échelle 0,2, et `autovacuum_vacuum_max_threshold` à 100 000 000.' },
+					{ q: 'Autovacuum lance un VACUUM simple sur `orders`. Qu’arrive-t-il pendant ce temps aux requêtes de l’app sur cette table ?', options: ['Elles attendent la fin du VACUUM', 'Elles continuent : un VACUUM simple ne bloque ni les lectures ni les écritures', 'Les lectures passent, mais chaque écriture échoue', 'Elles sont annulées et doivent être relancées'], answer: 1, why: 'Un VACUUM simple tourne à côté des SELECT, INSERT, UPDATE et DELETE. Seul VACUUM FULL les bloque.' },
 					{ q: 'Quelles lignes comptent comme mortes ?', options: ['Les lignes que personne n’a lues depuis un mois', 'Les lignes avec un NULL dans la clé primaire', 'Les lignes qui ont échoué à une contrainte CHECK', 'Les anciennes versions laissées par un UPDATE ou un DELETE'], answer: 3, why: 'Un UPDATE écrit une nouvelle version et laisse l’ancienne. Un DELETE laisse la ligne en place. Les deux sont mortes une fois remplacées ou supprimées.' },
 					{ q: 'À quelle fréquence un worker d’autovacuum visite-t-il chaque base ?', options: ['Toutes les `autovacuum_naptime`, 1 minute par défaut', 'Une fois par checkpoint', 'Seulement quand tu lances `ANALYZE`', 'Toutes les secondes'], answer: 0, why: 'Le lanceur démarre un worker pour chaque base toutes les `autovacuum_naptime`, et ce worker vérifie chaque table.' },
 					{ q: 'Au maximum, combien de lignes mortes une table attend-elle avec les réglages par défaut ?', options: ['200 050', '2 050', '100 000 000', 'Il n’y a pas de limite'], answer: 2, why: 'Le plafond, `autovacuum_vacuum_max_threshold`, est de 100 000 000 lignes mortes.' }
@@ -123,7 +123,7 @@ export default {
 				title: 'Calcule chaque table',
 				questions: [
 					{ q: '`sessions` a 10 000 lignes. Combien de lignes mortes avant autovacuum ?', options: ['10 050', '50', '2 050', '200 050'], answer: 2, why: '50 + 0,2 × 10 000 = 2 050.' },
-					{ q: '`orders` a 1 000 000 de lignes. Combien de lignes mortes avant autovacuum ?', options: ['200 050', '1 000 050', '100 050', '20 050'], answer: 0, why: '50 + 0,2 × 1 000 000 = 200 050, bien sous le plafond.' },
+					{ q: 'L’an prochain, `orders` est passée à 2 000 000 de lignes. Combien de lignes mortes avant autovacuum désormais ?', options: ['400 050', '200 050', '2 000 050', '100 000 000'], answer: 0, why: '50 + 0,2 × 2 000 000 = 400 050. Le seuil grandit avec la table, donc une `orders` plus grosse attend plus de lignes mortes.' },
 					{ q: '`events` a 1 000 000 000 de lignes. Combien de lignes mortes avant autovacuum ?', options: ['200 000 050', '1 000 000 050', '10 000 050', '100 000 000'], answer: 3, why: 'La formule donne 200 000 050, au-dessus du plafond, donc c’est le plafond qui s’applique : 100 000 000.' },
 					{ q: 'Quelle table passe au VACUUM après le moins de changements ?', options: ['`events`, parce que c’est la plus grosse', '`sessions`, la plus petite', '`orders`, celle du milieu', 'Les trois au même nombre'], answer: 1, why: 'Le seuil grandit avec la table, donc une petite table passe au VACUUM après quelques milliers de changements.' }
 				]

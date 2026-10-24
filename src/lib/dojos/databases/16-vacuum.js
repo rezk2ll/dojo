@@ -113,7 +113,7 @@ export default {
 			{
 				title: 'Recall the rule',
 				questions: [
-					{ q: 'With default settings, when does autovacuum vacuum a table?', options: ['Every night at a fixed time', 'When its dead rows pass 50 + 20% of its rows, capped at 100,000,000', 'When the table reaches 1 GB on disk', 'After every 1,000 updates, whatever the table size'], answer: 1, why: 'Base threshold 50, scale factor 0.2, and `autovacuum_vacuum_max_threshold` of 100,000,000.' },
+					{ q: 'Autovacuum runs a plain VACUUM on `orders`. What happens to the app\'s queries on that table meanwhile?', options: ['They wait until VACUUM finishes', 'They keep running: plain VACUUM does not lock out reads or writes', 'Reads run, but every write fails', 'They are cancelled and must be retried'], answer: 1, why: 'Plain VACUUM works next to SELECT, INSERT, UPDATE and DELETE. Only VACUUM FULL blocks them.' },
 					{ q: 'Which rows count as dead?', options: ['Rows nobody has read for a month', 'Rows with a NULL in the primary key', 'Rows that failed a CHECK constraint', 'Old row versions left by an UPDATE or a DELETE'], answer: 3, why: 'An UPDATE writes a new version and leaves the old one. A DELETE leaves the row in place. Both are dead once replaced or deleted.' },
 					{ q: 'How often does an autovacuum worker visit each database?', options: ['Every `autovacuum_naptime`, 1 minute by default', 'Once per checkpoint', 'Only when you run `ANALYZE`', 'Every second'], answer: 0, why: 'The launcher starts a worker for each database every `autovacuum_naptime`, which then checks each table.' },
 					{ q: 'What is the most dead rows a table ever waits for with defaults?', options: ['200,050', '2,050', '100,000,000', 'There is no limit'], answer: 2, why: 'The cap, `autovacuum_vacuum_max_threshold`, is 100,000,000 dead rows.' }
@@ -123,7 +123,7 @@ export default {
 				title: 'Compute each table',
 				questions: [
 					{ q: '`sessions` has 10,000 rows. How many dead rows before autovacuum?', options: ['10,050', '50', '2,050', '200,050'], answer: 2, why: '50 + 0.2 × 10,000 = 2,050.' },
-					{ q: '`orders` has 1,000,000 rows. How many dead rows before autovacuum?', options: ['200,050', '1,000,050', '100,050', '20,050'], answer: 0, why: '50 + 0.2 × 1,000,000 = 200,050, well under the cap.' },
+					{ q: 'Next year `orders` has grown to 2,000,000 rows. How many dead rows before autovacuum now?', options: ['400,050', '200,050', '2,000,050', '100,000,000'], answer: 0, why: '50 + 0.2 × 2,000,000 = 400,050. The threshold grows with the table, so a bigger `orders` waits for more dead rows.' },
 					{ q: '`events` has 1,000,000,000 rows. How many dead rows before autovacuum?', options: ['200,000,050', '1,000,000,050', '10,000,050', '100,000,000'], answer: 3, why: 'The formula gives 200,000,050, which is above the cap, so the cap wins: 100,000,000.' },
 					{ q: 'Which table is vacuumed after the fewest changes?', options: ['`events`, because it is the biggest', '`sessions`, the smallest', '`orders`, in the middle', 'All three at the same count'], answer: 1, why: 'The threshold grows with the table, so a small table is vacuumed after a few thousand changes.' }
 				]

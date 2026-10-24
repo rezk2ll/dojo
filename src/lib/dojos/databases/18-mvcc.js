@@ -153,7 +153,7 @@ export default {
 					{ q: 'A (xmin 90, xmax 0)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 0, why: '90 is below 103 and committed, and nobody deleted it.' },
 					{ q: 'B (xmin 101, xmax 104)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 2, why: '101 counts, and 104 committed before the snapshot, so the delete counts too.' },
 					{ q: 'C (xmin 104, xmax 105)?', options: ['Visible', 'Invisible: the inserter does not count', 'Invisible: the deleter counts', 'Visible, but only once 105 commits'], answer: 0, why: '104 counts, and the deleter 105 is in the running list, so the delete does not count yet.' },
-					{ q: 'Why is C still visible although 105 has stamped its xmax?', options: ['Because xmax is ignored on committed rows', 'Because the deleter is still running for this snapshot', 'Because C is frozen', 'Because VACUUM has not run yet'], answer: 1, why: 'Only a deleter that committed before the snapshot hides a version. 105 is in the running list.' }
+					{ q: 'Say 105 is an UPDATE that turned C into D. 105 commits, then a new query starts. Which version does the new query see?', options: ['C, as your query does', 'D: in its snapshot 105 is finished, so the delete of C and the insert of D both count', 'Both C and D', 'Neither, until VACUUM runs'], answer: 1, why: 'A new query takes a new snapshot where 105 is finished. Your older snapshot still lists 105 as running and keeps seeing C.' }
 				]
 			},
 			{

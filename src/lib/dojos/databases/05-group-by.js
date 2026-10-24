@@ -135,17 +135,17 @@ export default {
 				questions: [
 					{ q: 'In (2), what do you group by?', options: ['`visit_id`', '`event_type`', '`created_at`', 'Nothing, one group is enough'], answer: 0, why: 'The question is about visits, so one output row is one visit.' },
 					{ q: 'Where does `count(*) > 5` go?', options: ['In WHERE', 'In ORDER BY', 'In HAVING', 'In the SELECT list'], answer: 2, why: 'HAVING filters groups after the aggregates are computed.' },
-					{ q: 'You write `WHERE count(*) > 5` instead. What does PostgreSQL say?', options: ['It returns every visit, ignoring the filter', '`aggregate functions are not allowed in WHERE`', '`column "count" does not exist`', 'It works, but slower'], answer: 1, why: 'WHERE runs before groups exist, so there is no count yet to compare.' },
+					{ q: 'You name the count `count(*) AS views`. Can you write `HAVING views > 5`?', options: ['Yes: HAVING runs after the SELECT list', 'No: HAVING cannot see output aliases, so you repeat `count(*)`', 'Yes, but only with `GROUP BY 1`', 'No: HAVING accepts only constants'], answer: 1, why: 'An output column name works in ORDER BY and GROUP BY, not in WHERE or HAVING. Umami\'s HAVING repeats the full `sum(case ...)` instead of the alias `c` for this reason.' },
 					{ q: 'Why keep `event_type = 1` in WHERE and not in HAVING?', options: ['HAVING cannot compare numbers', 'WHERE is always faster for any filter', 'HAVING only accepts `count`', 'It is a test on single rows, and `event_type` is not a grouped column'], answer: 3, why: 'Row filters go in WHERE, group filters in HAVING. In HAVING, `event_type` would need GROUP BY or an aggregate.' }
 				]
 			},
 			{
 				title: 'Group twice for bounces',
 				questions: [
-					{ q: 'Why does the bounce rate need two levels of grouping?', options: ['A bounce is a fact about a visit, but each row is an event', 'PostgreSQL allows only one aggregate per query', 'HAVING needs a subquery to run', 'Averages cannot be computed on events'], answer: 0, why: 'First fold events into visits, then fold visits into one share.' },
+					{ q: 'In (3), what does one row of the outer query stand for?', options: ['The whole week: one row with the share', 'A visit', 'A day', 'An event'], answer: 0, why: 'The outer query has an aggregate and no GROUP BY, so all its input is one group and it returns one row.' },
 					{ q: 'What does the inner query return?', options: ['One row per event, with its number', 'One row with the total', 'One row per day', 'One row per visit, with its page views'], answer: 3, why: 'It groups by `visit_id` and counts the page views in each one.' },
 					{ q: 'Which inner count matches Umami\'s `sum(case when ... then 1 else 0 end)`?', options: ['`count(event_type)`', '`count(*) FILTER (WHERE event_type = 1)`', '`count(DISTINCT event_type)`', '`max(event_type = 1)`'], answer: 1, why: '`FILTER` is the standard spelling: it counts only the rows that pass its condition.' },
-					{ q: 'What does the outer `WHERE views > 0` drop?', options: ['Visits with exactly one page view', 'Days with no traffic', 'Visits made only of custom events', 'Visits of logged-in users'], answer: 2, why: 'A visit with no page view is not a visit for the dashboard. Umami drops it with `HAVING ... > 0`.' }
+					{ q: 'Umami drops empty visits with HAVING. Why can (3) use `WHERE views > 0` instead?', options: ['WHERE and HAVING are the same thing in PostgreSQL', 'The outer query has its own GROUP BY', 'In the outer query, `views` is a column of the subquery, so the test is on single rows', 'HAVING is not allowed in an outer query'], answer: 2, why: 'The inner query has already computed `views`. For the outer query it is a plain column, and WHERE filters plain rows.' }
 				]
 			},
 			{
@@ -153,8 +153,8 @@ export default {
 				questions: [
 					{ q: 'Which tool keeps one row per day and adds a running total?', options: ['A second GROUP BY', 'A window function with `OVER (ORDER BY ...)`', 'HAVING with `sum`', 'A self join on the day'], answer: 1, why: 'Window functions "do not cause rows to become grouped into a single output row". Each day keeps its row.' },
 					{ q: 'Why does (4) write `sum(count(*)) OVER (...)`?', options: ['The window runs after GROUP BY, so it adds up the daily counts', '`count(*)` cannot run alone with a window', 'It counts each event twice on purpose', 'Without it, the days come back unsorted'], answer: 0, why: '`count(*)` gives each day its count, then the window `sum` adds those counts in day order.' },
-					{ q: 'What is the difference between `count(*) ... GROUP BY visit_id` and `count(*) OVER (PARTITION BY visit_id)`?', options: ['There is none', 'The first is faster on every table', 'The second counts distinct visits', 'The second keeps every event row, each with its visit\'s total'], answer: 3, why: 'GROUP BY folds the rows. With a window, "the rows retain their separate identities".' },
-					{ q: 'The week had no events at all. What does `sum` over no rows return?', options: ['0', 'No row', 'NULL', 'An error'], answer: 2, why: 'The docs: "sum of no rows returns null, not zero as one might expect". `count` returns 0, which is why Umami wraps only the sums in `coalesce`.' }
+					{ q: 'Day 1 has 40 views, day 2 has 25, day 3 has 35. What is `running` on day 3?', options: ['35', '60', '40', '100'], answer: 3, why: 'The window adds the daily counts in day order: 40, then 65, then 100.' },
+					{ q: 'Wednesday had no page view at all. Does (4) return a row for it?', options: ['Yes, with `views = 0`', 'Yes, with `views` NULL', 'No: GROUP BY makes a row only for a day that has rows', 'Only if the running total is above zero'], answer: 2, why: 'Groups come from the rows that passed WHERE. A day with no page view has no rows, so no group. You would need a list of days to left join from.' }
 				]
 			}
 		]

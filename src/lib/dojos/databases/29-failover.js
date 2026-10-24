@@ -142,10 +142,10 @@ export default {
 			{
 				title: 'Say what A does and what its rack sees',
 				questions: [
-					{ q: 'The renewal failed. What does A do?', options: ['`demote(\'immediate-nolock\')`: it restarts read-only', 'It keeps running as primary', 'It shuts down Postgres and waits for an operator', 'It promotes B over the network'], answer: 0, why: 'The leader code demotes at once on a failed update, unless the cluster is paused.' },
+					{ q: 'The renewal failed. In which case would A\'s Patroni keep it running as primary anyway?', options: ['When the cluster is in pause, with a human in charge', 'When `loop_wait` is longer than the TTL', 'When replication is asynchronous', 'When `maximum_lag_on_failover` is 0'], answer: 0, why: 'Only in pause does the leader code skip the demote. Otherwise a failed update always demotes A to read-only.' },
 					{ q: 'What does the app on A\'s rack see from then on?', options: ['Writes keep working against A', 'Writes go to B through A', 'Errors on writes: downtime, but no second primary', 'Stale reads with no errors'], answer: 2, why: 'A read-only server refuses writes. That is the price of never having two primaries.' },
 					{ q: 'A stops renewing. What else does that stop?', options: ['etcd itself', 'The keepalive to A\'s watchdog', 'Replication from B', 'The TTL countdown'], answer: 1, why: '`update_lock` calls `watchdog.keepalive()` only after a successful write. A leader that cannot write stops feeding its watchdog.' },
-					{ q: 'A\'s Patroni had hung instead of demoting. What saves you?', options: ['The watchdog resets A, set 5 s before the TTL runs out', 'etcd kills A\'s Postgres', 'B sends A a demote command', 'Nothing: you get split brain'], answer: 0, why: 'The watchdog needs nothing from Patroni. A is down before the key can expire and B can win.' }
+					{ q: 'With `ttl: 30` and `loop_wait: 10`, how long does A\'s Patroni loop have before its watchdog resets the machine?', options: ['At least 15 seconds', '5 seconds', 'Exactly 30 seconds, the TTL', '10 seconds, one `loop_wait`'], answer: 0, why: 'The watchdog doc gives "at least 15 seconds" for these settings. It fires 5 s before the TTL, so A is down before B can win.' }
 				]
 			},
 			{
@@ -161,7 +161,7 @@ export default {
 				title: 'Count what is lost',
 				questions: [
 					{ q: 'Which commits are lost?', options: ['None: Patroni promotes only a replica with every commit', 'Those A took in its last seconds that never streamed to B', 'Everything since the last base backup', 'All writes made after 03:00:30'], answer: 1, why: 'With asynchronous replication, they stay on A\'s old timeline, "effectively unrecoverable".' },
-					{ q: 'What bounds that loss in the worst case?', options: ['The TTL alone', '`loop_wait` alone', '`maximum_lag_on_failover` bytes, plus what was written in the last TTL seconds', 'The size of A\'s disk'], answer: 2, why: 'The primary\'s position is only sampled each loop, so the doc adds the last TTL seconds to the lag limit.' },
+					{ q: 'Besides lost commits, what else does the app pay between A\'s demote and B\'s promotion?', options: ['Nothing: B promotes the moment A demotes', 'Exactly one `loop_wait` of slow reads', 'Up to tens of seconds with no primary, until the key expires and B wins it', 'Several minutes, until an operator promotes B'], answer: 2, why: 'B cannot take the key before it expires, about 30 s after A\'s last renewal. Until then every write fails.' },
 					{ q: 'Which setting would have kept those commits?', options: ['A shorter `loop_wait`', '`failsafe_mode`', 'A bigger `maximum_lag_on_failover`', '`synchronous_mode`: they would not have been acknowledged'], answer: 3, why: 'With synchronous mode, a commit returns only once a standby has it.' },
 					{ q: 'What does `synchronous_mode` cost?', options: ['Writes can block when no synchronous standby is left', 'Reads must go to the primary', 'etcd needs five members', 'Nothing'], answer: 0, why: 'The doc: "the system may be unavailable for writes even though some servers are available".' }
 				]

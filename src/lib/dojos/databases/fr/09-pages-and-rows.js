@@ -155,7 +155,7 @@ struct HeapTupleHeaderData
 				title: 'Vérifie dans psql',
 				questions: [
 					{ q: 'Après avoir inséré les ids 1 à 1000, où est l’id 186 ?', options: ['`(0,186)`', '`(1,1)`', '`(1,186)`', '`(0,1)`'], answer: 1, why: 'La page 0 est pleine après 185 lignes, donc l’id 186 prend le premier emplacement de la page 1.' },
-					{ q: 'Que désigne un `ctid` de `(1,1)` ?', options: ['La page 1, line pointer 1', 'L’octet 1 de la ligne 1', 'La transaction 1, commande 1', 'L’entrée d’index 1 de la page 1'], answer: 0, why: 'L’adresse désigne la page et l’emplacement, pas une position en octets, donc les tuples peuvent bouger dans la page.' },
+					{ q: 'Et où est l’id 1000, la dernière ligne ?', options: ['`(5,75)`', '`(5,76)`', '`(6,1)`', '`(0,1000)`'], answer: 0, why: 'Les pages 0 à 4 portent 5 × 185 = 925 lignes, donc l’id 1000 est la 75e ligne de la page 5.' },
 					{ q: 'Combien de pages demandent 1000 lignes ?', options: ['5', '4', '8', '6'], answer: 3, why: '1000 / 185 font environ 5,4, donc une sixième page porte les dernières lignes.' },
 					{ q: 'Que renvoie donc `pg_relation_size(\'t\')` en octets ?', options: ['8192', '40960', '49152', '44000'], answer: 2, why: 'Six pages de 8192 octets. Le fichier grandit par pages entières.' }
 				]
@@ -164,7 +164,7 @@ struct HeapTupleHeaderData
 				title: 'Regarde un update déplacer la ligne',
 				questions: [
 					{ q: 'Tu lances `UPDATE t SET qty = qty + 1 WHERE id = 1`. Où va la nouvelle version ?', options: ['Elle écrase `(0,1)` sur place', 'Dans un emplacement libre en fin de table', 'Dans la table TOAST', 'Seulement dans le WAL, jusqu’à VACUUM'], answer: 1, why: 'Un UPDATE écrit un nouveau tuple. La page 0 est pleine, donc il atterrit là où il y a de la place, comme `(5,76)` dans le schéma.' },
-					{ q: 'Que reste-t-il en `(0,1)` juste après l’update ?', options: ['Rien, l’emplacement est libéré tout de suite', 'La nouvelle version', 'Un tuple vide avec seulement un en-tête', 'L’ancienne version, avec `t_xmax` rempli et `t_ctid` qui pointe vers la nouvelle'], answer: 3, why: 'Des lecteurs qui ont commencé avant peuvent encore en avoir besoin. Elle reste jusqu’à ce que VACUUM la retire.' },
+					{ q: 'La nouvelle version est en `(5,76)`. Que montre un nouveau `SELECT ctid FROM t WHERE id = 1` ?', options: ['`(0,1)`', '`(0,1)` et `(5,76)`', 'Aucune ligne jusqu’au passage de VACUUM', '`(5,76)`'], answer: 3, why: 'Une nouvelle requête ne voit que la version vivante. L’ancienne est toujours sur la page 0, mais elle est morte pour les lecteurs qui commencent après l’update.' },
 					{ q: 'Tu supprimes la moitié des lignes. Que dit `pg_relation_size` ?', options: ['Les mêmes 49152 octets', 'Environ la moitié, 24576 octets', '0, jusqu’au passage de VACUUM', 'Plus, à cause des suppressions'], answer: 0, why: 'Un delete marque les tuples, il ne réduit pas le fichier. Ce sont les 35 Mo du début qui restent 35 Mo.' },
 					{ q: 'Quelle colonne de l’ancien tuple dit quelle transaction l’a modifié ?', options: ['`t_xmin`', '`t_hoff`', '`t_xmax`', '`t_bits`'], answer: 2, why: '`t_xmin` est la transaction qui l’a inséré, `t_xmax` celle qui l’a supprimé ou verrouillé.' }
 				]

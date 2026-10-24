@@ -136,6 +136,44 @@ RESET_PASSWORD_LOCK_TIME = parse(
 			'Chaîne d’approvisionnement et secrets : lockfile et `npm ci` ou `pip --require-hashes` (jour 30), scan des dépendances (jour 29), images signées (jour 31). Secrets dans un secret manager, jamais dans git ni dans l’image (jours 25 et 26).',
 			'Déploiement : non-root, système de fichiers racine en lecture seule, toutes les capabilities retirées (jour 33), namespace étiqueté `restricted` (jour 34), NetworkPolicy en refus par défaut qui ne laisse que l’API joindre PostgreSQL (jour 35).',
 			'Après une intrusion : log d’audit des connexions, des échecs et des actions du staff, sans token ni mot de passe (jour 36). Falco sur les nœuds (jour 37). Un runbook écrit : qui coupe les accès, quels secrets faire tourner dans quel ordre, qui prévient les clients (jour 38).'
+		],
+		steps: [
+			{
+				title: 'Dresse le threat model',
+				questions: [
+					{ q: 'Comment construis-tu le threat model ?', options: ['STRIDE sur la connexion, la réinitialisation, la commande, les envois de fichiers et la récupération « préviens-moi »', 'Un pentest une fois la boutique en ligne', 'Une liste des CVE des dépendances', 'L’ordre des jours de ce dojo'], answer: 0, why: 'Un threat model liste ce qui peut mal tourner pour chaque fonction, qui le ferait, et quel contrôle l’arrête (jour 1).' },
+					{ q: 'Où sont les frontières de confiance de cette boutique ?', options: ['Entre l’API et ses propres logs', 'Au navigateur, au webhook de paiement et à l’appel sortant', 'Entre deux membres du staff', 'Entre les tables PostgreSQL'], answer: 1, why: 'Ce sont les trois endroits où des données arrivent d’une partie que tu ne contrôles pas.' },
+					{ q: 'Pourquoi le webhook de paiement est-il une frontière de confiance ?', options: ['C’est l’appel le plus lent de la boutique', 'Il parle JSON au lieu de HTML', 'Des données y arrivent d’une partie que tu ne contrôles pas', 'Il tourne dans un autre conteneur'], answer: 2, why: 'N’importe qui peut envoyer une requête à cette URL. Chaque contrôle se place sur la ligne où entrent les données venues de l’extérieur (jour 2).' },
+					{ q: 'Qu’est-ce qu’un réglage sûr par défaut ?', options: ['Un réglage que l’attaquant ne voit pas', 'Une valeur à fixer avant le premier démarrage', 'Un réglage coupé tant que tu n’as pas lu la doc', 'Un réglage dont la valeur sans configuration est la valeur sûre'], answer: 3, why: 'Chez Saleor, `HTTP_IP_FILTER_ENABLED` vaut `True` tant que tu ne le coupes pas : un commerçant qui ne lit jamais les réglages est quand même couvert (jour 7).' }
+				]
+			},
+			{
+				title: 'Verrouille le navigateur et les comptes',
+				questions: [
+					{ q: 'Quel cookie de session poses-tu ?', options: ['`Secure` seulement, le reste est facultatif', '`HttpOnly; Secure; SameSite=Lax`, renouvelé à la connexion', '`SameSite=None`, pour que le dashboard marche', 'Pas de cookie : un token dans `localStorage`'], answer: 1, why: 'Les scripts ne peuvent pas le lire, il ne passe qu’en HTTPS, les requêtes cross-site ne l’emportent pas, et un nouveau est émis à la connexion (jour 10).' },
+					{ q: 'Quel réglage CORS convient à la boutique ?', options: ['`*`, pour que la boutique marche de partout', 'CORS coupé sur toutes les routes', 'Seulement `localhost`, comme en développement', 'Seulement les origines de la boutique et du dashboard'], answer: 3, why: 'Avec `*`, le handler de Saleor renvoie n’importe quelle origine avec les credentials autorisés. Une courte liste de tes propres origines ferme ça.' },
+					{ q: 'Comment les mots de passe des clients sont-ils stockés ?', options: ['En hash SHA-256', 'Chiffrés avec la `SECRET_KEY`', 'En hash Argon2id', 'En hash avec un seul sel pour tout le monde'], answer: 2, why: 'Un hash lent et salé rend chaque essai coûteux pour qui vole la table (jour 9).' },
+					{ q: 'Qu’ont les comptes staff en plus du mot de passe ?', options: ['Un TOTP obligatoire', 'Une session plus longue', 'Un CAPTCHA sur chaque page', 'Rien : le staff est de confiance'], answer: 0, why: 'Le staff peut envoyer des fichiers et lire toutes les commandes, donc ses comptes ont besoin d’un second facteur (jour 14).' }
+				]
+			},
+			{
+				title: 'Protège les données et les entrées venues de l’extérieur',
+				questions: [
+					{ q: 'Le client A demande la commande 1042, qui appartient au client B. Quel contrôle l’arrête ?', options: ['Des ids de commande en UUID aléatoires', 'Un cookie de session valide sur chaque requête', 'Chaque lecture de commande vérifie le propriétaire ou un rôle staff', 'Une limite de débit sur la requête `order`'], answer: 2, why: 'Une IDOR, c’est un contrôle par objet qui manque. Une session prouve qui appelle, pas que la commande lui appartient (jour 16).' },
+					{ q: 'Comment les photos de produits sont-elles servies ?', options: ['Depuis le domaine du dashboard, pour garder un seul certificat', 'Depuis `media.`, avec `Content-Disposition: attachment`, après une vérification du contenu', 'Directement depuis le dossier d’envoi dans la racine web', 'Depuis un CDN sur la même origine que le dashboard'], answer: 1, why: 'Ce sont les deux conditions de GHSA-666h. Un fichier sur une autre origine ne peut pas lire les tokens du dashboard (jour 24).' },
+					{ q: 'Comment le webhook sait-il qu’un appel vient bien du prestataire de paiement ?', options: ['Il vérifie l’en-tête `User-Agent`', 'Il vérifie l’IP source et rien d’autre', 'Il fait confiance à tout POST avec un corps JSON', 'Il vérifie la signature du prestataire avec une comparaison en temps constant'], answer: 3, why: 'La signature prouve que l’expéditeur détient le secret partagé. Une comparaison en temps constant n’en laisse rien fuiter par le temps de réponse.' },
+					{ q: 'Un client donne `http://169.254.169.254/` à « préviens-moi ». Que se passe-t-il ?', options: ['La récupération est refusée : les adresses privées, de loopback et link-local sont bloquées après la résolution DNS', 'Elle est faite, puisque le client l’a demandée', 'Elle est faite seulement en HTTPS', 'Elle est refusée seulement si le nom contient `169`'], answer: 0, why: 'Vérifier après la résolution attrape un nom d’apparence anodine qui pointe vers une adresse interne (jour 20).' }
+				]
+			},
+			{
+				title: 'Déploie et prépare l’après-intrusion',
+				questions: [
+					{ q: 'Comment le conteneur tourne-t-il ?', options: ['En root, avec `SYS_ADMIN` pour la maintenance', 'En non-root, système de fichiers racine en lecture seule, toutes les capabilities retirées', 'Avec `--privileged`, pour garder la config simple', 'Avec les réglages par défaut de Docker'], answer: 1, why: 'Un bug dans l’appli tombe alors dans un processus sans root, sans endroit où écrire et sans pouvoirs en plus (jour 33).' },
+					{ q: 'Avec quel niveau Pod Security le namespace est-il étiqueté ?', options: ['`privileged`', '`baseline`', '`restricted`', 'Aucun : le défaut est sûr'], answer: 2, why: 'Sans label, le namespace est en `privileged`. `restricted` fait rejeter par l’API server un Pod qui ne fixe pas `runAsNonRoot: true` ou qui garde ses capabilities (jour 34).' },
+					{ q: 'Quelles NetworkPolicy mets-tu en place ?', options: ['Aucune : le cluster est privé', 'Tout l’egress autorisé, l’ingress refusé', 'L’ingress refusé seulement', 'Un refus par défaut, avec seulement l’API autorisée à joindre PostgreSQL'], answer: 3, why: 'Pars fermé, puis ouvre le seul chemin dont la boutique a besoin (jour 35).' },
+					{ q: 'Que contient le log d’audit ?', options: ['Les connexions, les échecs et les actions du staff, sans token ni mot de passe', 'Chaque corps de requête, pour relecture', 'Les mots de passe, hachés', 'Rien tant qu’on ne soupçonne pas d’intrusion'], answer: 0, why: 'Le log doit dire qui a fait quoi après une intrusion, et ne doit pas donner d’identifiant valable à qui le lit (jour 36).' }
+				]
+			}
 		]
 	},
 	quiz: [

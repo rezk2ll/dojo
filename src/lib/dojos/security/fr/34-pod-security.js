@@ -117,6 +117,44 @@ func hostPathVolumes_1_0(podMetadata *metav1.ObjectMeta, podSpec *corev1.PodSpec
 			'Au niveau du Pod ou du conteneur : `runAsNonRoot: true` et `seccompProfile: { type: RuntimeDefault }`. Le contrôle restricted accepte l’un ou l’autre niveau pour ces deux champs.',
 			'Au démarrage : la doc de l’API pour `runAsNonRoot` dit que le kubelet va « validate the image at runtime » et refuser de lancer le conteneur s’il tourne en UID 0. Si l’utilisateur de l’image est root, fixe aussi `runAsUser` à un uid non nul, ou prends une image avec un `USER` non root.',
 			'Passe ensuite le label à `pod-security.kubernetes.io/enforce=restricted`. Les Pods qui le violent encore sont rejetés à partir de là.'
+		],
+		steps: [
+			{
+				title: 'Lis l’avertissement',
+				questions: [
+					{ q: 'Le Pod a été créé alors que kubectl a affiché un avertissement. Pourquoi ?', options: ['`warn` ne fait que renvoyer un avertissement, et `enforce` est toujours à `baseline`', 'Les avertissements ne bloquent que les Deployments, pas les Pods', 'Le Pod passe finalement `restricted`', 'Le contrôleur ignore les images de Docker Hub'], answer: 0, why: '`warn` renvoie un avertissement à l’utilisateur et admet le Pod. Seul `enforce` rejette.' },
+					{ q: 'Combien d’éléments l’avertissement liste-t-il ?', options: ['Un', 'Quatre', 'Deux', 'Huit'], answer: 1, why: 'Quatre : `allowPrivilegeEscalation`, les capabilities non restreintes, `runAsNonRoot` et `seccompProfile`. Chacun nomme un champ.' },
+					{ q: 'Quel élément demande `capabilities.drop=["ALL"]` ?', options: ['`allowPrivilegeEscalation != false`', '`runAsNonRoot != true`', '`unrestricted capabilities`', '`seccompProfile`'], answer: 2, why: 'L’avertissement le dit entre parenthèses : container "nginx" must set `securityContext.capabilities.drop=["ALL"]`.' },
+					{ q: 'Quels types de profil seccomp `restricted` accepte-t-il ?', options: ['`Unconfined` ou `RuntimeDefault`', 'Seulement `Localhost`', 'N’importe lequel, tant qu’il y en a un', '`RuntimeDefault` ou `Localhost`'], answer: 3, why: 'L’avertissement nomme les deux : le type doit être "RuntimeDefault" ou "Localhost".' }
+				]
+			},
+			{
+				title: 'Écris le securityContext',
+				questions: [
+					{ q: 'Où va `allowPrivilegeEscalation: false` ?', options: ['Au niveau du Pod seulement', 'Au niveau du conteneur', 'Sur le namespace', 'Sur le Deployment'], answer: 1, why: 'L’avertissement dit que le conteneur `nginx` doit le fixer. C’est un champ de conteneur.' },
+					{ q: 'Où peut aller `runAsNonRoot: true` pour `restricted` ?', options: ['Au niveau du Pod ou du conteneur', 'Au niveau du conteneur seulement', 'Au niveau du Pod seulement', 'Dans un label du namespace'], answer: 0, why: 'L’avertissement dit « pod or container », et le contrôle restricted accepte l’un ou l’autre niveau.' },
+					{ q: 'Quel bloc retire les capabilities ?', options: ['`capabilities: { add: [] }`', '`capabilities: { drop: ["NET_RAW"] }`', '`capabilities: { drop: ["ALL"] }`', '`privileged: false`'], answer: 2, why: '`restricted` veut que toutes les capabilities soient retirées. En retirer une, ou n’en ajouter aucune, laisse celles par défaut.' },
+					{ q: 'Quel réglage seccomp fait disparaître cet élément ?', options: ['`seccompProfile: { type: Unconfined }`', '`seccomp: true`', '`seccompProfile: RuntimeDefault`', '`seccompProfile: { type: RuntimeDefault }`'], answer: 3, why: '`seccompProfile` est un objet avec un `type`, et `RuntimeDefault` est une des deux valeurs acceptées.' }
+				]
+			},
+			{
+				title: 'Vérifie ce qui peut échouer au démarrage',
+				questions: [
+					{ q: 'Le Pod avec le nouveau `securityContext` est admis. Que vérifie encore le kubelet ?', options: ['Que l’image est signée', 'Que nginx écoute sur le port 80', 'Que l’image ne tourne pas en UID 0', 'Que seccomp est installé sur le nœud'], answer: 2, why: 'La doc de l’API pour `runAsNonRoot` : le kubelet va « validate the image at runtime » et refuser un conteneur qui tourne en UID 0.' },
+					{ q: 'Imagine que l’utilisateur de l’image soit root. Que se passe-t-il avec `runAsNonRoot: true` ?', options: ['L’admission rejette le Pod', 'Le conteneur ne démarre pas', 'Le kubelet le passe en uid 65534', 'Rien : ça écrit seulement un avertissement'], answer: 1, why: 'L’admission ne lit que la spec du Pod, qui est correcte. Le kubelet voit ensuite que l’image tournerait en UID 0 et ne la lance pas.' },
+					{ q: 'Quelle est une correction possible ?', options: ['Retirer à nouveau `runAsNonRoot`', 'Ajouter `privileged: true`', 'Fixer `runAsUser` à un uid non nul, ou prendre une image avec un `USER` non root', 'Fixer `allowPrivilegeEscalation: true`'], answer: 2, why: 'Soit le Pod nomme un uid non nul, soit l’image tourne déjà avec un tel uid. Les autres options défont le durcissement.' },
+					{ q: 'Pourquoi l’admission n’attrape-t-elle pas une image root ?', options: ['Le mode `warn` ignore ce champ', 'L’admission ne vérifie que les Deployments', 'Le champ n’est vérifié qu’en mode `audit`', 'L’admission voit la spec du Pod, pas l’utilisateur dans l’image'], answer: 3, why: 'Pod Security Admission vérifie les champs que tu as écrits. L’utilisateur de l’image n’est connu qu’au moment où le kubelet la lance.' }
+				]
+			},
+			{
+				title: 'Active enforce',
+				questions: [
+					{ q: 'L’avertissement a disparu. Quel label poses-tu ensuite ?', options: ['`pod-security.kubernetes.io/warn=restricted`', '`pod-security.kubernetes.io/enforce=restricted`', '`pod-security.kubernetes.io/audit=baseline`', '`pod-security.kubernetes.io/enforce=privileged`'], answer: 1, why: '`warn` t’a permis de trouver les problèmes. C’est en montant `enforce` que tu les bloques.' },
+					{ q: 'Après le changement, quelqu’un applique un Pod qui viole encore `restricted`. Que se passe-t-il ?', options: ['Il est rejeté', 'Il est créé avec un avertissement', 'Il tourne et il est tué une minute plus tard', 'Il part dans un autre namespace'], answer: 0, why: '`enforce` rejette un Pod qui viole le niveau, avant que quoi que ce soit ne soit planifié.' },
+					{ q: 'Un Deployment de `shop` a un template de Pod qui tourne en root. Que vois-tu au `kubectl apply` ?', options: ['`kubectl apply` échoue avec une erreur PodSecurity', 'Les Pods démarrent, puis sont évincés', 'Le Deployment est créé, et son ReplicaSet ne peut créer aucun Pod', 'Rien : les Deployments sont exemptés'], answer: 2, why: 'La doc : le mode enforce n’est « **not** applied to workload resources, only to the resulting pod objects ».' },
+					{ q: 'Que fait le mode `audit` en cas de violation ?', options: ['Il rejette le Pod', 'Il renvoie un avertissement à l’utilisateur', 'Il supprime le Pod', 'Il ajoute une annotation dans le journal d’audit'], answer: 3, why: 'Chaque mode fait une chose : `enforce` rejette, `warn` avertit, `audit` annote le journal d’audit.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,30 @@ func hostPathVolumes_1_0(podMetadata *metav1.ObjectMeta, podSpec *corev1.PodSpec
 			why: 'Baseline « allows the default (minimally specified) Pod configuration », qui tourne avec l’utilisateur de l’image et les capabilities par défaut. Restricted ajoute `runAsNonRoot: true` et le retrait de `ALL`. hostPath, privileged et hostNetwork sont déjà rejetés par baseline.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Poser des labels sur un namespace d’un cluster kind local, voir baseline rejeter un Pod hostPath, et faire passer un Pod en restricted.',
+		steps: [
+			'Lance un cluster local et pose les labels sur un namespace : `kind create cluster --name psa-lab && kubectl create namespace shop && kubectl label namespace shop pod-security.kubernetes.io/enforce=baseline pod-security.kubernetes.io/warn=restricted`.',
+			'Lance le Pod nu de l’exercice et lis l’avertissement : `kubectl -n shop run nginx --image=nginx`.',
+			'Essaie un Pod qui monte le `/` du nœud : `echo \'{"apiVersion":"v1","kind":"Pod","metadata":{"name":"bad"},"spec":{"containers":[{"name":"bad","image":"busybox:1.37","command":["sleep","3600"],"volumeMounts":[{"name":"host","mountPath":"/host"}]}],"volumes":[{"name":"host","hostPath":{"path":"/"}}]}}\' | kubectl -n shop apply -f -`.',
+			'Applique un Pod conforme à `restricted`, avec une image dont l’utilisateur n’est pas root : `echo \'{"apiVersion":"v1","kind":"Pod","metadata":{"name":"web"},"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"web","image":"nginxinc/nginx-unprivileged:1.31-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}\' | kubectl -n shop apply -f -`.',
+			'Applique le même Pod avec `"name":"web-root"` et `"image":"nginx"`, puis lance `kubectl -n shop get pods`.',
+			'Supprime les Pods en infraction, monte enforce et essaie un Deployment : `kubectl -n shop delete pod nginx web-root && kubectl label --overwrite namespace shop pod-security.kubernetes.io/enforce=restricted && kubectl -n shop create deployment root-web --image=nginx`, puis `kubectl -n shop describe replicaset`.',
+			'Nettoie : `kind delete cluster --name psa-lab`.'
+		],
+		done: [
+			'L’étape 2 affiche `Warning: would violate PodSecurity "restricted:latest"`, et `kubectl -n shop get pod nginx` montre le Pod.',
+			'L’étape 3 échoue avec `violates PodSecurity "baseline:latest": hostPath volumes (volume "host")`.',
+			'`web` est admis sans avertissement et passe en `Running`. `web-root` est admis aussi, et son statut est `CreateContainerConfigError`.',
+			'`kubectl create deployment` réussit, et les événements du ReplicaSet montrent `FailedCreate` avec une erreur PodSecurity `forbidden`.'
+		],
+		solution: [
+			'`nginxinc/nginx-unprivileged` fixe un `USER` numérique non root, donc le contrôle `runAsNonRoot` du kubelet au démarrage passe. L’image `nginx` simple tourne en root, donc elle échoue à ce moment-là, pas à l’admission.',
+			'Le Deployment montre le piège de la leçon : enforce vérifie les Pods, pas l’objet workload. `warn` et `audit` auraient signalé le template.',
+			'Avant de monter enforce sur un vrai namespace, lance `kubectl label --dry-run=server --overwrite namespace shop pod-security.kubernetes.io/enforce=restricted` pour lister les Pods en cours qui le violeraient.'
+		]
+	},
 	recall: {
 		q: 'Quel label fait rejeter par l’API server les Pods qui montent un volume hostPath, et par quoi commence l’erreur ?',
 		a: '`pod-security.kubernetes.io/enforce=baseline` (ou `restricted`). L’erreur commence par `violates PodSecurity "baseline:latest": hostPath volumes`.'

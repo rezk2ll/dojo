@@ -126,6 +126,44 @@ export default {
 			'(2) Refused before DNS: `validate_cloud_metadata_hostname!` matches the literal IP and raises "Requests to cloud metadata endpoints are not allowed". Without that check, line 43 of the example would still catch it as link-local.',
 			'(3) Refused after DNS. The hostname looks public, but `getaddrinfo` returns `10.0.0.5`, and `ipv4_private?` is true: "Requests to the local network are not allowed".',
 			'(4) Accepted. With `dns_rebind_protection`, the request goes to the IP that was checked, with `ci.example.org` kept for TLS. A redirect from that server to an internal address must be checked again or refused.'
+		],
+		steps: [
+			{
+				title: 'Read the setup',
+				questions: [
+					{ q: 'Who sends the webhook request?', options: ['The project owner’s browser', 'The GitLab server, from inside its own network', 'The receiving server', 'The DNS resolver'], answer: 1, why: 'That is what makes it SSRF: the request reaches whatever the server reaches.' },
+					{ q: 'With default outbound settings, what is `allow_local_network`?', options: ['True', 'Only true for admins', 'False', 'Not used'], answer: 2, why: 'Local network requests from webhooks are not allowed, so line 22 does not return early and the checks run.' },
+					{ q: 'On which values do most checks run?', options: ['The IP addresses that DNS returns', 'Only the hostname text', 'Only the port', 'The path'], answer: 0, why: 'A public-looking name can resolve to an internal IP, so the checks look at the addresses.' },
+					{ q: 'Which check also runs on the hostname, before DNS?', options: ['The loopback check', 'The private network check', 'The port check', 'The cloud metadata check'], answer: 3, why: '`validate_cloud_metadata_hostname!` matches the literal metadata IP before any lookup.' }
+				]
+			},
+			{
+				title: 'Check the literal IPs',
+				questions: [
+					{ q: '(1) `http://127.0.0.1:6379/`: accepted?', options: ['Yes: port 6379 is not blocked', 'Refused: `127.0.0.1` is a loopback address', 'Refused: the metadata check', 'Yes: it is not in `10.0.0.0/8`'], answer: 1, why: '`allow_localhost` is false, so `validate_localhost` and `validate_loopback` refuse it.' },
+					{ q: '(2) `http://169.254.169.254/latest/meta-data/`: which check refuses it first?', options: ['The private network check', 'The loopback check', '`validate_cloud_metadata_hostname!`, before DNS', 'None: it is accepted'], answer: 2, why: 'It matches the literal IP and raises "Requests to cloud metadata endpoints are not allowed".' },
+					{ q: 'Without that metadata check, would (2) still be refused?', options: ['Yes: line 43 blocks all of `169.254.0.0/16` as link-local', 'No: it is a public address', 'No: link-local is always allowed', 'Only on AWS'], answer: 0, why: 'The metadata IP is a link-local address, and line 43 blocks the whole range.' },
+					{ q: 'Why does the metadata IP matter so much on a cloud VM?', options: ['It is slow', 'It hosts the GitLab UI', 'It runs the DNS server', 'GitLab’s comment: "On IaaS these can return IAM credentials"'], answer: 3, why: 'A request that reaches it from the server can read the instance’s credentials.' }
+				]
+			},
+			{
+				title: 'Check the hostnames',
+				questions: [
+					{ q: '(3) `hooks.attacker.example` resolves to `10.0.0.5`. When is it refused?', options: ['Before DNS, by its name', 'After DNS: `ipv4_private?` is true for `10.0.0.5`', 'Never: the name looks public', 'Only on a redirect'], answer: 1, why: 'The checks run on the resolved address and answer "Requests to the local network are not allowed".' },
+					{ q: 'A hostname has one public and one private A record. What happens?', options: ['Accepted: one address is public', 'Accepted, using the public one', 'Refused: the checks use `any?`', 'Refused only half the time'], answer: 2, why: 'The client might connect to either address, so one private record is enough to refuse.' },
+					{ q: '(4) `ci.example.org` resolves to a public address. Accepted?', options: ['Yes', 'No: all HTTPS hooks are refused', 'No: hostnames are never accepted', 'Only with `allow_local_network`'], answer: 0, why: 'No check matches a public address, so `UrlBlocker` accepts it.' },
+					{ q: 'Which of the four URLs pass?', options: ['(1) and (4)', '(3) and (4)', 'All four', 'Only (4)'], answer: 3, why: 'The loopback, metadata and private addresses are refused. Only the public one passes.' }
+				]
+			},
+			{
+				title: 'Close the remaining gaps',
+				questions: [
+					{ q: 'What does `dns_rebind_protection` do for (4)?', options: ['It resolves the name twice', 'It connects to the IP that was checked, keeping `ci.example.org` for TLS', 'It blocks HTTPS', 'It caches DNS for a day'], answer: 1, why: 'Lines 6 to 8 put the checked IP in the URI, so a second DNS answer cannot swap in an internal address.' },
+					{ q: 'What attack does that pinning stop?', options: ['CSRF', 'Credential stuffing', 'DNS rebinding', 'SQL injection'], answer: 2, why: 'The name resolves to a public IP at the check and to an internal IP at the connect. Pinning removes the second lookup.' },
+					{ q: 'The server at (4) answers with a redirect to `http://10.0.0.5/`. What must happen?', options: ['The redirect must be checked again or refused', 'Follow it: the first URL passed', 'Follow it only for `GET`', 'Follow it if the port is 80'], answer: 0, why: 'A redirect is a new URL. Without a new check, it walks straight past the blocker.' },
+					{ q: 'Which check stays on even if an admin enables local network requests?', options: ['The loopback check', 'The private network check', 'The `any?` check', '`validate_cloud_metadata!`, which runs before the allowlist'], answer: 3, why: 'It is not skipped by `allow_local_network`. The webhook docs date it to GitLab 19.5.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,28 @@ export default {
 			why: 'The checks covered the first URL only. GitLab\'s secure coding guide: "Disable redirects or validate the redirect destination". The OWASP cheat sheet also asks to disable redirect following in the web client.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Write a small URL blocker that checks the resolved addresses, the way `UrlBlocker` does, and run it on the task’s kinds of URL. It sends no request anywhere.',
+		steps: [
+			'Make a folder: `mkdir -p ~/ssrf-lab && cd ~/ssrf-lab`.',
+			'Write `blocker.py` with `check(url)`: take the hostname with `urlsplit`, refuse the literal `169.254.169.254` before DNS, resolve the rest with `socket.getaddrinfo`, and refuse if any address is loopback, link-local or private (`10.0.0.0/8`, `172.16.0.0/12` or `192.168.0.0/16`). Otherwise return the address to connect to. Print `check(u)` for each URL in `sys.argv[1:]`.',
+			'Run it on literal IPs: `python3 blocker.py http://127.0.0.1:6379/ http://169.254.169.254/latest/meta-data/ http://169.254.170.2/ http://10.0.0.5/ "http://[::1]/" https://1.1.1.1/hook`.',
+			'Run it on a hostname whose name says nothing: `python3 blocker.py http://localhost:6379/`.',
+			'Break it on purpose: move the loopback test so it runs on the hostname text only (`host == "127.0.0.1"`), and run step 4 again.'
+		],
+		done: [
+			'Step 3 refuses the first five URLs, each with its reason, and accepts `https://1.1.1.1/hook`.',
+			'`http://169.254.169.254/...` is refused as cloud metadata, and `http://169.254.170.2/` as link-local.',
+			'Step 4 refuses `localhost` as loopback, from the address DNS returned.',
+			'After step 5, `http://localhost:6379/` is accepted.'
+		],
+		solution: [
+			'`ips = {ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(host, None)}`, then for each `ip`: `if ip.is_loopback`, `if ip.is_link_local`, and `if any(ip in ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))`, each returning a refusal. Avoid `ip.is_private` for the last test: Python counts loopback as private too, so step 5 would still refuse `localhost`.',
+			'Refusing when any address matches is the same choice as GitLab’s `any?`: the client might connect to either.',
+			'Step 5 shows why the checks run after DNS: a name is not an address. A real client must also connect to the checked IP, as `dns_rebind_protection` does, and check every redirect again. Clean up with `rm -rf ~/ssrf-lab`.'
+		]
+	},
 	recall: {
 		q: 'Which three address families does `UrlBlocker#validate_local_request` refuse for webhooks by default, and what is the metadata IP?',
 		a: 'Loopback (`127.0.0.1`, `::1`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and link-local `169.254.0.0/16`, which holds the metadata IP `169.254.169.254`.'

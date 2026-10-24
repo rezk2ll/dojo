@@ -110,6 +110,44 @@ export const filterInternalHeaders = (
 			'`X-User`: nginx forwards it untouched, so a client can send `X-User: admin`. Set it only in the auth proxy, and delete the client copy with `proxy_set_header X-User "";`. The nginx docs: if the value "is an empty string then this field will not be passed to a proxied server".',
 			'`X-Forwarded-For`: `$proxy_add_x_forwarded_for` appends the real address to whatever the client sent. The leftmost value is the client\'s own text, so each request can pick a new IP and dodge the rate limit. Use `proxy_set_header X-Forwarded-For $remote_addr;`, or read the rightmost value that nginx added.',
 			'Port 8000 on `0.0.0.0` is open on every interface, so an attacker may skip nginx entirely and set any header. Bind Flask to `127.0.0.1:8000` or a private network that only nginx can reach.'
+		],
+		steps: [
+			{
+				title: 'Mark the boundaries',
+				questions: [
+					{ q: 'How many trust boundaries does a request cross before Flask reads it?', options: ['One: the internet to Flask', 'Two: internet to nginx, nginx to Flask', 'Three: browser, nginx and auth proxy', 'None: nginx makes it trusted'], answer: 1, why: 'Data crosses from the internet into nginx, then from nginx into the app. Each line is a place to check.' },
+					{ q: 'Which parts of a request are untrusted when they reach nginx?', options: ['Only the body', 'Only the cookies', 'Only the headers that start with `X-`', 'The URL, every header, every cookie and the body'], answer: 3, why: 'The sender chose every byte. Untrusted data is anything that crossed a boundary without a check.' },
+					{ q: 'When can the app trust a header?', options: ['When the last part to write it is one you control', 'When its name starts with `X-`', 'When it arrived over port 443', 'When the app writes it to the log'], answer: 0, why: 'Ask who wrote it last. If nginx overwrote or deleted it, the client value is gone.' },
+					{ q: 'In the Next.js case, what went wrong at the boundary?', options: ['The session cookie was not signed', 'The middleware ran after the page', 'An internal header was accepted from outside', 'TLS was off between proxy and app'], answer: 2, why: 'The server read `x-middleware-subrequest` on every request, including those from the internet, so a visitor could skip the login check.' }
+				]
+			},
+			{
+				title: 'Check X-User',
+				questions: [
+					{ q: 'nginx forwards `X-User` untouched. What can a client do?', options: ['Send `X-User: admin` and act as admin', 'Nothing: the auth proxy signs the header', 'Only read its own `X-User` value', 'Change it only after logging in'], answer: 0, why: 'The app believes `X-User`, and nothing on the path removes the copy the client sent.' },
+					{ q: 'Which nginx line removes the client copy?', options: ['`proxy_hide_header X-User;`', '`proxy_set_header X-User $remote_addr;`', '`proxy_set_header X-User "";`', '`add_header X-User "";`'], answer: 2, why: 'The nginx docs: if the value "is an empty string then this field will not be passed to a proxied server".' },
+					{ q: 'Who should be the only one to set `X-User`?', options: ['The browser, after login', 'nginx, from the client value', 'Any part behind port 443', 'The auth proxy, after login'], answer: 3, why: 'The header carries the result of the login, so only the part that checked the login may write it.' },
+					{ q: 'Next.js runs `filterInternalHeaders` at the first line of `requestHandlerImpl`. Why there?', options: ['It is the fastest spot in the server', 'Every request passes it before code reads headers', 'The browser cannot call that function', 'Only admin routes go through it'], answer: 1, why: 'One check at the entry point covers every route. No later code sees the outside value.' }
+				]
+			},
+			{
+				title: 'Check X-Forwarded-For',
+				questions: [
+					{ q: 'A client sends `X-Forwarded-For: 6.6.6.6`. What does Flask get with `$proxy_add_x_forwarded_for`?', options: ['Only the address nginx saw', 'Only `6.6.6.6`', 'Nothing: nginx drops the header', '`6.6.6.6`, then the address nginx saw'], answer: 3, why: 'The variable appends the real address to whatever the client sent.' },
+					{ q: 'Why does the leftmost value break the rate limit?', options: ['The leftmost value is always nginx', 'The client writes it, so each request can claim a new IP', 'nginx sorts the list on each request', 'It holds the IPv6 form of the address'], answer: 1, why: 'The leftmost entry is the client\'s own text. A new value on each request dodges a limit per IP.' },
+					{ q: 'Which change gives Flask one address it can trust?', options: ['`proxy_set_header X-Forwarded-For $http_x_forwarded_for;`', 'Keep the leftmost value, but check it is a valid IP', '`proxy_set_header X-Forwarded-For $remote_addr;`', 'Rename the header to `X-Client-IP` in Flask'], answer: 2, why: '`$remote_addr` is the address nginx saw on the connection, and it replaces the client copy. Reading the rightmost value, the one nginx added, also works.' },
+					{ q: 'Django\'s `SECURE_PROXY_SSL_HEADER` has the same rule. What must the proxy do?', options: ['Strip the client `X-Forwarded-Proto`, then set its own', 'Forward the client value unchanged', 'Encrypt the link to Django with TLS', 'Set the header for logged-in users only'], answer: 0, why: 'The Django docs require that the proxy "strips the `X-Forwarded-Proto` header from all incoming requests". Otherwise a plain HTTP request can claim to be HTTPS.' }
+				]
+			},
+			{
+				title: 'Close the side door',
+				questions: [
+					{ q: 'Flask listens on `0.0.0.0:8000`. Who can connect to it?', options: ['Only nginx on the same machine', 'Only clients that use port 443', 'Anyone who can reach any interface of the host', 'Nobody until nginx starts'], answer: 2, why: '`0.0.0.0` means every interface, so a request can reach port 8000 without passing nginx.' },
+					{ q: 'An attacker connects straight to port 8000. Which nginx fix still protects the app?', options: ['None: nginx never sees that request', '`proxy_set_header X-User "";`', '`$remote_addr` in `X-Forwarded-For`', 'Both header fixes together'], answer: 0, why: 'The header fixes live in nginx. A request that skips nginx sets any header it likes.' },
+					{ q: 'What closes that path?', options: ['Move Flask to port 8443', 'Bind Flask to `127.0.0.1:8000`', 'Add a CAPTCHA to the login page', 'Turn on HTTPS inside Flask'], answer: 1, why: 'Then the only way to the app is through nginx, where the header fixes run. A private network that only nginx reaches works too.' },
+					{ q: 'How do you prove the `X-User` fix works?', options: ['Search the nginx access log for `X-User`', 'Restart nginx and look for errors', 'Log in and check that the page loads', 'Send `X-User: admin` through nginx and check the app gets nothing'], answer: 3, why: 'Forge the header yourself. If the app still sees `admin`, the boundary is open.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -147,6 +185,27 @@ export const filterInternalHeaders = (
 			why: 'Django believes the header, so it must come from the proxy alone. The docs require that the proxy "strips the `X-Forwarded-Proto` header from all incoming requests" and sets it only for requests that came in over HTTPS. TLS between proxy and Django does not stop a forged header.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Forge `X-User` and `X-Forwarded-For` through a real nginx, then fix the proxy so the app only sees what nginx wrote.',
+		steps: [
+			'Make a folder: `mkdir -p ~/boundary-lab && cd ~/boundary-lab`. Write a one-line nginx config. A second server on `127.0.0.1:9000` plays the app and prints the two headers it receives: `printf \'%s\\n\' \'server { listen 8080; location / { proxy_pass http://127.0.0.1:9000; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; } } server { listen 127.0.0.1:9000; return 200 "app sees X-User=[$http_x_user] XFF=[$http_x_forwarded_for]\\n"; }\' > default.conf`.',
+			'Start nginx, published on localhost only: `docker run -d --name boundary-lab -p 127.0.0.1:8080:8080 -v "$PWD:/etc/nginx/conf.d:ro" nginx:1.27-alpine`.',
+			'Send a normal request, then a forged one: `curl -s localhost:8080/`, then `curl -s -H "X-User: admin" -H "X-Forwarded-For: 6.6.6.6" localhost:8080/`.',
+			'Fix the boundary. In `default.conf`, replace `$proxy_add_x_forwarded_for;` with `$remote_addr; proxy_set_header X-User "";`. Reload with `docker exec boundary-lab nginx -s reload` and send the forged request again.',
+			'Try the side door: `curl -s localhost:9000/`. Then clean up with `docker rm -f boundary-lab`.'
+		],
+		done: [
+			'Before the fix, the forged request prints `X-User=[admin]` and `XFF=[6.6.6.6, ...]`: the app reads the client\'s text.',
+			'After the reload, the same request prints `X-User=[]` and one address in `XFF`, the one nginx saw.',
+			'`curl -s localhost:9000/` fails to connect: the app port is not reachable from your laptop.'
+		],
+		solution: [
+			'`$proxy_add_x_forwarded_for` appends the address nginx saw to the client value, so the leftmost entry stays forged. `$remote_addr` replaces the whole value.',
+			'`proxy_set_header X-User "";` stops nginx from passing the header at all. In a real setup, the auth proxy sets the value after login.',
+			'The app listens on `127.0.0.1:9000` inside the container and is not published, so nginx is the only way in. Binding Flask to `127.0.0.1:8000` does the same in the task.'
+		]
+	},
 	recall: {
 		q: 'Which header did CVE-2025-29927 let outsiders send, and where does the fix remove it?',
 		a: '`x-middleware-subrequest`. `filterInternalHeaders` deletes it at the first line of `requestHandlerImpl` unless `x-middleware-subrequest-id` matches a random value made at startup.'

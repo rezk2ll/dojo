@@ -121,6 +121,44 @@ export default {
 			'The fix: scope the lookup to the caller. `SELECT * FROM invoices WHERE id = $1 AND owner_id = $2` with `[req.params.id, req.user.id]`. The OWASP IDOR Cheat Sheet calls it "use datasets that users have access to" and shows `@current_user.projects.find(params[:id])` in Rails.',
 			'Keep the 404 for both "no such invoice" and "not yours". The cheat sheet says a scoped lookup can "map both cases to the same public response", so Alice cannot tell that 1042 exists.',
 			'Test it the way the cheat sheet describes: create users A and B, each with an invoice, log in as A and request B\'s id for read, update and delete. Switching to UUIDs makes guessing harder, but the check is still needed when a link leaks.'
+		],
+		steps: [
+			{
+				title: 'Trace the request',
+				questions: [
+					{ q: 'Alice is logged in and requests `/invoices/1042`. Does `requireLogin` let her through?', options: ['No: 1042 is not her invoice', 'Yes: she has a valid session', 'Only if she has the `billing` role', 'No: ids must match the session id'], answer: 1, why: '`requireLogin` only rejects requests without a valid session. Alice has one.' },
+					{ q: 'Which value does the SQL query filter on?', options: ['Only `req.params.id`', '`req.params.id` and `req.user.id`', 'Only `req.user.id`', 'The session cookie'], answer: 0, why: 'The query is `WHERE id = $1` with `[req.params.id]`. The caller never appears in it.' },
+					{ q: 'Which line knows who Alice is?', options: ['The `SELECT`', 'The `404` branch', '`requireLogin`, which sets `req.user`', '`res.json`'], answer: 2, why: 'Authentication happened in `requireLogin`. Nothing after it uses `req.user`.' },
+					{ q: 'What does Alice get back?', options: ['A 404', 'A 403', 'Her own invoice 1041', 'Bob’s invoice 1042'], answer: 3, why: 'The row with id 1042 exists, so the handler returns it as JSON.' }
+				]
+			},
+			{
+				title: 'Name the hole',
+				questions: [
+					{ q: 'What kind of check is `requireLogin`?', options: ['Authentication', 'Authorization', 'RBAC', 'Rate limiting'], answer: 0, why: 'It checks who the caller is. It says nothing about what they may access.' },
+					{ q: 'What is this bug called?', options: ['CSRF', 'An IDOR', 'SQL injection', 'A broken session'], answer: 1, why: 'The request carries an id and the server returns that object without checking the caller may access it: an insecure direct object reference.' },
+					{ q: 'Would a role check such as "must have `billing`" close it?', options: ['Yes: only billing users would see invoices', 'Yes, if combined with a rate limit', 'No: every billing user could still read every invoice', 'No: roles only apply to admins'], answer: 2, why: 'RBAC works on roles. The missing check is at the object level: does this invoice belong to this caller?' },
+					{ q: 'Which line in Discourse’s `can_edit_post?` is the same kind of check that is missing here?', options: ['`return true if is_admin?`', 'The locked-post `is_staff?` check', 'The final `false`', '`is_my_own?(post)`, which compares the owner with the caller'], answer: 3, why: '`is_my_own?` returns `obj.user_id == @user.id`. That is the owner check that stops an IDOR.' }
+				]
+			},
+			{
+				title: 'Scope the query',
+				questions: [
+					{ q: 'Which query fixes the handler?', options: ['`WHERE id = $1 AND owner_id = $2` with `[req.params.id, req.user.id]`', '`WHERE id = $1` and then compare `owner_id` in a log line', '`WHERE owner_id = $1` with `[req.params.id]`', '`WHERE id = $1 LIMIT 1`'], answer: 0, why: 'The lookup only searches the caller’s own invoices, what the OWASP IDOR Cheat Sheet calls "use datasets that users have access to".' },
+					{ q: 'What is the Rails form of the same idea in the cheat sheet?', options: ['`Project.find(params[:id])`', '`@current_user.projects.find(params[:id])`', '`Project.where(id: params[:id]).first`', '`authorize! :read, Project`'], answer: 1, why: 'Going through `@current_user.projects` scopes the lookup to the caller.' },
+					{ q: 'Alice now asks for 1042. What should she get?', options: ['403 Forbidden', '200 with an empty body', '404, the same as for an invoice that does not exist', '401 Unauthorized'], answer: 2, why: 'The cheat sheet says a scoped lookup can "map both cases to the same public response", so she cannot tell 1042 exists.' },
+					{ q: 'What should happen to a request that matches no rule?', options: ['Allow it, and log it', 'Allow it for admins only', 'Ask the user to log in again', 'Deny it'], answer: 3, why: 'OWASP calls it deny-by-default. Discourse’s `can_edit_post?` ends with `false` for the same reason.' }
+				]
+			},
+			{
+				title: 'Test it',
+				questions: [
+					{ q: 'How does the cheat sheet say to test this?', options: ['Create users A and B, log in as A, and request B’s id', 'Scan the API with a fuzzer', 'Check that every route calls `requireLogin`', 'Log in as an admin and list all invoices'], answer: 0, why: 'Two users, each with their own object, and a cross request is the direct way to see the hole.' },
+					{ q: 'Which actions should the test cover?', options: ['Only read', 'Read, update and delete', 'Only delete', 'Only the list endpoint'], answer: 1, why: 'Each route that takes an id needs its own owner check, so each one needs its own cross test.' },
+					{ q: 'The team switches to UUIDs. Can the owner check go?', options: ['Yes: UUIDs cannot be guessed', 'Yes, if the UUIDs are encrypted', 'No: an obtained URL must still be blocked', 'Only for read routes'], answer: 2, why: 'The cheat sheet: "If attackers obtain URLs for unauthorized objects, the application should still block their access attempts." Random ids are defence in depth only.' },
+					{ q: 'What did the Discourse directory bug have in common with this one?', options: ['A broken login', 'A missing CSRF token', 'A SQL injection', 'The server knew the caller but never checked access to the requested ids'], answer: 3, why: 'Discourse returned any `user_field_ids` asked for. The fix kept only fields the caller may see.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,27 @@ export default {
 			why: 'The cheat sheet: "If attackers obtain URLs for unauthorized objects, the application should still block their access attempts." It lists random ids as a defence-in-depth measure only. It also says "Avoid encrypting identifiers".'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'See an unscoped lookup hand Alice Bob’s invoice, then scope it so read, update and delete all treat "not yours" like "not found".',
+		steps: [
+			'Make a database with two invoices: `mkdir -p ~/authz-lab && cd ~/authz-lab && sqlite3 shop.db "CREATE TABLE invoices (id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL, total INTEGER); INSERT INTO invoices VALUES (1041, 1, 120), (1042, 2, 990);"`. Alice is user 1, Bob is user 2.',
+			'Run the task’s query as Alice asking for 1042: `sqlite3 shop.db "SELECT * FROM invoices WHERE id = 1042;"`.',
+			'Scope it to Alice: `sqlite3 shop.db "SELECT count(*) FROM invoices WHERE id = 1042 AND owner_id = 1;"`, then the same for an id that does not exist, `9999`.',
+			'Scope the writes the same way: `sqlite3 shop.db "UPDATE invoices SET total = 0 WHERE id = 1042 AND owner_id = 1; SELECT changes();"`, then `sqlite3 shop.db "DELETE FROM invoices WHERE id = 1042 AND owner_id = 1; SELECT changes();"`.',
+			'Check that Bob’s row is untouched: `sqlite3 shop.db "SELECT * FROM invoices;"`.'
+		],
+		done: [
+			'Step 2 prints `1042|2|990`: Bob’s invoice.',
+			'Both scoped counts in step 3 print `0`, so the API answers 404 in both cases.',
+			'Both writes print `0` changes, and the last query still shows `1042|2|990`.'
+		],
+		solution: [
+			'The unscoped query never names the caller, so any logged-in user reads any id.',
+			'Adding `AND owner_id = ?` with the session user’s id makes the database search only the caller’s rows. No row means 404, whether the invoice is someone else’s or does not exist.',
+			'The same clause goes on every `UPDATE` and `DELETE`. Clean up with `rm -rf ~/authz-lab`.'
+		]
+	},
 	recall: {
 		q: 'In Discourse\'s `can_edit_post?`, which call stops user 9 from editing a post written by user 12?',
 		a: '`is_my_own?(post)`, which compares `post.user_id` with the caller\'s id. If it is false and no other rule matches, the method ends with `false` and `ensure_can_edit!` raises a 403.'

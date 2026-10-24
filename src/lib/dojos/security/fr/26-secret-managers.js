@@ -111,6 +111,44 @@ export default {
 			'`role.yaml` : la doc dit "granting list or watch permissions on Secrets allows a subject to read all Secret data in that namespace". Le kubelet monte le Secret pour le Pod, donc le ServiceAccount de l’appli n’a besoin d’aucun verbe sur `secrets`, sauf si le code appelle l’API lui-même.',
 			'`deploy.yaml` : en variable d’environnement, le mot de passe est dans `/proc/<pid>/environ` et passe à chaque processus enfant. Monte-le plutôt en fichier : `volumes: [{ name: db, secret: { secretName: db } }]`, et l’appli lit `/etc/db/password` dans un `tmpfs`.',
 			'Hors de la pull request, une question à poser : le `kube-apiserver` du cluster tourne-t-il avec `--encryption-provider-config` ? Sans ça, la valeur est en clair dans etcd et dans chaque sauvegarde etcd.'
+		],
+		steps: [
+			{
+				title: 'Décode le manifeste',
+				questions: [
+					{ q: 'Qu’affiche `echo aHVudGVyMi1wcm9kLWRi | base64 -d` ?', options: ['Des octets aléatoires, car la valeur est chiffrée', 'Une erreur sans la clé du cluster', '`hunter2-prod-db`', 'Un hash SHA-256 du mot de passe'], answer: 2, why: 'Le base64 n’a pas de clé. N’importe qui l’inverse avec `base64 -d`.' },
+					{ q: 'Qui peut lire le mot de passe dans `db-secret.yaml` ?', options: ['Toute personne qui peut lire le dépôt, aujourd’hui ou dans un clone futur', 'Seulement les admins du cluster', 'Seulement le ServiceAccount de l’appli', 'Personne tant qu’il n’est pas appliqué'], answer: 0, why: 'La valeur est dans git, donc chaque clone de la branche la porte.' },
+					{ q: 'Que commites-tu à la place ?', options: ['Le même fichier, encodé deux fois en base64', 'Le fichier chiffré avec `sops encrypt`', 'Le mot de passe en clair dans une ConfigMap', 'Une entrée `.gitignore` et rien d’autre'], answer: 1, why: 'sops chiffre chaque valeur avant qu’elle atteigne git et laisse les clés lisibles.' },
+					{ q: 'La branche de la PR contient déjà la valeur en clair. Que fais-tu en plus ?', options: ['Squasher la PR avant le merge', 'Fermer la PR et en ouvrir une autre', 'Rien, sops s’en charge', 'Changer le mot de passe'], answer: 3, why: 'La valeur est déjà dans l’historique de la branche : chiffrer la version suivante ne cache pas l’ancienne.' }
+				]
+			},
+			{
+				title: 'Lis le rôle',
+				questions: [
+					{ q: 'Que donne `list` sur `secrets` au ServiceAccount ?', options: ['Seulement les noms des Secrets', 'Toutes les données des Secrets du namespace', 'Seulement les Secrets qu’il a créés', 'Rien sans `get`'], answer: 1, why: 'La doc : "granting list or watch permissions on Secrets allows a subject to read all Secret data in that namespace".' },
+					{ q: 'Comment le Pod reçoit-il le Secret au départ ?', options: ['Le kubelet le récupère pour le Pod', 'L’appli appelle l’API avec son ServiceAccount', 'L’image le contient déjà', 'etcd l’envoie au conteneur'], answer: 0, why: 'Le kubelet monte le Secret ou pose la variable. L’appli n’appelle pas l’API pour ça.' },
+					{ q: 'Alors, de quels verbes le ServiceAccount de l’appli a-t-il besoin sur `secrets` ?', options: ['`get` seulement', '`list` seulement', '`get` et `watch`', 'Aucun, sauf si le code appelle l’API lui-même'], answer: 3, why: 'Comme le kubelet fait le travail, tout verbe ici est un accès en trop.' },
+					{ q: 'Si l’appli est compromise, qu’ajoute le rôle actuel ?', options: ['Rien, l’appli a déjà son propre Secret', 'L’attaquant peut supprimer des Secrets', 'L’attaquant lit tous les Secrets du namespace', 'L’attaquant peut lire les sauvegardes etcd'], answer: 2, why: '`get`, `list` et `watch` laissent quiconque tient le jeton de l’appli lire tous les Secrets, pas seulement `db`.' }
+				]
+			},
+			{
+				title: 'Lis le déploiement',
+				questions: [
+					{ q: 'Avec `env` et `secretKeyRef`, où finit le mot de passe ?', options: ['Dans `/proc/<pid>/environ` et chaque processus enfant', 'Seulement dans la mémoire du kubelet', 'Dans un fichier `tmpfs`', 'Nulle part après le démarrage'], answer: 0, why: 'Un processus enfant hérite de l’environnement de son parent, et `/proc/<pid>/environ` le garde.' },
+					{ q: 'Que dit l’OWASP des variables d’environnement ?', options: ['Le noyau les chiffre', 'Elles "may be included in logs or system dumps"', 'Elles sont sûres dans un conteneur', 'Elles expirent après le démarrage'], answer: 1, why: 'La cheat sheet : elles "are generally accessible to all processes and may be included in logs or system dumps".' },
+					{ q: 'Qu’utilises-tu à la place ?', options: ['Une ConfigMap', 'Une option en ligne de commande', 'Un fichier monté depuis le volume du Secret', 'Un label sur le Pod'], answer: 2, why: '`volumes: [{ name: db, secret: { secretName: db } }]`, et l’appli lit `/etc/db/password`.' },
+					{ q: 'Pourquoi le fichier monté vaut-il mieux ?', options: ['Il est chiffré avec la clé du cluster', 'Il n’est lu qu’une fois', 'L’appli ne peut pas le lire', 'Il est dans un `tmpfs` et ne passe pas aux processus enfants'], answer: 3, why: 'Un fichier monté depuis un Secret n’atteint jamais le disque du nœud, et les enfants n’en héritent pas.' }
+				]
+			},
+			{
+				title: 'Pose la question d’etcd',
+				questions: [
+					{ q: 'Sur quelle option de `kube-apiserver` poses-tu la question ?', options: ['`--encryption-provider-config`', '`--v=4`', '`--audit-log-path`', '`--secure-port`'], answer: 0, why: 'Sans elle, l’API server écrit les Secrets dans etcd tels quels.' },
+					{ q: 'Sans elle, que contient une sauvegarde etcd ?', options: ['Seulement les noms des Secrets', 'Du chiffré sous la CA du cluster', 'Chaque valeur de Secret en clair, au pire à un décodage base64', 'Rien, les Secrets restent en mémoire'], answer: 2, why: 'La doc : les Secrets sont "by default, stored unencrypted in the API server\'s underlying data store (etcd)".' },
+					{ q: 'Quel premier fournisseur de l’`EncryptionConfiguration` laisse les valeurs en clair ?', options: ['`aescbc`', '`identity`', '`kms`', '`secretbox`'], answer: 1, why: '`identity` écrit les ressources telles quelles. Le premier fournisseur est celui qui sert à l’écriture.' },
+					{ q: 'Le chiffrement au repos bloque-t-il `kubectl get secret db -o yaml` ?', options: ['Oui, il renvoie du chiffré', 'Oui, il faut la clé KMS', 'Seulement pour les Secrets `immutable`', 'Non : quiconque a le droit de lire reçoit la valeur en base64'], answer: 3, why: 'Le chiffrement au repos protège etcd et ses sauvegardes, pas l’accès à l’API. D’où l’importance du rôle.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,30 @@ export default {
 			why: 'Un processus enfant hérite d’une copie de l’environnement de son parent, et `/proc/<pid>/environ` garde l’environnement fixé à l’`execve`. La page de man : la lecture de ce fichier passe par un contrôle d’accès ptrace en lecture.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Lire un mot de passe dans un manifeste de Secret en base64 et dans l’environnement d’un conteneur, puis chiffrer le manifeste avec sops.',
+		steps: [
+			'Installe `sops` et `age` (par exemple `brew install sops age`), puis `mkdir ~/secret-lab && cd ~/secret-lab`.',
+			'Écris le manifeste de l’exercice : `printf \'%s\\n\' \'apiVersion: v1\' \'kind: Secret\' \'metadata:\' \'  name: db\' \'data:\' "  password: $(printf hunter2-prod-db | base64)" > db.yaml`, puis décode-le : `awk \'/password/ {print $2}\' db.yaml | base64 -d`.',
+			'Passe le mot de passe en variable d’environnement et lis-le comme le ferait un processus enfant ou `/proc` : `docker run --rm -e DB_PASSWORD=hunter2-prod-db alpine:3.20 sh -c \'sh -c "env | grep DB_PASSWORD"; tr "\\0" "\\n" < /proc/1/environ | grep DB_PASSWORD\'`.',
+			'Crée une clé age : `mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt`.',
+			'Chiffre seulement les valeurs : `sops encrypt --age "$(age-keygen -y ~/.config/sops/age/keys.txt)" --encrypted-regex \'^(data|stringData)$\' db.yaml > db.enc.yaml`, puis `cat db.enc.yaml` et `sops decrypt db.enc.yaml`.',
+			'Déplace le chiffré sous une autre clé : `sed \'s/^    password: ENC/    pass: ENC/\' db.enc.yaml > moved.yaml && sops decrypt moved.yaml`.'
+		],
+		done: [
+			'L’étape 2 affiche `hunter2-prod-db`.',
+			'L’étape 3 affiche `DB_PASSWORD=hunter2-prod-db` deux fois : une depuis le shell enfant, une depuis `/proc/1/environ`.',
+			'`db.enc.yaml` montre toujours `kind: Secret` et `name: db`, tandis que `password:` contient `ENC[AES256_GCM,data:...]`.',
+			'`sops decrypt moved.yaml` échoue avec `Could not decrypt with AES_GCM`.'
+		],
+		solution: [
+			'Le base64 n’est pas un chiffrement : le manifeste dans git, c’est le mot de passe.',
+			'Chaque processus enfant hérite de l’environnement, d’où le choix du chapitre de monter le Secret en fichier.',
+			'sops laisse les clés lisibles et scelle chaque valeur en AES-256-GCM. Le chemin vers la valeur fait partie des données additionnelles, donc une valeur déplacée sous une autre clé ne se déchiffre pas.',
+			'Quiconque a `keys.txt` peut déchiffrer chaque version passée du fichier. Garde-le hors du dépôt.'
+		]
+	},
 	recall: {
 		q: 'De quoi un cluster Kubernetes a-t-il besoin pour que les Secrets soient chiffrés dans etcd ?',
 		a: 'Un `kube-apiserver` lancé avec `--encryption-provider-config`, qui pointe vers une `EncryptionConfiguration` dont le premier fournisseur est `aescbc`, `secretbox` ou `kms`, et pas `identity`. Sans ça, les valeurs sont en clair dans etcd.'

@@ -101,6 +101,44 @@ export default {
 			'Rotate first: `aws iam create-access-key --user-name ci-deploy`, put the new key in the deploy secret store, and check that a deploy works. Then `aws iam update-access-key --access-key-id AKIAEXAMPLEEXAMPLE00 --status Inactive --user-name ci-deploy`. From then on, AWS refuses the leaked key.',
 			'Check use: `aws iam get-access-key-last-used --access-key-id AKIAEXAMPLEEXAMPLE00` returns the date, service and Region of the last request only, so your own deploy at 17:20 would hide an earlier use. A last use that is not yours is an incident (day 38). Delete the key with `aws iam delete-access-key` once nothing breaks.',
 			'Then decide on history. GitHub says a rotated secret "may be sufficient", and a rewrite with `git-filter-repo --sensitive-data-removal --invert-paths --path config/.env` changes every later SHA. Either way, add `.env` to `.gitignore`, install the gitleaks pre-commit hook, and turn on push protection for the repository.'
+		],
+		steps: [
+			{
+				title: 'Find what is still exposed',
+				questions: [
+					{ q: 'After `e4f5a6b` removes the file, what does `git show a1b2c3d:config/.env` print?', options: ['An error: the file is gone', 'Nothing, the commit was rewritten', 'The key, from any clone', 'The key, but only on the developer’s laptop'], answer: 2, why: 'A new commit adds a snapshot without the file and leaves `a1b2c3d` as it was.' },
+					{ q: 'Who else may hold the key now?', options: ['Every clone and fork made since 17:10', 'Only GitHub staff', 'Nobody, the repo was public for only 15 minutes', 'Only people who starred the repo'], answer: 0, why: 'Each clone or fork holds its own copy of the commit, and GitHub serves the commit page by SHA.' },
+					{ q: 'The developer says it is fixed. What did the delete change?', options: ['It revoked the key in AWS', 'It removed the commit from GitHub', 'It stopped forks from syncing', 'Only the latest snapshot of the files'], answer: 3, why: 'The working tree looks clean, but the history and every copy of it still hold the key.' },
+					{ q: 'Why does a gitleaks scan still find the key?', options: ['It reads the working tree twice', 'It scans patches with `git log -p`', 'It asks GitHub for deleted files', 'It reads the reflog only'], answer: 1, why: 'The README: "gitleaks uses the `git log -p` command to scan patches", so the commit that added the key shows up.' }
+				]
+			},
+			{
+				title: 'Pick the first move',
+				questions: [
+					{ q: 'Which single action makes every copy useless at once?', options: ['Rewrite the history and force push', 'Make the repo private', 'Ask forks to delete their copy', 'Rotate the key inside AWS'], answer: 3, why: 'The change happens where the key is checked, so it covers clones you cannot reach.' },
+					{ q: 'Why not rewrite history first?', options: ['A rewrite does nothing for copies taken since 17:10', 'Git cannot rewrite a public repo', 'A rewrite deletes the IAM user', '`git-filter-repo` only works on private repos'], answer: 0, why: 'GitHub’s docs: "as a first step you need to revoke and/or rotate that secret."' },
+					{ q: 'Why not just make the repo private?', options: ['It deletes the repo', 'Clones and forks already have the key', 'It costs money', 'It disables push protection'], answer: 1, why: 'A private repo hides the page, not the copies people already took.' },
+					{ q: 'What does rotation mean here?', options: ['Renaming the IAM user', 'Moving the `.env` to another folder', 'New key, move every program to it, then disable the old one', 'Encrypting the old key'], answer: 2, why: 'After rotation, the leaked copy is refused wherever it ends up.' }
+				]
+			},
+			{
+				title: 'Rotate the key',
+				questions: [
+					{ q: 'Which command comes first?', options: ['`aws iam create-access-key --user-name ci-deploy`', '`aws iam delete-access-key` on the leaked key', '`aws iam update-access-key --status Inactive` on the leaked key', '`git push --force`'], answer: 0, why: 'Create the new key and move the deploy to it first, so turning the old one off breaks nothing.' },
+					{ q: 'What do you check before turning the old key off?', options: ['That gitleaks passes', 'That the repo is private', 'That the IAM user has no other keys', 'That a deploy works with the new key'], answer: 3, why: 'Rotation breaks every program that still holds the old secret. Check the new one works first.' },
+					{ q: 'What does `--status Inactive` do?', options: ['Hides the key from the console', 'The key cannot be used', 'Deletes the key after 30 days', 'Limits the key to read only'], answer: 1, why: 'The AWS docs: "Inactive means that the key cannot be used."' },
+					{ q: '`get-access-key-last-used` shows a use at 17:20 by your own deploy. Are you sure nobody else used the key?', options: ['Yes: the last use is yours', 'Yes: AWS would have alerted', 'No: it returns only the last request, so it can hide an earlier one', 'No: it only shows uses from the console'], answer: 2, why: 'It returns the date, service and Region of the last request only. A use that is not yours is an incident.' }
+				]
+			},
+			{
+				title: 'Close the door',
+				questions: [
+					{ q: 'Once the key is rotated, is a history rewrite required?', options: ['Yes, or AWS keeps the key alive', 'Yes, GitHub requires it', 'No: GitHub says rotation "may be sufficient"', 'No: rewrites are not possible on GitHub'], answer: 2, why: 'A rewrite is optional, and it changes the SHA of every later commit.' },
+					{ q: 'If you do rewrite, which command removes the file?', options: ['`git rm --cached config/.env`', '`git revert a1b2c3d`', '`git commit --amend`', '`git-filter-repo --sensitive-data-removal --invert-paths --path config/.env`'], answer: 3, why: '`git-filter-repo` rebuilds every commit without the file. A revert or a new commit leaves the old one intact.' },
+					{ q: 'What stops the next key before the commit exists?', options: ['A gitleaks pre-commit hook', 'A weekly scan of the default branch', 'A code review on the pull request', 'Branch protection on `main`'], answer: 0, why: 'The hook marks "Detect hardcoded secrets" as Failed and `git commit` stops.' },
+					{ q: 'What stops it at the push, on GitHub’s side?', options: ['Dependabot', 'Push protection', 'A `.gitattributes` rule', 'Signed commits'], answer: 1, why: 'Push protection scans a push for known secret formats and blocks it before the commits reach the repository.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -138,6 +176,29 @@ export default {
 			why: 'The rule’s `Allowlists` entry holds `.+EXAMPLE$`, and an allowlist regex checks the secret by default. Keywords only filter content before the regex runs, and `gitleaks git` reads the whole `git log -p`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Commit a fake AWS key in a local repo, delete it, and see that git history and gitleaks still have it.',
+		steps: [
+			'Make a throwaway repo: `mkdir ~/leak-lab && cd ~/leak-lab && git init`.',
+			'Write a fake key in the AWS format (random, valid nowhere): `mkdir config && echo "AWS_ACCESS_KEY_ID=AKIA$(LC_ALL=C tr -dc \'A-Z2-7\' </dev/urandom | head -c 16)" > config/.env`.',
+			'Commit it, then delete it the way the developer did: `git add config/.env && git commit -m "add config" && git rm config/.env && git commit -m "remove .env"`.',
+			'Look for it: `ls config`, then `git show HEAD~1:config/.env`, then `git log -p | grep AKIA`.',
+			'Scan with gitleaks in docker: `docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.2 git /repo -v --redact`, then the same with `dir /repo` in place of `git /repo`.',
+			'Add AWS’s documented sample key, `echo "key = AKIAIOSFODNN7EXAMPLE" > sample.txt`, commit it, and run the `git` scan again.'
+		],
+		done: [
+			'`ls config` fails, but `git show HEAD~1:config/.env` still prints the key.',
+			'The `git` scan reports `RuleID: aws-access-token` in `config/.env` and ends with `leaks found: 1`.',
+			'The `dir` scan says `no leaks found`, and after step 6 the `git` scan still finds only 1 leak.'
+		],
+		solution: [
+			'`git rm` only adds a snapshot without the file. The commit that added it is unchanged, and `gitleaks git` reads it through `git log -p`.',
+			'`dir` scans only the files on disk, so it misses a key that lives only in history.',
+			'The sample key matches the pattern but ends in `EXAMPLE`, so the rule’s allowlist `.+EXAMPLE$` drops it.',
+			'With a real key, the next step is rotation in AWS, not anything in this repo.'
+		]
+	},
 	recall: {
 		q: 'A key was pushed and then deleted in the next commit. What do you do first, and why is the delete not enough?',
 		a: 'Rotate: create a new key, deploy it, then set the old one `Inactive` with `aws iam update-access-key`. The key is still in the first commit, in every clone and fork, and `git log -p` shows it.'

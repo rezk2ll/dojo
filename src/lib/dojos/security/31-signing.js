@@ -125,6 +125,44 @@ export default {
 			'Say an attacker gets push access to `ghcr.io/acme/api`. They create a GitHub org named `acme-tools` and sign their image from a workflow there. The issuer is the real GitHub issuer, so that check passes too.',
 			'Any workflow in any `acme` repo also passes, for example a CI test workflow in another repo that never builds releases.',
 			'Fixed: `--certificate-identity-regexp \'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\'`. The `^` and `$` anchor the whole SAN, and the escaped dots match only dots.'
+		],
+		steps: [
+			{
+				title: 'Read what the command checks',
+				questions: [
+					{ q: 'Which two parts of the certificate does this `cosign verify` compare with what you expect?', options: ['The subject (SAN) and the OIDC issuer', 'The image tag and the registry name', 'The private key file and its password', 'The Rekor index and the build time'], answer: 0, why: 'That pair is the signer identity. The flag help says one identity flag and one issuer flag "must be set for keyless flows".' },
+					{ q: 'What does the SAN look like in a certificate from a GitHub Actions workflow?', options: ['The email of the person who pushed the tag', '`https://github.com/OWNER/REPO/.github/workflows/FILE@REF`', 'The SHA-256 of the image that was signed', 'The name of the GitHub org and nothing else'], answer: 1, why: 'Fulcio fills the SAN with the workflow URL, including the repo, the workflow file and the ref.' },
+					{ q: 'What does `--certificate-oidc-issuer https://token.actions.githubusercontent.com` prove on its own?', options: ['That the image came from `acme/api`', 'That some GitHub Actions workflow got the certificate', 'That the release workflow ran on a tag', 'That nobody changed the image after the build'], answer: 1, why: 'Every workflow on GitHub gets its token from that issuer, an attacker’s workflow included. The subject has to do the rest.' },
+					{ q: 'When does `CheckCertificatePolicy` return verified?', options: ['When the subject matches, whatever the issuer', 'When the issuer matches, whatever the subject', 'When the subject and the issuer both match', 'When the certificate is still in its 10 minutes'], answer: 2, why: 'Line 522 returns `nil` only if `subjectMatches && issuerMatches`.' }
+				]
+			},
+			{
+				title: 'Test the pattern',
+				questions: [
+					{ q: 'How does Go’s `MatchString` treat the pattern `github.com/acme`?', options: ['It must equal the whole SAN', 'It must match at the start of the SAN', 'It passes if the SAN contains a match anywhere', 'It only looks at the host part of the URL'], answer: 2, why: 'The Go doc: "MatchString reports whether the string s contains any match". Nothing ties the pattern to the start or the end.' },
+					{ q: 'Does `https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main` pass the pattern?', options: ['Yes: the SAN contains `github.com/acme`', 'No: the org is `acme-tools`, not `acme`', 'No: the ref is a branch, not a tag', 'Only if its issuer is a different one'], answer: 0, why: '`github.com/acme` is the start of `github.com/acme-tools`, and a match anywhere is enough.' },
+					{ q: 'What does the unescaped `.` in `github.com` match?', options: ['Only a dot', 'Any single character', 'Nothing, dots are skipped', 'One dot or more'], answer: 1, why: 'In a regexp a bare dot matches any character. The fixed pattern escapes each one as `\\.` so it matches only dots.' },
+					{ q: 'A CI test workflow in another `acme` repo signs an image. Does it pass?', options: ['No: only release workflows can sign', 'No: the issuer check stops it', 'Yes: its SAN contains `github.com/acme` too', 'Yes, but only when it runs on a tag'], answer: 2, why: 'Any workflow in any `acme` repo has a SAN that contains the pattern, even one that never builds releases.' }
+				]
+			},
+			{
+				title: 'Picture the attack',
+				questions: [
+					{ q: 'In the chapter’s scenario, what does the attacker need first?', options: ['Push access to `ghcr.io/acme/api`', 'The private key cosign used at release', 'Write access to the Rekor log', 'Admin rights on Fulcio'], answer: 0, why: 'They need to put their image where you pull it. There is no release key to steal: it was discarded after one signature.' },
+					{ q: 'How do they then get a signature that passes your check?', options: ['They copy the old signature onto the new image', 'They create an org `acme-tools` and sign from a workflow there', 'They ask Fulcio for a certificate naming `acme/api`', 'They delete the Rekor entry of the real release'], answer: 1, why: 'Fulcio signs for whatever identity the token proves. `acme-tools` is a real identity, and it contains your pattern.' },
+					{ q: 'Why would copying the real signature onto the new image fail?', options: ['Rekor allows one signature per tag', 'The registry blocks copied signatures', 'The signature covers the old digest, and the new image has a new one', 'cosign only trusts signatures under 10 minutes old'], answer: 2, why: 'cosign checks the signature against the image digest. A replaced image has a new digest, so the old signature does not match it.' },
+					{ q: 'Why is the issuer check no help against `acme-tools`?', options: ['cosign skips the issuer when a regexp is set', 'The issuer flag only checks the email domain', 'Each GitHub org has its own issuer URL', 'Its workflow gets its certificate through the same GitHub issuer'], answer: 3, why: 'The issuer is the real GitHub issuer for every workflow. Only the subject tells `acme/api` apart from `acme-tools`.' }
+				]
+			},
+			{
+				title: 'Write the fix',
+				questions: [
+					{ q: 'Which `--certificate-identity-regexp` value closes the hole?', options: ['`\'github\\.com/acme/api\'`', '`\'^https://github.com/acme\'`', '`\'release\\.yml@refs/tags/v[0-9.]+$\'`', '`\'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\'`'], answer: 3, why: 'It is anchored at both ends, escapes every dot, and names the one repo, workflow and kind of ref that builds releases.' },
+					{ q: 'What do `^` and `$` do in the fixed pattern?', options: ['They escape the dots', 'They tie the pattern to the whole SAN', 'They make the match ignore case', 'They allow any tag name'], answer: 1, why: 'With both anchors, the SAN must match from its first character to its last, so no longer string can sneak around it.' },
+					{ q: 'Why end the pattern with `@refs/tags/v[0-9.]+`?', options: ['cosign rejects SANs without a version', 'Tags are signed by GitHub, branches are not', 'The image is built on tags, so a branch build must not pass', 'It makes the regexp faster to run'], answer: 2, why: 'The release workflow runs on tags. A run of the same file on a branch is not a release and should fail.' },
+					{ q: 'After the fix, does `https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main` still pass?', options: ['No: it does not start with `https://github.com/acme/api/`', 'Yes: it still contains `github.com/acme`', 'Yes: its issuer is the GitHub issuer', 'No, but other orgs with `acme` in the name do'], answer: 0, why: 'The anchored pattern fixes the repo right after `https://github.com/`, so `acme-tools` fails at the first character that differs.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -162,6 +200,30 @@ export default {
 			why: 'cosign generates the key pair locally, Fulcio binds the public key to the identity for 10 minutes, and the private key is thrown away after one signature. To sign as you, an attacker needs an OIDC token for your identity.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Sign an image in a local registry with cosign, watch the check fail when the image is swapped, and see an unanchored identity pattern let the wrong signer in.',
+		steps: [
+			'Make a work folder and start a local registry: `mkdir -p ~/sign-lab && cd ~/sign-lab && docker run -d --name sign-lab-reg -p 5055:5000 registry:2`.',
+			'Run cosign from its image, as your own user so it can write files here: `cosign() { docker run --rm --network host -u "$(id -u)" -v "$PWD":/w -w /w -e COSIGN_PASSWORD= ghcr.io/sigstore/cosign/cosign:v2.4.1 "$@"; }`, then `cosign generate-key-pair`. The lab uses a key pair because keyless signing needs a real OIDC login.',
+			'Build and push an image, then keep its digest: `printf "FROM busybox:1.37\\nRUN echo v1 > /version\\n" | docker build -t localhost:5055/demo:v1 - && docker push localhost:5055/demo:v1`, then `D=$(docker inspect --format "{{index .RepoDigests 0}}" localhost:5055/demo:v1)`.',
+			'Sign the digest and verify it, without the public log since the lab stays local: `cosign sign --key cosign.key --tlog-upload=false -y "$D"`, then `cosign verify --key cosign.pub --insecure-ignore-tlog "$D"`.',
+			'Play the attacker: rebuild with `echo evil` instead of `echo v1`, push it to the same tag `localhost:5055/demo:v1`, and run `cosign verify --key cosign.pub --insecure-ignore-tlog localhost:5055/demo:v1`.',
+			'Test the identity pattern: `printf "%s\\n" https://github.com/acme/api/.github/workflows/release.yml@refs/tags/v1.2.0 https://github.com/acme-tools/x/.github/workflows/a.yml@refs/heads/main > sans.txt`, then compare `grep -E \'github.com/acme\' sans.txt` with `grep -E \'^https://github\\.com/acme/api/\\.github/workflows/release\\.yml@refs/tags/v[0-9.]+$\' sans.txt`.',
+			'Clean up: `docker stop sign-lab-reg && docker rm sign-lab-reg`.'
+		],
+		done: [
+			'`cosign verify` on `"$D"` exits 0 and prints "The signatures were verified against the specified public key".',
+			'After the swap, `cosign verify` on the tag fails with `Error: no signatures found`.',
+			'The first `grep -E` prints both SANs. The anchored one prints only the `acme/api` release SAN.'
+		],
+		solution: [
+			'cosign stores the signature next to the digest it covers. The swapped image has a new digest, so no signature points at it.',
+			'That is why a deploy script verifies by digest (`@sha256:...`): what you checked is what you run.',
+			'`grep -E` uses POSIX regexps, not Go’s, but for these two patterns they behave the same: a match anywhere is enough unless you anchor it.',
+			'Outside the lab, keep the transparency log: drop `--tlog-upload=false` and `--insecure-ignore-tlog`.'
+		]
+	},
 	recall: {
 		q: 'Which two flags must `cosign verify` get for a keyless signature, and what values does Kubernetes give for its release images?',
 		a: '`--certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com` and `--certificate-oidc-issuer https://accounts.google.com`.'

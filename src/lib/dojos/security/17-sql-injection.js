@@ -88,6 +88,44 @@ export default {
 			'Hole 2: `sort` is pasted after `ORDER BY`. A placeholder cannot carry a column name, so parameters do not help here.',
 			'Fix for `sort`: `columns = {"name": "last_name", "age": "age"}` and `column = columns.get(sort, "last_name")`. Only strings written in the code reach the SQL.',
 			'Result: `Person.objects.raw("SELECT * FROM app_person WHERE last_name = %s ORDER BY " + column, [q])`. Without raw SQL: `Person.objects.filter(last_name=q).order_by(column)`, still with the allow-list for `column`.'
+		],
+		steps: [
+			{
+				title: 'Find the inputs',
+				questions: [
+					{ q: 'Which request values reach the SQL text?', options: ['Only `q`', 'Only `sort`', 'Both `q` and `sort`', 'Neither: `raw` escapes them'], answer: 2, why: 'The f-string pastes `q` between quotes and `sort` after `ORDER BY`.' },
+					{ q: 'What is `q` in the statement?', options: ['A value compared with `last_name`', 'A column name', 'A table name', 'A keyword'], answer: 0, why: 'It sits on the right of `last_name =`, where SQL expects a value.' },
+					{ q: 'What is `sort` in the statement?', options: ['A value', 'A string literal', 'A placeholder', 'A column name after `ORDER BY`'], answer: 3, why: 'It names the column to sort by, so it is part of the SQL structure, not data.' },
+					{ q: 'Why is pasting input into the SQL text a risk?', options: ['It makes the query slower', 'Characters like `\'` or `--` in the input change what the statement does', 'The database refuses f-strings', 'It only fails on PostgreSQL'], answer: 1, why: 'Once input is part of the SQL text, the database cannot tell it from the code you wrote.' }
+				]
+			},
+			{
+				title: 'Close the hole in `q`',
+				questions: [
+					{ q: 'What does `?q=x\' OR \'1\'=\'1` do to the query?', options: ['It finds no one named `x`', 'It raises a syntax error', 'It closes the quote, and `OR \'1\'=\'1` makes the filter true for every row', 'It is escaped by Django'], answer: 2, why: 'The first `\'` ends the string early, and the rest is read as SQL. Every person is returned.' },
+					{ q: 'Which change closes it?', options: ['`WHERE last_name = %s` with `[q]` as params', '`WHERE last_name = \'%s\'` with `[q]` as params', 'Double every `\'` in `q` first', 'Strip spaces from `q`'], answer: 0, why: 'The value goes to the driver in a separate list, as data. That is what Django’s `StringAgg` fix did with `Value()`.' },
+					{ q: 'Why no quotes around `%s`?', options: ['They make the query slower', 'SQLite needs them, PostgreSQL does not', 'Django adds a second pair', 'The docs say quoting the placeholder puts you at risk for SQL injection'], answer: 3, why: 'The driver quotes the value itself. "You must not include quotes around the %s placeholders in the SQL string."' },
+					{ q: 'Why not escape quotes by hand instead?', options: ['It is too slow', 'OWASP marks escaping "STRONGLY DISCOURAGED"', 'Python has no way to do it', 'It breaks `ORDER BY`'], answer: 1, why: 'Hand escaping is easy to get wrong. A parameter never enters the SQL text at all.' }
+				]
+			},
+			{
+				title: 'Close the hole in `sort`',
+				questions: [
+					{ q: 'Can `ORDER BY %s` with `[sort]` carry the column name?', options: ['Yes, on every database', 'Yes, with named parameters', 'No: a placeholder stands for a value, never a column name', 'No: `ORDER BY` takes no input at all'], answer: 2, why: 'OWASP lists column names among the parts that "can\'t use bind variables". The query would sort by a constant string.' },
+					{ q: 'So what protects `sort`?', options: ['An allow-list in the code that maps input to known column names', 'Escaping it', 'Checking its length', 'Making it upper case'], answer: 0, why: 'Only strings written in the code reach the SQL, whatever the user sends.' },
+					{ q: 'What does `columns.get(sort, "last_name")` return for an unknown input?', options: ['`None`', 'The input itself', 'An error', '`"last_name"`'], answer: 3, why: 'The default keeps the query valid and the input out of the SQL.' },
+					{ q: 'What else does OWASP put in the same group as column names?', options: ['Numbers', '`ASC` and `DESC`', 'Dates', 'Email addresses'], answer: 1, why: 'Sort direction is also SQL structure, so it needs an allow-list too.' }
+				]
+			},
+			{
+				title: 'Rewrite the query',
+				questions: [
+					{ q: 'Which `raw` call is safe?', options: ['`raw(f"... WHERE last_name = %s ORDER BY {sort}", [q])`', '`raw("... WHERE last_name = %s ORDER BY " + column, [q])`', '`raw("... WHERE last_name = \'%s\' ORDER BY " + column, [q])`', '`raw("... WHERE last_name = %s ORDER BY %s", [q, sort])`'], answer: 1, why: '`q` is a parameter, and `column` comes from the allow-list.' },
+					{ q: 'Why is adding `column` with `+` safe here when adding `sort` was not?', options: ['`+` escapes its input', 'Django checks it later', '`column` can only be one of the strings in the code', 'It is not safe either'], answer: 2, why: 'The allow-list means user input picks a key. It never becomes SQL text itself.' },
+					{ q: 'What is the ORM form?', options: ['`Person.objects.filter(last_name=q).order_by(column)`', '`Person.objects.filter(last_name=q).order_by(sort)`', '`Person.objects.extra(where=[q])`', '`Person.objects.raw(q)`'], answer: 0, why: 'The ORM parameterizes `q`. `order_by` still gets the allow-listed column.' },
+					{ q: 'Does the ORM remove the need for the allow-list on `sort`?', options: ['Yes: the ORM validates all input', 'Yes, for `order_by` only', 'No, only for `filter`', 'No: keep the allow-list for the user-chosen column'], answer: 3, why: 'The ORM has had its own SQL injection holes: Django lists 16 fixes between August 2019 and February 2026. With the allow-list, the user only picks among columns you chose.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -125,6 +163,28 @@ export default {
 			why: 'The commit removed `\'%(delimiter)s\'` from the template and passed `Value(str(delimiter))` as an extra expression. `Value.as_sql` returns `\'%s\', [val]`, so the delimiter reaches the driver as a parameter. Doubling quotes by hand is the "escaping" approach OWASP marks "STRONGLY DISCOURAGED".'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'On a local SQLite file, see a pasted value change the query, a parameter keep it as data, and an allow-list handle the sort column.',
+		steps: [
+			'Make a small table: `mkdir -p ~/sqli-lab && cd ~/sqli-lab && sqlite3 people.db "CREATE TABLE app_person (id INTEGER PRIMARY KEY, last_name TEXT, age INTEGER); INSERT INTO app_person (last_name, age) VALUES (\'Curie\', 66), (\'Lovelace\', 36), (\'Turing\', 41);"`.',
+			'Run the task’s pasted query with the input from the answer: `python3 -c "import sqlite3, sys; q = sys.argv[1]; print(sqlite3.connect(\'people.db\').execute(f\\"SELECT last_name FROM app_person WHERE last_name = \'{q}\'\\").fetchall())" "x\' OR \'1\'=\'1"`.',
+			'Run it with a parameter instead (SQLite’s placeholder is `?`, Django’s is `%s`): `python3 -c "import sqlite3, sys; print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person WHERE last_name = ?\', [sys.argv[1]]).fetchall())" "x\' OR \'1\'=\'1"`. Then the same with `Turing`.',
+			'Try a placeholder for the sort column: `python3 -c "import sqlite3, sys; print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person ORDER BY ?\', [sys.argv[1]]).fetchall())" age`.',
+			'Use an allow-list: `python3 -c "import sqlite3, sys; col = {\'name\': \'last_name\', \'age\': \'age\'}.get(sys.argv[1], \'last_name\'); print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person ORDER BY \' + col).fetchall())" age`. Then try it with `nonsense`.'
+		],
+		done: [
+			'Step 2 prints all three names.',
+			'Step 3 prints `[]` for the crafted input and `[(\'Turing\',)]` for `Turing`.',
+			'Step 4 prints the rows in insertion order: `ORDER BY ?` sorted by a constant, not by `age`.',
+			'Step 5 prints `Lovelace`, `Turing`, `Curie` for `age`, and sorts by name for `nonsense`.'
+		],
+		solution: [
+			'In step 2 the `\'` in the input closes the string, and `OR \'1\'=\'1` is read as SQL.',
+			'In step 3 the driver sends the whole input as one value, so the database looks for a person literally named `x\' OR \'1\'=\'1`.',
+			'Step 4 shows why a placeholder cannot carry a column name: it is bound as the string `\'age\'`, the same for every row. Step 5 only ever puts `last_name` or `age` into the SQL. Clean up with `rm -rf ~/sqli-lab`.'
+		]
+	},
 	recall: {
 		q: 'In Django\'s CVE-2020-7471, which argument reached the SQL text, and what replaced it?',
 		a: 'The `delimiter` of `StringAgg`, pasted between quotes by the template. Django 3.0.3 sends it as `Value(str(delimiter))`, which compiles to a `%s` placeholder plus a parameter.'

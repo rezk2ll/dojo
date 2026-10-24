@@ -126,6 +126,44 @@ export default {
 			'(c) Rate limit: the attacker needs one attempt per victim, far below 5 per minute. It does not stop the attack.',
 			'(d) New-device email: it fires after the attacker is in, so it only helps if the user reads it and someone acts fast. It detects, but does not stop.',
 			'The change: require a WebAuthn key or passkey. The browser puts the phishing origin into the signed data, and the server check `expected_origin != client_data.origin` rejects it, as layer 4 did at Cloudflare.'
+		],
+		steps: [
+			{
+				title: 'Picture the attack',
+				questions: [
+					{ q: 'What does a real-time phishing page do with what the victim types?', options: ['Stores it to sell later', 'Checks it against a list of leaks', 'Shows an error and asks again', 'Forwards it to the attacker within seconds'], answer: 3, why: 'At Cloudflare, the page sent each username, password and one-time code over Telegram as soon as it was typed.' },
+					{ q: 'How many login attempts does the attacker make per victim?', options: ['Thousands, to guess the password', 'One, right after the victim types', 'Five, then a pause of one minute', 'None: they steal the session cookie'], answer: 1, why: 'They already have the password and the code. One attempt, within seconds, is enough.' },
+					{ q: 'From where does the attacker log in?', options: ['Their own machine', 'The victim\'s laptop', 'The company office network', 'The phishing domain\'s DNS server'], answer: 0, why: 'The page relays the secrets, and the attacker types them into the real login page from their own machine.' },
+					{ q: 'What makes two controls weak together against this attack?', options: ['Both run on the same server', 'Both come from one vendor', 'The user types both into the page', 'Both expire after 30 seconds'], answer: 2, why: 'A password and a TOTP code are both typed into the page, so one fake page beats both at once.' }
+				]
+			},
+			{
+				title: 'Test the password and the code',
+				questions: [
+					{ q: '(a) The password: does it stop the attack?', options: ['Yes, if it is long', 'Yes, if it changes every month', 'No: it is relayed as it is typed', 'Yes, if it is unique to this site'], answer: 2, why: 'The page sends it to the attacker as soon as it is typed. How strong it is does not matter.' },
+					{ q: 'What time step does RFC 6238 recommend for TOTP?', options: ['30 seconds', '5 minutes', '1 second', '24 hours'], answer: 0, why: '30 seconds is plenty for the attacker: the page relays the code within seconds.' },
+					{ q: '(b) The TOTP code: does it stop the attack?', options: ['Yes: the code changes every 30 seconds', 'Yes: the code is tied to the phone', 'Only if the app asks for a fingerprint', 'No: the page relays it before it expires'], answer: 3, why: 'Cloudflare says a relayed code defeats "most two-factor authentication implementations".' },
+					{ q: 'Does a TOTP code depend on the site where it is typed?', options: ['Yes: it hashes the page origin', 'No: the same code works wherever it is relayed', 'Yes: it includes the user\'s IP', 'Only when the app runs in strict mode'], answer: 1, why: 'Nothing about the site goes into the code. That is the gap a security key closes.' }
+				]
+			},
+			{
+				title: 'Test the limit and the email',
+				questions: [
+					{ q: '(c) 5 attempts per minute per IP: does it stop the attack?', options: ['No: one attempt per victim is far below it', 'Yes: the attacker IP gets blocked', 'Yes: phishing needs many attempts', 'Only for the first victim'], answer: 0, why: 'The attacker already has the right password and code. One attempt passes.' },
+					{ q: '(d) The new-device email: when does it go out?', options: ['Before the password is checked', 'When the victim opens the phishing link', 'When the DNS filter blocks the domain', 'After the attacker is already logged in'], answer: 3, why: 'It reports a login that already happened. It detects; it does not stop.' },
+					{ q: 'What does that email need to be any use?', options: ['A link to reset the TOTP secret', 'A user who reads it and someone who acts fast', 'A copy sent to the security team only', 'A shorter 30-second time step'], answer: 1, why: 'It only helps if the user reads it and someone acts before the attacker does damage.' },
+					{ q: 'So how many of the four controls stop this attack?', options: ['Four', 'Two', 'None', 'One'], answer: 2, why: 'The password and the code are relayed, the limit sees one attempt, and the email comes after the login.' }
+				]
+			},
+			{
+				title: 'Pick the change',
+				questions: [
+					{ q: 'Which control stopped the attack at Cloudflare?', options: ['A stricter rate limit', 'A FIDO2 key, required by every app', 'A shorter TOTP time step', 'Training staff to spot fake pages'], answer: 1, why: 'Every employee had a FIDO2 key and every internal app required it. Three passwords leaked and nobody got in.' },
+					{ q: 'Why can the phishing page not relay a key signature?', options: ['The key only signs during office hours', 'The key encrypts the password first', 'The browser writes the phishing origin into the signed data', 'The key needs the victim\'s IP address'], answer: 2, why: 'The origin is `https://cloudflare-okta.com`, and the key has no credential for that site.' },
+					{ q: 'Which server check rejects a response made on the wrong site?', options: ['`expected_challenge != client_data.challenge`', '`verify_signature(...)` on its own', 'A check on the browser user agent', '`expected_origin != client_data.origin`'], answer: 3, why: 'The browser fills `origin` itself, so a phishing page cannot write the real one there. A relayed response stops at this line.' },
+					{ q: 'You add security keys. Is the new-device email still worth keeping?', options: ['Yes: it is one more layer if the key layer fails', 'No: one strong layer is enough', 'No: it would block the key login', 'Yes, but only for the password step'], answer: 0, why: 'Defence in depth plans for each layer to fail. At Cloudflare, endpoint security was still waiting behind the key.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -163,6 +201,26 @@ export default {
 			why: 'The origin is inside the signed client data, but the signature only proves that the key signed those bytes. The server has to read the origin and compare it to its own site. Without `expected_origin`, a response signed on another site could pass.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Compute TOTP codes yourself and see why a code relayed a few seconds later still logs in.',
+		steps: [
+			'Make a folder: `mkdir -p ~/totp-lab && cd ~/totp-lab`. Save this one line as `totp.py`. It prints the 6-digit RFC 6238 code of the RFC test secret at a given Unix time: `import hmac,struct,sys; t=int(sys.argv[1])//30; h=hmac.new(b"12345678901234567890",struct.pack(">Q",t),"sha1").digest(); o=h[-1]&15; print("%06d"%((struct.unpack(">I",h[o:o+4])[0]&0x7fffffff)%1000000))`.',
+			'Check it against the RFC test value: `python3 totp.py 59`.',
+			'Play the victim and the relay. `t0` is the start of the current 30-second step: `t0=$(( $(date +%s) / 30 * 30 ))`, then `python3 totp.py $t0` (the victim types), `python3 totp.py $((t0+5))` (the page relays 5 seconds later) and `python3 totp.py $((t0+40))` (a code from 40 seconds later).',
+			'Read `totp.py` again and list everything that goes into `hmac.new`.'
+		],
+		done: [
+			'`python3 totp.py 59` prints `287082`, the last 6 digits of the RFC 6238 test value `94287082`.',
+			'The codes for `t0` and `t0+5` are the same. The code for `t0+40` is different.',
+			'You can name the only two inputs: the shared secret and the time step.'
+		],
+		solution: [
+			'A TOTP code depends only on the shared secret and `time // 30`. A page that relays it within seconds hands the attacker a code the real server still accepts.',
+			'Nothing in the inputs names the site, so the code works wherever it is typed. That is why the password and the code fall to the same phishing page.',
+			'A WebAuthn key adds what TOTP lacks: the browser writes the page origin into the signed data, and the server compares it with `expected_origin`.'
+		]
+	},
 	recall: {
 		q: 'In the July 2022 phishing attack on Cloudflare, which layer held, and which check in the code made it hold?',
 		a: 'The FIDO2 security key. The browser wrote the phishing origin into the signed data, and a server check like `expected_origin != client_data.origin` rejects it.'

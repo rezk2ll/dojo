@@ -124,6 +124,44 @@ spec:
 			'Policy 2 on `app=web`: ingress `from` a `namespaceSelector` with `kubernetes.io/metadata.name: ingress-nginx`, TCP 8080. Egress `to` a `podSelector` `app=db`, TCP 5432.',
 			'Policy 3 on `app=db`: ingress `from` a `podSelector` `app=web`, TCP 5432. Without it, the egress allow on `web` is not enough: the docs require "both the egress policy on the source pod and the ingress policy on the destination pod".',
 			'Policy 4 on `podSelector: {}`: egress `to` one entry with both `namespaceSelector` `kubernetes.io/metadata.name: kube-system` and `podSelector` `k8s-app: kube-dns`, on UDP 53 and TCP 53. Without it, the default deny "also blocks DNS traffic".'
+		],
+		steps: [
+			{
+				title: 'Close everything first',
+				questions: [
+					{ q: 'Before any policy exists in `shop`, who can connect to `db` on 5432?', options: ['Only `web`', 'Any Pod: a Pod no policy selects accepts everything', 'Only Pods in `shop`', 'Nobody, until a Service exists'], answer: 1, why: 'A Pod is isolated only when some policy selects it. With none, "all inbound connections are allowed".' },
+					{ q: 'Which spec is `default-deny-all`?', options: ['`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rules', '`podSelector: { app: web }`, no rules', '`podSelector: {}`, `ingress: [{}]`', '`podSelector: {}`, `policyTypes: [Ingress]`, no rules'], answer: 0, why: 'The empty selector picks every Pod, both directions are listed, and no rule allows anything. `ingress: [{}]` would allow everything instead.' },
+					{ q: 'Policies are additive. What can the policies you add next do?', options: ['Close paths the deny left open', 'Override the deny for the whole namespace', 'Only open paths', 'Nothing, until the deny is removed'], answer: 2, why: 'Each allow rule adds to what gets through. No policy can take away what another allows.' },
+					{ q: 'What makes the deny actually block traffic?', options: ['The API server', 'kube-proxy', 'The kubelet', 'A network plugin that supports NetworkPolicy'], answer: 3, why: 'The docs: a NetworkPolicy "without a controller that implements it will have no effect". The API server only stores it.' }
+				]
+			},
+			{
+				title: 'Open the way to web',
+				questions: [
+					{ q: 'Which selector picks the ingress controller as a source?', options: ['`podSelector` with `app: ingress-nginx`', '`namespaceSelector` with `kubernetes.io/metadata.name: ingress-nginx`', '`ipBlock` with the API server range', 'An empty `from`'], answer: 1, why: 'The controller lives in another namespace. Every namespace carries the `kubernetes.io/metadata.name` label with its own name.' },
+					{ q: 'A rule on `web` has `ports: 8080` and no `from`. Who can reach `web` on 8080?', options: ['Only the ingress controller', 'Only Pods in `shop`', 'Any source: an empty `from` matches all sources', 'Nobody'], answer: 2, why: 'That is the hole in the ingress-nginx chart policy: ports with no `from` leave the port open to everyone.' },
+					{ q: 'Which port does the ingress rule on `web` open?', options: ['TCP 8080', 'TCP 80', 'TCP 443', 'TCP 5432'], answer: 0, why: '`web` listens on 8080. The policy names the Pod’s port, not the ports the controller serves outside.' },
+					{ q: 'A `podSelector` alone in a `from` list picks Pods from which namespace?', options: ['Every namespace', '`ingress-nginx`', '`kube-system`', 'The policy’s own namespace'], answer: 3, why: 'Without a `namespaceSelector`, a `podSelector` entry means Pods in the local namespace. To reach across namespaces you need the namespace selector.' }
+				]
+			},
+			{
+				title: 'Open web to db, on both sides',
+				questions: [
+					{ q: 'You add only an egress rule on `web` toward `app=db`. Does `web` reach `db`?', options: ['No: `db` is isolated for ingress and needs its own allow', 'Yes: egress on the source is enough', 'Yes: both Pods are in the same namespace', 'Only through the `db` Service'], answer: 0, why: 'The docs require "both the egress policy on the source pod and the ingress policy on the destination pod".' },
+					{ q: 'What does the egress rule on `app=web` look like?', options: ['`to` a `namespaceSelector` for `shop`, any port', '`to` a `podSelector` `app=db`, TCP 5432', '`to` an empty list, TCP 5432', '`from` a `podSelector` `app=db`, TCP 5432'], answer: 1, why: 'It names the destination Pods and their port. `from` belongs to ingress rules, and a whole namespace is wider than needed.' },
+					{ q: 'Which policy goes on `app=db`?', options: ['Ingress `from` a `namespaceSelector` for `shop`', 'Egress `to` a `podSelector` `app=web`', 'Ingress `from` a `podSelector` `app=web`, TCP 5432', 'Ingress with an empty `from`, TCP 5432'], answer: 2, why: 'Only `web` may reach `db`, so the source is `app=web` and nothing wider.' },
+					{ q: 'With these policies, a Pod labelled `app=batch` in `shop` tries `db:5432`. What happens?', options: ['It connects: same namespace', 'It connects: no policy selects `app=batch`', 'It is blocked only if `batch` has its own policy', 'It is blocked: `db` allows only `app=web`, and the deny also isolates `batch`'], answer: 3, why: 'The default deny selects every Pod, `batch` included, and the ingress rule on `db` names only `web`.' }
+				]
+			},
+			{
+				title: 'Keep DNS working',
+				questions: [
+					{ q: 'After the deny, `web` looks up `db.shop.svc`. What happens?', options: ['It resolves as before', 'It fails: the egress deny also blocks DNS', 'It resolves through the node', 'It resolves over TCP only'], answer: 1, why: 'The docs warn that a default deny on egress "also blocks DNS traffic". DNS is just another outgoing connection.' },
+					{ q: 'Which labels pick the cluster DNS Pods?', options: ['`k8s-app: kube-dns`, in namespace `kube-system`', '`app: coredns`, in namespace `default`', '`k8s-app: dns`, in namespace `shop`', '`app: kube-dns`, in namespace `ingress-nginx`'], answer: 0, why: 'The cluster DNS Pods carry `k8s-app=kube-dns` in `kube-system`.' },
+					{ q: 'Which ports does the DNS rule open?', options: ['UDP 53 only', 'TCP 53 only', 'UDP 53 and TCP 53', 'TCP 8053'], answer: 2, why: 'The DNS service listens on 53/UDP and 53/TCP, so the rule opens both.' },
+					{ q: 'Why put the `namespaceSelector` and the `podSelector` in one `to` entry?', options: ['The API server refuses two entries', 'One entry is faster to check', 'It makes no difference', 'Split into two, they would mean any Pod in `kube-system`, or `kube-dns` Pods in `shop`'], answer: 3, why: 'One entry with both selectors picks particular Pods in particular namespaces. Two entries are an OR, which is much wider.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,29 @@ spec:
 			why: 'The API server stores the object whatever the plugin. The docs: creating a NetworkPolicy "without a controller that implements it will have no effect". Enforcement comes from a network plugin that supports it.'
 		}
 	],
+	lab: {
+		minutes: 30,
+		goal: 'On a local cluster with a plugin that enforces policies, close a namespace with a default deny, watch DNS break, then open only `web` to `db`.',
+		steps: [
+			'Start a cluster with Calico, which enforces NetworkPolicy: `minikube start -p netpol-lab --cni=calico && kubectl create namespace shop`.',
+			'Create two apps with a Service each. Both listen on 8080 here, to keep the lab small: `for a in web db; do kubectl -n shop create deployment $a --image=nginxinc/nginx-unprivileged:1.31-alpine && kubectl -n shop expose deployment $a --port=8080; done`.',
+			'Check that anything reaches `db` today: `kubectl -n shop run probe --image=busybox:1.37 --rm -it --restart=Never -- wget -qO- -T 3 http://db:8080`.',
+			'Apply the default deny, then run the same probe again: `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"default-deny-all"},"spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}\' | kubectl -n shop apply -f -`.',
+			'Open DNS for every Pod: `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-dns"},"spec":{"podSelector":{},"policyTypes":["Egress"],"egress":[{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}]}}\' | kubectl -n shop apply -f -`.',
+			'Open `web` to `db` on both sides: `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"web"},"spec":{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Egress"],"egress":[{"to":[{"podSelector":{"matchLabels":{"app":"db"}}}],"ports":[{"protocol":"TCP","port":8080}]}]}}\' | kubectl -n shop apply -f -`, then `echo \'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"db"},"spec":{"podSelector":{"matchLabels":{"app":"db"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"podSelector":{"matchLabels":{"app":"web"}}}],"ports":[{"protocol":"TCP","port":8080}]}]}}\' | kubectl -n shop apply -f -`.',
+			'Probe twice: once as before, once posing as `web` with `--labels=app=web` added to the `kubectl run` line. Then clean up: `minikube delete -p netpol-lab`.'
+		],
+		done: [
+			'Step 3 prints the nginx welcome page.',
+			'After the deny, the probe fails with `bad address \'db:8080\'`: the name no longer resolves.',
+			'After the last policies, the probe without a label times out, and the probe with `app=web` prints the welcome page.'
+		],
+		solution: [
+			'The first failure is DNS, not `db`. That is why the task asks you to check that `web` still resolves `db.shop.svc`.',
+			'Delete the `db` policy and probe as `web` again: it times out. The egress allow alone is not enough.',
+			'On a cluster without NetworkPolicy support, every `kubectl apply` above succeeds and every probe still gets through.'
+		]
+	},
 	recall: {
 		q: 'What does a default deny policy for both directions contain, and what does it break that you must allow again?',
 		a: '`podSelector: {}` and `policyTypes: [Ingress, Egress]`, with no rules. It also blocks DNS, so add an egress rule to the `k8s-app=kube-dns` Pods in `kube-system` on port 53.'

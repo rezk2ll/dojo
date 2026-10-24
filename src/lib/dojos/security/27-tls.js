@@ -115,6 +115,44 @@ export default {
 			'`wrong.host.badssl.com` without the flag: `Verify return code: 0 (ok)`. The chain goes up to `ISRG Root YR`, a root in the store. `s_client` checks the chain but not the name unless you ask.',
 			'With `-verify_hostname wrong.host.badssl.com`: `Verify return code: 62 (hostname mismatch)`. The certificate names `*.badssl.com`, and RFC 9525: "A wildcard in a presented identifier can only match one label". `wrong.host` is two labels.',
 			'`requests.get` rejects both hosts with `SSLError`, because urllib3 checks the chain and the hostname. A tool that checks only the chain, like `s_client` without the flag, would accept the second one.'
+		],
+		steps: [
+			{
+				title: 'Read the self-signed result',
+				questions: [
+					{ q: 'Which `Verify return code` does `self-signed.badssl.com` give?', options: ['`0 (ok)`', '`62 (hostname mismatch)`', '`18 (self-signed certificate)`', '`10 (certificate has expired)`'], answer: 2, why: 'OpenSSL reports `Verify return code: 18 (self-signed certificate)` for this host.' },
+					{ q: 'What do the `s:` and `i:` lines of certificate 0 show?', options: ['The same name, `CN = *.badssl.com`', 'A subject and a different CA', 'No issuer at all', 'Two different hostnames'], answer: 0, why: 'The subject and the issuer are the same: the certificate signed itself.' },
+					{ q: 'Why does that fail the chain check?', options: ['Its dates are wrong', 'No CA in the client’s store signed it', 'Its `CertificateVerify` is invalid', 'TLS 1.3 forbids self-signed certificates'], answer: 1, why: 'The chain must end at a CA in the store. A self-signed leaf ends at itself.' },
+					{ q: 'Did the handshake itself complete?', options: ['No, the `Finished` MAC failed', 'No, the key exchange failed', 'Only with TLS 1.2', 'Yes: the server signs with its own key, so the handshake is valid'], answer: 3, why: 'Anyone can run a valid handshake with their own key pair. Only the chain check catches it.' }
+				]
+			},
+			{
+				title: 'Read the wrong-host result',
+				questions: [
+					{ q: 'Without `-verify_hostname`, which code does `wrong.host.badssl.com` give?', options: ['`0 (ok)`', '`18 (self-signed certificate)`', '`62 (hostname mismatch)`', '`21 (unable to verify the first certificate)`'], answer: 0, why: 'The chain is fine, and nothing asked `s_client` to check the name.' },
+					{ q: 'Why does the chain check pass?', options: ['The leaf signed itself', 'badssl.com runs its own CA', 'The chain climbs to a root CA in the client’s store', 'The client skips the chain without `-CAfile`'], answer: 2, why: 'Unlike the self-signed host, this leaf was signed by a CA, and its chain ends at a root the store trusts.' },
+					{ q: 'Why does `s_client` say ok here?', options: ['badssl.com is on an allow-list', 'It checks the chain, but not the name unless you ask', 'The wildcard matches any name', 'It ignores certificate 0'], answer: 1, why: '`s_client` compares the name only when you pass `-verify_hostname`.' },
+					{ q: 'What does RFC 8446 leave to the client?', options: ['The key exchange', 'The `Finished` MAC', 'The cipher choice', 'Certificate validation, chain and name'], answer: 3, why: 'RFC 8446: "detailed certificate validation procedures are out of scope for TLS".' }
+				]
+			},
+			{
+				title: 'Add the hostname check',
+				questions: [
+					{ q: 'With `-verify_hostname wrong.host.badssl.com`, what is the code now?', options: ['`0 (ok)`', '`62 (hostname mismatch)`', '`18 (self-signed certificate)`', '`20 (unable to get local issuer certificate)`'], answer: 1, why: 'The chain still passes, but the name does not match the certificate.' },
+					{ q: 'Which name does the certificate carry?', options: ['`*.badssl.com`', '`wrong.host.badssl.com`', '`*.host.badssl.com`', '`badssl.com` only'], answer: 0, why: 'It is a wildcard for one level under `badssl.com`.' },
+					{ q: 'Why does `*.badssl.com` not cover `wrong.host.badssl.com`?', options: ['Wildcards are not allowed in TLS 1.3', 'The name is too long', 'A wildcard matches only one label, and `wrong.host` is two', 'Wildcards only match `www`'], answer: 2, why: 'RFC 9525: "A wildcard in a presented identifier can only match one label".' },
+					{ q: 'Where does the client find the names to compare?', options: ['In the issuer field', 'In the `ServerHello`', 'In the CA store', 'In the certificate’s Subject Alternative Name'], answer: 3, why: 'The client compares the URL’s name with the DNS names in the SAN.' }
+				]
+			},
+			{
+				title: 'Predict requests',
+				questions: [
+					{ q: 'What does `requests.get("https://self-signed.badssl.com")` do?', options: ['Raises `SSLError`', 'Returns 200 with a warning', 'Returns 200 silently', 'Retries over HTTP'], answer: 0, why: 'requests starts every call at `CERT_REQUIRED`, and the chain does not end at a trusted CA.' },
+					{ q: 'And `requests.get("https://wrong.host.badssl.com")`?', options: ['Returns 200, like `s_client`', 'Returns 200 with an `InsecureRequestWarning`', 'Raises `SSLError`, because urllib3 checks the name too', 'Raises a `ConnectionError` for DNS'], answer: 2, why: 'urllib3 checks both the chain and the hostname, so it rejects both hosts.' },
+					{ q: 'Which call would accept both hosts?', options: ['`requests.get(url, verify=True)`', '`requests.get(url, verify="/etc/ssl/internal-ca.pem")`', '`requests.get(url, timeout=5)`', '`requests.get(url, verify=False)`'], answer: 3, why: '`verify is False` switches to `CERT_NONE`: any certificate, any name, any dates.' },
+					{ q: 'Before 2.32.0, a `Session` called a host once with `verify=False`. What did a later `verify=True` call to it do?', options: ['Checked the certificate as asked', 'Reused the unchecked pooled connection', 'Raised an error', 'Opened a new pool'], answer: 1, why: 'The pool was picked from the URL alone, so the `CERT_NONE` connection served later calls (CVE-2024-35195).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -152,6 +190,28 @@ export default {
 			why: 'A path in `verify` makes urllib3 build the chain up to your CA, and it still checks the name and the dates. `verify=False` and plain HTTP both let any machine on the path read and change the traffic.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Build a private CA on your laptop, serve TLS on localhost, and watch the chain check and the hostname check pass and fail.',
+		steps: [
+			'Make a CA, with OpenSSL 3: `mkdir ~/tls-lab && cd ~/tls-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 7 -subj "/CN=Lab Root CA"`.',
+			'Issue a certificate for `localhost`: `openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"`, then `printf \'subjectAltName=DNS:localhost\\n\' > san.ext && openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 7 -extfile san.ext`.',
+			'In a second terminal: `cd ~/tls-lab && openssl s_server -accept 8443 -cert server.pem -key server.key -www`.',
+			'Check the chain: `echo | openssl s_client -connect localhost:8443 -servername localhost | grep "Verify return code"`, then the same with `-CAfile ca.pem`.',
+			'Check the name: add `-verify_hostname example.com` to the `-CAfile` command.',
+			'Do the same with curl: `curl https://localhost:8443/`, then `curl -k https://localhost:8443/`, then `curl --cacert ca.pem https://localhost:8443/`.'
+		],
+		done: [
+			'Without `-CAfile`, `s_client` prints `Verify return code: 21 (unable to verify the first certificate)`.',
+			'With `-CAfile ca.pem`, it prints `Verify return code: 0 (ok)`, and with `-verify_hostname example.com` it prints `62 (hostname mismatch)`.',
+			'Plain `curl` fails with exit code 60, `curl -k` and `curl --cacert ca.pem` both get the page.'
+		],
+		solution: [
+			'Your CA is not in the system store, so the chain cannot end at a trusted root until you hand the client `ca.pem`.',
+			'The certificate names only `localhost`, so a check against `example.com` fails even with a good chain.',
+			'`curl -k` is the `verify=False` of curl: it gets the page, and it would get it just as well from any machine on the path. `--cacert`, like `verify="ca.pem"` in requests, keeps both checks on.'
+		]
+	},
 	recall: {
 		q: 'In a TLS 1.3 handshake, what does `CertificateVerify` prove, and what does the client still have to check itself?',
 		a: 'It proves the server holds the private key of the certificate it sent. The client still checks that the chain ends at a CA in its store and that the name matches the URL; `verify=False` skips both.'

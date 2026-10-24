@@ -117,6 +117,44 @@ export default {
 			'`maxAge` vaut 28 800 000 ms. express-session l’ajoute à l’heure du serveur et envoie un `Expires` 8 heures plus tard. Le navigateur reçoit `Path=/`, `Expires=...`, `HttpOnly`, `Secure` et `SameSite=Lax`.',
 			'Avec `__Host-`, le navigateur refuse le cookie s’il n’a pas `Secure`, `Path=/` et aucun `Domain`. Un sous-domaine voisin ne peut donc pas poser son propre `__Host-sid` pour ton hôte.',
 			'`Lax` envoie encore le cookie quand un utilisateur suit un lien depuis un autre site : il arrive connecté. Un POST de formulaire cross-site arrive sans. Appelle `req.login` de Passport 0.6.0 ou plus récent pour que l’id change à la connexion.'
+		],
+		steps: [
+			{
+				title: 'Associe chaque exigence à une option',
+				questions: [
+					{ q: '« Caché aux scripts ». Quelle option ?', options: ['`secure: true`', '`sameSite: \'strict\'`', '`httpOnly: true`', '`maxAge: 0`'], answer: 2, why: '`HttpOnly` cache le cookie à `document.cookie` : un script injecté par XSS ne peut pas le lire.' },
+					{ q: '« Jamais envoyé en HTTP ». Quelle option ?', options: ['`httpOnly: true`', '`secure: true`', '`sameSite: \'none\'`', '`path: \'/\'`'], answer: 1, why: '`Secure` n’envoie le cookie qu’en `https:`. express-session le laisse coupé par défaut.' },
+					{ q: '« Absent des POST cross-site », mais un utilisateur qui suit un lien arrive connecté. Quelle valeur ?', options: ['`sameSite: \'none\'`', '`sameSite: \'strict\'`', 'Pas de `sameSite` du tout', '`sameSite: \'lax\'`'], answer: 3, why: 'Avec `Lax`, une requête cross-site ne porte le cookie que pour une navigation de premier niveau avec une méthode sûre, ce qui exclut POST. Un lien suivi est un GET.' },
+					{ q: '« Expiré au bout de 8 heures ». Que vaut `maxAge` ?', options: ['`8 * 60 * 60 * 1000`, 28 800 000', '`8 * 60 * 60`, 28 800', '`8`, en heures', '`480`, en minutes'], answer: 0, why: '`maxAge` est en millisecondes, donc 8 heures font 28 800 000.' }
+				]
+			},
+			{
+				title: 'Gère le proxy et le nom',
+				questions: [
+					{ q: 'L’appli est derrière un reverse proxy. De quoi `secure: true` a-t-il encore besoin ?', options: ['De `app.set(\'trust proxy\', 1)`', 'De `app.set(\'trust proxy\', false)`', 'D’un certificat TLS dans Node.js', 'De rien : Express détecte le proxy'], answer: 0, why: 'Derrière un proxy, `secure: true` exige aussi `app.set(\'trust proxy\', 1)`, pour qu’Express croie le proxy quand il dit que la requête est arrivée en HTTPS.' },
+					{ q: 'Avec `secure: true`, que se passe-t-il sur une requête HTTP simple ?', options: ['Le cookie part sans `Secure`', 'Le serveur lève une erreur', 'Le navigateur le jette à l’arrivée', 'Le cookie n’est pas posé du tout'], answer: 3, why: 'Le README : "the cookie will not be set". C’est pour ça que les tests locaux en HTTP demandent un réglage à part.' },
+					{ q: '« Seul cet hôte exact peut le poser ». Quel nom ?', options: ['`connect.sid`', '`__Host-sid`', '`__Secure-sid`', '`sid.shop.example.com`'], answer: 1, why: 'Avec le préfixe `__Host-`, le navigateur refuse le cookie s’il n’a pas `Secure`, `Path=/` et aucun `Domain`.' },
+					{ q: 'Que doit porter le cookie pour qu’un nom `__Host-` soit accepté ?', options: ['`HttpOnly` et `SameSite=Strict`', '`Domain=shop.example.com`', '`Secure`, `Path=/`, et aucun `Domain`', 'Une date `Expires`'], answer: 2, why: 'Ce sont les règles de MDN. Un sous-domaine voisin ne peut alors pas poser son propre `__Host-sid` pour ton hôte.' }
+				]
+			},
+			{
+				title: 'Lis le Set-Cookie',
+				questions: [
+					{ q: 'Quels attributs le navigateur reçoit-il ?', options: ['`HttpOnly` et `Secure` seulement', '`Path=/`, `Expires=...`, `HttpOnly`, `Secure`, `SameSite=Lax`', '`Domain=...`, `HttpOnly`, `Secure`, `SameSite=Lax`', '`Max-Age=8h`, `HttpOnly`, `Secure`'], answer: 1, why: 'Chaque option réglée devient un attribut, et `maxAge` devient une date `Expires`.' },
+					{ q: 'Comment express-session envoie-t-il la limite de 8 heures ?', options: ['Sous forme de `Max-Age=8`', 'Comme une valeur dans le cookie', 'Comme une date `Expires` : l’heure du serveur plus `maxAge`', 'Il ne l’envoie pas : seul le store l’expire'], answer: 2, why: 'Il ajoute `maxAge` à l’heure du serveur et envoie un `Expires` 8 heures plus tard.' },
+					{ q: 'Avec les seuls défauts d’express-session, que manquerait-il ?', options: ['`Secure`, `SameSite` et une expiration', '`HttpOnly` et `Path`', 'Seulement `HttpOnly`', 'Rien : les défauts sont sûrs'], answer: 0, why: 'express-session pose `HttpOnly` par défaut, mais laisse `Secure` coupé et ne pose ni `SameSite` ni expiration.' },
+					{ q: 'Que porte la valeur du cookie ?', options: ['L’id et le rôle de l’utilisateur, signés par le serveur', 'Le hash du mot de passe, pour vérifier chaque requête', 'Tout l’enregistrement de session, chiffré avec le secret', 'L’id de session, qui pointe vers un enregistrement sur le serveur'], answer: 3, why: 'L’utilisateur vit dans l’enregistrement de session, sous `req.session.passport.user`. Le cookie porte l’id et rien sur l’utilisateur.' }
+				]
+			},
+			{
+				title: 'Ferme la fixation de session',
+				questions: [
+					{ q: 'De quoi un attaquant a-t-il besoin pour une fixation de session sur Passport 0.5.3 ?', options: ['Du mot de passe de la victime, ou d’un lien de réinitialisation', 'Du secret que le serveur utilise pour signer les cookies', 'D’un accès en lecture au store de sessions sur le serveur', 'D’un moyen de faire utiliser au navigateur de la victime un id que l’attaquant détient déjà'], answer: 3, why: 'Avant la 0.6.0, l’id ne changeait pas à la connexion : la copie de l’attaquant ouvrait le compte de la victime.' },
+					{ q: 'Quelle version de Passport change l’id à la connexion ?', options: ['La 0.6.0 ou plus récente', 'La 0.5.3', 'Toutes, avec `keepSessionInfo`', 'Aucune : tu dois la patcher toi-même'], answer: 0, why: 'La 0.6.0 appelle `req.session.regenerate` avant d’enregistrer l’utilisateur.' },
+					{ q: 'Que fait `regenerate` dans le store ?', options: ['Il renouvelle seulement l’expiration du cookie', 'Il copie l’ancien id dans un nouveau cookie', 'Il détruit l’ancien id et en génère un nouveau', 'Il resigne l’ancien id avec un nouveau secret'], answer: 2, why: 'Il appelle `destroy(req.sessionID)`, puis `generate(req)` : l’ancien id ne pointe plus vers rien.' },
+					{ q: 'Le panier rempli avant la connexion doit y survivre. Quelle option le garde ?', options: ['`saveUninitialized: true`', '`keepSessionInfo: true`', '`resave: true`', '`rolling: true`'], answer: 1, why: 'Avec `keepSessionInfo`, les données de l’ancienne session sont fusionnées dans la nouvelle. L’id, lui, est neuf.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,30 @@ export default {
 			why: 'MDN : avec `Lax`, une requête cross-site ne porte le cookie que si c’est une navigation de premier niveau avec une méthode sûre, ce qui "excludes POST, PUT, and DELETE". Un lien suivi (GET) le porte encore.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Fais tourner les options de session de l’exercice dans une petite appli Express, lis le vrai `Set-Cookie`, et regarde l’id changer à la connexion.',
+		steps: [
+			'Crée un projet : `mkdir -p ~/cookie-lab && cd ~/cookie-lab && npm init -y && npm install express express-session`.',
+			'Écris `app.js` : une appli Express sur `127.0.0.1:3000` avec `app.set(\'trust proxy\', 1)` et les options de session de l’exercice, avec `\'lab-secret\'` comme secret. Ajoute une route `/` qui pose `req.session.visits` et renvoie `id <id de session>`, et une route `/login` qui appelle `req.session.regenerate`, pose `req.session.user = 42` et renvoie le nouvel id de la même façon. Lance-la avec `node app.js &`.',
+			'Appelle-la en HTTP simple : `curl -si localhost:3000/ | grep -iE "set-cookie|^id"`.',
+			'Joue le proxy, qui dit à l’appli que la requête est arrivée en HTTPS : `curl -si -c jar -H "X-Forwarded-Proto: https" localhost:3000/ | grep -iE "set-cookie|^id"`.',
+			'Renvoie ce cookie une fois : `curl -s -b jar -H "X-Forwarded-Proto: https" localhost:3000/`. Puis connecte-toi avec : `curl -si -b jar -H "X-Forwarded-Proto: https" localhost:3000/login | grep -iE "set-cookie|^id"`. Arrête l’appli avec `kill %1`.'
+		],
+		done: [
+			'En HTTP simple, la réponse a une ligne `id` et aucun `Set-Cookie`.',
+			'Avec `X-Forwarded-Proto: https`, la réponse a `Set-Cookie: __Host-sid=...; Path=/; Expires=...; HttpOnly; Secure; SameSite=Lax`, avec un `Expires` 8 heures plus tard.',
+			'Renvoyé avec `-b jar`, `/` affiche le même id qu’avant : le cookie marche. L’id affiché par `/login` en diffère, et un nouveau `Set-Cookie` l’accompagne.'
+		],
+		solution: [
+			'`const express = require(\'express\'); const session = require(\'express-session\'); const app = express(); app.set(\'trust proxy\', 1);`',
+			'`app.use(session({ name: \'__Host-sid\', secret: \'lab-secret\', resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: true, sameSite: \'lax\', maxAge: 8 * 60 * 60 * 1000, path: \'/\' } }));`',
+			'`app.get(\'/\', (req, res) => { req.session.visits = (req.session.visits || 0) + 1; res.send(\'id \' + req.sessionID + \'\\n\'); });`',
+			'`app.get(\'/login\', (req, res) => req.session.regenerate(() => { req.session.user = 42; res.send(\'id \' + req.sessionID + \'\\n\'); }));`, puis `app.listen(3000, \'127.0.0.1\');`',
+			'Avec `secure: true`, express-session ne pose aucun cookie sur une requête HTTP simple. `trust proxy` lui fait croire `X-Forwarded-Proto`, ce qui n’est sûr que si ton proxy écrase cet en-tête.',
+			'`regenerate` détruit l’ancien id dans le store : un id connu de quelqu’un avant la connexion n’ouvre plus rien après.'
+		]
+	},
 	recall: {
 		q: 'Qu’a changé Passport 0.6.0 dans `logIn` contre la fixation de session, et quels trois attributs de cookie dois-tu régler toi-même dans express-session ?',
 		a: 'Il appelle `req.session.regenerate` avant d’enregistrer l’utilisateur : l’id change à la connexion. Tu règles `Secure`, `SameSite` et une expiration (`maxAge`) ; `HttpOnly` est actif par défaut.'

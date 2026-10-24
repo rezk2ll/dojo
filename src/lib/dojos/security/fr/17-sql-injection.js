@@ -88,6 +88,44 @@ export default {
 			'Trou 2 : `sort` est recopié après `ORDER BY`. Un marqueur ne peut pas porter un nom de colonne, donc les paramètres n’aident pas ici.',
 			'Correction pour `sort` : `columns = {"name": "last_name", "age": "age"}` et `column = columns.get(sort, "last_name")`. Seules des chaînes écrites dans le code arrivent dans le SQL.',
 			'Résultat : `Person.objects.raw("SELECT * FROM app_person WHERE last_name = %s ORDER BY " + column, [q])`. Sans SQL brut : `Person.objects.filter(last_name=q).order_by(column)`, toujours avec la liste d’autorisation pour `column`.'
+		],
+		steps: [
+			{
+				title: 'Repère les saisies',
+				questions: [
+					{ q: 'Quelles valeurs de la requête HTTP arrivent dans le texte SQL ?', options: ['Seulement `q`', 'Seulement `sort`', '`q` et `sort`', 'Aucune : `raw` les échappe'], answer: 2, why: 'La f-string recopie `q` entre apostrophes et `sort` après `ORDER BY`.' },
+					{ q: 'Qu’est `q` dans la requête ?', options: ['Une valeur comparée à `last_name`', 'Un nom de colonne', 'Un nom de table', 'Un mot-clé'], answer: 0, why: 'Elle est à droite de `last_name =`, là où SQL attend une valeur.' },
+					{ q: 'Qu’est `sort` dans la requête ?', options: ['Une valeur', 'Une chaîne littérale', 'Un marqueur', 'Un nom de colonne après `ORDER BY`'], answer: 3, why: 'Elle nomme la colonne de tri : elle fait partie de la structure SQL, pas des données.' },
+					{ q: 'Pourquoi recopier une saisie dans le texte SQL est-il un risque ?', options: ['Ça ralentit la requête', 'Des caractères comme `\'` ou `--` dans la saisie changent ce que fait la requête', 'La base refuse les f-strings', 'Ça ne casse que sur PostgreSQL'], answer: 1, why: 'Une fois la saisie dans le texte SQL, la base ne peut plus la distinguer du code que tu as écrit.' }
+				]
+			},
+			{
+				title: 'Ferme le trou de `q`',
+				questions: [
+					{ q: 'Que fait `?q=x\' OR \'1\'=\'1` à la requête ?', options: ['Elle ne trouve personne nommé `x`', 'Elle lève une erreur de syntaxe', 'Elle ferme l’apostrophe, et `OR \'1\'=\'1` rend le filtre vrai pour chaque ligne', 'Django l’échappe'], answer: 2, why: 'La première `\'` termine la chaîne trop tôt, et la suite est lue comme du SQL. Toutes les personnes reviennent.' },
+					{ q: 'Quel changement le ferme ?', options: ['`WHERE last_name = %s` avec `[q]` en paramètres', '`WHERE last_name = \'%s\'` avec `[q]` en paramètres', 'Doubler chaque `\'` de `q` avant', 'Retirer les espaces de `q`'], answer: 0, why: 'La valeur part vers le driver dans une liste à part, comme une donnée. C’est ce qu’a fait le correctif de `StringAgg` dans Django avec `Value()`.' },
+					{ q: 'Pourquoi pas d’apostrophes autour de `%s` ?', options: ['Elles ralentissent la requête', 'SQLite en a besoin, PostgreSQL non', 'Django en ajoute une seconde paire', 'La doc dit que mettre le marqueur entre apostrophes expose à l’injection SQL'], answer: 3, why: 'Le driver met lui-même la valeur entre apostrophes. "You must not include quotes around the %s placeholders in the SQL string."' },
+					{ q: 'Pourquoi ne pas échapper les apostrophes à la main ?', options: ['C’est trop lent', 'L’OWASP classe l’échappement "STRONGLY DISCOURAGED"', 'Python ne sait pas le faire', 'Ça casse `ORDER BY`'], answer: 1, why: 'L’échappement à la main est facile à rater. Un paramètre n’entre jamais dans le texte SQL.' }
+				]
+			},
+			{
+				title: 'Ferme le trou de `sort`',
+				questions: [
+					{ q: '`ORDER BY %s` avec `[sort]` peut-il porter le nom de colonne ?', options: ['Oui, sur toutes les bases', 'Oui, avec des paramètres nommés', 'Non : un marqueur remplace une valeur, jamais un nom de colonne', 'Non : `ORDER BY` ne prend aucune saisie'], answer: 2, why: 'L’OWASP range les noms de colonne parmi les parties qui "can\'t use bind variables". La requête trierait par une chaîne constante.' },
+					{ q: 'Qu’est-ce qui protège `sort`, alors ?', options: ['Une liste d’autorisation dans le code qui associe la saisie à des noms de colonne connus', 'L’échapper', 'Vérifier sa longueur', 'La passer en majuscules'], answer: 0, why: 'Seules des chaînes écrites dans le code arrivent dans le SQL, quoi qu’envoie l’utilisateur.' },
+					{ q: 'Que renvoie `columns.get(sort, "last_name")` pour une saisie inconnue ?', options: ['`None`', 'La saisie elle-même', 'Une erreur', '`"last_name"`'], answer: 3, why: 'La valeur par défaut garde la requête valide et la saisie hors du SQL.' },
+					{ q: 'Que range aussi l’OWASP dans le même groupe que les noms de colonne ?', options: ['Les nombres', '`ASC` et `DESC`', 'Les dates', 'Les adresses email'], answer: 1, why: 'Le sens du tri fait aussi partie de la structure SQL : il lui faut aussi une liste d’autorisation.' }
+				]
+			},
+			{
+				title: 'Réécris la requête',
+				questions: [
+					{ q: 'Quel appel `raw` est sûr ?', options: ['`raw(f"... WHERE last_name = %s ORDER BY {sort}", [q])`', '`raw("... WHERE last_name = %s ORDER BY " + column, [q])`', '`raw("... WHERE last_name = \'%s\' ORDER BY " + column, [q])`', '`raw("... WHERE last_name = %s ORDER BY %s", [q, sort])`'], answer: 1, why: '`q` est un paramètre, et `column` vient de la liste d’autorisation.' },
+					{ q: 'Pourquoi ajouter `column` avec `+` est-il sûr ici, alors qu’ajouter `sort` ne l’était pas ?', options: ['`+` échappe sa saisie', 'Django le vérifie plus tard', '`column` ne peut valoir qu’une des chaînes du code', 'Ce n’est pas sûr non plus'], answer: 2, why: 'Avec la liste d’autorisation, la saisie choisit une clé. Elle ne devient jamais elle-même du texte SQL.' },
+					{ q: 'Quelle est la forme ORM ?', options: ['`Person.objects.filter(last_name=q).order_by(column)`', '`Person.objects.filter(last_name=q).order_by(sort)`', '`Person.objects.extra(where=[q])`', '`Person.objects.raw(q)`'], answer: 0, why: 'L’ORM paramètre `q`. `order_by` reçoit toujours la colonne passée par la liste d’autorisation.' },
+					{ q: 'L’ORM dispense-t-il de la liste d’autorisation pour `sort` ?', options: ['Oui : l’ORM valide toutes les saisies', 'Oui, pour `order_by` seulement', 'Non, seulement pour `filter`', 'Non : garde la liste d’autorisation pour la colonne choisie par l’utilisateur'], answer: 3, why: 'L’ORM a eu ses propres failles d’injection SQL : Django en liste 16 corrections entre août 2019 et février 2026. Avec la liste d’autorisation, l’utilisateur ne choisit que parmi les colonnes que tu as prévues.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -125,6 +163,28 @@ export default {
 			why: 'Le commit retire `\'%(delimiter)s\'` du gabarit et passe `Value(str(delimiter))` comme expression en plus. `Value.as_sql` renvoie `\'%s\', [val]`, donc le séparateur arrive au driver comme paramètre. Doubler les apostrophes à la main, c’est l’échappement que l’OWASP classe « STRONGLY DISCOURAGED ».'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Sur un fichier SQLite local, regarde une valeur recopiée changer la requête, un paramètre la garder comme donnée, et une liste d’autorisation gérer la colonne de tri.',
+		steps: [
+			'Crée une petite table : `mkdir -p ~/sqli-lab && cd ~/sqli-lab && sqlite3 people.db "CREATE TABLE app_person (id INTEGER PRIMARY KEY, last_name TEXT, age INTEGER); INSERT INTO app_person (last_name, age) VALUES (\'Curie\', 66), (\'Lovelace\', 36), (\'Turing\', 41);"`.',
+			'Lance la requête recopiée de l’exercice avec la saisie de la réponse : `python3 -c "import sqlite3, sys; q = sys.argv[1]; print(sqlite3.connect(\'people.db\').execute(f\\"SELECT last_name FROM app_person WHERE last_name = \'{q}\'\\").fetchall())" "x\' OR \'1\'=\'1"`.',
+			'Lance-la avec un paramètre à la place (le marqueur de SQLite est `?`, celui de Django `%s`) : `python3 -c "import sqlite3, sys; print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person WHERE last_name = ?\', [sys.argv[1]]).fetchall())" "x\' OR \'1\'=\'1"`. Puis pareil avec `Turing`.',
+			'Essaie un marqueur pour la colonne de tri : `python3 -c "import sqlite3, sys; print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person ORDER BY ?\', [sys.argv[1]]).fetchall())" age`.',
+			'Utilise une liste d’autorisation : `python3 -c "import sqlite3, sys; col = {\'name\': \'last_name\', \'age\': \'age\'}.get(sys.argv[1], \'last_name\'); print(sqlite3.connect(\'people.db\').execute(\'SELECT last_name FROM app_person ORDER BY \' + col).fetchall())" age`. Puis essaie avec `nonsense`.'
+		],
+		done: [
+			'L’étape 2 affiche les trois noms.',
+			'L’étape 3 affiche `[]` pour la saisie forgée et `[(\'Turing\',)]` pour `Turing`.',
+			'L’étape 4 affiche les lignes dans l’ordre d’insertion : `ORDER BY ?` a trié par une constante, pas par `age`.',
+			'L’étape 5 affiche `Lovelace`, `Turing`, `Curie` pour `age`, et trie par nom pour `nonsense`.'
+		],
+		solution: [
+			'À l’étape 2, la `\'` de la saisie ferme la chaîne, et `OR \'1\'=\'1` est lu comme du SQL.',
+			'À l’étape 3, le driver envoie toute la saisie comme une seule valeur : la base cherche une personne nommée littéralement `x\' OR \'1\'=\'1`.',
+			'L’étape 4 montre pourquoi un marqueur ne peut pas porter un nom de colonne : il est lié comme la chaîne `\'age\'`, la même pour chaque ligne. L’étape 5 ne met jamais que `last_name` ou `age` dans le SQL. Nettoie avec `rm -rf ~/sqli-lab`.'
+		]
+	},
 	recall: {
 		q: 'Dans la CVE-2020-7471 de Django, quel argument arrivait dans le texte SQL, et par quoi a-t-il été remplacé ?',
 		a: 'Le `delimiter` de `StringAgg`, collé entre apostrophes par le gabarit. Django 3.0.3 l’envoie en `Value(str(delimiter))`, compilé en un marqueur `%s` plus un paramètre.'

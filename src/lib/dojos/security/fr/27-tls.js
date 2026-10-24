@@ -115,6 +115,44 @@ export default {
 			'`wrong.host.badssl.com` sans l’option : `Verify return code: 0 (ok)`. La chaîne remonte jusqu’à `ISRG Root YR`, une racine du magasin. `s_client` vérifie la chaîne mais pas le nom, sauf si tu le demandes.',
 			'Avec `-verify_hostname wrong.host.badssl.com` : `Verify return code: 62 (hostname mismatch)`. Le certificat porte `*.badssl.com`, et la RFC 9525 dit : "A wildcard in a presented identifier can only match one label". `wrong.host` fait deux labels.',
 			'`requests.get` refuse les deux hôtes avec une `SSLError`, car urllib3 vérifie la chaîne et le nom. Un outil qui ne vérifie que la chaîne, comme `s_client` sans l’option, accepterait le second.'
+		],
+		steps: [
+			{
+				title: 'Lis le résultat auto-signé',
+				questions: [
+					{ q: 'Quel `Verify return code` donne `self-signed.badssl.com` ?', options: ['`0 (ok)`', '`62 (hostname mismatch)`', '`18 (self-signed certificate)`', '`10 (certificate has expired)`'], answer: 2, why: 'OpenSSL affiche `Verify return code: 18 (self-signed certificate)` pour cet hôte.' },
+					{ q: 'Que montrent les lignes `s:` et `i:` du certificat 0 ?', options: ['Le même nom, `CN = *.badssl.com`', 'Un sujet et une AC différente', 'Aucun émetteur', 'Deux noms d’hôte différents'], answer: 0, why: 'Le sujet et l’émetteur sont identiques : le certificat s’est signé lui-même.' },
+					{ q: 'Pourquoi la vérification de la chaîne échoue-t-elle ?', options: ['Ses dates sont fausses', 'Aucune AC du magasin du client ne l’a signé', 'Son `CertificateVerify` est invalide', 'TLS 1.3 interdit les certificats auto-signés'], answer: 1, why: 'La chaîne doit finir sur une AC du magasin. Une feuille auto-signée finit sur elle-même.' },
+					{ q: 'La poignée de main elle-même a-t-elle abouti ?', options: ['Non, le MAC de `Finished` a échoué', 'Non, l’échange de clés a échoué', 'Seulement en TLS 1.2', 'Oui : le serveur signe avec sa propre clé, la poignée de main est valide'], answer: 3, why: 'N’importe qui peut mener une poignée de main valide avec sa propre paire de clés. Seule la vérification de la chaîne l’arrête.' }
+				]
+			},
+			{
+				title: 'Lis le résultat du mauvais hôte',
+				questions: [
+					{ q: 'Sans `-verify_hostname`, quel code donne `wrong.host.badssl.com` ?', options: ['`0 (ok)`', '`18 (self-signed certificate)`', '`62 (hostname mismatch)`', '`21 (unable to verify the first certificate)`'], answer: 0, why: 'La chaîne est bonne, et rien n’a demandé à `s_client` de vérifier le nom.' },
+					{ q: 'Pourquoi la vérification de la chaîne passe-t-elle ?', options: ['La feuille s’est signée elle-même', 'badssl.com a sa propre AC', 'La chaîne remonte à une AC racine du magasin du client', 'Le client saute la chaîne sans `-CAfile`'], answer: 2, why: 'Contrairement à l’hôte auto-signé, cette feuille a été signée par une AC, et sa chaîne finit sur une racine à laquelle le magasin fait confiance.' },
+					{ q: 'Pourquoi `s_client` dit-il ok ici ?', options: ['badssl.com est sur une liste d’autorisation', 'Il vérifie la chaîne, mais pas le nom sauf si tu le demandes', 'Le joker accepte n’importe quel nom', 'Il ignore le certificat 0'], answer: 1, why: '`s_client` ne compare le nom que si tu passes `-verify_hostname`.' },
+					{ q: 'Que laisse la RFC 8446 au client ?', options: ['L’échange de clés', 'Le MAC de `Finished`', 'Le choix du chiffrement', 'La validation du certificat, chaîne et nom'], answer: 3, why: 'La RFC 8446 : "detailed certificate validation procedures are out of scope for TLS".' }
+				]
+			},
+			{
+				title: 'Ajoute la vérification du nom',
+				questions: [
+					{ q: 'Avec `-verify_hostname wrong.host.badssl.com`, quel est le code ?', options: ['`0 (ok)`', '`62 (hostname mismatch)`', '`18 (self-signed certificate)`', '`20 (unable to get local issuer certificate)`'], answer: 1, why: 'La chaîne passe toujours, mais le nom ne correspond pas au certificat.' },
+					{ q: 'Quel nom porte le certificat ?', options: ['`*.badssl.com`', '`wrong.host.badssl.com`', '`*.host.badssl.com`', '`badssl.com` seulement'], answer: 0, why: 'C’est un joker pour un niveau sous `badssl.com`.' },
+					{ q: 'Pourquoi `*.badssl.com` ne couvre-t-il pas `wrong.host.badssl.com` ?', options: ['Les jokers sont interdits en TLS 1.3', 'Le nom est trop long', 'Un joker ne couvre qu’un label, et `wrong.host` en fait deux', 'Les jokers ne couvrent que `www`'], answer: 2, why: 'La RFC 9525 : "A wildcard in a presented identifier can only match one label".' },
+					{ q: 'Où le client trouve-t-il les noms à comparer ?', options: ['Dans le champ émetteur', 'Dans le `ServerHello`', 'Dans le magasin d’AC', 'Dans le Subject Alternative Name du certificat'], answer: 3, why: 'Le client compare le nom de l’URL aux noms DNS du SAN.' }
+				]
+			},
+			{
+				title: 'Prédis requests',
+				questions: [
+					{ q: 'Que fait `requests.get("https://self-signed.badssl.com")` ?', options: ['Il lève une `SSLError`', 'Il renvoie 200 avec un avertissement', 'Il renvoie 200 sans rien dire', 'Il réessaie en HTTP'], answer: 0, why: 'requests part toujours de `CERT_REQUIRED`, et la chaîne ne finit pas sur une AC de confiance.' },
+					{ q: 'Et `requests.get("https://wrong.host.badssl.com")` ?', options: ['Il renvoie 200, comme `s_client`', 'Il renvoie 200 avec un `InsecureRequestWarning`', 'Il lève une `SSLError`, car urllib3 vérifie aussi le nom', 'Il lève une `ConnectionError` de DNS'], answer: 2, why: 'urllib3 vérifie la chaîne et le nom, il refuse donc les deux hôtes.' },
+					{ q: 'Quel appel accepterait les deux hôtes ?', options: ['`requests.get(url, verify=True)`', '`requests.get(url, verify="/etc/ssl/internal-ca.pem")`', '`requests.get(url, timeout=5)`', '`requests.get(url, verify=False)`'], answer: 3, why: '`verify is False` passe en `CERT_NONE` : n’importe quel certificat, n’importe quel nom, n’importe quelles dates.' },
+					{ q: 'Avant 2.32.0, une `Session` appelle un hôte une fois avec `verify=False`. Que fait ensuite un appel `verify=True` vers lui ?', options: ['Il vérifie le certificat comme demandé', 'Il réutilise la connexion du pool, jamais vérifiée', 'Il lève une erreur', 'Il ouvre un nouveau pool'], answer: 1, why: 'Le pool était choisi d’après la seule URL, donc la connexion `CERT_NONE` servait les appels suivants (CVE-2024-35195).' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -152,6 +190,28 @@ export default {
 			why: 'Un chemin dans `verify` fait construire à urllib3 la chaîne jusqu’à ton AC, et il vérifie toujours le nom et les dates. `verify=False` et le HTTP simple laissent toute machine sur le chemin lire et modifier le trafic.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Monter une AC privée sur ton portable, servir du TLS sur localhost, et voir la vérification de la chaîne et celle du nom passer puis échouer.',
+		steps: [
+			'Crée une AC, avec OpenSSL 3 : `mkdir ~/tls-lab && cd ~/tls-lab && openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 7 -subj "/CN=Lab Root CA"`.',
+			'Émets un certificat pour `localhost` : `openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"`, puis `printf \'subjectAltName=DNS:localhost\\n\' > san.ext && openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 7 -extfile san.ext`.',
+			'Dans un second terminal : `cd ~/tls-lab && openssl s_server -accept 8443 -cert server.pem -key server.key -www`.',
+			'Vérifie la chaîne : `echo | openssl s_client -connect localhost:8443 -servername localhost | grep "Verify return code"`, puis la même chose avec `-CAfile ca.pem`.',
+			'Vérifie le nom : ajoute `-verify_hostname example.com` à la commande avec `-CAfile`.',
+			'Refais-le avec curl : `curl https://localhost:8443/`, puis `curl -k https://localhost:8443/`, puis `curl --cacert ca.pem https://localhost:8443/`.'
+		],
+		done: [
+			'Sans `-CAfile`, `s_client` affiche `Verify return code: 21 (unable to verify the first certificate)`.',
+			'Avec `-CAfile ca.pem`, il affiche `Verify return code: 0 (ok)`, et avec `-verify_hostname example.com` il affiche `62 (hostname mismatch)`.',
+			'`curl` seul échoue avec le code de sortie 60, `curl -k` et `curl --cacert ca.pem` reçoivent tous deux la page.'
+		],
+		solution: [
+			'Ton AC n’est pas dans le magasin du système : la chaîne ne peut pas finir sur une racine de confiance tant que tu ne donnes pas `ca.pem` au client.',
+			'Le certificat ne nomme que `localhost`, donc une vérification contre `example.com` échoue même avec une bonne chaîne.',
+			'`curl -k`, c’est le `verify=False` de curl : il reçoit la page, et il la recevrait tout aussi bien de n’importe quelle machine sur le chemin. `--cacert`, comme `verify="ca.pem"` dans requests, garde les deux vérifications.'
+		]
+	},
 	recall: {
 		q: 'Dans une poignée de main TLS 1.3, que prouve `CertificateVerify`, et que doit encore vérifier le client lui-même ?',
 		a: 'Il prouve que le serveur détient la clé privée du certificat envoyé. Le client vérifie encore que la chaîne finit sur une AC de son magasin et que le nom correspond à l’URL ; `verify=False` saute les deux.'

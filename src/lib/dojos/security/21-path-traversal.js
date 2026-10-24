@@ -97,6 +97,44 @@ export default {
 			'`../files_old/key`: the joined string is `/srv/files/../files_old/key`, which also passes. Resolving it gives `/srv/files_old/key`, and that string still starts with `/srv/files`. A prefix check fails here even after you resolve the path.',
 			'`/etc/passwd` is caught by accident. `os.path.join` drops `BASE` when the second part is absolute, so the result is `/etc/passwd` and the prefix check refuses it.',
 			'The rewrite: `real = os.path.realpath(os.path.join(BASE, name))`, then `if os.path.commonpath([BASE, real]) != BASE: abort(403)`. In Python 3, `commonpath` gives `/` for the first name and `/srv` for the second, so both are refused. `a/../b.txt` resolves to `/srv/files/b.txt` and is served.'
+		],
+		steps: [
+			{
+				title: 'Read the handler',
+				questions: [
+					{ q: 'What does the `startswith(BASE)` check look at?', options: ['The file the kernel will open in the end', 'The joined string, `..` and all', 'The canonical path that `realpath` returns', 'The raw name as the browser typed it'], answer: 1, why: 'Nothing resolves the path before the check. It compares characters of the raw joined string.' },
+					{ q: 'When are the `..` segments in the joined path resolved?', options: ['When `os.path.join` builds the string', 'When `startswith` runs', 'When the kernel walks the path during `open()`', 'Never: `open()` refuses `..`'], answer: 2, why: '`os.path.join` only glues strings. The kernel resolves each `..` as it walks the path at `open()`.' },
+					{ q: 'What does `os.path.join(BASE, "/etc/passwd")` return?', options: ['`/etc/passwd`, because the second part is absolute', '`/srv/files/etc/passwd`', '`/srv/files//etc/passwd`', 'An error, because the name starts with a slash'], answer: 0, why: '`os.path.join` drops `BASE` when the second part is absolute, so the result is `/etc/passwd`.' },
+					{ q: 'So does `name = "/etc/passwd"` get through this handler?', options: ['Yes: `open()` reads `/etc/passwd` and returns it', 'Yes, but only when the app runs on Windows', 'No: `os.path.join` raises an error before the check', 'No: the joined string fails the prefix check'], answer: 3, why: 'It is caught by accident. The join gives `/etc/passwd`, and that string fails the prefix check.' }
+				]
+			},
+			{
+				title: 'Climb out with ..',
+				questions: [
+					{ q: 'Which `name` reads `/etc/passwd`?', options: ['`/etc/passwd`', '`etc/passwd`', '`../../etc/passwd`', '`./etc/passwd`'], answer: 2, why: 'The joined string `/srv/files/../../etc/passwd` starts with `/srv/files`, so the check passes, and `open()` climbs two levels.' },
+					{ q: 'Why are there two `..` and not one?', options: ['Each one climbs one level: `/srv`, then `/`', 'Python needs an even number of `..` segments', 'The first one is removed by `os.path.join`', 'One is enough, the second is only padding'], answer: 0, why: 'The base sits two levels below `/`. Each `..` removes one level.' },
+					{ q: 'The CWE-22 page shows this same mistake in Java. With which call?', options: ['`getCanonicalPath()`', '`startsWith("/safe_dir/")`', '`Files.newInputStream()`', '`File.separator`'], answer: 1, why: 'CWE-22 shows a prefix check with `startsWith("/safe_dir/")` on a path that still holds `..`.' },
+					{ q: 'What would make this first name fail?', options: ['Checking for `etc` in the name', 'Lowercasing the name before the check', 'Resolving the path before the prefix check', 'Using `open(path, "r")` instead of `"rb"`'], answer: 2, why: 'Once resolved, the path is `/etc/passwd`, which does not start with `/srv/files`.' }
+				]
+			},
+			{
+				title: 'Find the neighbor',
+				questions: [
+					{ q: 'Which second `name` reads a file outside `/srv/files`?', options: ['`./key`', '`files_old/key`', '`../files/key`', '`../files_old/key`'], answer: 3, why: 'It joins to `/srv/files/../files_old/key`, which starts with `/srv/files` and opens `/srv/files_old/key`.' },
+					{ q: 'After `realpath`, that name becomes `/srv/files_old/key`. Does `startswith("/srv/files")` refuse it now?', options: ['Yes: `realpath` removed every `..`', 'Yes: `files_old` is a different folder', 'No: it still starts with `/srv/files`', 'No: `realpath` leaves `..` in place'], answer: 2, why: '`startswith` compares characters, not path components. Resolving the path does not save a prefix check.' },
+					{ q: 'Python’s docs warn about `os.path.commonprefix` for the same reason. What do they say?', options: ['It works a character at a time', 'It follows symbolic links', 'It is slow on long paths', 'It only works on Windows'], answer: 0, why: 'The docs say it "works a character at a time", so `/usr/lib` and `/usr/local/lib` share `/usr/l`.' },
+					{ q: 'Which check compares whole path components?', options: ['`real.startswith(BASE)`', '`BASE in real`', '`os.path.commonprefix([BASE, real])`', '`os.path.commonpath([BASE, real])`'], answer: 3, why: '`commonpath` returns `/srv` for `/srv/files` and `/srv/files_old/key`, not a cut-off name.' }
+				]
+			},
+			{
+				title: 'Rewrite the check',
+				questions: [
+					{ q: 'What comes first in the rewrite?', options: ['`real = os.path.realpath(os.path.join(BASE, name))`', '`data = open(os.path.join(BASE, name), "rb").read()`', '`name = name.replace("..", "")`', '`if "/" in name: abort(403)`'], answer: 0, why: 'Resolve first, check second. The check must look at the path `open()` will really use.' },
+					{ q: 'Which test refuses both escapes?', options: ['`if not real.startswith(BASE): abort(403)`', '`if os.path.commonpath([BASE, real]) != BASE: abort(403)`', '`if ".." in real: abort(403)`', '`if not os.path.exists(real): abort(403)`'], answer: 1, why: '`commonpath` gives `/` for the first name and `/srv` for the second. Neither equals `BASE`.' },
+					{ q: 'With the rewrite, what happens to `a/../b.txt`?', options: ['Refused, because it holds `..`', 'Refused, because `a` does not exist', 'Served: it resolves to `/srv/files/b.txt`', 'It raises an error in `commonpath`'], answer: 2, why: 'It resolves inside the base, so it is a fair request. The check refuses escapes, not dots.' },
+					{ q: 'What gap remains with `realpath` then `open()`?', options: ['None: `realpath` makes it fully safe', 'It refuses every symbolic link in the base', 'It cannot handle absolute names', 'A symlink swapped in after the check'], answer: 3, why: 'Check then open is two steps. Go’s `os.OpenInRoot` checks each step while it opens, which closes that window.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -134,6 +172,27 @@ export default {
 			why: '`startswith` compares characters, and `/srv/files_old` begins with the 10 characters of `/srv/files`. `commonpath` compares whole path components and returns `/srv`. The trailing slash and `relpath` (which gives `../files_old/key`) also refuse it.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Break a prefix check with `..` and a neighbor folder, then fix it with `realpath` and `commonpath`.',
+		steps: [
+			'Make a scratch tree: `mkdir -p ~/trav-lab/files ~/trav-lab/files_old && cd ~/trav-lab && echo hello > files/a.txt && echo secret > files_old/key && echo topsecret > secret.txt`.',
+			'Save the naive handler: `printf \'%s\\n\' \'import os, sys\' \'BASE = os.path.realpath("files")\' \'path = os.path.join(BASE, sys.argv[1])\' \'print(open(path).read() if path.startswith(BASE) else "403")\' > naive.py`.',
+			'Attack it: `python3 naive.py a.txt`, then `python3 naive.py ../secret.txt`, then `python3 naive.py ../files_old/key`, then `python3 naive.py /etc/hostname`.',
+			'Write `safe.py`: the same script, but resolve the joined path with `os.path.realpath` and serve only when `os.path.commonpath([BASE, real]) == BASE`.',
+			'Add a symbolic link that points out, `ln -s .. files/link`, and try `link/secret.txt` against both scripts.'
+		],
+		done: [
+			'`python3 naive.py ../secret.txt` prints `topsecret` and `python3 naive.py ../files_old/key` prints `secret`.',
+			'`python3 safe.py` prints `403` for `../secret.txt`, `../files_old/key`, `/etc/hostname` and `link/secret.txt`.',
+			'`python3 safe.py x/../a.txt` still prints `hello`.'
+		],
+		solution: [
+			'`printf \'%s\\n\' \'import os, sys\' \'BASE = os.path.realpath("files")\' \'real = os.path.realpath(os.path.join(BASE, sys.argv[1]))\' \'print(open(real).read() if os.path.commonpath([BASE, real]) == BASE else "403")\' > safe.py`',
+			'`naive.py` refuses `/etc/hostname` only by accident: `os.path.join` drops `BASE` for an absolute name.',
+			'`realpath` follows `files/link`, so `safe.py` sees the real target and refuses it. A link swapped in after the check is still possible: that is the race Go’s `os.OpenInRoot` closes.'
+		]
+	},
 	recall: {
 		q: 'In which order do you handle a file name from a request, and which Python call checks that the result is inside the base?',
 		a: 'Resolve first with `os.path.realpath(os.path.join(BASE, name))`, then require `os.path.commonpath([BASE, real]) == BASE`. In Go, `os.OpenInRoot(BASE, name)` does both while it opens, and also refuses symbolic links that leave the directory.'

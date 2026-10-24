@@ -129,6 +129,44 @@ type CircleCIAPIContextVariable = {
 			'Vérifie la rotation : liste le context avec l’Env Inspector et contrôle que chaque variable a un `updated_at` postérieur au 5 janvier 2023.',
 			'Fouille du 16 décembre 2022, date de la compromission du portable, jusqu’à la fin de ta rotation. Le rapport donne la même période.',
 			'Cherche dans les logs AWS, npm et GitHub les 8 adresses IP et les fournisseurs VPN du rapport, et dans le log d’audit GitHub l’action `repo.download_zip`. Note chaque résultat avec son heure avant de toucher à autre chose, pour garder les preuves.'
+		],
+		steps: [
+			{
+				title: 'Décide ce qui passe en premier',
+				questions: [
+					{ q: 'Attends-tu la preuve que tes secrets ont servi avant d’agir ?', options: ['Non : le rapport dit « assume they have been accessed »', 'Oui : changer sans preuve casse les déploiements pour rien', 'Oui : CircleCI te dira s’ils ont servi', 'Non, mais seulement pour la clé AWS'], answer: 0, why: 'La preuve peut ne jamais venir. Le geste sûr est de traiter chaque secret stocké comme volé.' },
+					{ q: 'Pourquoi CircleCI ne peut-il pas te dire si tes secrets ont servi ?', options: ['Il a supprimé ses logs pendant le confinement', 'L’usage se passe dans d’autres systèmes : « there is no way for us to know »', 'L’attaquant a gardé les secrets chiffrés', 'GitHub garde ces logs privés'], answer: 1, why: 'Les secrets servent dans AWS, npm et GitHub. Seuls ces systèmes, et toi, voient qu’ils sont utilisés.' },
+					{ q: 'Les secrets étaient chiffrés au repos. Est-ce que ça réduit l’urgence ?', options: ['Oui : l’attaquant n’a que du texte chiffré', 'Oui, si la clé était assez longue', 'Non : l’attaquant a extrait les clés d’un processus en cours d’exécution', 'Non, mais seulement pour le token npm'], answer: 2, why: 'Un service en marche garde la clé en mémoire. La copie chiffrée et sa clé sont parties ensemble.' },
+					{ q: 'Qu’est-ce que le rapport a demandé aux clients de changer ?', options: ['Seulement les tokens OAuth GitHub', 'Seulement les clés du fournisseur cloud', 'Seulement les secrets ajoutés après le 16 décembre', 'Tous les secrets stockés dans CircleCI : « OAuth tokens, Project API Tokens, SSH keys, and more »'], answer: 3, why: 'L’annonce demandait à chaque client de changer tous les secrets stockés, pas une sélection.' }
+				]
+			},
+			{
+				title: 'Change chaque secret',
+				questions: [
+					{ q: 'Dans quel ordre changes-tu un secret ?', options: ['Révoquer l’ancien, créer le nouveau, mettre à jour le contexte', 'Créer le nouveau, le mettre dans `deploy`, révoquer l’ancien', 'Mettre à jour le contexte, révoquer l’ancien, créer le nouveau', 'Créer le nouveau maintenant, révoquer l’ancien la semaine prochaine'], answer: 1, why: 'La copie volée cesse de marcher quand tu la révoques, et le déploiement suivant a déjà la nouvelle valeur.' },
+					{ q: 'Que fais-tu de la deploy key GitHub ?', options: ['Je la supprime et j’en ajoute une nouvelle', 'Je change sa phrase de passe', 'Je la laisse : une deploy key ne fait que lire', 'Je la déplace dans un autre contexte'], answer: 0, why: 'Une deploy key est un secret comme les autres. La changer, c’est retirer l’ancienne clé et en ajouter une nouvelle.' },
+					{ q: 'Lesquels des secrets de `deploy` changes-tu ?', options: ['Seulement le token npm, puisqu’il publie tes paquets', 'Seulement la deploy key GitHub', 'La clé AWS, le token npm et la deploy key GitHub', 'Seulement la clé AWS, puisqu’elle coûte de l’argent'], answer: 2, why: 'Les trois étaient dans le context `deploy`, donc l’attaquant les a peut-être tous les trois. Chacun est changé, l’un après l’autre.' },
+					{ q: 'Comment vérifies-tu que le changement est fait ?', options: ['Je lance un build et je regarde s’il passe', 'Je demande au support CircleCI', 'J’attends une semaine et je regarde à nouveau', 'Je liste le contexte avec l’Env Inspector et je vérifie que chaque `updated_at` est après le 5 janvier 2023'], answer: 3, why: 'Une variable avec un `updated_at` plus ancien garde une valeur que l’attaquant a peut-être.' }
+				]
+			},
+			{
+				title: 'Fixe la fenêtre de temps',
+				questions: [
+					{ q: 'Où commence ta fenêtre de recherche ?', options: ['Le 22 décembre 2022, l’exfiltration', 'Le 29 décembre 2022, le premier signalement client', 'Le 16 décembre 2022, la compromission du portable', 'Le 4 janvier 2023, le confinement'], answer: 2, why: 'C’est la date la plus ancienne du rapport, et le rapport donne le même point de départ.' },
+					{ q: 'Où s’arrête-t-elle ?', options: ['Quand ton propre changement de secrets s’est terminé', 'Le 22 décembre 2022', 'Le 12 janvier 2023, la date du rapport', 'Le 4 janvier 2023'], answer: 0, why: 'Le rapport dit « through the date when you rotated your secrets ».' },
+					{ q: 'Pourquoi la fenêtre s’arrête-t-elle à ton changement de secrets et pas au confinement de CircleCI ?', options: ['Les logs s’arrêtent à ce moment-là', 'Tant que tu n’as pas changé tes secrets, l’attaquant peut encore s’en servir', 'Le confinement de CircleCI tombait le même jour', 'Le changement de secrets efface les anciens logs'], answer: 1, why: 'Le confinement a fermé l’entrée chez CircleCI. Tes secrets volés ont continué de marcher jusqu’à ce que tu les remplaces.' },
+					{ q: 'Pourquoi commencer le 16 décembre, des jours avant le vol des données le 22 décembre ?', options: ['CircleCI n’a commencé à logger que ce jour-là', 'C’est la fenêtre par défaut dans AWS', 'Le rapport ajoute une semaine à chaque recherche', 'À partir de ce jour, l’attaquant pouvait agir en tant que l’ingénieur'], answer: 3, why: 'Le malware a pris la session le jour de la compromission du portable. La reconnaissance a suivi le 19 décembre.' }
+				]
+			},
+			{
+				title: 'Cherche les traces',
+				questions: [
+					{ q: 'Lequel de ces éléments est un indicateur de compromission du rapport ?', options: ['Le nom de l’ingénieur', 'L’action `repo.download_zip` du log d’audit GitHub', 'La page de statut de CircleCI', 'Tes temps de build habituels'], answer: 1, why: 'Un indicateur est une trace que d’autres peuvent chercher. Le rapport liste cette action à côté des IP, du hash de fichier et du domaine.' },
+					{ q: 'Où cherches-tu les adresses IP de l’attaquant ?', options: ['Dans tes logs AWS, npm et GitHub', 'Dans les logs de CircleCI seulement', 'Sur le portable de l’ingénieur', 'Dans ton cache DNS'], answer: 0, why: 'Ce sont les systèmes que tes secrets ouvrent. L’usage d’un secret volé s’y voit.' },
+					{ q: 'Tu trouves un résultat. Que fais-tu avant de toucher à autre chose ?', options: ['Je supprime la ligne de log pour arrêter la fuite', 'Je bloque l’IP et je passe à la suite', 'Je note chaque résultat avec son heure, pour garder les preuves', 'Je change le même secret une seconde fois'], answer: 2, why: 'Les changements peuvent écraser les traces ou les laisser expirer. Une liste écrite avec les heures est ta base de travail.' },
+					{ q: 'Combien d’adresses IP de l’attaquant le rapport listait-il ?', options: ['1', '3', '20', '8'], answer: 3, why: 'Le rapport donnait 8 adresses IP, plus des data centers et des fournisseurs VPN.' }
+				]
+			}
 		]
 	},
 	quiz: [

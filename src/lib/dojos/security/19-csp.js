@@ -112,6 +112,44 @@ Rails.application.config.content_security_policy_nonce_directives = %w(style-src
 			'Stricter: `script-src \'nonce-{RANDOM}\' \'strict-dynamic\'; object-src \'none\'; base-uri \'none\'`, with a new `{RANDOM}` per response and the same value in `nonce="..."` on each of the app\'s own `<script>` tags. Without `strict-dynamic`, it matches the nonce-based strict CSP shown on MDN.',
 			'Send the header on every response, not only on HTML pages. MDN: the policy "should be set on all responses to all requests, not just the main document".',
 			'Deploy it first as `Content-Security-Policy-Report-Only` with a `report-to` endpoint, fix the app\'s own inline scripts that show up in the reports, then send it as `Content-Security-Policy`.'
+		],
+		steps: [
+			{
+				title: 'Read the policy',
+				questions: [
+					{ q: 'Which directive decides whether the `onerror` handler runs?', options: ['`default-src`', '`script-src`', '`object-src`', '`img-src`'], answer: 1, why: 'Inline event handlers are JavaScript, so `script-src` governs them.' },
+					{ q: 'What does `\'unsafe-inline\'` allow in `script-src`?', options: ['Only scripts from the same origin', 'Only scripts from `https://cdn.example.com`', 'Inline `<script>` blocks and inline event handlers', 'Only `eval`'], answer: 2, why: 'It is the keyword that lets inline JavaScript run, the one Mastodon’s policy leaves out.' },
+					{ q: 'What does `object-src \'none\'` block?', options: ['Plugins such as `<object>` and `<embed>`', 'Inline scripts', 'Images', 'Every resource type'], answer: 0, why: 'It covers plugin content only. It does nothing about an `onerror` attribute.' },
+					{ q: 'Which directive is missing and has no `default-src` fallback?', options: ['`script-src`', '`style-src`', '`img-src`', '`base-uri`'], answer: 3, why: 'MDN says `base-uri` has no fallback: "Not setting this allows any URL."' }
+				]
+			},
+			{
+				title: 'Decide if it stops the bio',
+				questions: [
+					{ q: 'The bio holds `<img src=x onerror=alert(1)>`. Does the policy stop it?', options: ['Yes: `default-src \'self\'` blocks it', 'No: `\'unsafe-inline\'` lets the inline handler run', 'Yes: `object-src \'none\'` blocks it', 'Only in report-only mode'], answer: 1, why: 'The handler is inline JavaScript, and `\'unsafe-inline\'` allows exactly that.' },
+					{ q: 'Does `https://cdn.example.com` in the list matter for this attack?', options: ['Yes: the handler loads from it', 'Yes: it overrides `\'unsafe-inline\'`', 'No: the attack loads nothing from any host', 'Only if the CDN is down'], answer: 2, why: 'The script is inline in the page. Host lists only control where script files load from.' },
+					{ q: 'Why did Mastodon’s sanitizer bug do less damage?', options: ['Its `script-src` had no `\'unsafe-inline\'`, so injected inline scripts did not run', 'It had no `default-src`', 'It used report-only mode', 'Its nonce was in `script-src`'], answer: 0, why: 'The advisory: the impact was limited by a strict CSP "blocking inline scripts".' },
+					{ q: 'What is CSP in this story, compared with the sanitizer?', options: ['A replacement for the sanitizer', 'A way to find XSS bugs', 'A server-side filter', 'A second layer that limits damage when the first one fails'], answer: 3, why: 'The HTML still reached the page. CSP only stopped the browser from running it.' }
+				]
+			},
+			{
+				title: 'Write a stricter `script-src`',
+				questions: [
+					{ q: 'Which `script-src` replaces the host list?', options: ['`script-src \'self\' \'unsafe-inline\'`', '`script-src *`', '`script-src \'nonce-{RANDOM}\' \'strict-dynamic\'`', '`script-src \'none\'` with `\'unsafe-inline\'`'], answer: 2, why: 'Only scripts that carry the nonce run, and `strict-dynamic` lets them load what they need.' },
+					{ q: 'How often must the nonce change?', options: ['On every response', 'Once a day', 'On each deploy', 'Once per user'], answer: 0, why: 'A nonce is only secret if it is new for every response. Rails generates a new one for each request.' },
+					{ q: 'Where else must the same nonce value appear?', options: ['In the URL', 'In a cookie', 'In `default-src`', 'In `nonce="..."` on each of the app’s own `<script>` tags'], answer: 3, why: 'The browser runs a script only when its `nonce` attribute matches the header.' },
+					{ q: 'Why does the injected `onerror` handler still fail under this policy?', options: ['The bug is fixed', 'It carries no nonce, and no `\'unsafe-inline\'` is left', '`strict-dynamic` blocks images', '`base-uri \'none\'` blocks it'], answer: 1, why: 'An attribute handler cannot carry a nonce. With no `\'unsafe-inline\'`, the browser blocks it.' }
+				]
+			},
+			{
+				title: 'Deploy it',
+				questions: [
+					{ q: 'Which responses should carry the header?', options: ['Only the home page', 'Only HTML pages', 'Every response to every request', 'Only responses with scripts'], answer: 2, why: 'MDN: the policy "should be set on all responses to all requests, not just the main document".' },
+					{ q: 'How do you roll it out without breaking the app?', options: ['First as `Content-Security-Policy-Report-Only` with a `report-to` endpoint', 'Enforce it on Friday evening', 'Enable it for admins only', 'Add `\'unsafe-inline\'` for the first week'], answer: 0, why: 'Report-only mode blocks nothing and tells you what the policy would have blocked.' },
+					{ q: 'What do you fix while reading the reports?', options: ['The browser settings', 'The CDN host list', 'The cookie flags', 'The app’s own inline scripts that show up'], answer: 3, why: 'Each one needs the nonce, or a move to a file, before you enforce.' },
+					{ q: 'When do you switch to `Content-Security-Policy`?', options: ['Before any report arrives', 'Once the app’s own scripts no longer show up in the reports', 'Never: report-only is enough', 'After the next XSS'], answer: 1, why: 'Report-only enforces nothing, so it only protects once you send the real header.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,28 @@ Rails.application.config.content_security_policy_nonce_directives = %w(style-src
 			why: 'MDN: "The policy is not enforced, but any violations are sent to the reporting endpoint specified in the policy." If an enforcing header is present too, both are honored. A report-only policy cannot be delivered in a `<meta>` element.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Serve the task’s page from a local nginx, watch the weak policy let the injected handler run, then switch to a nonce policy and watch the browser block it while your own script still runs.',
+		steps: [
+			'Make the page, with one script of your own and the injected bio: `mkdir -p ~/csp-lab/html ~/csp-lab/conf && cd ~/csp-lab && printf \'%s\\n\' \'<!doctype html>\' \'<script nonce="__NONCE__">document.title = "own script ran"</script>\' \'<p>Bio: <img src=x onerror=alert(1)></p>\' > html/index.html`.',
+			'In an editor, create `conf/default.conf` with these lines: `server {`, `listen 80;`, `root /usr/share/nginx/html;`, `sub_filter_once off;`, `sub_filter __NONCE__ $request_id;`, `add_header Content-Security-Policy "default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdn.example.com; object-src \'none\'" always;`, `}`.',
+			'Start nginx: `docker run -d --name csp-lab -p 8080:80 -v "$PWD/html:/usr/share/nginx/html:ro" -v "$PWD/conf:/etc/nginx/conf.d:ro" nginx:1.27-alpine`. Check the header with `curl -sI localhost:8080`, then open `http://localhost:8080` in a browser.',
+			'Replace the policy in the `add_header` line with `script-src \'nonce-$request_id\' \'strict-dynamic\'; object-src \'none\'; base-uri \'none\'`. Reload nginx: `docker exec csp-lab nginx -s reload`.',
+			'Run `curl -sI localhost:8080` twice, and `curl -si localhost:8080 | grep -o "nonce[-=]\\"\\{0,1\\}[0-9a-f]*"`. Then reload the page in the browser with the developer console open.'
+		],
+		done: [
+			'With the first policy, the browser shows an alert box: the injected handler ran.',
+			'With the nonce policy, two `curl -sI` calls show two different `nonce-…` values.',
+			'The `grep` shows the same value in the header and in the `<script nonce="…">` tag.',
+			'The browser shows no alert, the tab title reads `own script ran`, and the console says the inline event handler was blocked by `script-src`.'
+		],
+		solution: [
+			'The first policy allows `\'unsafe-inline\'`, so the `onerror` attribute runs like any inline script.',
+			'`sub_filter` writes nginx’s per-request `$request_id` into the page, and `add_header` puts the same value in the header, so the nonce is new on every response.',
+			'Your script carries the matching `nonce` and runs. The `onerror` attribute cannot carry one and is blocked. Clean up with `docker rm -f csp-lab` and `rm -rf ~/csp-lab`.'
+		]
+	},
 	recall: {
 		q: 'In Mastodon\'s CVE-2023-42452, which `script_src` setting kept the injected HTML from running scripts?',
 		a: '`p.script_src :self, assets_host, "\'wasm-unsafe-eval\'"`: no `\'unsafe-inline\'`, so the browser refuses inline `<script>` blocks and event handlers.'

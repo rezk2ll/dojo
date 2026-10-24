@@ -111,6 +111,44 @@ export default {
 			'`role.yaml`: the docs say "granting list or watch permissions on Secrets allows a subject to read all Secret data in that namespace". The kubelet mounts the Secret for the Pod, so the app\'s ServiceAccount needs no verb on `secrets` unless the code calls the API itself.',
 			'`deploy.yaml`: as an environment variable, the password is in `/proc/<pid>/environ` and passed to every child process. Mount it as a file instead: `volumes: [{ name: db, secret: { secretName: db } }]`, and the app reads `/etc/db/password` from a `tmpfs`.',
 			'Not in the pull request but worth asking: does the cluster\'s `kube-apiserver` run with `--encryption-provider-config`? Without it, the value sits as plain text in etcd and in every etcd backup.'
+		],
+		steps: [
+			{
+				title: 'Decode the manifest',
+				questions: [
+					{ q: 'What does `echo aHVudGVyMi1wcm9kLWRi | base64 -d` print?', options: ['Random bytes, since the value is encrypted', 'An error without the cluster key', '`hunter2-prod-db`', 'A SHA-256 hash of the password'], answer: 2, why: 'Base64 has no key. Anyone can reverse it with `base64 -d`.' },
+					{ q: 'Who can read the password from `db-secret.yaml`?', options: ['Anyone with read access to the repo, now or in a later clone', 'Only cluster admins', 'Only the app’s ServiceAccount', 'Nobody until it is applied'], answer: 0, why: 'The value is in git, so every clone of the branch carries it.' },
+					{ q: 'What do you commit instead?', options: ['The same file, base64 encoded twice', 'The file encrypted with `sops encrypt`', 'The plain password in a ConfigMap', 'A `.gitignore` entry and nothing else'], answer: 1, why: 'sops encrypts each value before it reaches git and leaves the keys readable.' },
+					{ q: 'The PR branch already holds the plain value. What else do you do?', options: ['Squash the PR before merging', 'Close the PR and open a new one', 'Nothing, sops covers it', 'Rotate the password'], answer: 3, why: 'The value is already in the branch history, so encrypting the next version does not hide the old one.' }
+				]
+			},
+			{
+				title: 'Read the role',
+				questions: [
+					{ q: 'What does `list` on `secrets` give the ServiceAccount?', options: ['Only the names of the Secrets', 'All Secret data in the namespace', 'Only the Secrets it created', 'Nothing without `get`'], answer: 1, why: 'The docs: "granting list or watch permissions on Secrets allows a subject to read all Secret data in that namespace".' },
+					{ q: 'How does the Pod get the Secret to begin with?', options: ['The kubelet fetches it for the Pod', 'The app calls the API with its ServiceAccount', 'The image has it baked in', 'etcd sends it to the container'], answer: 0, why: 'The kubelet mounts the Secret or sets the variable. The app does not call the API for that.' },
+					{ q: 'So which verbs does the app’s ServiceAccount need on `secrets`?', options: ['`get` only', '`list` only', '`get` and `watch`', 'None, unless the code calls the API itself'], answer: 3, why: 'With the kubelet doing the work, any verb here is extra access.' },
+					{ q: 'If the app is compromised, what does the current role add?', options: ['Nothing, the app already has its own Secret', 'The attacker can delete Secrets', 'The attacker reads every Secret in the namespace', 'The attacker can read etcd backups'], answer: 2, why: '`get`, `list` and `watch` let anyone holding the app’s token read all the Secrets, not just `db`.' }
+				]
+			},
+			{
+				title: 'Read the deployment',
+				questions: [
+					{ q: 'With `env` and `secretKeyRef`, where does the password end up?', options: ['In `/proc/<pid>/environ` and every child process', 'Only in the kubelet’s memory', 'In a `tmpfs` file', 'Nowhere after startup'], answer: 0, why: 'A child process inherits its parent’s environment, and `/proc/<pid>/environ` keeps it.' },
+					{ q: 'What does OWASP say about environment variables?', options: ['They are encrypted by the kernel', 'They "may be included in logs or system dumps"', 'They are safe inside containers', 'They expire after startup'], answer: 1, why: 'The cheat sheet: they "are generally accessible to all processes and may be included in logs or system dumps".' },
+					{ q: 'What do you use instead?', options: ['A ConfigMap', 'A command line flag', 'A file mounted from the Secret volume', 'A label on the Pod'], answer: 2, why: '`volumes: [{ name: db, secret: { secretName: db } }]`, and the app reads `/etc/db/password`.' },
+					{ q: 'Why is the mounted file better?', options: ['It is encrypted with the cluster key', 'It is read only once', 'It cannot be read by the app', 'It sits in a `tmpfs` and is not passed to child processes'], answer: 3, why: 'A file mounted from a Secret never reaches the node’s disk, and children do not inherit it.' }
+				]
+			},
+			{
+				title: 'Ask about etcd',
+				questions: [
+					{ q: 'Which `kube-apiserver` flag do you ask about?', options: ['`--encryption-provider-config`', '`--v=4`', '`--audit-log-path`', '`--secure-port`'], answer: 0, why: 'Without it, the API server writes Secrets to etcd as they are.' },
+					{ q: 'Without it, what is in an etcd backup?', options: ['Only Secret names', 'Ciphertext under the cluster CA', 'Every Secret value as plain text, at most a base64 decode away', 'Nothing, Secrets stay in memory'], answer: 2, why: 'The docs: Secrets are "by default, stored unencrypted in the API server\'s underlying data store (etcd)".' },
+					{ q: 'Which first provider in the `EncryptionConfiguration` leaves values unencrypted?', options: ['`aescbc`', '`identity`', '`kms`', '`secretbox`'], answer: 1, why: '`identity` writes resources as they are. The first provider is the one used for writes.' },
+					{ q: 'Does encryption at rest stop `kubectl get secret db -o yaml`?', options: ['Yes, it returns ciphertext', 'Yes, it needs the KMS key', 'Only for `immutable` Secrets', 'No: anyone allowed to read it still gets the base64 value'], answer: 3, why: 'Encryption at rest protects etcd and its backups, not API access. That is why the role matters too.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -148,6 +186,30 @@ export default {
 			why: 'A child process inherits its parent\'s environment, and `/proc/<pid>/environ` keeps the environment set at `execve`. The man page: reading that file is governed by a ptrace read access check.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Read a password out of a base64 Secret manifest and out of a container’s environment, then encrypt the manifest with sops.',
+		steps: [
+			'Install `sops` and `age` (for example `brew install sops age`), then `mkdir ~/secret-lab && cd ~/secret-lab`.',
+			'Write the manifest from the task: `printf \'%s\\n\' \'apiVersion: v1\' \'kind: Secret\' \'metadata:\' \'  name: db\' \'data:\' "  password: $(printf hunter2-prod-db | base64)" > db.yaml`, then decode it: `awk \'/password/ {print $2}\' db.yaml | base64 -d`.',
+			'Pass the password as an environment variable and read it the way a child process or `/proc` would: `docker run --rm -e DB_PASSWORD=hunter2-prod-db alpine:3.20 sh -c \'sh -c "env | grep DB_PASSWORD"; tr "\\0" "\\n" < /proc/1/environ | grep DB_PASSWORD\'`.',
+			'Make an age key: `mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt`.',
+			'Encrypt the values only: `sops encrypt --age "$(age-keygen -y ~/.config/sops/age/keys.txt)" --encrypted-regex \'^(data|stringData)$\' db.yaml > db.enc.yaml`, then `cat db.enc.yaml` and `sops decrypt db.enc.yaml`.',
+			'Move the ciphertext under another key: `sed \'s/^    password: ENC/    pass: ENC/\' db.enc.yaml > moved.yaml && sops decrypt moved.yaml`.'
+		],
+		done: [
+			'Step 2 prints `hunter2-prod-db`.',
+			'Step 3 prints `DB_PASSWORD=hunter2-prod-db` twice: once from the child shell, once from `/proc/1/environ`.',
+			'`db.enc.yaml` still shows `kind: Secret` and `name: db`, while `password:` holds `ENC[AES256_GCM,data:...]`.',
+			'`sops decrypt moved.yaml` fails with `Could not decrypt with AES_GCM`.'
+		],
+		solution: [
+			'Base64 is not encryption, so the manifest in git is the password.',
+			'Every child process inherits the environment, which is why the chapter mounts the Secret as a file instead.',
+			'sops leaves keys readable and seals each value with AES-256-GCM. The path to the value is part of the additional data, so a value moved under another key does not decrypt.',
+			'Anyone with `keys.txt` can decrypt every past version of the file. Keep it out of the repo.'
+		]
+	},
 	recall: {
 		q: 'What does a Kubernetes cluster need before Secrets in etcd are encrypted?',
 		a: 'A `kube-apiserver` started with `--encryption-provider-config`, pointing at an `EncryptionConfiguration` whose first provider is `aescbc`, `secretbox` or `kms`, not `identity`. Without it, values sit in etcd as plain text.'

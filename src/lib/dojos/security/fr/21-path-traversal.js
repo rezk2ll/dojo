@@ -97,6 +97,44 @@ export default {
 			'`../files_old/key` : la chaîne vaut `/srv/files/../files_old/key` et passe aussi. Une fois résolue, elle donne `/srv/files_old/key`, qui commence encore par `/srv/files`. Le contrôle de préfixe échoue même sur un chemin résolu.',
 			'`/etc/passwd` est bloqué par chance. `os.path.join` jette `BASE` quand la seconde partie est absolue, le résultat vaut `/etc/passwd` et le contrôle de préfixe le refuse.',
 			'La réécriture : `real = os.path.realpath(os.path.join(BASE, name))`, puis `if os.path.commonpath([BASE, real]) != BASE: abort(403)`. En Python 3, `commonpath` renvoie `/` pour le premier nom et `/srv` pour le second : les deux sont refusés. `a/../b.txt` donne `/srv/files/b.txt` et part normalement.'
+		],
+		steps: [
+			{
+				title: 'Lis le handler',
+				questions: [
+					{ q: 'Sur quoi porte le contrôle `startswith(BASE)` ?', options: ['Sur le fichier que le noyau finira par ouvrir', 'Sur la chaîne collée, `..` compris', 'Sur le chemin canonique que renvoie `realpath`', 'Sur le nom brut tel que le navigateur l’a tapé'], answer: 1, why: 'Rien ne résout le chemin avant le contrôle. Il compare les caractères de la chaîne collée brute.' },
+					{ q: 'Quand les segments `..` du chemin collé sont-ils résolus ?', options: ['Quand `os.path.join` construit la chaîne', 'Quand `startswith` s’exécute', 'Quand le noyau parcourt le chemin pendant `open()`', 'Jamais : `open()` refuse les `..`'], answer: 2, why: '`os.path.join` ne fait que coller des chaînes. Le noyau résout chaque `..` en parcourant le chemin au `open()`.' },
+					{ q: 'Que renvoie `os.path.join(BASE, "/etc/passwd")` ?', options: ['`/etc/passwd`, car la seconde partie est absolue', '`/srv/files/etc/passwd`', '`/srv/files//etc/passwd`', 'Une erreur, car le nom commence par une barre'], answer: 0, why: '`os.path.join` jette `BASE` quand la seconde partie est absolue, le résultat vaut donc `/etc/passwd`.' },
+					{ q: 'Alors, `name = "/etc/passwd"` passe-t-il ce handler ?', options: ['Oui : `open()` lit `/etc/passwd` et le renvoie', 'Oui, mais seulement si l’appli tourne sous Windows', 'Non : `os.path.join` lève une erreur avant le contrôle', 'Non : la chaîne collée échoue au contrôle de préfixe'], answer: 3, why: 'Il est bloqué par chance. Le collage donne `/etc/passwd`, et cette chaîne échoue au contrôle de préfixe.' }
+				]
+			},
+			{
+				title: 'Remonte avec ..',
+				questions: [
+					{ q: 'Quel `name` lit `/etc/passwd` ?', options: ['`/etc/passwd`', '`etc/passwd`', '`../../etc/passwd`', '`./etc/passwd`'], answer: 2, why: 'La chaîne collée `/srv/files/../../etc/passwd` commence par `/srv/files`, le contrôle passe, et `open()` remonte de deux niveaux.' },
+					{ q: 'Pourquoi deux `..` et pas un seul ?', options: ['Chacun remonte d’un niveau : `/srv`, puis `/`', 'Python exige un nombre pair de segments `..`', 'Le premier est retiré par `os.path.join`', 'Un seul suffit, le second sert de remplissage'], answer: 0, why: 'La base est deux niveaux sous `/`. Chaque `..` retire un niveau.' },
+					{ q: 'La page CWE-22 montre la même erreur en Java. Avec quel appel ?', options: ['`getCanonicalPath()`', '`startsWith("/safe_dir/")`', '`Files.newInputStream()`', '`File.separator`'], answer: 1, why: 'CWE-22 montre un contrôle de préfixe avec `startsWith("/safe_dir/")` sur un chemin qui contient encore des `..`.' },
+					{ q: 'Qu’est-ce qui ferait échouer ce premier nom ?', options: ['Chercher `etc` dans le nom', 'Passer le nom en minuscules avant le contrôle', 'Résoudre le chemin avant le contrôle de préfixe', 'Utiliser `open(path, "r")` au lieu de `"rb"`'], answer: 2, why: 'Une fois résolu, le chemin vaut `/etc/passwd`, qui ne commence pas par `/srv/files`.' }
+				]
+			},
+			{
+				title: 'Trouve le voisin',
+				questions: [
+					{ q: 'Quel second `name` lit un fichier hors de `/srv/files` ?', options: ['`./key`', '`files_old/key`', '`../files/key`', '`../files_old/key`'], answer: 3, why: 'Il donne `/srv/files/../files_old/key`, qui commence par `/srv/files` et ouvre `/srv/files_old/key`.' },
+					{ q: 'Après `realpath`, ce nom devient `/srv/files_old/key`. `startswith("/srv/files")` le refuse-t-il maintenant ?', options: ['Oui : `realpath` a retiré tous les `..`', 'Oui : `files_old` est un autre dossier', 'Non : il commence encore par `/srv/files`', 'Non : `realpath` laisse les `..` en place'], answer: 2, why: '`startswith` compare des caractères, pas des éléments de chemin. Résoudre le chemin ne sauve pas un contrôle de préfixe.' },
+					{ q: 'La doc Python met en garde contre `os.path.commonprefix` pour la même raison. Que dit-elle ?', options: ['Elle travaille caractère par caractère', 'Elle suit les liens symboliques', 'Elle est lente sur les longs chemins', 'Elle ne marche que sous Windows'], answer: 0, why: 'La doc dit qu’elle "works a character at a time" : `/usr/lib` et `/usr/local/lib` partagent `/usr/l`.' },
+					{ q: 'Quel contrôle compare des éléments de chemin entiers ?', options: ['`real.startswith(BASE)`', '`BASE in real`', '`os.path.commonprefix([BASE, real])`', '`os.path.commonpath([BASE, real])`'], answer: 3, why: '`commonpath` renvoie `/srv` pour `/srv/files` et `/srv/files_old/key`, pas un nom coupé.' }
+				]
+			},
+			{
+				title: 'Réécris le contrôle',
+				questions: [
+					{ q: 'Que fait-on en premier dans la réécriture ?', options: ['`real = os.path.realpath(os.path.join(BASE, name))`', '`data = open(os.path.join(BASE, name), "rb").read()`', '`name = name.replace("..", "")`', '`if "/" in name: abort(403)`'], answer: 0, why: 'D’abord résoudre, ensuite contrôler. Le contrôle doit porter sur le chemin que `open()` utilisera vraiment.' },
+					{ q: 'Quel test refuse les deux évasions ?', options: ['`if not real.startswith(BASE): abort(403)`', '`if os.path.commonpath([BASE, real]) != BASE: abort(403)`', '`if ".." in real: abort(403)`', '`if not os.path.exists(real): abort(403)`'], answer: 1, why: '`commonpath` donne `/` pour le premier nom et `/srv` pour le second. Aucun n’est égal à `BASE`.' },
+					{ q: 'Avec la réécriture, que devient `a/../b.txt` ?', options: ['Refusé, car il contient `..`', 'Refusé, car `a` n’existe pas', 'Servi : il donne `/srv/files/b.txt`', 'Il lève une erreur dans `commonpath`'], answer: 2, why: 'Il se résout dans la base, c’est donc une requête légitime. Le contrôle refuse les évasions, pas les points.' },
+					{ q: 'Quelle faille reste avec `realpath` puis `open()` ?', options: ['Aucune : `realpath` rend tout sûr', 'Il refuse tous les liens symboliques de la base', 'Il ne gère pas les noms absolus', 'Un lien glissé après le contrôle'], answer: 3, why: 'Contrôler puis ouvrir, c’est deux étapes. `os.OpenInRoot` de Go vérifie chaque étape pendant l’ouverture, ce qui ferme cette fenêtre.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -134,6 +172,27 @@ export default {
 			why: '`startswith` compare des caractères, et `/srv/files_old` commence par les 10 caractères de `/srv/files`. `commonpath` compare des éléments de chemin entiers et renvoie `/srv`. La barre finale et `relpath` (qui donne `../files_old/key`) le refusent aussi.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Casser un contrôle de préfixe avec `..` et un dossier voisin, puis le corriger avec `realpath` et `commonpath`.',
+		steps: [
+			'Crée une arborescence de test : `mkdir -p ~/trav-lab/files ~/trav-lab/files_old && cd ~/trav-lab && echo hello > files/a.txt && echo secret > files_old/key && echo topsecret > secret.txt`.',
+			'Enregistre le handler naïf : `printf \'%s\\n\' \'import os, sys\' \'BASE = os.path.realpath("files")\' \'path = os.path.join(BASE, sys.argv[1])\' \'print(open(path).read() if path.startswith(BASE) else "403")\' > naive.py`.',
+			'Attaque-le : `python3 naive.py a.txt`, puis `python3 naive.py ../secret.txt`, puis `python3 naive.py ../files_old/key`, puis `python3 naive.py /etc/hostname`.',
+			'Écris `safe.py` : le même script, mais qui résout le chemin collé avec `os.path.realpath` et ne sert le fichier que si `os.path.commonpath([BASE, real]) == BASE`.',
+			'Ajoute un lien symbolique qui pointe dehors, `ln -s .. files/link`, et essaie `link/secret.txt` sur les deux scripts.'
+		],
+		done: [
+			'`python3 naive.py ../secret.txt` affiche `topsecret` et `python3 naive.py ../files_old/key` affiche `secret`.',
+			'`python3 safe.py` affiche `403` pour `../secret.txt`, `../files_old/key`, `/etc/hostname` et `link/secret.txt`.',
+			'`python3 safe.py x/../a.txt` affiche toujours `hello`.'
+		],
+		solution: [
+			'`printf \'%s\\n\' \'import os, sys\' \'BASE = os.path.realpath("files")\' \'real = os.path.realpath(os.path.join(BASE, sys.argv[1]))\' \'print(open(real).read() if os.path.commonpath([BASE, real]) == BASE else "403")\' > safe.py`',
+			'`naive.py` ne refuse `/etc/hostname` que par chance : `os.path.join` jette `BASE` pour un nom absolu.',
+			'`realpath` suit `files/link`, donc `safe.py` voit la vraie cible et la refuse. Un lien glissé après le contrôle reste possible : c’est la course que ferme `os.OpenInRoot` de Go.'
+		]
+	},
 	recall: {
 		q: 'Dans quel ordre traites-tu un nom de fichier reçu dans une requête, et quel appel Python vérifie que le résultat est dans la base ?',
 		a: 'D’abord résoudre avec `os.path.realpath(os.path.join(BASE, name))`, puis exiger `os.path.commonpath([BASE, real]) == BASE`. En Go, `os.OpenInRoot(BASE, name)` fait les deux pendant l’ouverture et refuse aussi les liens symboliques qui sortent du dossier.'

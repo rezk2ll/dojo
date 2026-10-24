@@ -112,6 +112,44 @@ jobs:
 			'Role dans `shop` : `rules: [{ apiGroups: [""], resources: ["configmaps"], resourceNames: ["report-config"], verbs: ["get"] }]`. Puis un RoleBinding dans `shop` avec `subjects: [{ kind: ServiceAccount, name: report, namespace: shop }]` et `roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: report-reader }`. Supprime le ClusterRoleBinding.',
 			'Vérification : `kubectl auth can-i get configmaps/report-config -n shop --as system:serviceaccount:shop:report` répond `yes`, et `kubectl auth can-i list secrets -n shop --as system:serviceaccount:shop:report` répond `no`.',
 			'Rayon d’impact après : une ConfigMap, en lecture, dans un namespace. Les pods qui n’appellent aucune API peuvent aussi mettre `automountServiceAccountToken: false` : il n’y a alors plus de jeton à voler.'
+		],
+		steps: [
+			{
+				title: 'Lis ce que le jeton permet aujourd’hui',
+				questions: [
+					{ q: 'Le ServiceAccount est lié par un ClusterRoleBinding. Dans quels namespaces `edit` s’applique-t-il ?', options: ['Seulement `shop`', 'Seulement `shop` et `default`', 'Tous les namespaces du cluster', 'Seulement les namespaces avec le bon label'], answer: 2, why: 'Un ClusterRoleBinding donne le ClusterRole « across the entire cluster (all namespaces) ».' },
+					{ q: 'Que permet `edit`, d’après la doc Kubernetes ?', options: ['Lire les Secrets et lancer des Pods sous n’importe quel ServiceAccount', 'Lire les ConfigMaps et rien d’autre', 'Modifier les Roles et les RoleBindings', 'Se connecter aux nœuds en SSH'], answer: 0, why: 'La doc dit que `edit` « allows accessing Secrets and running Pods as any ServiceAccount in the namespace ». Il ne permet pas de modifier les rôles.' },
+					{ q: 'Quel est donc le rayon d’impact d’un jeton volé aujourd’hui ?', options: ['Une ConfigMap dans `shop`', 'Toutes les ConfigMaps de `shop`', 'Rien tant que le job de nuit ne tourne pas', 'Tous les Secrets, et de nouveaux Pods, dans tous les namespaces'], answer: 3, why: 'Portée du cluster fois droits de `edit` : le jeton lit les Secrets et lance des Pods partout.' },
+					{ q: 'De quoi le pod a-t-il vraiment besoin ?', options: ['De `list` sur toutes les ConfigMaps de `shop`', 'De `get` sur la ConfigMap `report-config` de `shop`', 'De `get` sur les ConfigMaps de tous les namespaces', 'De `edit`, mais seulement dans `shop`'], answer: 1, why: 'Il lit une ConfigMap et rien d’autre. Le moindre privilège lui donne exactement ça.' }
+				]
+			},
+			{
+				title: 'Écris le Role',
+				questions: [
+					{ q: 'Quel type d’objet porte la règle ?', options: ['Un ClusterRole, lié sur tout le cluster', 'Un Role dans le namespace `shop`', 'Un ServiceAccount avec une annotation', 'Une ConfigMap qui liste les verbes'], answer: 1, why: 'Un Role est une liste de verbes sur des ressources d’un namespace : tout ce dont le pod a besoin.' },
+					{ q: 'Quelle valeur de `apiGroups` convient aux ConfigMaps ?', options: ['`["apps"]`', '`["rbac.authorization.k8s.io"]`', '`["*"]`', '`[""]`, le groupe core'], answer: 3, why: 'Les ConfigMaps sont dans le groupe d’API core, écrit comme une chaîne vide. `"*"` prendrait tous les groupes.' },
+					{ q: 'Quel champ limite la règle à une seule ConfigMap ?', options: ['`namespace: shop`', '`verbs: ["get"]`', '`resourceNames: ["report-config"]`', '`resources: ["configmaps"]`'], answer: 2, why: '`resourceNames` nomme les objets. Sans lui, `get` marche sur toutes les ConfigMaps de `shop`.' },
+					{ q: 'Plus tard, le pod doit aussi créer une ConfigMap. Pourquoi `resourceNames` ne peut-il pas limiter ça à un objet ?', options: ['`resourceNames` ne peut pas limiter `create`', '`create` n’est pas un verbe RBAC valide', 'Un Role ne peut pas porter deux verbes', '`resourceNames` ne marche que sur les Secrets'], answer: 0, why: 'Dans Kubernetes, `resourceNames` ne peut limiter ni `create` ni `deletecollection`. Un pod qui crée une ConfigMap peut en créer n’importe laquelle dans son namespace.' }
+				]
+			},
+			{
+				title: 'Lie-le au pod',
+				questions: [
+					{ q: 'Quelle liaison donne le Role au pod dans `shop` seulement ?', options: ['Un RoleBinding dans `shop`', 'Un ClusterRoleBinding vers le Role', 'Un RoleBinding dans `default`', 'Une annotation sur le pod'], answer: 0, why: 'Un RoleBinding donne un rôle dans un seul namespace. C’est la portée dont le pod a besoin.' },
+					{ q: 'Que mets-tu dans `subjects` ?', options: ['`{ kind: User, name: report }`', '`{ kind: Pod, name: report, namespace: shop }`', '`{ kind: ServiceAccount, name: report, namespace: shop }`', '`{ kind: Group, name: system:serviceaccounts }`'], answer: 2, why: 'Le pod agit sous son ServiceAccount, donc le sujet est le ServiceAccount `report` de `shop`. Le groupe donnerait le Role à tous les ServiceAccounts.' },
+					{ q: 'Que fais-tu de l’ancien ClusterRoleBinding ?', options: ['Le garder en secours pour le pod', 'Le supprimer, sinon le jeton garde `edit` partout', 'Le faire pointer vers le rôle `view`', 'Rien : le RoleBinding le remplace'], answer: 1, why: 'Le nouveau Role ajoute un droit ; il n’en retire aucun. Tant que le ClusterRoleBinding existe, le jeton garde `edit` dans tous les namespaces.' },
+					{ q: 'Un pod n’appelle aucune API. Qu’est-ce qui supprime complètement son jeton ?', options: ['Un Role sans règle', '`permissions: {}` sur le pod', 'Un RoleBinding vers `view`', '`automountServiceAccountToken: false`'], answer: 3, why: 'Sans jeton monté, il n’y a rien à voler.' }
+				]
+			},
+			{
+				title: 'Prouve-le',
+				questions: [
+					{ q: 'Quelle commande vérifie que le pod lit encore sa ConfigMap ?', options: ['`kubectl get configmap report-config -n shop`', '`kubectl describe role report-reader -n shop`', '`kubectl get rolebinding -n shop`', '`kubectl auth can-i get configmaps/report-config -n shop --as system:serviceaccount:shop:report`'], answer: 3, why: '`--as` interroge l’API server au nom du ServiceAccount. Un simple `kubectl get` utilise tes droits, pas ceux du pod.' },
+					{ q: 'Que doit répondre `kubectl auth can-i list secrets -n shop --as system:serviceaccount:shop:report` ?', options: ['`yes`', '`no`', 'Une erreur : les Secrets exigent un ClusterRole', '`yes`, mais seulement pour son propre Secret'], answer: 1, why: 'Le Role nomme une ConfigMap et le verbe `get`. Rien ne donne accès aux Secrets.' },
+					{ q: 'Pourquoi vérifier avec `--as` et pas avec ton compte ?', options: ['Ton compte a plus de droits que le pod', 'C’est plus rapide qu’une requête normale', '`can-i` ne tourne pas sans `--as`', 'Ça fait aussi tourner le jeton du pod'], answer: 0, why: 'Un `yes` pour un admin ne prouve rien sur le pod. C’est l’identité du pod qu’un voleur récupère.' },
+					{ q: 'Quel est le rayon d’impact après le correctif ?', options: ['Toutes les ConfigMaps de `shop`, en lecture', 'Une ConfigMap, en lecture et écriture', 'Une ConfigMap, en lecture, dans un namespace', 'Rien : le jeton ne sert plus à rien'], answer: 2, why: 'C’est ce dont le job a besoin, et tout ce qu’un voleur obtient.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -149,6 +187,27 @@ jobs:
 			why: 'La liaison fixe la portée : un RoleBinding donne un rôle dans un namespace, un ClusterRoleBinding le donne dans tous. `edit` lui-même ne permet pas de modifier les rôles. La durée de vie du jeton ne dépend pas de la liaison.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Mesure ce qu’un jeton de ServiceAccount volé permet dans un cluster local, puis réduis-le à une ConfigMap et prouve-le avec `kubectl auth can-i`.',
+		steps: [
+			'Lance un cluster local jetable : `minikube start -p rbac-lab` (ou `kind create cluster --name rbac-lab`). Vérifie avec `kubectl get nodes`.',
+			'Recrée le montage de l’exercice : `kubectl create namespace shop`, `kubectl create serviceaccount report -n shop`, `kubectl create configmap report-config -n shop --from-literal=title=Nightly`, puis `kubectl create clusterrolebinding report-edit --clusterrole=edit --serviceaccount=shop:report`.',
+			'Demande ce que le jeton permet aujourd’hui : `kubectl auth can-i list secrets -n kube-system --as system:serviceaccount:shop:report`, puis `kubectl auth can-i create pods -n default --as system:serviceaccount:shop:report`.',
+			'Réduis-le : `kubectl delete clusterrolebinding report-edit`, puis `kubectl create role report-reader -n shop --verb=get --resource=configmaps --resource-name=report-config`, puis `kubectl create rolebinding report-reader -n shop --role=report-reader --serviceaccount=shop:report`.',
+			'Prouve-le. Lance chacune de ces commandes avec `--as system:serviceaccount:shop:report` à la fin : `kubectl auth can-i get configmaps/report-config -n shop`, `kubectl auth can-i get configmaps/other -n shop`, `kubectl auth can-i list secrets -n shop`. Puis supprime le cluster : `minikube delete -p rbac-lab` (ou `kind delete cluster --name rbac-lab`).'
+		],
+		done: [
+			'Avant le correctif, les deux vérifications de l’étape 3 répondent `yes` : le jeton lit les Secrets de `kube-system` et crée des Pods dans `default`.',
+			'Après le correctif, `get configmaps/report-config` répond `yes`, et `get configmaps/other` et `list secrets` répondent `no`.',
+			'`kubectl get role report-reader -n shop -o yaml` montre une seule règle : `configmaps`, `resourceNames: [report-config]`, `verbs: [get]`.'
+		],
+		solution: [
+			'Le ClusterRoleBinding donnait `edit` dans tous les namespaces : c’est par là que le jeton atteignait `kube-system`. Le supprimer est l’étape qui réduit la portée ; le nouveau Role seul ne retire rien.',
+			'`--resource-name` écrit `resourceNames`, qui limite `get` à un objet. Sans lui, `get configmaps/other` répondrait `yes`.',
+			'`kubectl auth can-i --as` interroge l’API server au nom du ServiceAccount : tu testes les droits du pod, pas les tiens.'
+		]
+	},
 	recall: {
 		q: 'Dans la fuite de tj-actions/changed-files, quelles deux propriétés d’un jeton fixaient son rayon d’impact ?',
 		a: 'Ses droits et sa durée de vie. Un `GITHUB_TOKEN` en `contents: read` meurt à la fin du job ; un personal access token stocké garde tous ses droits jusqu’à sa rotation.'

@@ -124,6 +124,44 @@ export default {
 			'Querying OSV on 17 October 2026 for 2.15.0 returns GHSA-7rjr-3q55-vv33 (CVE-2021-45046). The GitHub advisory explains why: "Log4j version 2.15.0 contained an earlier fix for the vulnerability, but that patch did not disable attacker-controlled JNDI lookups in all situations."',
 			'The same query for 2.12.2 still returns CVE-2021-44832 and CVE-2021-45105, among others. A version outside one record is not a version with no records.',
 			'So: query every version you ship against every record, pick a target version, query it too (2.17.1 still lists CVE-2025-68161 among three), and confirm with the dependency tree that no other copy of `log4j-core` stays behind.'
+		],
+		steps: [
+			{
+				title: 'Read the ranges',
+				questions: [
+					{ q: 'When is a version affected by an OSV range?', options: ['When it equals `fixed`', 'When it is at or above `introduced` and below `fixed`', 'When it is below `introduced`', 'When it is above `fixed`'], answer: 1, why: 'The range is `[introduced, fixed)`: `introduced` is included, `fixed` is not.' },
+					{ q: 'Is the `fixed` version itself affected?', options: ['Yes, it is the last vulnerable one', 'Only if no `limit` event exists', 'No: `fixed` is exclusive', 'Only for Maven packages'], answer: 2, why: '`IsVulnerable` sets `vulnerable` back to `false` at `fixed`. The event that names an included last version is `last_affected`.' },
+					{ q: 'How many ranges does this record list for `log4j-core`?', options: ['Three', 'One', 'Two', 'Four'], answer: 0, why: '`[2.13.0, 2.15.0)`, `[2.0-beta9, 2.3.1)` and `[2.4, 2.12.2)`.' },
+					{ q: 'A version must fall in how many of them to be affected?', options: ['All three', 'At least two', 'Exactly the last one', 'At least one'], answer: 3, why: 'Each range is a separate stretch of vulnerable versions. One match is enough.' }
+				]
+			},
+			{
+				title: 'Place each version',
+				questions: [
+					{ q: 'Is 2.14.1 affected by this record?', options: ['Yes, inside `[2.13.0, 2.15.0)`', 'No, it is above 2.13.0', 'No, it is below 2.15.0', 'Yes, inside `[2.4, 2.12.2)`'], answer: 0, why: '2.14.1 is at or above 2.13.0 and below 2.15.0.' },
+					{ q: 'Is 2.12.2 affected by this record?', options: ['Yes, inside `[2.4, 2.12.2)`', 'Yes, inside `[2.13.0, 2.15.0)`', 'No: 2.12.2 is the `fixed` of the third range', 'No: it is below `2.0-beta9`'], answer: 2, why: '`fixed` is exclusive, and 2.12.2 is the fix of that range.' },
+					{ q: 'Is 2.3 affected by this record?', options: ['No, it is too old', 'Yes, inside `[2.0-beta9, 2.3.1)`', 'No, it equals a `fixed` value', 'Yes, inside `[2.4, 2.12.2)`'], answer: 1, why: '2.3 is at or above `2.0-beta9` and below 2.3.1.' },
+					{ q: 'Is 2.15.0 affected by this record?', options: ['Yes, it is the `fixed` version', 'Yes, inside `[2.4, 2.12.2)`', 'Yes, inside `[2.13.0, 2.15.0)`', 'No'], answer: 3, why: '2.15.0 is the `fixed` of the first range and falls in no other.' }
+				]
+			},
+			{
+				title: 'Query the others',
+				questions: [
+					{ q: 'So 2.12.2 and 2.15.0 are safe?', options: ['Not yet: they are only outside this one record', 'Yes, the record says so', 'Yes, once the CVE is closed', 'Only 2.15.0 is'], answer: 0, why: 'A version outside one record is not a version with no records.' },
+					{ q: 'What does OSV return for 2.15.0, queried on 17 October 2026?', options: ['Nothing', 'GHSA-7rjr-3q55-vv33 (CVE-2021-45046)', 'Only CVE-2021-44228', 'A withdrawn record'], answer: 1, why: 'The 2.15.0 patch "did not disable attacker-controlled JNDI lookups in all situations."' },
+					{ q: 'And for 2.12.2?', options: ['Nothing, it is a fix release', 'Only CVE-2021-45046', 'CVE-2021-44832 and CVE-2021-45105, among others', 'Only GHSA-jfh8-c2jp-5v3q'], answer: 2, why: 'Being the fix for one range does not clear the version of other records.' },
+					{ q: 'Which call lists every record for one version?', options: ['`npm audit`', 'The `GHSA-jfh8-c2jp-5v3q` page', '`mvn dependency:tree`', '`curl -d \'{"package": ..., "version": "2.15.0"}\' https://api.osv.dev/v1/query`'], answer: 3, why: 'The OSV query takes a package and a version and returns every record that matches.' }
+				]
+			},
+			{
+				title: 'Say what you check',
+				questions: [
+					{ q: 'What do you query, for each service?', options: ['Every version you ship, against every record', 'Only the newest version', 'Only the record in the news', 'Only direct dependencies'], answer: 0, why: 'Each version can match records the others do not.' },
+					{ q: 'You pick 2.17.1 as the target. What next?', options: ['Ship it, it is newer', 'Query it too, since it still lists CVE-2025-68161', 'Skip tests, it is a patch release', 'Wait for the next CVE'], answer: 1, why: 'A target version can carry its own records. Query it like the others.' },
+					{ q: 'Why look at the dependency tree after upgrading?', options: ['To count lines of code', 'To find the license', 'To confirm no other copy of `log4j-core` stays behind', 'To check the build time'], answer: 2, why: 'Most affected artifacts got log4j through indirect dependencies, so a second copy can hide deeper in the tree.' },
+					{ q: 'Where does a scanner find a transitive copy?', options: ['In `package.json` or the `require` lines you wrote', 'In the README of each dependency', 'In the CVE text', 'In the lockfile'], answer: 3, why: 'A transitive dependency appears in the lockfile, not in the files you wrote.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ export default {
 			why: 'Plain `npm audit fix` updates within the ranges you declared. When the chain of meta-vulnerabilities reaches your root and needs a new range, only `--force` changes it, which can mean a new major version.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build the chapter’s `bar` and `foo` tree with a real package, let `npm audit` find the transitive copy, then fix it with an override.',
+		steps: [
+			'Make a local `bar` that pins an old lodash: `mkdir -p ~/audit-lab/bar && cd ~/audit-lab && printf \'%s\\n\' \'{"name": "bar", "version": "1.3.0", "dependencies": {"lodash": "4.17.20"}}\' > bar/package.json && npm pack ./bar`.',
+			'Install it in an app: `npm init -y && npm install ./bar-1.3.0.tgz`, then `npm ls lodash` and `grep lodash package.json`.',
+			'Scan: `npm audit`. Note the version range it reports for lodash, and why it says `No fix available`.',
+			'Ask OSV directly: `curl -s -d \'{"package":{"name":"lodash","ecosystem":"npm"},"version":"4.17.20"}\' https://api.osv.dev/v1/query`.',
+			'Override lodash in the root with its latest release: `npm pkg set overrides.lodash=$(npm view lodash version) && npm install`, then `npm ls lodash` and `npm audit` again.'
+		],
+		done: [
+			'`npm ls lodash` shows `bar@1.3.0` with `lodash@4.17.20` under it, and `grep lodash package.json` finds nothing.',
+			'`npm audit` lists `lodash` and also `bar`, with "Depends on vulnerable versions of lodash".',
+			'The OSV query returns a `vulns` list with GHSA ids.',
+			'After the override, `npm ls lodash` shows `overridden` and `npm audit` prints `found 0 vulnerabilities`.'
+		],
+		solution: [
+			'`bar` is the meta-vulnerability: it pins `4.17.20` exactly, so no release of `bar` and no `npm audit fix` can move lodash. That is why `npm audit` says `No fix available`.',
+			'With npm 11.9 in October 2026, `npm audit` reported `lodash <=4.17.23`, and `npm view lodash version` gave `4.18.1`, so the override was `npm pkg set overrides.lodash=4.18.1`.',
+			'`bar`’s maintainers never tested that pair. Run your own tests after an override.'
+		]
+	},
 	recall: {
 		q: 'How does an OSV record say which versions of a package are affected?',
 		a: 'With `affected[].ranges[].events`: a version is affected from `introduced` up to, not including, `fixed`. For CVE-2021-44228, log4j-core has introduced 2.13.0 and fixed 2.15.0, among other ranges.'

@@ -109,6 +109,44 @@ export default {
 			'Partie 2 : le code du pas T est accepté tant que le serveur est au pas T-1, T ou T+1. L’utilisateur l’a tapé 5 secondes après le début de T : il reste valable pendant les 25 secondes restantes de T, plus les 30 secondes de T+1, soit 55 secondes.',
 			'Comme `verify` ne garde aucune trace, l’attaquant peut l’utiliser autant de fois qu’il veut pendant ces 55 secondes. Stocker le pas renvoyé par `verify_and_get_timecode` et refuser tout pas qui n’est pas plus grand ramène ça à une seule utilisation.',
 			'Aucun de ces correctifs n’empêche la première utilisation relayée. Seule une clé WebAuthn, qui signe l’origine de la page, rend inutile le code saisi sur la fausse page.'
+		],
+		steps: [
+			{
+				title: 'Trouve l’offset',
+				questions: [
+					{ q: 'Quel octet du HMAC donne l’offset ?', options: ['Le premier octet', 'Le dernier octet', 'L’octet en position 4', 'L’octet du milieu'], answer: 1, why: 'Ligne 12 : `offset = hmac_hash[-1] & 0xF`, les 4 bits de poids faible du dernier octet.' },
+					{ q: 'Le HMAC se termine par `5a`. Quel est l’offset ?', options: ['5', '90', '10', '15'], answer: 2, why: '`0x5a & 0xF` garde le dernier chiffre hexadécimal, `a`, qui vaut 10.' },
+					{ q: 'Combien d’octets fait une sortie HMAC-SHA1 ?', options: ['16', '32', '8', '20'], answer: 3, why: 'La chaîne hexadécimale a 40 chiffres, deux par octet, donc 20 octets, numérotés de 0 à 19.' },
+					{ q: 'Pourquoi l’offset ne peut-il jamais dépasser la fin ?', options: ['Il vaut au plus 15, et les octets 15 à 18 tiennent dans 20', 'pyotp repart au début', 'Le secret est complété pour tenir', 'SHA-1 finit toujours par un petit octet'], answer: 0, why: '4 bits donnent 0 à 15. Lire 4 octets à partir de 15 s’arrête à l’octet 18, dans la sortie de 20 octets.' }
+				]
+			},
+			{
+				title: 'Lis le code',
+				questions: [
+					{ q: 'Quels 4 octets commencent à l’offset 10 ?', options: ['`ca 16 61 85`', '`50 ef 7f 19`', '`ef 7f 19 da`', '`55 5a 1f 86`'], answer: 1, why: 'En comptant à partir de 0, deux chiffres hexadécimaux par octet, les octets 10 à 13 sont `50 ef 7f 19`.' },
+					{ q: 'Que fait `& 0x7F` sur le premier octet ?', options: ['Il met le bit de poids fort à 0 : le nombre tient sur 31 bits et n’est jamais négatif', 'Il ne garde que le dernier chiffre', 'Il passe le nombre en base32', 'Il ajoute le pas de temps'], answer: 0, why: 'La RFC 4226 efface le bit de poids fort "to avoid confusion about signed vs. unsigned modulo computations" (pour éviter la confusion entre modulo signé et non signé).' },
+					{ q: '`0x50ef7f19` vaut 1357872921. Quel est le code à 6 chiffres ?', options: ['`135787`', '`357872`', '`921000`', '`872921`'], answer: 3, why: 'Le code est `code % 10**6`, les 6 derniers chiffres. C’est le résultat de l’exemple de la section 5.4 de la RFC 4226.' },
+					{ q: 'Le nombre modulo 10^6 vaut 41234. Qu’affiche pyotp ?', options: ['`41234`', '`412340`', '`041234`', '`0041234`'], answer: 2, why: 'Les lignes 19 et 20 ajoutent `10_000_000_000` et gardent les 6 derniers caractères, ce qui garde le zéro de tête.' }
+				]
+			},
+			{
+				title: 'Calcule la fenêtre',
+				questions: [
+					{ q: 'Avec `valid_window=1`, pour quels pas le serveur accepte-t-il un code ?', options: ['Seulement T', 'T et T+1', 'T-1, T et T+1', 'Tout pas des 10 dernières minutes'], answer: 2, why: 'Une fenêtre de 1 ajoute un pas de chaque côté du pas en cours.' },
+					{ q: 'L’utilisateur tape le code du pas T 5 secondes après le début de T. Combien reste-t-il de T ?', options: ['25 secondes', '30 secondes', '5 secondes', '55 secondes'], answer: 0, why: 'Un pas dure 30 secondes, et 5 sont passées.' },
+					{ q: 'Ce code du pas T est-il encore accepté pendant le pas T+1 ?', options: ['Non : il a expiré à la fin de T', 'Oui : pendant T+1, le serveur accepte aussi T, qui est son T-1', 'Seulement pendant les 5 premières secondes de T+1', 'Seulement si l’utilisateur le retape'], answer: 1, why: 'Au pas T+1, la fenêtre couvre T, T+1 et T+2 : le code du pas T passe encore.' },
+					{ q: 'Pendant combien de temps l’attaquant peut-il donc utiliser le code ?', options: ['30 secondes', '25 secondes', '85 secondes', '55 secondes'], answer: 3, why: 'Les 25 secondes restantes de T, plus les 30 secondes de T+1.' }
+				]
+			},
+			{
+				title: 'Compte les utilisations et corrige',
+				questions: [
+					{ q: 'Le serveur n’enregistre jamais les codes utilisés. Combien de fois l’attaquant peut-il utiliser le code pendant ces 55 secondes ?', options: ['Une fois', 'Deux fois', 'Autant de fois qu’il veut', 'Aucune : l’utilisateur l’a utilisé avant'], answer: 2, why: 'Le `verify` de pyotp ne garde aucune trace : le même code passe à chaque essai dans la fenêtre.' },
+					{ q: 'Que demande la RFC 6238 au vérificateur ?', options: ['Refuser une seconde utilisation d’un OTP déjà validé', 'Réduire le pas à 10 secondes', 'Envoyer aussi le code par SMS', 'Accepter tout code pendant 10 minutes'], answer: 0, why: 'Le vérificateur "MUST NOT accept the second attempt of the OTP after the successful validation" (ne doit pas accepter un second essai après une validation réussie).' },
+					{ q: 'Comment refuser les rejeux avec pyotp ?', options: ['Appeler `verify` deux fois', 'Passer `valid_window=0`', 'Stocker le code lui-même pour toujours', 'Stocker le pas renvoyé par `verify_and_get_timecode` et refuser tout pas qui n’est pas plus grand'], answer: 3, why: 'Une fois un pas utilisé, ce pas et tous les plus anciens sont refusés : il reste une seule utilisation.' },
+					{ q: 'Quel changement bloque aussi la première utilisation relayée ?', options: ['Un `valid_window` plus petit', 'Une clé WebAuthn, qui signe l’origine de la page', 'Huit chiffres au lieu de six', 'Envoyer le code par SMS'], answer: 1, why: 'Un code tapé ne dit rien de la page où on l’a tapé. Une signature WebAuthn nomme la fausse origine, et le vrai serveur la refuse.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,30 @@ export default {
 			why: 'Avec WebAuthn, le navigateur passe l’origine de la page à la clé avec le challenge du serveur, et la clé signe les deux. La signature faite sur `cloudflare-okta.com` porte cette origine, et le contrôle du vrai serveur échoue.'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Calcule des codes TOTP toi-même, retrouve les valeurs de test des RFC, et ajoute le contrôle anti-rejeu que le `verify` de pyotp laisse de côté.',
+		steps: [
+			'Crée un dossier : `mkdir -p ~/totp-lab && cd ~/totp-lab`.',
+			'Écris `totp.py` avec une fonction `totp(secret, t, digits=6)` : décode le secret en base32, calcule le HMAC-SHA1 du pas `int(t // 30)` écrit sur 8 octets big-endian, puis tronque comme les lignes 12 à 20 de pyotp. Fais afficher le code par `python3 totp.py SECRET TEMPS`.',
+			'Vérifie la valeur de test de la RFC 6238 : `python3 -c \'from totp import totp; print(totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59, 8))\'`.',
+			'Vérifie l’exercice à la main : `python3 -c \'n = int("50ef7f19", 16) & 0x7FFFFFFF; print(n, n % 10**6)\'`.',
+			'Regarde la frontière entre deux pas : `python3 totp.py GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ 59`, puis pareil avec `60` et `89`.',
+			'Écris `guard.py` avec `verify(secret, code, now, last_step)` : essaie les pas T-1, T et T+1, n’accepte qu’un pas plus grand que `last_step`, et renvoie-le, ou `None`. Teste-le : `python3 -c \'from totp import totp; from guard import verify; s = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; c = totp(s, 65); print(verify(s, c, 65, 0), verify(s, c, 70, 2), verify(s, c, 119, 0), verify(s, c, 120, 0))\'`.'
+		],
+		done: [
+			'La vérification RFC affiche `94287082`.',
+			'La vérification à la main affiche `1357872921 872921`.',
+			'Les temps `60` et `89` affichent le même code, et le temps `59` un autre.',
+			'Le test du garde affiche `2 None 2 None`.'
+		],
+		solution: [
+			'`h = hmac.new(base64.b32decode(secret), struct.pack(">Q", int(t // 30)), hashlib.sha1).digest()`',
+			'`o = h[-1] & 0xF`, puis `n = int.from_bytes(h[o:o + 4], "big") & 0x7FFFFFFF`, puis `return str(n % 10**digits).zfill(digits)`.',
+			'Dans `guard.py` : `for step in (now // 30 - 1, now // 30, now // 30 + 1): if step > last_step and totp(secret, step * 30) == code: return step`, puis `return None`.',
+			'Lis le test du garde : un code tapé à 65 (pas 2) passe une fois, est refusé quand le pas 2 est stocké, passe encore à 119 pour un utilisateur neuf, et échoue à 120. C’est la fenêtre de 55 secondes. Nettoie avec `rm -rf ~/totp-lab`.'
+		]
+	},
 	recall: {
 		q: 'Dans TOTP, comment le code à 6 chiffres sort-il de la sortie HMAC-SHA1 ?',
 		a: 'Prendre les 4 bits de poids faible du dernier octet comme offset, lire 4 octets à cet endroit, mettre le bit de poids fort à zéro et garder le nombre modulo 1 000 000. Pour le compteur 1 avec le secret de la RFC : offset 11, `41397eea`, 1094287082, code `287082`.'

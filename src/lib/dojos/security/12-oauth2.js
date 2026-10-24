@@ -119,6 +119,44 @@ export default {
 			'Downgrade: when `code.challenge` is empty and a verifier is sent, the request passes. An attacker who removed `code_challenge` from their own authorization request can inject that code into the victim’s session. authentik had this bug as CVE-2024-23647, and RFC 9700 section 4.8 describes the attack.',
 			'Also missing: the code is never checked for expiry or reuse (RFC 6749 recommends 10 minutes at most and says the client "MUST NOT use the authorization code more than once"), it is never checked against the client, and `redirect_uri` is never compared.',
 			'The hash: the command prints `E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM`, the `code_challenge` given in RFC 7636 appendix B.'
+		],
+		steps: [
+			{
+				title: 'Trace the endpoint',
+				questions: [
+					{ q: 'When does this endpoint compare `s256(verifier)` with the stored challenge?', options: ['On every request', 'Only when the code has a challenge', 'Only when both a verifier and a challenge are present', 'Only when the verifier is missing'], answer: 2, why: 'The test is `if verifier and code.challenge`. If either one is empty, the comparison is skipped.' },
+					{ q: 'The request does not hit the mismatch `return`. What does the endpoint do next?', options: ['It calls `issue_token(code.user)`', 'It deletes the code so it cannot be reused', 'It checks `redirect_uri` against the stored one', 'It returns `invalid_grant`'], answer: 0, why: 'The only refusal is the mismatch inside the `if`. Every other path falls through to `issue_token`.' },
+					{ q: 'Which value from the authorization step does the server compare at `/token`?', options: ['The `code_verifier` it stored with the code', 'The `code_challenge` and method it stored with the code', 'The user’s password hash', 'The `state` sent to `/authorize`'], answer: 1, why: 'The server records the challenge and its method with the code. The verifier arrives only once, in the token request.' },
+					{ q: 'In the authentik excerpt, which lines refuse a missing verifier when the code has a challenge?', options: ['Lines 8 to 24', 'Lines 41 and 42', 'Line 36', 'Lines 29 and 30'], answer: 3, why: 'Lines 29 and 30 raise `invalid_grant` when the code had PKCE and the request has no verifier.' }
+				]
+			},
+			{
+				title: 'Find the PKCE gaps',
+				questions: [
+					{ q: '`code.challenge` is set and the request has no `code_verifier`. What happens?', options: ['`invalid_grant`, because the challenge is set', 'A token is issued: the `if` is skipped', 'The server asks the client to retry with a verifier', '`invalid_grant`, because `s256(None)` fails'], answer: 1, why: '`verifier` is `None`, so `if verifier and code.challenge` is false and the code falls through to `issue_token`.' },
+					{ q: 'Who uses that first gap?', options: ['A malicious app that caught the code on the custom scheme', 'An attacker who guesses the verifier', 'The real app after its verifier expires', 'A user who logs in twice'], answer: 0, why: 'The malicious app has the code but no verifier. With this gap the code alone is enough. authentik had this bug as CVE-2023-48228.' },
+					{ q: '`code.challenge` is empty and the request sends a verifier. What should a server do?', options: ['Issue the token: a verifier is extra proof', 'Hash the verifier and store it as the challenge', 'Ignore the verifier and issue the token', 'Refuse with `invalid_grant`, to stop a PKCE downgrade'], answer: 3, why: 'RFC 9700 says a token request with a `code_verifier` is accepted only if a `code_challenge` was in the authorization request.' },
+					{ q: 'What does the downgrade attacker do?', options: ['Removes `code_challenge` from their own authorization request, then slips the code into the victim’s session', 'Changes the method from `S256` to `plain` in the token request', 'Sends the code twice in a row', 'Reads the verifier from the redirect URL'], answer: 0, why: 'The victim’s app then sends its own verifier with a code that has no challenge. authentik had this bug as CVE-2024-23647.' }
+				]
+			},
+			{
+				title: 'Find the other gaps',
+				questions: [
+					{ q: 'What does RFC 6749 recommend as the most an authorization code should live?', options: ['60 seconds', '1 hour', '10 minutes', 'Until the user logs out'], answer: 2, why: 'RFC 6749 recommends a lifetime of 10 minutes at most. This endpoint never checks expiry.' },
+					{ q: 'The same code arrives a second time. What does this endpoint do?', options: ['Issues a second token: nothing marks the code as used', 'Refuses it, since `Code.objects.get` fails on reuse', 'Returns the first token again', 'Revokes the first token'], answer: 0, why: 'Nothing deletes or marks the code. RFC 6749 says the client "MUST NOT use the authorization code more than once", and the server has to enforce it.' },
+					{ q: 'Which check from authentik’s lines 8 to 24 is missing here, besides expiry?', options: ['The `state` comparison', 'The client secret check', 'The scope check', 'The `redirect_uri` match and the check that the code belongs to this client'], answer: 3, why: 'authentik checks `redirect_uri` and that the code was issued by this provider. Here any client can redeem any code.' },
+					{ q: 'What does authentik answer for each of those failures?', options: ['A different error for each, so the client can fix it', 'The same `invalid_grant`', 'An HTTP 500', '`invalid_client` for all of them'], answer: 1, why: 'Every failure in the excerpt raises `TokenError("invalid_grant")`.' }
+				]
+			},
+			{
+				title: 'Check the hash by hand',
+				questions: [
+					{ q: 'Which formula gives the S256 challenge?', options: ['SHA-256 of the verifier, as hex', 'base64 of the verifier, with no hash', 'base64url of SHA-256 of the verifier, with the `=` padding removed', 'HMAC-SHA256 of the verifier with the client secret'], answer: 2, why: 'RFC 7636 section 4.6 defines `BASE64URL(SHA256(verifier))`, and authentik strips the `=` padding.' },
+					{ q: 'In the hint’s pipeline, what does `tr "+/" "-_"` do?', options: ['Turns standard base64 into base64url', 'Removes the padding', 'Turns the hash into hex', 'Escapes the value for a URL query'], answer: 0, why: 'base64url uses `-` and `_` where base64 uses `+` and `/`. The next `tr -d "="` drops the padding.' },
+					{ q: 'Why `openssl dgst -sha256 -binary` and not the default output?', options: ['The default output is slower', 'The default uses a different hash', 'The binary form adds the padding', 'The challenge hashes raw bytes, and the default prints hex text'], answer: 3, why: 'base64url must encode the 32 raw bytes of the hash. Encoding the hex text would give a different, longer string.' },
+					{ q: 'The command prints the challenge from RFC 7636 appendix B. What does that prove?', options: ['That the verifier is secret', 'That your pipeline matches the S256 formula a server uses', 'That the server checks PKCE correctly', 'That SHA-256 can be reversed'], answer: 1, why: 'It is a known test vector: matching it means your hash, encoding and padding steps are right.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,28 @@ export default {
 			why: 'The victim’s app sends its own verifier with the attacker’s code. The server sees a verifier for a code issued without a challenge, which RFC 9700 says it must refuse. authentik added this check in 2023.8.7 and 2023.10.7.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Make your own `code_verifier` and challenge, then write the two PKCE checks a token endpoint needs and test them on four requests.',
+		steps: [
+			'Make a folder: `mkdir -p ~/pkce-lab && cd ~/pkce-lab`. Check your hash pipeline on the RFC 7636 appendix B verifier first, as in the task.',
+			'Make a verifier like Go’s `GenerateVerifier` does, from 32 random bytes: `v=$(openssl rand 32 | base64 | tr "+/" "-_" | tr -d "="); echo "$v" ${#v}`.',
+			'Make its challenge: `c=$(printf %s "$v" | openssl dgst -sha256 -binary | base64 | tr "+/" "-_" | tr -d "="); echo "$c"`.',
+			'Write `pkce.py`: a function `check(challenge, verifier)` that returns `token issued` or an `invalid_grant` reason, and prints `check(sys.argv[1], sys.argv[2])`. An empty string stands for a missing value.',
+			'Play the four requests: `python3 pkce.py "$c" "$v"` (the real app), `python3 pkce.py "$c" ""` (the app that caught the code), `python3 pkce.py "$c" wrong`, and `python3 pkce.py "" "$v"` (the downgrade).'
+		],
+		done: [
+			'`echo "$v" ${#v}` ends with `43`.',
+			'`python3 pkce.py "$c" "$v"` prints `token issued`.',
+			'The other three requests each print a line starting with `invalid_grant`.'
+		],
+		solution: [
+			'`s256 = lambda v: base64.urlsafe_b64encode(hashlib.sha256(v.encode()).digest()).rstrip(b"=").decode()`, the same formula as authentik’s `pkce_s256_challenge`.',
+			'`if challenge and not verifier: return "invalid_grant: no verifier"`: the check CVE-2023-48228 was about.',
+			'`if challenge and s256(verifier) != challenge: return "invalid_grant: mismatch"`, then `if verifier and not challenge: return "invalid_grant: downgrade"`: the check CVE-2024-23647 was about. Otherwise `return "token issued"`.',
+			'To see the task’s bug, keep only `if verifier and challenge and s256(verifier) != challenge` and delete the other two checks. The caught code and the downgrade now print `token issued`. Clean up with `rm -rf ~/pkce-lab`.'
+		]
+	},
 	recall: {
 		q: 'At the token endpoint, which two cases must a PKCE server refuse with `invalid_grant`?',
 		a: 'A code issued with a `code_challenge` but no `code_verifier` in the request (CVE-2023-48228), and a `code_verifier` sent for a code issued without a challenge (CVE-2024-23647).'

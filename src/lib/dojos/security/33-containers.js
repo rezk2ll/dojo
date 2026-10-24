@@ -97,6 +97,44 @@ EXPOSE 8080 8081`,
 			'Shell: `python:3.12` contains `/bin/sh` and `pip`. Install the requirements into a virtualenv in a build stage, then copy it and `/app` into `FROM gcr.io/distroless/python3-debian13`, which has neither. Its entrypoint is already Python, so write `CMD ["/app/server.py"]` in JSON form.',
 			'Capabilities: `SYS_ADMIN` performs "a range of system administration operations" and nothing here needs it. Port 8080 needs no capability, so drop them all.',
 			'New line: `docker run -d -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid --cap-drop ALL --security-opt no-new-privileges shop-api`.'
+		],
+		steps: [
+			{
+				title: 'Check the user',
+				questions: [
+					{ q: 'The Dockerfile has no `USER` line. Which uid does `server.py` run as?', options: ['0, root', '65532, nonroot', '65534, nobody', '1000, the first user'], answer: 0, why: 'Docker starts the first process as `root` unless the image sets `USER`.' },
+					{ q: 'Why does root in the container matter for CVE-2019-5736?', options: ['It does not: the CVE hit only untagged images', 'The exploit needed a command running as root in the container', 'The exploit needed `--privileged`', 'The exploit needed the Docker socket mounted'], answer: 1, why: 'The runc announcement: the attacker needed to run any command "as root within a container". A non-root uid does not meet that condition.' },
+					{ q: 'Which `USER` line goes into the distroless final stage?', options: ['`USER root`', '`USER 0`', '`USER nonroot`', '`USER app`, created with `useradd`'], answer: 2, why: 'Distroless already defines `nonroot`. It has no `useradd` or shell to create a new user with.' },
+					{ q: 'Which uid does distroless give `nonroot`?', options: ['0', '65534', '1000', '65532'], answer: 3, why: 'Distroless defines `nonroot` with uid 65532, and `nobody` with uid 65534.' }
+				]
+			},
+			{
+				title: 'Take the shell away',
+				questions: [
+					{ q: 'What does `python:3.12` ship that an attacker can use after a bug in the app?', options: ['`/bin/sh` and `pip`', 'Only the Python interpreter', 'Nothing beyond the app', 'A busybox debug shell'], answer: 0, why: 'The full image has a shell to run commands and a package manager to fetch tools.' },
+					{ q: 'How do you keep `pip install` and still ship no shell?', options: ['Run `pip install` when the container starts', 'Install into a virtualenv in a build stage, then copy it into distroless', 'Delete `/bin/sh` with a last `RUN rm`', 'Switch the base to `python:3.12-slim`'], answer: 1, why: 'The build stage has `pip` and a shell. Only the virtualenv and `/app` reach `gcr.io/distroless/python3-debian13`.' },
+					{ q: 'Why write `CMD ["/app/server.py"]` in JSON form?', options: ['The JSON form starts faster', 'Docker refuses the string form on Python images', 'There is no shell to run a string command, and the entrypoint is already Python', 'It makes `/app` read-only'], answer: 2, why: 'The distroless README asks for the JSON form because a string command needs `/bin/sh`.' },
+					{ q: 'Later, an engineer runs `docker exec -it shop sh` on the new image. What happens?', options: ['A shell starts as root', 'Docker injects busybox for the exec', 'It asks for the root password', 'It fails: the image has no `sh` to run'], answer: 3, why: 'Distroless images "do not contain package managers, shells or any other programs". The `:debug` tags exist for this.' }
+				]
+			},
+			{
+				title: 'Fix the capabilities',
+				questions: [
+					{ q: 'What is `SYS_ADMIN` for?', options: ['Binding ports below 1024', '"a range of system administration operations"', 'Writing files to `/tmp`', 'Running the Python interpreter'], answer: 1, why: 'It is one of the widest capabilities, and nothing in this service needs it.' },
+					{ q: 'Which capability does listening on port 8080 need?', options: ['None: 8080 is above 1024', '`CAP_NET_BIND_SERVICE`', '`CAP_NET_RAW`', '`SYS_ADMIN`'], answer: 0, why: 'Only ports below 1024 need `CAP_NET_BIND_SERVICE`. A port above 1024 needs no capability.' },
+					{ q: 'How many capabilities does Docker keep by default, before `--cap-add SYS_ADMIN`?', options: ['None', '4', '14', 'All of them'], answer: 2, why: 'Docker keeps 14 by default, among them `CAP_NET_RAW` and `CAP_SETUID`.' },
+					{ q: 'Which flags remove every capability and stop `su` and `sudo` from working?', options: ['`--user nobody`', '`--read-only`', '`--cap-add NET_BIND_SERVICE`', '`--cap-drop ALL --security-opt no-new-privileges`'], answer: 3, why: '`--cap-drop ALL` removes the 14 defaults, and `no-new-privileges` stops processes from gaining new privileges.' }
+				]
+			},
+			{
+				title: 'Write the new run line',
+				questions: [
+					{ q: 'The app writes temporary files to `/tmp`. With `--read-only`, what do you add?', options: ['`-v /tmp:/tmp`, to share the host’s `/tmp`', '`--tmpfs /tmp:rw,noexec,nosuid`', '`--cap-add DAC_OVERRIDE`', 'Nothing: `/tmp` stays writable'], answer: 1, why: 'A tmpfs gives the app a writable directory in memory. The rest of the filesystem stays read-only, and nothing is shared with the host.' },
+					{ q: 'What does `noexec` on that tmpfs stop?', options: ['Writing files to `/tmp`', 'Reading files in `/tmp`', 'Running a file the attacker drops in `/tmp`', 'Deleting files in `/tmp`'], answer: 2, why: 'The app can still write its temporary files. A binary written there cannot be executed.' },
+					{ q: 'Which line is the new `docker run`?', options: ['`docker run -d -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid --cap-drop ALL --security-opt no-new-privileges shop-api`', '`docker run -d -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid --cap-drop ALL --cap-add SYS_ADMIN shop-api`', '`docker run -d -p 8080:8080 --tmpfs /tmp:rw,noexec,nosuid --cap-drop ALL shop-api`', '`docker run -d -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid --privileged shop-api`'], answer: 0, why: 'It has all of them: read-only root, a `noexec` tmpfs for `/tmp`, no capabilities, and no new privileges. The user and the shell are fixed in the image.' },
+					{ q: 'What does `no-new-privileges` add on top of `--cap-drop ALL`?', options: ['The filesystem becomes read-only', 'The process runs as uid 65532', 'Port 8080 is blocked from outside', 'Commands such as `su` or `sudo` no longer work'], answer: 3, why: 'The Docker docs: with this option, `su` or `sudo` "no longer work". The process cannot climb back to more privileges.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -134,6 +172,30 @@ EXPOSE 8080 8081`,
 			why: 'Distroless images "do not contain package managers, shells or any other programs". The image has no `/bin/sh`, so `docker exec` has nothing to start. The `:debug` tags add a busybox shell for that reason.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Take the Docker defaults away one by one and watch each defence work: non-root user, read-only filesystem, no capabilities, no shell.',
+		steps: [
+			'See the default user: `docker run --rm python:3.12-alpine id`, then `docker run --rm --user 65534 python:3.12-alpine id`.',
+			'Try a read-only root: `docker run --rm --read-only python:3.12-alpine touch /usr/bin/x`. Then give it a `noexec` tmpfs and try to run a copied binary there: `docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid python:3.12-alpine sh -c "cp /bin/busybox /tmp/bb && /tmp/bb true"`.',
+			'Compare the capability masks: `docker run --rm python:3.12-alpine grep CapEff /proc/self/status`, then the same with `--cap-drop ALL`.',
+			'Run a small web server with every defence on: `docker run -d --name shop-lab -p 8088:8080 --user 65534 --read-only --tmpfs /tmp:rw,noexec,nosuid --cap-drop ALL --security-opt no-new-privileges python:3.12-alpine python -m http.server 8080 -d /tmp`, then `curl -I localhost:8088` and `docker exec shop-lab id`.',
+			'Try to get a shell in a distroless image: `docker run --rm --entrypoint sh gcr.io/distroless/static-debian13`.',
+			'Clean up: `docker stop shop-lab && docker rm shop-lab`.'
+		],
+		done: [
+			'The first `id` prints `uid=0(root)`, the second `uid=65534(nobody)`.',
+			'`touch` fails with `Read-only file system`, and `/tmp/bb` fails with `Permission denied` although the copy worked.',
+			'`CapEff` is a non-zero mask by default and `0000000000000000` with `--cap-drop ALL`.',
+			'`curl -I localhost:8088` returns `HTTP/1.0 200 OK`, and `docker exec shop-lab id` shows uid 65534.',
+			'The distroless run fails with `exec: "sh": executable file not found in $PATH`.'
+		],
+		solution: [
+			'Port 8080 inside the container is above 1024, so the server needs no capability at all.',
+			'`noexec` lets the app write to `/tmp` but stops anything written there from running.',
+			'For a real service, set `USER` in the image instead of `--user`, so every run gets it.'
+		]
+	},
 	recall: {
 		q: 'Which four settings take away Docker’s defaults for a container process, and what uid does kube-state-metrics run as?',
 		a: 'A non-root `USER`, `--read-only` with a tmpfs, `--cap-drop ALL` with `no-new-privileges`, and a distroless base with no shell. kube-state-metrics runs as `nobody`, uid 65534.'

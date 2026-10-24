@@ -117,6 +117,44 @@ export default {
 			'Redis: set `bind 127.0.0.1` in `redis.conf`, or block 6379 at the firewall. SSH: allow port 22 from your admin network only.',
 			'Actuator: `*` sets `matchesAll`, so `env`, `beans`, `mappings`, `threaddump` and every other endpoint with unrestricted access answer on 8080. Replace it with `include=health`, or move management to `management.server.port=8081` with `management.server.address=127.0.0.1`.',
 			'Check again: `ss -tlnp` shows 6379 on `127.0.0.1`, and `curl http://host:8080/actuator/env` from another machine no longer returns the endpoint.'
+		],
+		steps: [
+			{
+				title: 'Read the address column',
+				questions: [
+					{ q: 'Which address means "every network interface"?', options: ['`127.0.0.1`', '`0.0.0.0`', '`::1`', '`localhost`'], answer: 1, why: 'A socket on `0.0.0.0` accepts connections on every interface, including the external one.' },
+					{ q: 'Which ports can another machine reach?', options: ['Only 8080', '8080 and 5432', 'All four of them', '22, 8080 and 6379'], answer: 3, why: 'These three listen on `0.0.0.0`. PostgreSQL on `127.0.0.1` only takes local connections.' },
+					{ q: 'Why is PostgreSQL not on that list?', options: ['Its port is above 5000', 'It asks for a password', 'It is bound to `127.0.0.1`, this machine only', '`ss` hides database ports'], answer: 2, why: '`127.0.0.1` is the loopback address. Only processes on the same machine can connect.' },
+					{ q: 'Only 8080 should serve users. Which reachable items are extra?', options: ['Redis on 6379, and SSH from outside your admins', 'Only PostgreSQL', 'Only SSH', 'Nothing: every port is needed'], answer: 0, why: 'Users need 8080. Redis has no reason to be reachable, and SSH only from your admin network.' }
+				]
+			},
+			{
+				title: 'Cut the extra ports',
+				questions: [
+					{ q: 'Which change takes Redis off the network?', options: ['Move it to port 16379', 'Set `protected-mode no`', '`bind 127.0.0.1` in `redis.conf`', 'Rename the `redis-server` process'], answer: 2, why: 'Bound to loopback, it only accepts local clients. Blocking 6379 at the firewall also works.' },
+					{ q: 'What do you do with SSH on port 22?', options: ['Allow it from your admin network only', 'Close it and lose remote access', 'Move it to port 2222 and leave it open', 'Leave it, since SSH has a password'], answer: 0, why: 'Admins still need it. Limiting who can reach it shrinks the surface without losing access.' },
+					{ q: 'Why does moving a service to another port not shrink the surface?', options: ['Scanners only check low ports', 'It still answers anyone who can reach the new port', 'Ports above 1024 are private', 'It does shrink it, by half'], answer: 1, why: 'The service still answers anyone who can route a packet to it. Only the number changed.' },
+					{ q: 'What does OWASP count as attack surface?', options: ['Only open TCP ports', 'Only the public URLs of the site', 'Only code with a known CVE', 'Every point where an attacker can get in or get data out'], answer: 3, why: 'OWASP: "all of the different points where an attacker could get into a system, and where they could get data out."' }
+				]
+			},
+			{
+				title: 'Cut the actuator',
+				questions: [
+					{ q: 'What does `exposure.include=*` do?', options: ['It sets `matchesAll`, so every endpoint answers', 'It exposes `health` and `info` only', 'It exposes nothing until you list ids', 'It exposes only read-only endpoints'], answer: 0, why: 'The `"*".equals(pattern)` line sets `matchesAll`. One character exposes every endpoint the app has.' },
+					{ q: 'Which endpoints then answer on 8080?', options: ['Only `health`', 'Only `shutdown` and `heapdump`', '`env`, `beans`, `threaddump` and every other unrestricted one', 'Only the ones listed in `exclude`'], answer: 2, why: 'By default, every endpoint except `shutdown` and `heapdump` has unrestricted access, so `*` puts them all on the user port.' },
+					{ q: 'Which value gives back Spring Boot\'s default exposure?', options: ['`include=*` with `exclude=env`', '`include=info`', '`include=gateway`', '`include=health`'], answer: 3, why: 'The default web exposure is `health` alone. Listing only it keeps every other endpoint off.' },
+					{ q: 'Which other setup keeps `/actuator` off the network?', options: ['`management.server.port=8080` on all interfaces', '`management.server.port=8081` with `management.server.address=127.0.0.1`', 'A second copy of the app on port 8080', '`management.endpoints.web.base-path=/hidden`'], answer: 1, why: 'The docs say the app then "does not allow remote management connections". Even a later `*` stays off the network.' }
+				]
+			},
+			{
+				title: 'Check again',
+				questions: [
+					{ q: 'Which output shows the Redis fix worked?', options: ['`ss -tlnp` shows 6379 on `0.0.0.0`', 'Redis answers `PONG` from another machine', '`redis-cli ping` fails on the server', '`ss -tlnp` shows 6379 on `127.0.0.1`'], answer: 3, why: 'The address column is the proof: loopback only.' },
+					{ q: 'How do you test the actuator change?', options: ['`curl localhost:8080/actuator/env` on the server', '`curl http://host:8080/actuator/env` from another machine', 'Read `application.properties` again', 'Restart the app and read its log'], answer: 1, why: 'Test from where an attacker stands. The endpoint must no longer come back.' },
+					{ q: 'After the fixes, what can another machine reach?', options: ['8080 for users, and 22 from the admin network', '8080, plus Redis in read-only mode', '8080, 6379 and 5432', 'Nothing at all'], answer: 0, why: 'Redis and the actuator are off the network, and SSH is limited to your admins.' },
+					{ q: 'A teammate later opens a new port. What does OWASP say that change should trigger?', options: ['Nothing, if the port is above 1024', 'A new CVSS score', 'Threat modeling', 'A restart of every service'], answer: 2, why: 'Each new route, dependency or port changes the list, and OWASP says such a change "should trigger threat modeling".' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,27 @@ export default {
 			why: 'The advisory says the bug needs the gateway actuator endpoint "enabled, exposed and unsecured". Disabling it, or putting authentication in front, removes that path. The `exclude` option would also hide the endpoint, but it is not what the advisory says, and `*` still exposes everything else.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Open two listening sockets, one on every interface and one on loopback, and see which one the network can reach.',
+		steps: [
+			'Make a folder and start two web servers: `mkdir -p ~/surface-lab && cd ~/surface-lab`, then `python3 -m http.server 8001 --bind 0.0.0.0 &` and `python3 -m http.server 8002 --bind 127.0.0.1 &`.',
+			'List the listening sockets. Linux: `ss -tln | grep 800`. macOS: `lsof -nP -iTCP -sTCP:LISTEN | grep 800`.',
+			'Find your LAN address: `hostname -I` on Linux, `ipconfig getifaddr en0` on macOS. Call both ports through it: `curl -s -o /dev/null -w "%{http_code}\\n" http://<your-ip>:8001/`, then the same for `8002`.',
+			'List everything your laptop listens on: `ss -tlnp` (Linux) or `lsof -nP -iTCP -sTCP:LISTEN` (macOS). Mark each line on `0.0.0.0`, `*` or `[::]` as reachable from the network.',
+			'Stop the two servers: `kill %1 %2`.'
+		],
+		done: [
+			'The list shows `0.0.0.0:8001` (`*:8001` in lsof) and `127.0.0.1:8002`.',
+			'Through your LAN address, 8001 returns `200` and 8002 returns `000`: the connection is refused.',
+			'You have a list of the sockets on your own laptop that listen on every interface.'
+		],
+		solution: [
+			'The bind address decides who can connect. `0.0.0.0` accepts on every interface, `127.0.0.1` only from the same machine.',
+			'A request to the LAN address arrives on the external interface, where nothing listens on 8002. That is why it is refused.',
+			'The task\'s Redis fix is the same move: `bind 127.0.0.1` in `redis.conf`, after which `ss -tlnp` shows `127.0.0.1:6379`.'
+		]
+	},
 	recall: {
 		q: 'Under which condition was a Spring Cloud Gateway 3.1.0 app open to CVE-2022-22947, and what is Spring Boot\'s default HTTP exposure?',
 		a: 'When the gateway actuator endpoint was enabled, exposed and unsecured. By default, Spring Boot exposes only `health` over HTTP.'

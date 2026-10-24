@@ -102,6 +102,44 @@ export default {
 			'In the handler: `const result = ProfileUpdate.safeParse(await request.json())`, then `if (!result.success) return json({ issues: result.error.issues }, { status: 400 })`, then `Object.assign(user, result.data)` and save.',
 			'The old line copied every key, so a body with `"role": "admin"` or `"email_verified": true` set those columns. With the strict schema the same body returns 400 with an `unrecognized_keys` issue, and nothing is saved.',
 			'The body size has a limit before `request.json()` runs: `adapter-node` reads `BODY_SIZE_LIMIT`, which "Defaults to 512kb". In Rails the same list is `params.expect(user: [:name, :email, :bio])`.'
+		],
+		steps: [
+			{
+				title: 'Spot the hole',
+				questions: [
+					{ q: 'What does `Object.assign(user, body)` copy?', options: ['Only the keys the form shows', 'Only keys `user` already has', 'Every own key of `body`', 'Only string values'], answer: 2, why: '`Object.assign` copies every own key of the source, whether or not the target had it.' },
+					{ q: 'A client sends `{ "role": "admin" }`. What happens?', options: ['The `role` column is set to `admin`', 'SvelteKit drops it, since the form lacks it', 'The save fails with a type error', 'Nothing: `role` is read only'], answer: 0, why: 'The client controls every field in the body, including fields the form never showed.' },
+					{ q: 'What is this kind of hole called?', options: ['Path traversal', 'Mass assignment', 'Unsafe deserialization', 'Cross-site request forgery'], answer: 1, why: 'Passing a whole request hash to a model in one call is mass assignment. GitHub’s 2012 incident came from it.' },
+					{ q: 'Why not just delete `role` and `email_verified` from `body`?', options: ['It is slower than a schema', 'JavaScript cannot delete keys from parsed JSON', 'Zod forbids it', 'A deny-list misses the next column a migration adds'], answer: 3, why: 'A deny-list must name every sensitive column, including next year’s. An allow-list keeps them all out by default.' }
+				]
+			},
+			{
+				title: 'List the fields',
+				questions: [
+					{ q: 'Which fields go in the allow-list?', options: ['`name`, `email`, `bio`', '`name`, `email`, `bio`, `role`', 'Every column of `users`', '`role` and `email_verified`'], answer: 0, why: 'The list is the fields the form shows. Everything else stays out.' },
+					{ q: 'What limit goes on `name`?', options: ['At most 2000 characters', '1 to 100 characters', 'At most 254 characters', 'No limit, the database checks it'], answer: 1, why: 'The prompt asks for a name of 1 to 100 characters: `z.string().min(1).max(100)`.' },
+					{ q: 'Which zod 4 schema checks the email format?', options: ['`z.string().includes("@")`', '`z.string().max(254)`', '`z.email()`', '`z.url()`'], answer: 2, why: '`z.email()` validates the format. The answer adds `.max(254)`, which is its own choice.' },
+					{ q: 'Where does `bio` stand?', options: ['Required, 1 to 2000 characters', 'Required, any length', 'Removed, since it is free text', 'Optional, at most 2000 characters'], answer: 3, why: '`z.string().max(2000).optional()` lets the form leave it out and caps its size.' }
+				]
+			},
+			{
+				title: 'Pick the object mode',
+				questions: [
+					{ q: 'Unknown fields must be rejected with a 400. Which zod builder?', options: ['`z.object`', '`z.strictObject`', '`z.looseObject`', '`z.record`'], answer: 1, why: '`z.strictObject` reports an `unrecognized_keys` issue for any field it does not declare.' },
+					{ q: 'What would plain `z.object` do with `"role": "admin"`?', options: ['Strip it from the result', 'Throw an `unrecognized_keys` error', 'Keep it in the result', 'Throw because `role` has no type'], answer: 0, why: 'The zod docs: "By default, unrecognized keys are *stripped* from the parsed result".' },
+					{ q: 'And `z.looseObject`?', options: ['Strips it', 'Throws on it', 'Converts it to a string', 'Keeps it in the result'], answer: 3, why: '`z.looseObject` passes unknown keys through, so `role` would reach the model.' },
+					{ q: 'Why might another endpoint pick `z.object` over strict?', options: ['It runs faster', 'It checks types more strictly', 'Old clients still send a removed field, and strict mode would break them', 'It also checks the user’s rights'], answer: 2, why: 'Strict rejection breaks old clients. You choose the mode per endpoint.' }
+				]
+			},
+			{
+				title: 'Wire it into the handler',
+				questions: [
+					{ q: 'Which call parses the body without throwing?', options: ['`ProfileUpdate.safeParse(await request.json())`', '`ProfileUpdate.parse(request)`', '`JSON.parse(ProfileUpdate)`', '`ProfileUpdate.check(body)`'], answer: 0, why: '`safeParse` returns `{ success, data }` or `{ success: false, error }`, so the handler can answer 400.' },
+					{ q: 'What do you pass to `Object.assign`?', options: ['`body`', '`result.data`', '`result`', '`{ ...body, ...result.data }`'], answer: 1, why: '`result.data` holds only the declared keys, each within its limit.' },
+					{ q: 'A body with `"email_verified": true` arrives. What does the client get?', options: ['200, and the flag is saved', '200, and the flag is ignored', '500, since the schema throws', '400 with an `unrecognized_keys` issue, nothing saved'], answer: 3, why: 'The strict schema rejects the unknown key, and the handler returns before saving.' },
+					{ q: 'What does the schema still not check?', options: ['The length of `bio`', 'The format of `email`', 'Whether the caller may change this account', 'Unknown fields'], answer: 2, why: 'OWASP: "a valid account identifier does not mean the caller may access that account." The handler checks rights separately.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -139,6 +177,29 @@ export default {
 			why: 'The zod docs: "By default, unrecognized keys are *stripped* from the parsed result". `z.strictObject` throws on unknown keys, and `z.looseObject` keeps them.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'See `Object.assign` set a column the form never showed, then block it with a strict zod schema.',
+		steps: [
+			'Set up: `mkdir -p ~/zod-lab && cd ~/zod-lab && npm init -y && npm install zod@4`.',
+			'Mass-assign a body: `node -e \'const user = { name: "Ada", role: "user", email_verified: false }; Object.assign(user, JSON.parse(process.argv[1])); console.log(user)\' \'{"name":"Eve","role":"admin","email_verified":true}\'`.',
+			'Write `profile.mjs`: import `z` from `zod`, declare `ProfileUpdate` with `z.strictObject` (name 1 to 100, email, bio at most 2000 and optional), run `safeParse` on `JSON.parse(process.argv[2])`, and print `result.data` or the issue codes.',
+			'Try three bodies: `node profile.mjs \'{"name":"Eve","email":"eve@example.com"}\'`, then the same with `"role":"admin"` added, then `\'{"name":"","email":"nope"}\'`.',
+			'Swap `z.strictObject` for `z.object` and run the `role` body again.'
+		],
+		done: [
+			'Step 2 prints `role: \'admin\'` and `email_verified: true`.',
+			'The first body prints `{ name: \'Eve\', email: \'eve@example.com\' }`.',
+			'The `role` body prints `[ \'unrecognized_keys\' ]`, and the third prints `[ \'too_small\', \'invalid_format\' ]`.',
+			'With `z.object`, the `role` body passes and `role` is gone from the result.'
+		],
+		solution: [
+			'`import { z } from \'zod\';`',
+			'`const ProfileUpdate = z.strictObject({ name: z.string().min(1).max(100), email: z.email().max(254), bio: z.string().max(2000).optional() });`',
+			'`const result = ProfileUpdate.safeParse(JSON.parse(process.argv[2]));`',
+			'`console.log(result.success ? result.data : result.error.issues.map((i) => i.code));`'
+		]
+	},
 	recall: {
 		q: 'In Rails, which call turns `params` into something a model accepts, and what does Active Model raise without it?',
 		a: '`params.expect(user: [:name, :email])` (or `permit`) builds a new `Parameters` with only the listed keys and marks it permitted. Without it, `User.create(params[:user])` raises `ActiveModel::ForbiddenAttributesError`.'

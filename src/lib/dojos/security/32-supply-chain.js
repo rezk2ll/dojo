@@ -104,6 +104,44 @@ if(NOT SANDBOX_FOUND AND ENABLE_SANDBOX MATCHES "^ON$|^landlock$")
 			'B: reject. The spec: "Verification tools SHOULD reject unrecognized fields in `externalParameters`". A compiler flag passed this way can change the binary without any change in git.',
 			'C: reject. Without provenance from a trusted builder, the package is at Build L0 at best. The xz 5.6.0 and 5.6.1 tarballs took this path: built and signed on the maintainer’s own machine.',
 			'D: accept. Accepting D tells you the package came from the official repository through the official workflow. It does not tell you the code in that repository is honest.'
+		],
+		steps: [
+			{
+				title: 'Know what you compare',
+				questions: [
+					{ q: 'What does a provenance record tell you about a package?', options: ['How it was built: platform, source repo and commit, parameters', 'Who reviewed each commit before the build', 'Every dependency it uses, with versions', 'The known CVEs in the package'], answer: 0, why: 'Provenance is a signed record of how an artifact was built. Reviews, dependency lists and CVEs are other tools.' },
+					{ q: 'All four uploads have a valid signature. Why is that not enough to accept them?', options: ['Signatures expire after one release', 'A signature shows who signed, not how or from what it was built', 'Only Build L3 builders can make valid signatures', 'Distros check signatures on major releases only'], answer: 1, why: 'The xz 5.6.0 tarballs had a valid signature too. The person who planted the backdoor was the one who signed them.' },
+					{ q: 'You expect a builder at Build L3. What does L3 add on top of L2?', options: ['Two maintainers review every commit', 'Two builders produce identical bytes', 'Runs are isolated and signing secrets are hidden from build steps', 'An SBOM is published next to the package'], answer: 2, why: 'The spec asks the L3 platform to keep runs from influencing one another and to keep the provenance signing secret away from user-defined build steps.' },
+					{ q: 'What are the expected `externalParameters` for `my-package`?', options: ['Anything, as long as the builder is right', '`{ "workflow": "release.yml" }`, plus any extra inputs', '`{ "ref": "refs/heads/main" }`', '`{ "workflow": "release.yml", "ref": "refs/tags/v*" }`'], answer: 3, why: 'Your expectations name the workflow and the tag pattern, and nothing else. Anything more is a field you do not recognize.' }
+				]
+			},
+			{
+				title: 'Check where each one came from',
+				questions: [
+					{ q: 'A says source `github.com/evilfork/my-package`. What do you do?', options: ['Accept: the builder and signature are fine', 'Reject: the source does not match, a build from an unofficial fork', 'Accept, if the fork holds the same commits', 'Reject only if the fork is private'], answer: 1, why: 'SLSA calls this "Build from unofficial fork of code". The source location does not match your expectation, so the verifier rejects it.' },
+					{ q: 'C has no provenance and was uploaded from a maintainer’s laptop. Which Build level is it at, at best?', options: ['L0', 'L1', 'L2', 'L3'], answer: 0, why: 'Without provenance from a trusted builder, there is no build guarantee at all. L0 is the bottom rung.' },
+					{ q: 'Which part of the xz story took the same path as C?', options: ['The two binary test files in git', 'The GitHub "source code" archives', 'The 5.6.0 and 5.6.1 tarballs, built and signed on the maintainer’s own machine', 'The commit that removed the Landlock dot'], answer: 2, why: 'Lasse Collin wrote that those tarballs "were created and signed by Jia Tan". The GitHub archives, built from git, did not have the trigger line.' },
+					{ q: 'Why would requiring Build L2 provenance have caught the `build-to-host.m4` line?', options: ['A hosted builder builds from the repo, and that line was in no commit', 'L2 scans tarballs for hidden code', 'L2 needs two maintainers to sign', 'L2 refuses m4 files in a release'], answer: 0, why: 'At L2 the hosted platform checks out the repository and signs the provenance itself. A file that no commit contains cannot come with matching provenance.' }
+				]
+			},
+			{
+				title: 'Check the parameters',
+				questions: [
+					{ q: 'B matches everything, plus `inputs: { "CFLAGS": "-DBACKDOOR" }`. What does the spec say about such a field?', options: ['Verifiers MAY ignore it', 'Verifiers SHOULD reject unrecognized fields in `externalParameters`', 'Verifiers MUST log it, then accept', 'It is only allowed at Build L3'], answer: 1, why: 'The SLSA verification page says exactly that. An unknown parameter is a reason to reject, not to wave through.' },
+					{ q: 'Why is an extra compiler flag dangerous?', options: ['It slows the build down', 'It breaks the signature', 'It can change the binary without any change in git', 'It only works on x86-64'], answer: 2, why: 'The code in the repository stays clean, and the flag alone changes what gets compiled.' },
+					{ q: 'B’s source and builder both match. Does that make B safe?', options: ['Yes: source and builder are what count', 'Yes, if the flag is in the README', 'No: B has no valid signature', 'No: the parameters also shape what gets built'], answer: 3, why: 'Builder, source and parameters all decide the result. One wrong field is enough to reject.' },
+					{ q: 'After A, B and C, how many uploads have you accepted?', options: ['None', 'Only B', 'B and C', 'Only A'], answer: 0, why: 'A fails on the source, B on the parameters, C on the missing provenance.' }
+				]
+			},
+			{
+				title: 'Decide and say what it proves',
+				questions: [
+					{ q: 'D matches the builder, the source and the parameters. What do you do?', options: ['Reject: nothing proves the code is honest', 'Accept it', 'Accept only after a reproducible build', 'Ask for an SBOM first'], answer: 1, why: 'D meets every expectation you set. Rejecting everything that passes would make the check pointless.' },
+					{ q: 'What does accepting D tell you?', options: ['The code in the repo is honest', 'No dependency has a known CVE', 'It came from the official repo through the official workflow', 'Two maintainers reviewed every commit'], answer: 2, why: 'Provenance is about how and from where the package was built. It says nothing about the intent of the code.' },
+					{ q: 'Would provenance have stopped the xz test files and the Landlock dot?', options: ['No: they came through the real repo, so their provenance is correct', 'Yes: they are binary files', 'Yes: Build L3 would hide them', 'No: provenance only covers Debian builds'], answer: 0, why: 'The SLSA threats page says a malicious producer "cannot be directly mitigated through SLSA controls".' },
+					{ q: 'Your CI stores provenance next to each package, and no step ever reads it. What does it stop?', options: ['Forks, since the source is recorded', 'Laptop builds, since they lack provenance', 'Extra parameters, since they are logged', 'Nothing: a provenance file nobody verifies stops nothing'], answer: 3, why: 'The consumer has to compare the provenance with expectations. Without that check, A, B and C go through.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -141,6 +179,26 @@ if(NOT SANDBOX_FOUND AND ENABLE_SANDBOX MATCHES "^ON$|^landlock$")
 			why: 'The spec requires the Build L3 platform to "prevent runs from influencing one another" and to keep the provenance signing secret away from user-defined build steps. Two-person review, reproducible builds and SBOMs are not in the Build L3 requirements.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build a release by hand that carries a file no commit contains, sign it, and see that the signature passes while a comparison with git catches it.',
+		steps: [
+			'Make a tiny project with one commit: `mkdir -p ~/slsa-lab && cd ~/slsa-lab && git init -q proj && cd proj && printf "int main(void){return 0;}\\n" > main.c && git add main.c && git -c user.name=me -c user.email=me@example.com commit -qm v1`.',
+			'Make the archive straight from git: `git archive --format=tar.gz --prefix=proj/ -o ../from-git.tar.gz HEAD`.',
+			'Play the maintainer building on a laptop, with one extra file: `mkdir -p ../laptop/proj/m4 && cp main.c ../laptop/proj/ && echo "# extra line, in no commit" > ../laptop/proj/m4/build-to-host.m4 && tar -czf ../release.tar.gz -C ../laptop proj`.',
+			'Sign the laptop release with your own key, then verify it: `cd .. && openssl genpkey -algorithm ed25519 -out key.pem && openssl pkey -in key.pem -pubout -out pub.pem && openssl pkeyutl -sign -inkey key.pem -rawin -in release.tar.gz -out release.sig`, then `openssl pkeyutl -verify -pubin -inkey pub.pem -rawin -in release.tar.gz -sigfile release.sig`. On macOS this needs OpenSSL 3, not the LibreSSL that ships with the system.',
+			'Compare the two archives: `mkdir a b && tar -xzf from-git.tar.gz -C a && tar -xzf release.tar.gz -C b && diff -r a/proj b/proj`.'
+		],
+		done: [
+			'`openssl pkeyutl -verify` prints `Signature Verified Successfully` for `release.tar.gz`.',
+			'`diff -r a/proj b/proj` prints `Only in b/proj: m4`.'
+		],
+		solution: [
+			'The signature is valid because the signer is the person who added the file. That is the xz 5.6.0 situation in miniature.',
+			'The archive built from git has no `m4` folder. A hosted builder that checks out the repository and signs provenance would produce that archive, never the laptop one.',
+			'As a consumer, require provenance naming your builder and source repo. A release built anywhere else fails, whoever signed it.'
+		]
+	},
 	recall: {
 		q: 'In xz 5.6.0 and 5.6.1, which part of the backdoor lived only in the release tarballs, and who signed them?',
 		a: 'The trigger line in `m4/build-to-host.m4`, absent from git. The tarballs were created and signed by co-maintainer Jia Tan (CVE-2024-3094).'

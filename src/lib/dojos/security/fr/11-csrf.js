@@ -119,6 +119,44 @@ export default {
 			'`api_invite` depuis `evil.example` : non. Le POST `fetch()` est intersite et ce n’est pas une navigation de premier niveau : Lax retire le cookie et la requête arrive anonyme. Depuis `blog.shop.example` : oui. La requête est same-site, le cookie part avec, et `@csrf_exempt` saute les deux contrôles ligne 7.',
 			'Pour `delete_photo` : n’accepte que POST (`@require_POST` de Django) et mets `{% csrf_token %}` dans le formulaire de suppression. Le contrôle du jeton s’applique alors.',
 			'Pour `api_invite` : retire `@csrf_exempt` et fais envoyer le jeton par le front dans un en-tête `X-CSRFToken`. Le contrôle d’Origin des lignes 21 à 25 rejette aussi `https://blog.shop.example`, absente de `CSRF_TRUSTED_ORIGINS`.'
+		],
+		steps: [
+			{
+				title: 'Lis la config',
+				questions: [
+					{ q: 'Avec `SameSite=Lax`, quand le navigateur joint-il `sessionid` à une requête lancée par un autre site ?', options: ['Sur toute requête, du moment qu’elle passe en HTTPS', 'Seulement pour une navigation de premier niveau avec une méthode sûre comme GET', 'Jamais : Lax bloque toute requête intersite', 'Seulement sur un POST envoyé avec `fetch()`'], answer: 1, why: 'Lax n’envoie le cookie d’un site à l’autre que pour une navigation de premier niveau avec une méthode sûre. Un POST intersite arrive sans lui.' },
+					{ q: '`shop.example` et `blog.shop.example` sont-ils same-site ?', options: ['Non : les hôtes diffèrent', 'Seulement s’ils utilisent le même port', 'Oui : même schéma et même domaine enregistrable', 'Seulement si `blog` figure dans `CSRF_TRUSTED_ORIGINS`'], answer: 2, why: 'Same-site compare le schéma et le domaine enregistrable. Les sous-domaines de `shop.example` sont same-site, donc Lax envoie toujours le cookie entre eux.' },
+					{ q: 'Quelles méthodes `CsrfViewMiddleware` accepte-t-il sans contrôle ligne 12 ?', options: ['GET, HEAD, OPTIONS et TRACE', 'GET et POST', 'Seulement GET', 'Toutes les méthodes quand le cookie est Lax'], answer: 0, why: 'Django considère les méthodes sûres de la RFC 9110 comme sans danger et les accepte tout de suite. C’est pour ça qu’un GET ne doit jamais modifier de données.' },
+					{ q: 'Que fait `@csrf_exempt` à une vue ?', options: ['Il saute seulement le contrôle du jeton et garde celui d’Origin', 'Il active à la place le contrôle de l’en-tête `X-CSRFToken`', 'Il sort ligne 7, sans contrôle d’Origin ni contrôle de jeton', 'Il pose `SameSite=Strict` sur le cookie de session'], answer: 2, why: 'La ligne 7 renvoie `None` pour une vue exemptée avant tout contrôle. Rien ne le signale.' }
+				]
+			},
+			{
+				title: 'Vérifie `delete_photo`',
+				questions: [
+					{ q: 'Une page de `evil.example` met un lien vers `https://shop.example/photos/42/delete`. Alice clique. `sessionid` part-il ?', options: ['Non : Lax retire le cookie de toute requête intersite', 'Oui : c’est une navigation GET de premier niveau', 'Non : le lien vient d’un autre domaine enregistrable', 'Seulement si le lien s’ouvre dans un nouvel onglet'], answer: 1, why: 'Un lien est une navigation de premier niveau en GET, le seul cas intersite où Lax envoie encore le cookie.' },
+					{ q: 'Le GET arrive chez Django avec la session d’Alice. Que fait le middleware ?', options: ['Il le rejette : le jeton manque', 'Il contrôle d’abord l’en-tête `Origin`', 'Il l’accepte ligne 12 sans contrôle', 'Il réclame l’en-tête `X-CSRFToken`'], answer: 2, why: 'GET est une méthode sûre pour Django, donc la ligne 12 l’accepte. La vue supprime alors la photo.' },
+					{ q: 'Une page de `blog.shop.example` peut-elle forger la même suppression ?', options: ['Oui : elle est same-site, le cookie part avec, et le GET n’est pas contrôlé', 'Non : `blog.shop.example` n’est pas dans `CSRF_TRUSTED_ORIGINS`', 'Non : Lax bloque les requêtes entre sous-domaines', 'Seulement avec un formulaire POST'], answer: 0, why: 'Une requête same-site porte toujours le cookie, et le contrôle d’Origin ne tourne jamais sur un GET.' },
+					{ q: 'Quel est le vrai défaut de `delete_photo` ?', options: ['Le cookie est Lax au lieu de Strict', 'Elle modifie des données sur un GET, que Django ne contrôle jamais', 'Elle a oublié `@csrf_exempt`', 'Elle prend l’`id` de la photo dans l’URL'], answer: 1, why: 'Django part du principe que les méthodes sûres n’ont pas d’effet dangereux. Une vue qui supprime sur un GET casse ce principe et s’ouvre à n’importe quel lien.' }
+				]
+			},
+			{
+				title: 'Vérifie `api_invite`',
+				questions: [
+					{ q: 'Une page de `evil.example` appelle `fetch()` en POST vers `api_invite`. `sessionid` part-il ?', options: ['Oui : `fetch()` avec `credentials: "include"` envoie toujours les cookies', 'Non : c’est intersite et pas une navigation de premier niveau, donc Lax le retire', 'Oui : Lax ne s’applique qu’aux formulaires', 'Non : le navigateur bloque la requête avant son départ'], answer: 1, why: 'Un POST `fetch()` intersite n’est pas une navigation de premier niveau. Lax retire le cookie et la requête arrive anonyme.' },
+					{ q: 'Alors, `evil.example` peut-il inviter un utilisateur via `api_invite` ?', options: ['Oui : `@csrf_exempt` saute tous les contrôles', 'Oui : les corps JSON ne sont jamais contrôlés', 'Seulement si l’en-tête Origin manque', 'Non : la requête n’a pas de session, elle est anonyme'], answer: 3, why: 'Sans le cookie, le serveur ne voit aucun utilisateur connecté. C’est Lax qui sauve ce cas, pas Django.' },
+					{ q: 'Une page de `blog.shop.example` envoie le même POST `fetch()`. Que se passe-t-il ?', options: ['Ça marche : le cookie part avec et `@csrf_exempt` saute les deux contrôles', 'Ça échoue : le contrôle d’Origin rejette le sous-domaine', 'Ça échoue : Lax retire les cookies de tout POST', 'Ça échoue : le contrôle du jeton tourne car le corps est en JSON'], answer: 0, why: 'Same-site veut dire que le cookie est joint, et la vue exemptée sort ligne 7 avant les contrôles d’Origin et de jeton.' },
+					{ q: 'Quel bug passé correspond à ce second cas ?', options: ['Une vue qui supprime sur un GET', 'Un `{% csrf_token %}` oublié dans un template', 'Le cas Grafana : Lax actif, mais la page d’attaque était same-site', 'Un jeton comparé sans `constant_time_compare`'], answer: 2, why: 'Grafana comptait sur Lax, et la page d’attaque tournait sur une origine same-site, où Lax envoie encore le cookie.' }
+				]
+			},
+			{
+				title: 'Corrige les deux vues',
+				questions: [
+					{ q: 'Comment corriges-tu `delete_photo` ?', options: ['Passer `SESSION_COOKIE_SAMESITE = "Strict"` et garder le GET', 'N’accepter que POST avec `@require_POST` et mettre `{% csrf_token %}` dans le formulaire', 'Contrôler l’en-tête `Referer` dans la vue', 'La marquer `@csrf_exempt` et vérifier la session à la main'], answer: 1, why: 'Dès que la suppression passe en POST, le middleware lui applique les contrôles d’Origin et de jeton.' },
+					{ q: 'Comment corriges-tu `api_invite` ?', options: ['Garder `@csrf_exempt` et ajouter `blog.shop.example` à `CSRF_TRUSTED_ORIGINS`', 'Passer le corps de JSON à un formulaire', 'Retirer `@csrf_exempt` et envoyer le jeton dans un en-tête `X-CSRFToken`', 'Demander au front d’envoyer `credentials: "omit"`'], answer: 2, why: 'Sans l’exemption, le middleware contrôle le jeton de l’en-tête, que les appels `fetch()` envoient dans `X-CSRFToken`.' },
+					{ q: 'Après le correctif, une page de `blog.shop.example` fait un POST vers `api_invite`. Quel contrôle l’arrête en premier ?', options: ['Le contrôle du jeton ligne 36', 'SameSite=Lax sur le cookie', 'Le contrôle des méthodes sûres ligne 12', 'Le contrôle d’Origin des lignes 21 à 25'], answer: 3, why: '`https://blog.shop.example` n’est ni l’origine de l’appli ni dans `CSRF_TRUSTED_ORIGINS` : le contrôle d’Origin la rejette avant même de lire le jeton.' },
+					{ q: 'Pourquoi la page du blog ne peut-elle pas simplement recopier le jeton dans sa requête ?', options: ['Elle ne peut lire ni les pages de `shop.example` ni la valeur `csrftoken`', 'Le jeton change chaque seconde', 'Les navigateurs retirent l’en-tête `X-CSRFToken` entre origines', 'Le jeton est signé avec le mot de passe d’Alice'], answer: 0, why: 'Le jeton est un secret aléatoire des pages et du cookie de `shop.example`. Une autre origine peut faire envoyer une requête, mais pas lire ce secret.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -156,6 +194,30 @@ export default {
 			why: 'SameSite compare des sites (schéma et domaine enregistrable), et le port n’en fait pas partie. Le write-up de jub0bs indique que `http://localhost:8081` "is same-site with respect to" `http://localhost:3000` : Lax a donc envoyé le cookie. Un contrôle d’Origin ou de jeton l’aurait bloqué.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Fais tourner le `CsrfViewMiddleware` de Django sur localhost et regarde-le accepter un GET, ignorer une vue exemptée, et refuser un POST sans jeton ou avec une `Origin` étrangère.',
+		steps: [
+			'Crée un dossier avec Django dedans : `mkdir -p ~/csrf-lab && cd ~/csrf-lab && python3 -m venv .venv && . .venv/bin/activate && pip install django`.',
+			'Écris une appli d’un seul fichier avec trois URL (`/token`, `/email`, et `/invite` marquée `csrf_exempt`) : `printf \'%s\\n\' \'import sys\' \'from django.conf import settings\' \'settings.configure(DEBUG=True, SECRET_KEY="lab", ROOT_URLCONF=__name__, MIDDLEWARE=["django.middleware.csrf.CsrfViewMiddleware"])\' \'from django.http import HttpResponse\' \'from django.middleware.csrf import get_token\' \'from django.urls import path\' \'from django.views.decorators.csrf import csrf_exempt\' \'ok = lambda r: HttpResponse(r.method + " accepted\\n")\' \'urlpatterns = [path("token", lambda r: HttpResponse(get_token(r))), path("email", ok), path("invite", csrf_exempt(ok))]\' \'from django.core.management import execute_from_command_line\' \'execute_from_command_line(sys.argv)\' > app.py`',
+			'Lance-la dans le terminal A : `python app.py runserver 8000`. Garde un œil sur son log.',
+			'Dans le terminal B, `cd ~/csrf-lab`, puis envoie ce qu’enverrait une requête forgée : `curl -s -o /dev/null -w "%{http_code}\\n" -X POST localhost:8000/email`, puis `curl -s localhost:8000/email`, puis `curl -s -X POST localhost:8000/invite`.',
+			'Joue maintenant la vraie page. Récupère un jeton et son cookie : `tok=$(curl -s -c jar -b jar localhost:8000/token); echo "$tok"`. Puis `curl -s -b jar -H "X-CSRFToken: $tok" -X POST localhost:8000/email`.',
+			'Envoie la même requête avec une origine étrangère : `curl -s -o /dev/null -w "%{http_code}\\n" -b jar -H "X-CSRFToken: $tok" -H "Origin: http://evil.example" -X POST localhost:8000/email`. Arrête le serveur avec Ctrl+C quand tu as fini.'
+		],
+		done: [
+			'Le POST vers `/email` sans jeton affiche `403`, et le log de A dit `CSRF cookie not set`.',
+			'`curl -s localhost:8000/email` affiche `GET accepted`, et le POST vers `/invite` affiche `POST accepted`.',
+			'`echo "$tok"` affiche 64 caractères, et le POST avec ce jeton affiche `POST accepted`.',
+			'Le POST avec `Origin: http://evil.example` affiche `403`, et le log dit `Origin checking failed`.'
+		],
+		solution: [
+			'Le GET passe car la ligne 12 accepte les méthodes sûres sans contrôle. Une vue qui supprime sur un GET supprimerait ici aussi.',
+			'`/invite` passe car `csrf_exempt` sort ligne 7, avant les contrôles d’Origin et de jeton.',
+			'Le POST avec jeton passe car l’en-tête `X-CSRFToken` se démasque en le même secret que le cookie `csrftoken` de `jar`. Une page d’un autre site ne peut lire ni l’un ni l’autre.',
+			'L’`Origin` étrangère échoue avant même la lecture du jeton : `http://evil.example` n’est ni l’origine de l’appli ni dans `CSRF_TRUSTED_ORIGINS`. Nettoie avec `rm -rf ~/csrf-lab`.'
+		]
+	},
 	recall: {
 		q: 'Sur un POST, quelles deux valeurs le `CsrfViewMiddleware` de Django compare-t-il ?',
 		a: 'Le champ `csrfmiddlewaretoken` (ou l’en-tête `X-CSRFToken`), démasqué de 64 à 32 caractères, et le secret du cookie `csrftoken`, avec `constant_time_compare`.'

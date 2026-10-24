@@ -132,6 +132,44 @@ export default {
 			'S: `to=email` mails the address the visitor typed. With a case-insensitive lookup, a lookalike address can match the account and get the link, as in Django CVE-2019-19844. Send to `user.email`.',
 			'S: `request.host` comes from the `Host` header, which the attacker sets. The link could point to their server and leak the token when the victim clicks. OWASP: the URL "should either be hard-coded, or validated against a list of trusted domains".',
 			'D and R: nothing limits requests per account, and nothing is logged. Add a rate limit per account and log each request with the target account.'
+		],
+		steps: [
+			{
+				title: 'Find who controls each value',
+				questions: [
+					{ q: 'In (4), who chooses the address in `to=`?', options: ['The `users` table', 'The mail server', 'Whoever sent the request', 'The app configuration'], answer: 2, why: '`request.form["email"]` is what the browser posted. Whoever sends the request picks it.' },
+					{ q: 'Where does `request.host` come from?', options: ['The `Host` header, which the sender sets', 'The server name in the app config', 'The TLS certificate of the site', 'The DNS record of the domain'], answer: 0, why: 'It is read from the `Host` header of the request. The attacker can put any value there.' },
+					{ q: 'How do you use STRIDE on this handler?', options: ['Rank each line by likelihood times impact', 'Pick the one letter that fits the feature best', 'Run it once on the whole app, not per feature', 'Ask all six prompts of every step and arrow'], answer: 3, why: 'STRIDE is six prompts, and you ask each one of every box and arrow. It finds threats; it does not rank them.' },
+					{ q: 'What does the R prompt ask of this handler?', options: ['Can someone read data they should not see?', 'Can you prove later who asked for which account?', 'Can someone gain admin rights through the form?', 'Can someone change the token after it is sent?'], answer: 1, why: 'Repudiation is about proof after the fact. GitLab could tell admins what to search for because its audit log recorded each reset request.' }
+				]
+			},
+			{
+				title: 'Check the replies and the token',
+				questions: [
+					{ q: '(2) answers "No account with that email" with a 404. Which letter is it?', options: ['Spoofing', 'Tampering', 'Information disclosure', 'Denial of service'], answer: 2, why: 'Each request leaks one fact: whether that address has an account. Anyone can test a list of addresses.' },
+					{ q: 'What do you return instead?', options: ['"Email sent" in every case, in the same time', 'A 403 instead of a 404 for unknown emails', 'The same message, but after a CAPTCHA', 'A 404 with an empty body'], answer: 0, why: 'OWASP asks for a consistent message for existing and missing accounts, in the same time. A different status code or a slower answer still leaks.' },
+					{ q: 'How many tokens can `random.randint(100000, 999999)` produce?', options: ['999,999', '900,000', '1,000,000', '100,000'], answer: 1, why: 'From 100000 to 999999 is 900,000 values, all 6 digits long.' },
+					{ q: 'At 100 guesses a second, how long does it take to try every token?', options: ['About 15 minutes', 'About 25 hours', 'About 9 days', 'About 2.5 hours'], answer: 3, why: '900,000 values at 100 a second is 9,000 seconds, 2.5 hours. With no expiry, the token waits that long.' }
+				]
+			},
+			{
+				title: 'Check where the link goes',
+				questions: [
+					{ q: '(4) mails `request.form["email"]`, and the lookup ignores case. What can go wrong?', options: ['The mail server rejects mixed-case addresses', 'A lookalike address matches the account and gets the link', 'The token is saved for the wrong user', 'The mail leaves before the token is saved'], answer: 1, why: 'That is Django CVE-2019-19844: a crafted address matched a real account after Unicode case folding, and the link went to the attacker.' },
+					{ q: 'Which address should the link go to?', options: ['The typed address, lowercased first', 'Both the typed and the stored address', 'An address the user confirms on the page', '`user.email`, read from the database row'], answer: 3, why: 'Only the stored address belongs to the owner. GitLab CVE-2023-7028 mailed links to addresses taken from the request.' },
+					{ q: 'An attacker posts ana\'s address with `Host: evil.example`. What does ana receive?', options: ['A real token in a link to evil.example', 'An error, because the host does not match', 'A link to the real site with no token', 'No email, because the host is unknown'], answer: 0, why: 'The link is built from `request.host`. When ana clicks, her browser sends a valid token to the attacker\'s server.' },
+					{ q: 'What does OWASP say about the reset URL?', options: ['Build it from the `Referer` header', 'Build it from the request host, over HTTPS', 'Hard-code it, or check it against trusted domains', 'Let the user choose it in the form'], answer: 2, why: 'OWASP: the URL "should either be hard-coded, or validated against a list of trusted domains". The `Host` header is neither.' }
+				]
+			},
+			{
+				title: 'Close the gaps',
+				questions: [
+					{ q: 'After the I and S fixes, which letters does the handler still fail?', options: ['D and R', 'T and E', 'Only T', 'None'], answer: 0, why: 'Nothing limits requests per account (D), and nothing is logged (R).' },
+					{ q: 'Someone sends thousands of resets an hour for ana. What do you add?', options: ['Lock ana\'s account after 5 requests', 'A longer token in each email', 'A rate limit per account', 'A second mail server for resets'], answer: 2, why: 'OWASP asks for a rate limit per account, and says accounts should not be locked out by a forgotten password attack.' },
+					{ q: 'What does each log entry need?', options: ['The token, so support can resend it', 'The new password, for support', 'Only the time of the request', 'Who asked, and for which account'], answer: 3, why: 'That is what let GitLab point admins at the bad requests. Never log the token: whoever holds it can set the password.' },
+					{ q: 'Which token follows the OWASP rules?', options: ['`random.randint` with 12 digits, no expiry', '`secrets.token_urlsafe(32)`, hashed, expiring, single use', '`secrets.token_urlsafe(32)`, valid until next login', 'A SHA-256 of the email and today\'s date'], answer: 1, why: 'OWASP: a secure random generator, long enough, tied to one user, invalid after use. The Python docs say `random` "should not be used for security purposes".' }
+				]
+			}
 		]
 	},
 	quiz: [

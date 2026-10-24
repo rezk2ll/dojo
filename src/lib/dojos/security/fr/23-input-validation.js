@@ -102,6 +102,44 @@ export default {
 			'Dans le handler : `const result = ProfileUpdate.safeParse(await request.json())`, puis `if (!result.success) return json({ issues: result.error.issues }, { status: 400 })`, puis `Object.assign(user, result.data)` et l’enregistrement.',
 			'L’ancienne ligne copiait toutes les clés : un corps avec `"role": "admin"` ou `"email_verified": true` modifiait ces colonnes. Avec le schéma strict, ce même corps reçoit un 400 avec un problème `unrecognized_keys`, et rien n’est enregistré.',
 			'La taille du corps est limitée avant que `request.json()` tourne : `adapter-node` lit `BODY_SIZE_LIMIT`, qui "Defaults to 512kb". En Rails, la même liste s’écrit `params.expect(user: [:name, :email, :bio])`.'
+		],
+		steps: [
+			{
+				title: 'Repère le trou',
+				questions: [
+					{ q: 'Que copie `Object.assign(user, body)` ?', options: ['Seulement les clés du formulaire', 'Seulement les clés que `user` a déjà', 'Chaque clé propre de `body`', 'Seulement les valeurs texte'], answer: 2, why: '`Object.assign` copie chaque clé propre de la source, que la cible l’ait ou non.' },
+					{ q: 'Un client envoie `{ "role": "admin" }`. Que se passe-t-il ?', options: ['La colonne `role` passe à `admin`', 'SvelteKit l’écarte, car le formulaire ne l’a pas', 'L’enregistrement échoue sur une erreur de type', 'Rien : `role` est en lecture seule'], answer: 0, why: 'Le client contrôle chaque champ du corps, y compris ceux que le formulaire n’a jamais affichés.' },
+					{ q: 'Comment s’appelle ce genre de trou ?', options: ['Path traversal', 'Mass assignment', 'Désérialisation dangereuse', 'Cross-site request forgery'], answer: 1, why: 'Passer tout le hash de la requête à un modèle en un appel, c’est du mass assignment. L’incident GitHub de 2012 venait de là.' },
+					{ q: 'Pourquoi ne pas juste retirer `role` et `email_verified` de `body` ?', options: ['C’est plus lent qu’un schéma', 'JavaScript ne sait pas retirer une clé d’un JSON lu', 'Zod l’interdit', 'Une liste de blocage rate la prochaine colonne ajoutée par une migration'], answer: 3, why: 'Une liste de blocage doit nommer chaque colonne sensible, y compris celles de l’an prochain. Une liste d’autorisation les écarte toutes par défaut.' }
+				]
+			},
+			{
+				title: 'Liste les champs',
+				questions: [
+					{ q: 'Quels champs vont dans la liste d’autorisation ?', options: ['`name`, `email`, `bio`', '`name`, `email`, `bio`, `role`', 'Toutes les colonnes de `users`', '`role` et `email_verified`'], answer: 0, why: 'La liste, ce sont les champs que montre le formulaire. Tout le reste reste dehors.' },
+					{ q: 'Quelle limite pour `name` ?', options: ['2000 caractères au plus', 'De 1 à 100 caractères', '254 caractères au plus', 'Aucune, la base vérifie'], answer: 1, why: 'L’énoncé demande un name de 1 à 100 caractères : `z.string().min(1).max(100)`.' },
+					{ q: 'Quel schéma zod 4 vérifie le format de l’email ?', options: ['`z.string().includes("@")`', '`z.string().max(254)`', '`z.email()`', '`z.url()`'], answer: 2, why: '`z.email()` valide le format. La réponse ajoute `.max(254)`, qui est son propre choix.' },
+					{ q: 'Quelle règle pour `bio` ?', options: ['Obligatoire, de 1 à 2000 caractères', 'Obligatoire, sans limite', 'Retiré, car c’est du texte libre', 'Optionnel, 2000 caractères au plus'], answer: 3, why: '`z.string().max(2000).optional()` laisse le formulaire l’omettre et borne sa taille.' }
+				]
+			},
+			{
+				title: 'Choisis le mode d’objet',
+				questions: [
+					{ q: 'Les champs inconnus doivent être refusés avec un 400. Quel constructeur zod ?', options: ['`z.object`', '`z.strictObject`', '`z.looseObject`', '`z.record`'], answer: 1, why: '`z.strictObject` signale un problème `unrecognized_keys` pour tout champ qu’il ne déclare pas.' },
+					{ q: 'Que ferait un simple `z.object` de `"role": "admin"` ?', options: ['Le retirer du résultat', 'Lever une erreur `unrecognized_keys`', 'Le garder dans le résultat', 'Lever une erreur car `role` n’a pas de type'], answer: 0, why: 'La doc de zod : "By default, unrecognized keys are *stripped* from the parsed result".' },
+					{ q: 'Et `z.looseObject` ?', options: ['Il le retire', 'Il lève une erreur', 'Il le convertit en chaîne', 'Il le garde dans le résultat'], answer: 3, why: '`z.looseObject` laisse passer les clés inconnues, donc `role` atteindrait le modèle.' },
+					{ q: 'Pourquoi un autre endpoint choisirait-il `z.object` plutôt que strict ?', options: ['Il est plus rapide', 'Il vérifie les types plus strictement', 'De vieux clients envoient encore un champ retiré, et le mode strict les casserait', 'Il vérifie aussi les droits de l’utilisateur'], answer: 2, why: 'Le refus strict casse les vieux clients. Tu choisis le mode endpoint par endpoint.' }
+				]
+			},
+			{
+				title: 'Branche-le dans le handler',
+				questions: [
+					{ q: 'Quel appel lit le corps sans lever d’exception ?', options: ['`ProfileUpdate.safeParse(await request.json())`', '`ProfileUpdate.parse(request)`', '`JSON.parse(ProfileUpdate)`', '`ProfileUpdate.check(body)`'], answer: 0, why: '`safeParse` renvoie `{ success, data }` ou `{ success: false, error }`, et le handler peut répondre 400.' },
+					{ q: 'Que passes-tu à `Object.assign` ?', options: ['`body`', '`result.data`', '`result`', '`{ ...body, ...result.data }`'], answer: 1, why: '`result.data` ne contient que les clés déclarées, chacune dans sa limite.' },
+					{ q: 'Un corps avec `"email_verified": true` arrive. Que reçoit le client ?', options: ['200, et le drapeau est enregistré', '200, et le drapeau est ignoré', '500, car le schéma lève une erreur', '400 avec un problème `unrecognized_keys`, rien d’enregistré'], answer: 3, why: 'Le schéma strict refuse la clé inconnue, et le handler répond avant d’enregistrer.' },
+					{ q: 'Que ne vérifie toujours pas le schéma ?', options: ['La longueur de `bio`', 'Le format de `email`', 'Si l’appelant a le droit de modifier ce compte', 'Les champs inconnus'], answer: 2, why: 'OWASP : "a valid account identifier does not mean the caller may access that account." Le handler vérifie les droits à part.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -139,6 +177,29 @@ export default {
 			why: 'La doc de zod : "By default, unrecognized keys are *stripped* from the parsed result" (les clés inconnues sont retirées). `z.strictObject` lève une erreur sur une clé inconnue, et `z.looseObject` la garde.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Voir `Object.assign` remplir une colonne que le formulaire n’a jamais affichée, puis la bloquer avec un schéma zod strict.',
+		steps: [
+			'Prépare : `mkdir -p ~/zod-lab && cd ~/zod-lab && npm init -y && npm install zod@4`.',
+			'Fais un mass assignment : `node -e \'const user = { name: "Ada", role: "user", email_verified: false }; Object.assign(user, JSON.parse(process.argv[1])); console.log(user)\' \'{"name":"Eve","role":"admin","email_verified":true}\'`.',
+			'Écris `profile.mjs` : importe `z` depuis `zod`, déclare `ProfileUpdate` avec `z.strictObject` (name de 1 à 100, email, bio optionnel de 2000 au plus), lance `safeParse` sur `JSON.parse(process.argv[2])`, et affiche `result.data` ou les codes des problèmes.',
+			'Essaie trois corps : `node profile.mjs \'{"name":"Eve","email":"eve@example.com"}\'`, puis le même avec `"role":"admin"` en plus, puis `\'{"name":"","email":"nope"}\'`.',
+			'Remplace `z.strictObject` par `z.object` et relance le corps avec `role`.'
+		],
+		done: [
+			'L’étape 2 affiche `role: \'admin\'` et `email_verified: true`.',
+			'Le premier corps affiche `{ name: \'Eve\', email: \'eve@example.com\' }`.',
+			'Le corps avec `role` affiche `[ \'unrecognized_keys\' ]`, et le troisième `[ \'too_small\', \'invalid_format\' ]`.',
+			'Avec `z.object`, le corps avec `role` passe et `role` disparaît du résultat.'
+		],
+		solution: [
+			'`import { z } from \'zod\';`',
+			'`const ProfileUpdate = z.strictObject({ name: z.string().min(1).max(100), email: z.email().max(254), bio: z.string().max(2000).optional() });`',
+			'`const result = ProfileUpdate.safeParse(JSON.parse(process.argv[2]));`',
+			'`console.log(result.success ? result.data : result.error.issues.map((i) => i.code));`'
+		]
+	},
 	recall: {
 		q: 'En Rails, quel appel transforme `params` en objet qu’un modèle accepte, et que lève Active Model sans lui ?',
 		a: '`params.expect(user: [:name, :email])` (ou `permit`) construit un nouveau `Parameters` avec les seules clés listées et le marque comme autorisé. Sans lui, `User.create(params[:user])` lève `ActiveModel::ForbiddenAttributesError`.'

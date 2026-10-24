@@ -117,6 +117,44 @@ export default {
 			'Redis : mets `bind 127.0.0.1` dans `redis.conf`, ou bloque 6379 au pare-feu. SSH : n’autorise le port 22 que depuis ton réseau d’admin.',
 			'Actuator : `*` active `matchesAll`, donc `env`, `beans`, `mappings`, `threaddump` et tous les autres endpoints en accès libre répondent sur 8080. Remplace par `include=health`, ou déplace le management sur `management.server.port=8081` avec `management.server.address=127.0.0.1`.',
 			'Vérifie : `ss -tlnp` montre 6379 sur `127.0.0.1`, et `curl http://host:8080/actuator/env` lancé d’une autre machine ne renvoie plus l’endpoint.'
+		],
+		steps: [
+			{
+				title: 'Lis la colonne des adresses',
+				questions: [
+					{ q: 'Quelle adresse veut dire « toutes les interfaces réseau » ?', options: ['`127.0.0.1`', '`0.0.0.0`', '`::1`', '`localhost`'], answer: 1, why: 'Un socket sur `0.0.0.0` accepte les connexions sur toutes les interfaces, y compris l’externe.' },
+					{ q: 'Quels ports une autre machine peut-elle atteindre ?', options: ['Seulement 8080', '8080 et 5432', 'Les quatre', '22, 8080 et 6379'], answer: 3, why: 'Ces trois-là écoutent sur `0.0.0.0`. PostgreSQL sur `127.0.0.1` n’accepte que les connexions locales.' },
+					{ q: 'Pourquoi PostgreSQL n’est-il pas dans cette liste ?', options: ['Son port est au-dessus de 5000', 'Il demande un mot de passe', 'Il est attaché à `127.0.0.1`, cette machine seulement', '`ss` cache les ports des bases'], answer: 2, why: '`127.0.0.1` est l’adresse de loopback. Seuls les processus de la même machine peuvent s’y connecter.' },
+					{ q: 'Seul 8080 doit servir les utilisateurs. Quels éléments accessibles sont en trop ?', options: ['Redis sur 6379, et SSH hors de tes admins', 'Seulement PostgreSQL', 'Seulement SSH', 'Rien : chaque port est utile'], answer: 0, why: 'Les utilisateurs ont besoin de 8080. Redis n’a aucune raison d’être accessible, et SSH seulement depuis ton réseau d’admin.' }
+				]
+			},
+			{
+				title: 'Coupe les ports en trop',
+				questions: [
+					{ q: 'Quel changement retire Redis du réseau ?', options: ['Le passer sur le port 16379', 'Mettre `protected-mode no`', '`bind 127.0.0.1` dans `redis.conf`', 'Renommer le processus `redis-server`'], answer: 2, why: 'Attaché au loopback, il n’accepte que les clients locaux. Bloquer 6379 au pare-feu marche aussi.' },
+					{ q: 'Que fais-tu de SSH sur le port 22 ?', options: ['Ne l’autoriser que depuis ton réseau d’admin', 'Le fermer et perdre l’accès à distance', 'Le passer sur le port 2222 et le laisser ouvert', 'Le laisser, puisque SSH a un mot de passe'], answer: 0, why: 'Les admins en ont encore besoin. Limiter qui peut l’atteindre réduit la surface sans perdre l’accès.' },
+					{ q: 'Pourquoi changer un service de port ne réduit-il pas la surface ?', options: ['Les scanners ne testent que les petits ports', 'Il répond toujours à quiconque atteint le nouveau port', 'Les ports au-dessus de 1024 sont privés', 'Ça la réduit, de moitié'], answer: 1, why: 'Le service répond toujours à quiconque peut lui envoyer un paquet. Seul le numéro a changé.' },
+					{ q: 'Que compte l’OWASP dans la surface d’attaque ?', options: ['Seulement les ports TCP ouverts', 'Seulement les URL publiques du site', 'Seulement le code avec une CVE connue', 'Chaque point par où un attaquant entre ou sort des données'], answer: 3, why: 'L’OWASP : « all of the different points where an attacker could get into a system, and where they could get data out ».' }
+				]
+			},
+			{
+				title: 'Coupe l’actuator',
+				questions: [
+					{ q: 'Que fait `exposure.include=*` ?', options: ['Il active `matchesAll`, donc chaque endpoint répond', 'Il n’expose que `health` et `info`', 'Il n’expose rien tant que tu ne listes pas d’ids', 'Il n’expose que les endpoints en lecture seule'], answer: 0, why: 'La ligne `"*".equals(pattern)` active `matchesAll`. Un seul caractère expose tous les endpoints de l’appli.' },
+					{ q: 'Quels endpoints répondent alors sur 8080 ?', options: ['Seulement `health`', 'Seulement `shutdown` et `heapdump`', '`env`, `beans`, `threaddump` et tous les autres en accès libre', 'Seulement ceux listés dans `exclude`'], answer: 2, why: 'Par défaut, tous les endpoints sauf `shutdown` et `heapdump` sont en accès libre, donc `*` les met tous sur le port des utilisateurs.' },
+					{ q: 'Quelle valeur rend l’exposition par défaut de Spring Boot ?', options: ['`include=*` avec `exclude=env`', '`include=info`', '`include=gateway`', '`include=health`'], answer: 3, why: 'L’exposition web par défaut, c’est `health` seul. Ne lister que lui garde tous les autres endpoints coupés.' },
+					{ q: 'Quel autre montage garde `/actuator` hors du réseau ?', options: ['`management.server.port=8080` sur toutes les interfaces', '`management.server.port=8081` avec `management.server.address=127.0.0.1`', 'Une seconde copie de l’appli sur le port 8080', '`management.endpoints.web.base-path=/hidden`'], answer: 1, why: 'La doc dit que l’appli « does not allow remote management connections ». Même un `*` ajouté plus tard reste hors du réseau.' }
+				]
+			},
+			{
+				title: 'Vérifie à nouveau',
+				questions: [
+					{ q: 'Quelle sortie montre que le correctif de Redis a marché ?', options: ['`ss -tlnp` montre 6379 sur `0.0.0.0`', 'Redis répond `PONG` depuis une autre machine', '`redis-cli ping` échoue sur le serveur', '`ss -tlnp` montre 6379 sur `127.0.0.1`'], answer: 3, why: 'La colonne des adresses est la preuve : loopback seulement.' },
+					{ q: 'Comment testes-tu le changement de l’actuator ?', options: ['`curl localhost:8080/actuator/env` sur le serveur', '`curl http://host:8080/actuator/env` depuis une autre machine', 'En relisant `application.properties`', 'En redémarrant l’appli et en lisant son journal'], answer: 1, why: 'Teste depuis la place de l’attaquant. L’endpoint ne doit plus revenir.' },
+					{ q: 'Après les correctifs, que peut atteindre une autre machine ?', options: ['8080 pour les utilisateurs, et 22 depuis le réseau d’admin', '8080, plus Redis en lecture seule', '8080, 6379 et 5432', 'Plus rien du tout'], answer: 0, why: 'Redis et l’actuator sont hors du réseau, et SSH est limité à tes admins.' },
+					{ q: 'Un collègue ouvre plus tard un nouveau port. Que doit déclencher ce changement selon l’OWASP ?', options: ['Rien, si le port est au-dessus de 1024', 'Une nouvelle note CVSS', 'Une modélisation des menaces', 'Un redémarrage de chaque service'], answer: 2, why: 'Chaque nouvelle route, dépendance ou port change la liste, et l’OWASP dit qu’un tel changement « should trigger threat modeling ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -154,6 +192,27 @@ export default {
 			why: 'L’avis exige un endpoint actuator du gateway "enabled, exposed and unsecured". Le désactiver, ou mettre une authentification devant, supprime ce chemin. L’option `exclude` masquerait aussi l’endpoint, mais l’avis ne la propose pas, et `*` expose toujours tout le reste.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Ouvre deux sockets d’écoute, l’un sur toutes les interfaces et l’autre sur le loopback, et vois lequel le réseau peut atteindre.',
+		steps: [
+			'Crée un dossier et lance deux serveurs web : `mkdir -p ~/surface-lab && cd ~/surface-lab`, puis `python3 -m http.server 8001 --bind 0.0.0.0 &` et `python3 -m http.server 8002 --bind 127.0.0.1 &`.',
+			'Liste les sockets d’écoute. Linux : `ss -tln | grep 800`. macOS : `lsof -nP -iTCP -sTCP:LISTEN | grep 800`.',
+			'Trouve ton adresse sur le réseau local : `hostname -I` sous Linux, `ipconfig getifaddr en0` sous macOS. Appelle les deux ports par elle : `curl -s -o /dev/null -w "%{http_code}\\n" http://<ton-ip>:8001/`, puis pareil pour `8002`.',
+			'Liste tout ce que ton portable écoute : `ss -tlnp` (Linux) ou `lsof -nP -iTCP -sTCP:LISTEN` (macOS). Marque chaque ligne sur `0.0.0.0`, `*` ou `[::]` comme accessible depuis le réseau.',
+			'Arrête les deux serveurs : `kill %1 %2`.'
+		],
+		done: [
+			'La liste montre `0.0.0.0:8001` (`*:8001` dans lsof) et `127.0.0.1:8002`.',
+			'Par ton adresse locale, 8001 renvoie `200` et 8002 renvoie `000` : la connexion est refusée.',
+			'Tu as la liste des sockets de ton propre portable qui écoutent sur toutes les interfaces.'
+		],
+		solution: [
+			'L’adresse d’attache décide qui peut se connecter. `0.0.0.0` accepte sur toutes les interfaces, `127.0.0.1` seulement depuis la même machine.',
+			'Une requête vers l’adresse locale arrive sur l’interface externe, où rien n’écoute sur 8002. C’est pour ça qu’elle est refusée.',
+			'Le correctif de Redis dans l’exercice suit le même geste : `bind 127.0.0.1` dans `redis.conf`, après quoi `ss -tlnp` montre `127.0.0.1:6379`.'
+		]
+	},
 	recall: {
 		q: 'À quelle condition une appli Spring Cloud Gateway 3.1.0 était-elle exposée à la CVE-2022-22947, et qu’expose Spring Boot en HTTP par défaut ?',
 		a: 'Quand l’endpoint actuator du gateway était activé, exposé et sans protection. Par défaut, Spring Boot n’expose que `health` en HTTP.'

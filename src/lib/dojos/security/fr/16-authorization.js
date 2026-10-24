@@ -121,6 +121,44 @@ export default {
 			'La correction : limiter la recherche à l’appelant. `SELECT * FROM invoices WHERE id = $1 AND owner_id = $2` avec `[req.params.id, req.user.id]`. L’OWASP IDOR Cheat Sheet dit « use datasets that users have access to » et montre `@current_user.projects.find(params[:id])` en Rails.',
 			'Garde le 404 pour « cette facture n’existe pas » comme pour « elle n’est pas à toi ». La fiche OWASP conseille de « map both cases to the same public response » : Alice ne peut pas savoir que la 1042 existe.',
 			'Teste comme la fiche le décrit : crée les utilisateurs A et B, chacun avec une facture, connecte-toi comme A et demande l’identifiant de B en lecture, en modification et en suppression. Des UUID rendent la devinette plus dure, mais le contrôle reste nécessaire quand un lien fuit.'
+		],
+		steps: [
+			{
+				title: 'Suis la requête',
+				questions: [
+					{ q: 'Alice est connectée et demande `/invoices/1042`. `requireLogin` la laisse-t-il passer ?', options: ['Non : la 1042 n’est pas sa facture', 'Oui : elle a une session valide', 'Seulement si elle a le rôle `billing`', 'Non : l’identifiant doit égaler celui de la session'], answer: 1, why: '`requireLogin` ne rejette que les requêtes sans session valide. Alice en a une.' },
+					{ q: 'Sur quelle valeur la requête SQL filtre-t-elle ?', options: ['Seulement `req.params.id`', '`req.params.id` et `req.user.id`', 'Seulement `req.user.id`', 'Le cookie de session'], answer: 0, why: 'La requête est `WHERE id = $1` avec `[req.params.id]`. L’appelant n’y apparaît jamais.' },
+					{ q: 'Quelle ligne sait qui est Alice ?', options: ['Le `SELECT`', 'La branche `404`', '`requireLogin`, qui remplit `req.user`', '`res.json`'], answer: 2, why: 'L’authentification a eu lieu dans `requireLogin`. Rien après ne se sert de `req.user`.' },
+					{ q: 'Que reçoit Alice ?', options: ['Un 404', 'Un 403', 'Sa propre facture 1041', 'La facture 1042 de Bob'], answer: 3, why: 'La ligne d’identifiant 1042 existe, donc le handler la renvoie en JSON.' }
+				]
+			},
+			{
+				title: 'Nomme le trou',
+				questions: [
+					{ q: 'Quel genre de contrôle est `requireLogin` ?', options: ['De l’authentification', 'De l’autorisation', 'Du RBAC', 'De la limitation de débit'], answer: 0, why: 'Il vérifie qui appelle. Il ne dit rien de ce à quoi l’appelant a droit.' },
+					{ q: 'Comment s’appelle ce bug ?', options: ['Une CSRF', 'Une IDOR', 'Une injection SQL', 'Une session cassée'], answer: 1, why: 'La requête porte un identifiant et le serveur renvoie l’objet sans vérifier que l’appelant y a droit : une insecure direct object reference.' },
+					{ q: 'Un contrôle de rôle comme « doit avoir `billing` » le fermerait-il ?', options: ['Oui : seuls les utilisateurs billing verraient les factures', 'Oui, avec une limitation de débit en plus', 'Non : chaque utilisateur billing lirait encore chaque facture', 'Non : les rôles ne servent qu’aux admins'], answer: 2, why: 'Le RBAC travaille sur les rôles. Le contrôle qui manque est au niveau de l’objet : cette facture est-elle à cet appelant ?' },
+					{ q: 'Quelle ligne du `can_edit_post?` de Discourse est le même genre de contrôle que celui qui manque ici ?', options: ['`return true if is_admin?`', 'Le contrôle `is_staff?` des posts verrouillés', 'Le `false` final', '`is_my_own?(post)`, qui compare le propriétaire à l’appelant'], answer: 3, why: '`is_my_own?` renvoie `obj.user_id == @user.id`. C’est le contrôle du propriétaire qui arrête une IDOR.' }
+				]
+			},
+			{
+				title: 'Limite la requête',
+				questions: [
+					{ q: 'Quelle requête corrige le handler ?', options: ['`WHERE id = $1 AND owner_id = $2` avec `[req.params.id, req.user.id]`', '`WHERE id = $1`, puis comparer `owner_id` dans une ligne de log', '`WHERE owner_id = $1` avec `[req.params.id]`', '`WHERE id = $1 LIMIT 1`'], answer: 0, why: 'La recherche ne parcourt que les factures de l’appelant, ce que la fiche OWASP IDOR appelle « use datasets that users have access to ».' },
+					{ q: 'Quelle est la forme Rails de la même idée dans la fiche ?', options: ['`Project.find(params[:id])`', '`@current_user.projects.find(params[:id])`', '`Project.where(id: params[:id]).first`', '`authorize! :read, Project`'], answer: 1, why: 'Passer par `@current_user.projects` limite la recherche à l’appelant.' },
+					{ q: 'Alice redemande la 1042. Que doit-elle recevoir ?', options: ['403 Forbidden', '200 avec un corps vide', '404, comme pour une facture qui n’existe pas', '401 Unauthorized'], answer: 2, why: 'La fiche conseille de « map both cases to the same public response » : Alice ne peut pas savoir que la 1042 existe.' },
+					{ q: 'Que doit devenir une requête qui ne correspond à aucune règle ?', options: ['L’autoriser et la journaliser', 'L’autoriser pour les admins seulement', 'Redemander la connexion', 'La refuser'], answer: 3, why: 'L’OWASP appelle ça deny-by-default. Le `can_edit_post?` de Discourse se termine par `false` pour la même raison.' }
+				]
+			},
+			{
+				title: 'Teste-le',
+				questions: [
+					{ q: 'Comment la fiche dit-elle de tester ça ?', options: ['Créer les utilisateurs A et B, se connecter comme A et demander l’identifiant de B', 'Passer l’API au fuzzer', 'Vérifier que chaque route appelle `requireLogin`', 'Se connecter en admin et lister toutes les factures'], answer: 0, why: 'Deux utilisateurs, chacun avec son objet, et une requête croisée : c’est le moyen direct de voir le trou.' },
+					{ q: 'Quelles actions le test doit-il couvrir ?', options: ['Seulement la lecture', 'La lecture, la modification et la suppression', 'Seulement la suppression', 'Seulement la route de liste'], answer: 1, why: 'Chaque route qui prend un identifiant a besoin de son contrôle du propriétaire, donc de son test croisé.' },
+					{ q: 'L’équipe passe aux UUID. Le contrôle du propriétaire peut-il partir ?', options: ['Oui : on ne devine pas un UUID', 'Oui, si les UUID sont chiffrés', 'Non : une URL obtenue doit quand même être bloquée', 'Seulement pour les routes de lecture'], answer: 2, why: 'La fiche : "If attackers obtain URLs for unauthorized objects, the application should still block their access attempts." Des identifiants aléatoires ne sont qu’une défense en profondeur.' },
+					{ q: 'Qu’avait le bug de l’annuaire Discourse en commun avec celui-ci ?', options: ['Une connexion cassée', 'Un jeton CSRF manquant', 'Une injection SQL', 'Le serveur savait qui appelait mais ne vérifiait jamais l’accès aux identifiants demandés'], answer: 3, why: 'Discourse renvoyait tous les `user_field_ids` demandés. Le correctif ne garde que les champs que l’appelant peut voir.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,27 @@ export default {
 			why: 'La fiche : « If attackers obtain URLs for unauthorized objects, the application should still block their access attempts. » Elle classe les identifiants aléatoires comme une défense en profondeur seulement. Elle dit aussi « Avoid encrypting identifiers ».'
 		}
 	],
+	lab: {
+		minutes: 10,
+		goal: 'Regarde une recherche non limitée donner à Alice la facture de Bob, puis limite-la pour que la lecture, la modification et la suppression traitent « pas à toi » comme « introuvable ».',
+		steps: [
+			'Crée une base avec deux factures : `mkdir -p ~/authz-lab && cd ~/authz-lab && sqlite3 shop.db "CREATE TABLE invoices (id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL, total INTEGER); INSERT INTO invoices VALUES (1041, 1, 120), (1042, 2, 990);"`. Alice est l’utilisateur 1, Bob le 2.',
+			'Lance la requête de l’exercice comme Alice qui demande la 1042 : `sqlite3 shop.db "SELECT * FROM invoices WHERE id = 1042;"`.',
+			'Limite-la à Alice : `sqlite3 shop.db "SELECT count(*) FROM invoices WHERE id = 1042 AND owner_id = 1;"`, puis pareil pour un identifiant qui n’existe pas, `9999`.',
+			'Limite les écritures de la même façon : `sqlite3 shop.db "UPDATE invoices SET total = 0 WHERE id = 1042 AND owner_id = 1; SELECT changes();"`, puis `sqlite3 shop.db "DELETE FROM invoices WHERE id = 1042 AND owner_id = 1; SELECT changes();"`.',
+			'Vérifie que la ligne de Bob n’a pas bougé : `sqlite3 shop.db "SELECT * FROM invoices;"`.'
+		],
+		done: [
+			'L’étape 2 affiche `1042|2|990` : la facture de Bob.',
+			'Les deux comptes limités de l’étape 3 affichent `0` : l’API répond 404 dans les deux cas.',
+			'Les deux écritures affichent `0` changement, et la dernière requête montre toujours `1042|2|990`.'
+		],
+		solution: [
+			'La requête non limitée ne nomme jamais l’appelant : tout utilisateur connecté lit n’importe quel identifiant.',
+			'Ajouter `AND owner_id = ?` avec l’identifiant de l’utilisateur de la session fait chercher la base dans les seules lignes de l’appelant. Aucune ligne veut dire 404, que la facture soit à un autre ou n’existe pas.',
+			'La même clause va sur chaque `UPDATE` et chaque `DELETE`. Nettoie avec `rm -rf ~/authz-lab`.'
+		]
+	},
 	recall: {
 		q: 'Dans `can_edit_post?` de Discourse, quel appel empêche l’utilisateur 9 de modifier un message écrit par l’utilisateur 12 ?',
 		a: '`is_my_own?(post)`, qui compare `post.user_id` avec l’identifiant de l’appelant. S’il vaut false et qu’aucune autre règle ne s’applique, la méthode finit sur `false` et `ensure_can_edit!` lève un 403.'

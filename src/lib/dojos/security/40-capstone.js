@@ -136,6 +136,44 @@ RESET_PASSWORD_LOCK_TIME = parse(
 			'Supply chain and secrets: lockfile and `npm ci` or `pip --require-hashes` (day 30), dependency scanning (day 29), signed images (day 31). Secrets in a secret manager, never in git or the image (days 25, 26).',
 			'Deployment: non-root, read-only root filesystem, all capabilities dropped (day 33), namespace labelled `restricted` (day 34), default-deny NetworkPolicy with the API allowed to PostgreSQL only (day 35).',
 			'After a breach: audit log of logins, failed logins and staff actions, without tokens or passwords (day 36). Falco on the nodes (day 37). A written runbook: who cuts access, which secrets to rotate in which order, who tells customers (day 38).'
+		],
+		steps: [
+			{
+				title: 'Draw the threat model',
+				questions: [
+					{ q: 'How do you build the threat model?', options: ['STRIDE on login, reset, checkout, uploads and the "notify me" fetch', 'A pentest once the shop is live', 'A list of the CVEs in the dependencies', 'The order of the days in this dojo'], answer: 0, why: 'A threat model lists what can go wrong with each feature, who would do it, and which control stops it (day 1).' },
+					{ q: 'Where are the trust boundaries of this shop?', options: ['Between the API and its own logs', 'At the browser, the payment webhook and the outgoing fetch', 'Between two staff members', 'Between PostgreSQL tables'], answer: 1, why: 'Those are the three places where data comes from a party you do not control.' },
+					{ q: 'Why is the payment webhook a trust boundary?', options: ['It is the slowest call in the shop', 'It speaks JSON instead of HTML', 'Data arrives there from a party you do not control', 'It runs in a different container'], answer: 2, why: 'Anyone can send a request to that URL. Every check sits on the line where outside data comes in (day 2).' },
+					{ q: 'What is a secure default?', options: ['A setting the attacker cannot see', 'A value you must set before the first start', 'A setting that stays off until you read the docs', 'A setting whose value with no configuration is the safe one'], answer: 3, why: 'Saleor’s `HTTP_IP_FILTER_ENABLED` is `True` unless you turn it off: a shop owner who never reads the settings is still covered (day 7).' }
+				]
+			},
+			{
+				title: 'Lock the browser and the accounts',
+				questions: [
+					{ q: 'Which session cookie do you set?', options: ['`Secure` only, the rest is optional', '`HttpOnly; Secure; SameSite=Lax`, rotated at login', '`SameSite=None`, so the dashboard works', 'No cookie: a token in `localStorage`'], answer: 1, why: 'Scripts cannot read it, it only travels over HTTPS, cross-site requests do not carry it, and a fresh one is issued at login (day 10).' },
+					{ q: 'Which CORS setting fits the shop?', options: ['`*`, so the storefront works from anywhere', 'CORS turned off for every route', 'Only `localhost`, as in development', 'Only the storefront and dashboard origins'], answer: 3, why: 'With `*`, Saleor’s handler echoes any origin back with credentials allowed. A short list of your own origins closes that.' },
+					{ q: 'How are customer passwords stored?', options: ['As a SHA-256 hash', 'Encrypted with the `SECRET_KEY`', 'As an Argon2id hash', 'As a hash with one salt for all users'], answer: 2, why: 'A slow salted hash makes each guess expensive for whoever steals the table (day 9).' },
+					{ q: 'What do staff accounts get on top of a password?', options: ['TOTP, required', 'A longer session', 'A CAPTCHA on each page', 'Nothing: staff are trusted'], answer: 0, why: 'Staff can upload files and read every order, so their accounts need a second factor (day 14).' }
+				]
+			},
+			{
+				title: 'Guard the data and the outside inputs',
+				questions: [
+					{ q: 'Customer A asks for order 1042, which belongs to customer B. Which control stops it?', options: ['Order ids as random UUIDs', 'A valid session cookie on every query', 'Every order lookup checks the owner or a staff role', 'A rate limit on the `order` query'], answer: 2, why: 'An IDOR is a missing object-level check. A session proves who the caller is, not that the order is theirs (day 16).' },
+					{ q: 'How are the product photos served?', options: ['From the dashboard’s own domain, to keep one certificate', 'From `media.`, with `Content-Disposition: attachment`, after a check by content', 'Straight from the upload folder in the web root', 'From a CDN on the same origin as the dashboard'], answer: 1, why: 'Those are the two conditions in GHSA-666h. A file on another origin cannot read the dashboard’s tokens (day 24).' },
+					{ q: 'How does the webhook know a call comes from the payment provider?', options: ['It checks the `User-Agent` header', 'It checks the source IP and nothing else', 'It trusts any POST with a JSON body', 'It checks the provider’s signature with a constant-time compare'], answer: 3, why: 'The signature proves the sender holds the shared secret. A constant-time compare leaks nothing about it through timing.' },
+					{ q: 'A customer gives `http://169.254.169.254/` to "notify me". What happens?', options: ['The fetch is refused: private, loopback and link-local addresses are blocked after DNS resolution', 'It is fetched, since the customer asked', 'It is fetched only over HTTPS', 'It is refused only if the name contains `169`'], answer: 0, why: 'Checking after resolution catches a harmless-looking name that points to an internal address (day 20).' }
+				]
+			},
+			{
+				title: 'Deploy it and plan for a breach',
+				questions: [
+					{ q: 'How does the container run?', options: ['As root, with `SYS_ADMIN` for maintenance', 'As non-root, read-only root filesystem, all capabilities dropped', 'With `--privileged`, to keep the setup simple', 'With Docker’s default settings'], answer: 1, why: 'A bug in the app then lands in a process with no root, nowhere to write and no extra powers (day 33).' },
+					{ q: 'Which Pod Security level is the namespace labelled with?', options: ['`privileged`', '`baseline`', '`restricted`', 'None: the default is safe'], answer: 2, why: 'With no label the namespace is `privileged`. `restricted` makes the API server reject a Pod that does not set `runAsNonRoot: true` or keeps its capabilities (day 34).' },
+					{ q: 'Which NetworkPolicy setup do you use?', options: ['None: the cluster is private', 'Allow all egress, deny ingress', 'Deny ingress only', 'A default deny, with the API allowed to reach PostgreSQL only'], answer: 3, why: 'Start closed, then open the one path the shop needs (day 35).' },
+					{ q: 'What goes in the audit log?', options: ['Logins, failed logins and staff actions, without tokens or passwords', 'Every request body, for later review', 'Passwords, hashed', 'Nothing until a breach is suspected'], answer: 0, why: 'The log must answer who did what after a breach, and must not hand a working credential to whoever reads it (day 36).' }
+				]
+			}
 		]
 	},
 	quiz: [

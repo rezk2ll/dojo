@@ -109,6 +109,44 @@ export default {
 			'So the order is: run that undo migration first, then redeploy the old code. Never the other way round.',
 			'Often the better move is to **fix forward**: patch the bug in the new release, and leave the schema alone.',
 			'For the design: keep the point of no return **one small step, as late as possible**. GitLab puts the drop after the deploy for this reason.'
+		],
+		steps: [
+			{
+				title: 'See what the cleanup left',
+				questions: [
+					{ q: 'What did `cleanup_concurrent_column_rename` remove?', options: ['Only the trigger', 'The new column `updated_at_timestamp`', 'The trigger and the old column `updated_at`', 'Nothing yet: it only marks the column'], answer: 2, why: 'It removes the rename triggers, then calls `remove_column(table, old)`.' },
+					{ q: 'Which columns exist on `users` now?', options: ['Only `updated_at_timestamp`', 'Both `updated_at` and `updated_at_timestamp`', 'Only `updated_at`', 'Neither, until the next migration'], answer: 0, why: 'The old column was dropped. Only the new name is left.' },
+					{ q: 'When did that cleanup run?', options: ['Before the new code was deployed', 'In the same migration as `rename_column_concurrently`', 'When the bug was found', 'After the new code was deployed, as a post-deployment migration'], answer: 3, why: 'GitLab keeps it in `db/post_migrate`, which runs after the new code is live.' },
+					{ q: 'Which step was the point of no return?', options: ['Adding the new column', 'Dropping the old column', 'Installing the trigger', 'Deploying code that reads the new name'], answer: 1, why: 'Until the drop, both columns existed and the undo just removed the new one.' }
+				]
+			},
+			{
+				title: 'Say what breaks',
+				questions: [
+					{ q: 'You redeploy the previous release as is. What happens?', options: ['It works: Rails maps the old name to the new one', 'It works: the trigger copies the value back', 'It breaks: its code asks for `updated_at`, which is gone', 'It works, but more slowly'], answer: 2, why: 'The old code reads `updated_at`, and the cleanup dropped that column.' },
+					{ q: 'Why can\'t the trigger save you here?', options: ['It was removed in the cleanup, together with the old column', 'It only runs on inserts, not on reads', 'It copies new into old, not old into new', 'It is disabled during a redeploy'], answer: 0, why: 'The trigger was transitional architecture. It lived only between the two migrations.' },
+					{ q: 'Before the cleanup, how cheap was going back?', options: ['Impossible without a backup', 'It needed a full table copy', 'It needed downtime', 'Cheap: `undo_rename_column_concurrently` just removes the trigger and the new column'], answer: 3, why: 'Until the cleanup, the old column still held every value, so undoing only removed what was added.' },
+					{ q: 'What kind of rollback is this now?', options: ['A plain redeploy of the old image', 'A rollback that needs a new migration first', 'A config change in Rails', 'A revert of the last commit'], answer: 1, why: 'Past the point of no return, you can only go back by building the old shape again.' }
+				]
+			},
+			{
+				title: 'Plan the way back',
+				questions: [
+					{ q: 'Which helper builds the old column again?', options: ['`undo_rename_column_concurrently`', '`rename_column_concurrently` with the names swapped', '`undo_cleanup_concurrent_column_rename`', '`cleanup_concurrent_column_rename`'], answer: 2, why: 'It is the method right after the cleanup, and it reverses what the cleanup did.' },
+					{ q: 'What does that helper do?', options: ['Recreates `updated_at`, copies the values from `updated_at_timestamp`, reinstalls the trigger', 'Renames `updated_at_timestamp` back to `updated_at` in place', 'Restores `updated_at` from last night\'s backup', 'Adds a view called `updated_at`'], answer: 0, why: 'It is a new copy of the data, so on a big table it takes time.' },
+					{ q: 'In what order do you go back?', options: ['Redeploy the old code, then run the undo migration', 'Both at once, in one deploy', 'Run the undo migration only, and keep the new code', 'Run the undo migration first, then redeploy the old code'], answer: 3, why: 'The old code needs `updated_at` from its first request. Deploy it first and it breaks until the copy ends.' },
+					{ q: 'Why does the undo take time on a big table?', options: ['It locks every user out', 'It copies every row into the recreated column', 'It must rebuild the trigger for each row', 'It waits for the next release'], answer: 1, why: 'Recreating the column means copying all the values again, not flipping a name.' }
+				]
+			},
+			{
+				title: 'Choose, and design for next time',
+				questions: [
+					{ q: 'What is often the better move than going back?', options: ['Fix forward: patch the bug in the new release', 'Restore the whole database', 'Run both releases side by side', 'Drop `updated_at_timestamp` too'], answer: 0, why: 'Fixing forward leaves the schema alone and avoids a second copy of a big table.' },
+					{ q: 'How should a migration place its point of no return?', options: ['As early as possible, to get it over with', 'Spread over several steps', 'One small step, as late as possible', 'In the same step as the deploy'], answer: 2, why: 'The later and smaller it is, the longer every other step stays cheap to undo.' },
+					{ q: 'Why does GitLab put the drop after the deploy?', options: ['Because post-deploy migrations run faster', 'Because Rails needs the column during the deploy only', 'So the trigger can finish copying', 'So the drop is the last step, once the new code is live'], answer: 3, why: 'Dropping a column is destructive and hard to roll back, so it runs last.' },
+					{ q: 'In strangler fig terms, when do you delete an old part?', options: ['On a fixed date', 'When no request reaches it any more', 'As soon as the new part is deployed', 'Never: old parts stay as a backup'], answer: 1, why: 'Fowler: move behavior one piece at a time, and delete each old part when nothing uses it.' }
+				]
+			}
 		]
 	},
 	quiz: [

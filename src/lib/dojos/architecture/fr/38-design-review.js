@@ -93,6 +93,44 @@ By preserving the old state without immediate health checks, there is a delay in
 			'Mode de défaillance : à la ligne 119, après un redémarrage, le kubelet récupère `Started` depuis l’API server. La ligne 368 demande ce qui se passe si l’API server est indisponible, et elle est vide. Est-ce que le kubelet revient à l’ancienne remise à zéro, ou garde un statut périmé ?',
 			'Bloquante : la question du mode de défaillance, avec la ligne 249, où « Quelles métriques précises devraient déclencher un rollback ? » est à `N/A`. Un changement de comportement par défaut qui oriente le trafic a besoin d’un repli connu et d’un signal pour faire un rollback. Je demanderais les deux avant que la KEP passe en implementable.',
 			'Non bloquante, mais à poser : la ligne 147 utilise une tolérance de 10 secondes pour le décalage d’horloge. Que se passe-t-il sur un nœud dont l’horloge est décalée de plus que ça ?'
+		],
+		steps: [
+			{
+				title: 'Lis ce que change la KEP',
+				questions: [
+					{ q: 'Avant cette KEP, que fait le kubelet aux conteneurs quand il redémarre ?', options: ['Il garde leur dernier statut connu', 'Il les remet à not Ready jusqu’à ce que leurs probes passent à nouveau', 'Il redémarre chaque conteneur du nœud', 'Il demande leur statut à l’API server'], answer: 1, why: 'La KEP appelle le résultat une tempête de « Not Ready », et c’est ce qu’elle veut arrêter.' },
+					{ q: 'Que propose la KEP à la place ?', options: ['Garder le dernier statut connu à travers le redémarrage', 'Sauter les probes pendant la première minute', 'Retirer les readiness probes des pods', 'Redémarrer le kubelet moins souvent'], answer: 0, why: 'Le titre le dit : garder le statut des pods à travers les redémarrages du kubelet.' },
+					{ q: 'Quel risque la KEP nomme-t-elle elle-même ?', options: ['Le kubelet pourrait planter plus souvent', 'Les pods pourraient redémarrer deux fois', 'Les horloges pourraient dériver entre nœuds', 'Le trafic peut aller vers un pod déclaré Ready mais plus en bonne santé'], answer: 3, why: 'Sa section « Delayed Health Check Updates » le dit. Reconnais au doc d’avoir écrit son propre défaut.' },
+					{ q: 'Où vont tes questions en premier ?', options: ['Sur les fautes de frappe et les noms de champs', 'Sur les diagrammes', 'Là où les réponses du template sont vides', 'Sur la liste des tests e2e'], answer: 2, why: 'Le template de KEP pose des questions sur le rollback, le décalage de versions, les métriques et les modes de défaillance. Une réponse vide, c’est là que la revue commence.' }
+				]
+			},
+			{
+				title: 'Pose un scénario qu’elle abîme',
+				questions: [
+					{ q: 'Quel scénario ce design abîme-t-il ?', options: ['Une appli qui se bloque pendant que le kubelet est arrêté', 'Un pod qui démarre pour la première fois', 'Un nœud qui ne redémarre jamais son kubelet', 'Un conteneur sans readiness probe'], answer: 0, why: 'Son statut reste Ready, donc il continue de recevoir du trafic jusqu’à ce qu’une probe le remarque.' },
+					{ q: 'D’après la ligne 125, quand le statut de ce pod est-il corrigé ?', options: ['Juste après le démarrage du kubelet', 'Quand l’API server s’en aperçoit', 'Jamais, tant que le pod ne redémarre pas', 'Au prochain cycle de probe'], answer: 3, why: 'Le statut est corrigé par les probes, donc le délai dépend de la façon dont la probe est réglée.' },
+					{ q: 'Qu’est-ce qui décide combien de temps un pod cassé peut recevoir du trafic ?', options: ['Le nombre de nœuds du cluster', 'La période et le seuil d’échec de la probe', 'La taille de l’image du conteneur', 'Le nom du feature gate'], answer: 1, why: 'Une probe doit échouer assez de fois, à sa période, avant que le pod passe à not Ready.' },
+					{ q: 'Comment formules-tu ce point dans la revue ?', options: ['« C’est faux, annule ça. »', '« Ajoute un diagramme ici. »', '« Combien de temps un tel pod peut-il recevoir du trafic ? Le doc devrait-il indiquer le pire cas ? »', '« Merci de renommer le gate. »'], answer: 2, why: 'Une question fait venir le contexte de l’auteur, et fait quand même ressortir le problème si tu as raison.' }
+				]
+			},
+			{
+				title: 'Trouve la porte à sens unique',
+				questions: [
+					{ q: 'Ligne 115 : que fait le feature gate par défaut ?', options: ['Il active le nouveau comportement dès la première release', 'Il garde l’ancien comportement jusqu’à la GA', 'Il demande à chaque admin de cluster de choisir', 'Il active le nouveau comportement seulement sur les nouveaux nœuds'], answer: 0, why: 'Le nouveau comportement est celui par défaut, et le gate ne sert qu’à rétablir l’ancien.' },
+					{ q: 'Pourquoi est-ce une porte à sens unique ?', options: ['Le nom du gate ne peut pas changer', 'Les nœuds ne peuvent pas revenir à une version antérieure', 'Une fois le gate retiré, l’ancien comportement disparaît pour tout le monde', 'La KEP ne peut pas revenir en provisional'], answer: 2, why: 'La readiness des pods décide où va le trafic, et d’autres construisent dessus. Sans le gate, personne ne peut revenir en arrière.' },
+					{ q: 'Ligne 201 : que faut-il pour la GA ?', options: ['Un jeu complet de tests e2e et une métrique', 'Deux releases avec le gate activé par défaut', 'L’accord de chaque SIG', '« Aucun problème signalé par les utilisateurs »'], answer: 3, why: 'C’est la barre que fixe la KEP, et le silence est une preuve faible pour un comportement par défaut qui oriente le trafic.' },
+					{ q: 'Quelle question poses-tu là-dessus ?', options: ['Le gate peut-il avoir un nom plus court ?', 'Quelle preuve, au-delà du silence, permet de passer en GA ?', 'La GA peut-elle arriver une release plus tôt ?', 'Qui a écrit le feature gate ?'], answer: 1, why: 'Elle demande un vrai signal avant que la porte se ferme pour tout le monde.' }
+				]
+			},
+			{
+				title: 'Trouve un mode de défaillance et marque le bloquant',
+				questions: [
+					{ q: 'Ligne 119 : après un redémarrage, où le kubelet récupère-t-il `Started` ?', options: ['Sur son disque local', 'Seulement auprès du runtime de conteneurs', 'Auprès de l’API server', 'Auprès des probes'], answer: 2, why: 'La KEP dit que le kubelet le récupère « via l’API server », donc l’API server devient une dépendance du redémarrage.' },
+					{ q: 'La ligne 368 demande ce qui se passe si l’API server est indisponible. Que dit-elle ?', options: ['Le kubelet l’attend', 'Le kubelet revient à l’ancienne remise à zéro', 'Rien : la réponse est vide', 'Le kubelet garde un statut périmé'], answer: 2, why: 'La question est dans le template et n’a pas encore de réponse. Ce trou, c’est ta question de mode de défaillance.' },
+					{ q: 'Quelle question devrait bloquer l’acceptation ?', options: ['La tolérance de décalage d’horloge de la ligne 147', 'Le délai du cycle de probe de la ligne 125', 'La faute « kublet » dans le nom du dossier', 'Le mode de défaillance de l’API server, avec les métriques de rollback à `N/A` de la ligne 249'], answer: 3, why: 'Un changement de comportement par défaut qui oriente le trafic a besoin d’un repli connu et d’un signal de rollback avant de passer en implementable.' },
+					{ q: 'Pourquoi marquer la question bloquante ?', options: ['Pour que l’auteur la trouve parmi les petites', 'Parce que le template exige une étiquette', 'Pour que les autres questions puissent être ignorées', 'Pour accélérer le merge'], answer: 0, why: 'Dans une liste de trente commentaires, l’auteur peut la rater. Marquée, elle se voit tout de suite.' }
+				]
+			}
 		]
 	},
 	quiz: [

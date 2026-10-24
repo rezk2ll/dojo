@@ -93,6 +93,44 @@ export default {
 			'`<subpackage name="repository">` allows only `com.shop.repository`. Nothing else is listed, so `web` and `service` imports from there fail the build.',
 			'"Just this once": if you accept it, add one `<allow class="..." exact-match="true" />` line, like Kafka does, so the exception is **named and reviewed**. Better: move the shared class down into `service` or a common package, and keep the rule clean.',
 			'Run it in the same CI job as the tests, so it guards every pull request.'
+		],
+		steps: [
+			{
+				title: 'Start from the default',
+				questions: [
+					{ q: 'An import matches no rule in the file. What does Checkstyle do?', options: ['Allows it', 'Logs a warning and passes', 'Refuses it', 'Skips the file'], answer: 2, why: 'ImportControl refuses by default, so the file is an allowlist.' },
+					{ q: 'So which kind of lines do you write for this rule?', options: ['Only `allow` lines', 'Only `disallow` lines', 'One `disallow` per forbidden pair', 'An `allow` and a `disallow` per layer'], answer: 0, why: 'Everything not named is already refused. You only name what each layer may use.' },
+					{ q: 'What goes on the root element?', options: ['`<import-control pkg="com.shop.web">`', '`<import-control pkg="java">`', '`<import-control pkg="com.shop.repository">`', '`<import-control pkg="com.shop">`'], answer: 3, why: 'The root covers the whole shop, and each layer is a subpackage under it.' },
+					{ q: 'Why add `<allow pkg="java" />` at the root?', options: ['To allow every import in the project', 'So every layer may use the standard library', 'Because Checkstyle needs at least one rule', 'To let `repository` call `web`'], answer: 1, why: 'A class that finds no rule in its own subpackage falls back to the parent\'s rules, so one line covers all layers.' }
+				]
+			},
+			{
+				title: 'Write each layer',
+				questions: [
+					{ q: 'What does `<subpackage name="web">` allow?', options: ['`com.shop.web` and `com.shop.service`', 'Only `com.shop.web`', '`com.shop.web`, `com.shop.service` and `com.shop.repository`', '`com.shop.service` only'], answer: 0, why: '`web` calls `service`, and its own classes. It does not reach down to `repository` directly.' },
+					{ q: 'What does `<subpackage name="service">` allow?', options: ['`com.shop.service` and `com.shop.web`', '`com.shop.service` and `com.shop.repository`', 'Only `com.shop.repository`', 'Everything under `com.shop`'], answer: 1, why: '`service` calls `repository`, never upward to `web`.' },
+					{ q: 'What does `<subpackage name="repository">` allow?', options: ['`com.shop.repository` and `com.shop.service`', 'Everything under `com.shop`', 'Nothing at all', 'Only `com.shop.repository`'], answer: 3, why: 'It is the bottom layer, so it may use only itself (and the standard library from the root).' },
+					{ q: 'A repository class imports a `web` helper. What happens?', options: ['It passes: `web` is allowed at the root', 'Checkstyle logs a warning', 'The build fails: no rule allows it', 'It passes if the reviewer approves'], answer: 2, why: 'Nothing names `com.shop.web` for `repository`, so the default refuses it.' }
+				]
+			},
+			{
+				title: 'Handle "just this once"',
+				questions: [
+					{ q: 'Someone needs one `web` class in `service`. What happens if you do nothing?', options: ['The build fails on their pull request', 'Checkstyle allows it once', 'The import works until the next release', 'The reviewer gets a warning only'], answer: 0, why: 'The import is not allowed, so the check blocks the pull request and the team discusses it first.' },
+					{ q: 'If you accept the exception, how do you write it?', options: ['Allow all of `com.shop.web` in `service`', 'Turn off Checkstyle for that file', 'One `<allow class="..." exact-match="true" />` line', 'A comment above the import'], answer: 2, why: 'Kafka does this in its `common` block: the exception is named, one class at a time, and a reviewer sees it.' },
+					{ q: 'Why name the single class instead of the whole package?', options: ['Checkstyle cannot allow a whole package', 'So a new violation cannot slip in under the same line', 'A class rule runs faster', 'Package rules only work at the root'], answer: 1, why: 'An allowlist lists known exceptions one by one. A package rule would let every other `web` class in too.' },
+					{ q: 'What is the better fix?', options: ['Add the exception and fix it later', 'Copy the class into `service`', 'Remove the `service` rule', 'Move the shared class down into `service` or a common package'], answer: 3, why: 'If the class belongs lower, moving it keeps the rule clean and needs no exception.' }
+				]
+			},
+			{
+				title: 'Make it run on every PR',
+				questions: [
+					{ q: 'Where does this check run?', options: ['In the same CI job as the tests', 'Once a month, by the architect', 'Only before a release', 'In production monitoring'], answer: 0, why: 'A fast structural check can guard every pull request without slowing the team.' },
+					{ q: 'In Kafka, which command runs Checkstyle in CI?', options: ['`./gradlew test`', '`./gradlew checkstyle`', '`./gradlew build --scan`', '`./gradlew check`'], answer: 3, why: 'Gradle\'s `check` task includes every Checkstyle task, so the rule runs with no extra step.' },
+					{ q: 'Is this check triggered or continual?', options: ['Continual: it runs all the time', 'Triggered: it runs on each commit', 'Neither: it is manual', 'Both, since CI never stops'], answer: 1, why: 'Triggered checks run on an event, like a commit. Continual ones run all the time, like production monitoring.' },
+					{ q: 'Without this check, what happens to the layer rule over time?', options: ['Nothing: reviewers always catch upward imports', 'Java refuses upward imports anyway', 'It drifts away, one reasonable-looking change at a time', 'Gradle warns about it'], answer: 2, why: 'A rule with nothing that fails when the code breaks it is gone without anyone deciding to drop it.' }
+				]
+			}
 		]
 	},
 	quiz: [

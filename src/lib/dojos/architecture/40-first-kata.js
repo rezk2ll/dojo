@@ -67,6 +67,44 @@ export default {
 			'Context diagram: the album as one box; family members and the invited relative; external boxes for mail (invites), push notifications, and object storage if hosted.',
 			'The one-way door: how families are separated. A database per family versus shared tables with a family id (day 13\'s tenancy models). The outside relative crosses that boundary, so sharing with them must be a feature you design on purpose.',
 			'Assumptions, stated out loud when you present. Thumbs-down traps: Kubernetes and ten microservices for a home server, no questions asked, ignoring self-hosting.'
+		],
+		steps: [
+			{
+				title: 'Ask, then assume',
+				questions: [
+					{ q: 'You start the timer. What is the first thing on your sheet?', options: ['The containers sketch', 'The questions you would ask the customer', 'The database choice', 'The 30-second pitch'], answer: 1, why: 'The rules say "When in doubt, ask." Two minutes of questions and assumptions come before any box.' },
+					{ q: 'Which question is worth asking for this brief?', options: ['Which logo color the families prefer', 'Whether to use tabs or spaces', 'Are videos in scope, and how big?', 'How many stars the repo should get'], answer: 2, why: 'Videos change storage, upload and archive size, so the answer changes the design.' },
+					{ q: 'Nobody answers your question about videos. What do you do?', options: ['Make an assumption and state it clearly when you present', 'Design for 8K video to be safe', 'Drop the upload requirement', 'Leave videos out and say nothing'], answer: 0, why: 'Assumptions are allowed if you define them clearly. Bad ones, never checked, earn a thumbs down.' },
+					{ q: 'Alone, who plays the moderator?', options: ['Nobody: you skip that step', 'A random brief generator', 'The first reader of your sheet', 'You: you write the questions down instead'], answer: 3, why: 'The moderator plays everybody except you. Alone, the written questions take that role.' }
+				]
+			},
+			{
+				title: 'Pick three characteristics',
+				questions: [
+					{ q: 'Which line of the brief drives data isolation?', options: ['"One family\'s photos must never be visible to another family"', '"A team of four developers"', '"Download everything as an archive"', '"Upload from a phone"'], answer: 0, why: 'That sentence is a hard rule, so isolation goes in the top three.' },
+					{ q: 'Why is deployability in the top three?', options: ['Because every kata needs it', 'Because ten microservices need it', 'Because uploads are slow', 'The same code must run on one small home server and as a hosted service'], answer: 3, why: 'Two very different sizes from one codebase is the brief\'s unusual demand.' },
+					{ q: 'Why is cost efficiency there?', options: ['The brief sets a budget in euros', 'Four developers, and photos take a lot of storage', 'Families pay per photo', 'Hosting is free'], answer: 1, why: 'A small team and heavy storage make cost a real driver, not a nice-to-have.' },
+					{ q: 'Which scenario has the number the step asks for?', options: ['"The app should feel fast for grandparents."', '"The system scales to a billion users."', '"A grandparent on a slow phone connection sees the first thumbnail in under 3 seconds."', '"Photos load quickly."'], answer: 2, why: 'A scenario names who, what, and a number you can test. The others are wishes.' }
+				]
+			},
+			{
+				title: 'Sketch it and find the door',
+				questions: [
+					{ q: 'Which boxes sit outside the album on the context diagram?', options: ['Mail for invites, push notifications, object storage if hosted', 'The database and the web server', 'Kubernetes and a service mesh', 'The four developers'], answer: 0, why: 'A context diagram shows the system as one box with its people and external systems.' },
+					{ q: 'Which containers sketch fits both deployments?', options: ['One microservice per feature', 'A stateless app: one copy on one box, or many behind a load balancer', 'A separate codebase for home and for hosting', 'One shared database for every family'], answer: 1, why: 'State lives in the database and storage, so the same code runs at home or hosted.' },
+					{ q: 'Which decision is the one-way door?', options: ['The thumbnail size', 'The push notification provider', 'The archive format', 'How families are separated: a database per family or shared tables with a family id'], answer: 3, why: 'Day 13\'s tenancy models. Changing it later means moving every family\'s data.' },
+					{ q: 'The invited relative from outside crosses that boundary. What follows?', options: ['Sharing with them must be a feature you design on purpose', 'They become a member of the family', 'They get read access to all albums', 'They need their own home server'], answer: 0, why: 'This is the brief\'s tension: "never visible" versus "invite from outside". Design the crossing explicitly.' }
+				]
+			},
+			{
+				title: 'Pitch and score it',
+				questions: [
+					{ q: 'How do you write the ADR for the one-way door?', options: ['As a full page of pros and cons', 'As a Y-statement, cost included', 'As a list of technologies', 'As a diagram only'], answer: 1, why: 'Days 4 and 5: one Y-statement that names the choice and what it costs.' },
+					{ q: 'How long is the pitch?', options: ['Five minutes', 'Two minutes', '30 seconds', 'As long as the diagrams need'], answer: 2, why: 'Day 39: pitch it as you would to a director, in 30 seconds.' },
+					{ q: 'Which design earns a thumbs down?', options: ['One with diagrams not finished', 'One that uses a database the voters do not know', 'One that states its assumptions', 'Kubernetes and ten microservices for a home server, with no questions asked'], answer: 3, why: 'Major assumptions with no validity and never asking the customer are what the rules mark down.' },
+					{ q: 'What does a thumbs up need?', options: ['The confidence you could produce the diagrams given time', 'Finished diagrams for every container', 'A working prototype', 'Support for a billion users'], answer: 0, why: 'The rules say up does not need finished diagrams, only that confidence.' }
+				]
+			}
 		]
 	},
 	quiz: [

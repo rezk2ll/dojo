@@ -93,6 +93,44 @@ By preserving the old state without immediate health checks, there is a delay in
 			'Failure mode: on line 119, after a restart the kubelet takes `Started` from the API server. Line 368 asks what happens if the API server is unavailable, and is blank. Does the kubelet fall back to the old reset, or keep stale status?',
 			'Blocking: the failure-mode question, together with line 249, where "What specific metrics should inform a rollback?" is `N/A`. A change to a default that steers traffic needs a known fallback and a signal to roll back. I would ask for both before the KEP moves to implementable.',
 			'Non-blocking, worth asking: line 147 uses a 10-second tolerance for clock skew. What happens on a node whose clock is off by more?'
+		],
+		steps: [
+			{
+				title: 'Read what the KEP changes',
+				questions: [
+					{ q: 'Before this KEP, what does the kubelet do to containers when it restarts?', options: ['Keeps their last known status', 'Resets them to not Ready until their probes pass again', 'Restarts every container on the node', 'Asks the API server for their status'], answer: 1, why: 'The KEP calls the result a "Not Ready" storm, and that is what it wants to stop.' },
+					{ q: 'What does the KEP propose instead?', options: ['Keep the last known status across the restart', 'Skip probes for the first minute', 'Remove readiness probes from pods', 'Restart the kubelet less often'], answer: 0, why: 'The title says it: keep pod status across kubelet restarts.' },
+					{ q: 'Which risk does the KEP itself name?', options: ['The kubelet may crash more often', 'Pods may restart twice', 'Clocks may drift between nodes', 'Traffic can go to a pod reported Ready but no longer healthy'], answer: 3, why: 'Its "Delayed Health Check Updates" section says so. Credit the doc for writing its own downside.' },
+					{ q: 'Where do your questions belong first?', options: ['In the typos and field names', 'In the diagrams', 'Where the template\'s answers are empty', 'In the list of e2e tests'], answer: 2, why: 'The KEP template asks about rollback, skew, metrics and failure modes. A blank answer is where the review starts.' }
+				]
+			},
+			{
+				title: 'Ask a scenario it hurts',
+				questions: [
+					{ q: 'Which scenario does this design hurt?', options: ['An app that hangs while the kubelet is down', 'A pod that starts for the first time', 'A node that never restarts its kubelet', 'A container with no readiness probe'], answer: 0, why: 'Its status is kept as Ready, so it keeps getting traffic until a probe notices.' },
+					{ q: 'According to line 125, when is that pod\'s status fixed?', options: ['Immediately after the kubelet starts', 'When the API server notices', 'Never, until the pod restarts', 'In the next probe cycle'], answer: 3, why: 'The status is corrected by the probes, so the delay depends on how the probe is set up.' },
+					{ q: 'What decides how long a broken pod can keep getting traffic?', options: ['The number of nodes in the cluster', 'The probe\'s period and failure threshold', 'The size of the container image', 'The feature gate\'s name'], answer: 1, why: 'A probe must fail enough times, at its period, before the pod is marked not Ready.' },
+					{ q: 'How do you phrase this point in the review?', options: ['"This is wrong, revert it."', '"Add a diagram here."', '"How long can such a pod keep getting traffic? Should the doc state the worst case?"', '"Please rename the gate."'], answer: 2, why: 'A question brings the author\'s context in, and still surfaces the problem if you are right.' }
+				]
+			},
+			{
+				title: 'Find the one-way door',
+				questions: [
+					{ q: 'On line 115, what does the feature gate do by default?', options: ['Turns the new behavior on from the first release', 'Keeps the old behavior until GA', 'Asks each cluster admin to choose', 'Turns the new behavior on only for new nodes'], answer: 0, why: 'The new behavior is the default, and the gate only restores the old one.' },
+					{ q: 'Why is this a one-way door?', options: ['The gate name cannot change', 'Nodes cannot be downgraded', 'Once the gate is removed, the old behavior is gone for everyone', 'The KEP cannot go back to provisional'], answer: 2, why: 'Pod readiness decides where traffic goes, and others build on it. Without the gate, nobody can switch back.' },
+					{ q: 'Line 201: what does GA need?', options: ['A full set of e2e tests and a metric', 'Two releases with the gate on by default', 'A sign-off from every SIG', '"No issues reported by users"'], answer: 3, why: 'That is the bar the KEP sets, and silence is weak evidence for a default that steers traffic.' },
+					{ q: 'Which question do you ask about it?', options: ['Can the gate get a shorter name?', 'What evidence, beyond silence, moves it to GA?', 'Can GA happen one release earlier?', 'Who wrote the feature gate?'], answer: 1, why: 'It asks for a real signal before the door closes for everyone.' }
+				]
+			},
+			{
+				title: 'Find a failure mode and mark the blocker',
+				questions: [
+					{ q: 'Line 119: after a restart, where does the kubelet get `Started`?', options: ['From its local disk', 'From the container runtime only', 'From the API server', 'From the probes'], answer: 2, why: 'The KEP says the kubelet gets it "via the API server", so the API server becomes a dependency of the restart.' },
+					{ q: 'Line 368 asks what happens if the API server is unavailable. What does it say?', options: ['The kubelet waits for it', 'The kubelet uses the old reset', 'Nothing: the answer is blank', 'The kubelet keeps stale status'], answer: 2, why: 'The question is in the template and has no answer yet. That gap is your failure-mode question.' },
+					{ q: 'Which question should block acceptance?', options: ['The clock skew tolerance on line 147', 'The probe cycle timing from line 125', 'The folder name typo "kublet"', 'The API server failure mode, with line 249\'s `N/A` rollback metrics'], answer: 3, why: 'A change to a default that steers traffic needs a known fallback and a signal to roll back before it moves to implementable.' },
+					{ q: 'Why mark the blocking question?', options: ['So the author finds it among the small ones', 'Because the template requires a label', 'So the other questions can be ignored', 'To speed up the merge'], answer: 0, why: 'In a list of thirty comments the author can miss it. Marked, it stands out at once.' }
+				]
+			}
 		]
 	},
 	quiz: [

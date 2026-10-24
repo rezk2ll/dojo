@@ -67,6 +67,44 @@ export default {
 			'Diagramme de contexte : l’album comme une seule boîte ; les membres de la famille et le proche invité ; des boîtes externes pour le mail (invitations), les notifications push, et le stockage objet en mode hébergé.',
 			'La porte à sens unique : la façon de séparer les familles. Une base par famille contre des tables partagées avec un identifiant de famille (les modèles de tenancy du jour 13). Le proche extérieur traverse cette frontière, donc le partage avec lui doit être une fonctionnalité que tu conçois exprès.',
 			'Hypothèses : énonce-les à voix haute en présentant. Les pièges du pouce en bas : Kubernetes et dix microservices pour un serveur domestique, aucune question posée, l’auto-hébergement ignoré.'
+		],
+		steps: [
+			{
+				title: 'Demande, puis suppose',
+				questions: [
+					{ q: 'Tu lances le minuteur. Qu’écris-tu en premier sur ta feuille ?', options: ['Le schéma des conteneurs', 'Les questions que tu poserais au client', 'Le choix de la base de données', 'Le pitch de 30 secondes'], answer: 1, why: 'Les règles disent « When in doubt, ask » (dans le doute, demande). Deux minutes de questions et d’hypothèses passent avant toute boîte.' },
+					{ q: 'Quelle question vaut la peine d’être posée pour cet énoncé ?', options: ['Quelle couleur de logo préfèrent les familles', 'Tabulations ou espaces', 'Les vidéos sont-elles concernées, et de quelle taille ?', 'Combien d’étoiles le repo devrait avoir'], answer: 2, why: 'Les vidéos changent le stockage, l’envoi et la taille de l’archive, donc la réponse change le design.' },
+					{ q: 'Personne ne répond à ta question sur les vidéos. Que fais-tu ?', options: ['Tu fais une hypothèse et tu l’énonces clairement en présentant', 'Tu conçois pour de la vidéo 8K, par sécurité', 'Tu retires l’exigence d’envoi', 'Tu laisses les vidéos de côté sans rien dire'], answer: 0, why: 'Les hypothèses sont permises si tu les définis clairement. Les mauvaises, jamais vérifiées, valent un pouce en bas.' },
+					{ q: 'Seul, qui joue le modérateur ?', options: ['Personne : tu sautes cette étape', 'Un générateur d’énoncés aléatoires', 'Le premier lecteur de ta feuille', 'Toi : tu écris les questions à la place'], answer: 3, why: 'Le modérateur joue tout le monde sauf toi. Seul, ce sont les questions écrites qui tiennent ce rôle.' }
+				]
+			},
+			{
+				title: 'Choisis trois caractéristiques',
+				questions: [
+					{ q: 'Quelle ligne de l’énoncé pousse l’isolation des données ?', options: ['« Les photos d’une famille ne doivent jamais être visibles par une autre famille »', '« Une équipe de quatre développeurs »', '« Tout télécharger sous forme d’archive »', '« Envoyer depuis un téléphone »'], answer: 0, why: 'Cette phrase est une règle stricte, donc l’isolation entre dans les trois premières.' },
+					{ q: 'Pourquoi la déployabilité est-elle dans les trois ?', options: ['Parce que chaque kata en a besoin', 'Parce que dix microservices en ont besoin', 'Parce que les envois sont lents', 'Le même code doit tourner sur un petit serveur domestique et comme service hébergé'], answer: 3, why: 'Deux tailles très différentes à partir d’un seul code, c’est la demande inhabituelle de l’énoncé.' },
+					{ q: 'Pourquoi la maîtrise des coûts est-elle là ?', options: ['L’énoncé fixe un budget en euros', 'Quatre devs, et les photos prennent beaucoup de stockage', 'Les familles paient à la photo', 'L’hébergement est gratuit'], answer: 1, why: 'Une petite équipe et un gros stockage font du coût un vrai moteur, pas un simple bonus.' },
+					{ q: 'Quel scénario a le chiffre que demande l’étape ?', options: ['« L’appli doit paraître rapide pour les grands-parents. »', '« Le système tient un milliard d’utilisateurs. »', '« Un grand-parent sur une connexion mobile lente voit la première miniature en moins de 3 secondes. »', '« Les photos se chargent vite. »'], answer: 2, why: 'Un scénario nomme qui, quoi, et un chiffre que tu peux tester. Les autres sont des souhaits.' }
+				]
+			},
+			{
+				title: 'Esquisse et trouve la porte',
+				questions: [
+					{ q: 'Quelles boîtes sont hors de l’album sur le diagramme de contexte ?', options: ['Le mail pour les invitations, les notifications push, le stockage objet en mode hébergé', 'La base de données et le serveur web', 'Kubernetes et un service mesh', 'Les quatre développeurs'], answer: 0, why: 'Un diagramme de contexte montre le système comme une seule boîte, avec ses personnes et ses systèmes externes.' },
+					{ q: 'Quel schéma de conteneurs convient aux deux déploiements ?', options: ['Un microservice par fonctionnalité', 'Une appli sans état : une copie sur un boîtier, ou plusieurs derrière un load balancer', 'Un code séparé pour la maison et pour l’hébergé', 'Une seule base partagée par toutes les familles'], answer: 1, why: 'L’état vit dans la base et le stockage, donc le même code tourne à la maison ou en hébergé.' },
+					{ q: 'Quelle décision est la porte à sens unique ?', options: ['La taille des miniatures', 'Le fournisseur de notifications push', 'Le format de l’archive', 'La façon de séparer les familles : une base par famille ou des tables partagées avec un identifiant de famille'], answer: 3, why: 'Les modèles de tenancy du jour 13. Changer plus tard, c’est déplacer les données de chaque famille.' },
+					{ q: 'Le proche invité de l’extérieur traverse cette frontière. Qu’en découle-t-il ?', options: ['Le partage avec lui doit être une fonctionnalité que tu conçois exprès', 'Il devient membre de la famille', 'Il a accès en lecture à tous les albums', 'Il lui faut son propre serveur domestique'], answer: 0, why: 'C’est la tension de l’énoncé : « jamais visibles » contre « inviter de l’extérieur ». Conçois ce passage de façon explicite.' }
+				]
+			},
+			{
+				title: 'Présente et note-toi',
+				questions: [
+					{ q: 'Comment écris-tu l’ADR de la porte à sens unique ?', options: ['En une page complète de pour et de contre', 'En Y-statement, coût compris', 'En liste de technologies', 'En diagramme seulement'], answer: 1, why: 'Jours 4 et 5 : un Y-statement qui nomme le choix et ce qu’il coûte.' },
+					{ q: 'Combien de temps dure le pitch ?', options: ['Cinq minutes', 'Deux minutes', '30 secondes', 'Le temps qu’il faut aux diagrammes'], answer: 2, why: 'Jour 39 : présente-le comme à une directrice, en 30 secondes.' },
+					{ q: 'Quel design vaut un pouce en bas ?', options: ['Un design aux diagrammes pas finis', 'Un design qui utilise une base que les votants ne connaissent pas', 'Un design qui énonce ses hypothèses', 'Kubernetes et dix microservices pour un serveur domestique, sans aucune question posée'], answer: 3, why: 'Des hypothèses majeures sans fondement et aucune question au client, c’est ce que les règles sanctionnent.' },
+					{ q: 'De quoi un pouce en haut a-t-il besoin ?', options: ['De la confiance que tu pourrais produire les diagrammes avec du temps', 'De diagrammes finis pour chaque conteneur', 'D’un prototype qui marche', 'De la prise en charge d’un milliard d’utilisateurs'], answer: 0, why: 'Les règles disent que le pouce en haut ne demande pas de diagrammes finis, seulement cette confiance.' }
+				]
+			}
 		]
 	},
 	quiz: [

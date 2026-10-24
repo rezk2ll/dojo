@@ -100,6 +100,44 @@ drwho:
 			'PM: restarting the node agent, for example during an upgrade, no longer takes healthy services out of rotation for a moment. Cost: a service that really broke during that restart is noticed one probe later.',
 			'Director: "Routine node maintenance will stop causing brief false outages, at the price of a slightly slower reaction to a real failure in that window. It is the default from Kubernetes 1.35."',
 			'Check: same facts in all three? One gain and one cost each? Nothing on the top floor you could not back with a line of the KEP?'
+		],
+		steps: [
+			{
+				title: 'Fix the facts first',
+				questions: [
+					{ q: 'What is the gain of KEP-4781, in one line?', options: ['Pods restart faster after a node upgrade', 'Probes run less often, so nodes use less CPU', 'A kubelet restart no longer marks every pod not Ready', 'Broken containers are found sooner'], answer: 2, why: 'The KEP keeps the last known status instead of resetting it, so healthy pods stay in rotation.' },
+					{ q: 'What is the cost, in one line?', options: ['A container that broke while the kubelet was down stays Ready until the next probe cycle', 'Every pod restarts once after the kubelet restarts', 'The kubelet needs more memory', 'Readiness probes no longer work'], answer: 0, why: 'The KEP names this risk itself: traffic can go to a pod reported Ready that is no longer healthy.' },
+					{ q: 'Between the three versions, what may change?', options: ['The facts, simplified on each floor', 'The decision, to fit each audience', 'Only the length, with the same detail', 'The detail and the consequence each person acts on'], answer: 3, why: 'Altitude changes words and detail. If the facts change, you have described three decisions.' },
+					{ q: 'Before writing, what do you ask about each person?', options: ['How senior they are', 'What they will **do** with your answer', 'How much Kubernetes they know', 'Whether they read the KEP'], answer: 1, why: 'The developer builds and operates it, the PM plans upgrades and support, the director decides if it matters to customers.' }
+				]
+			},
+			{
+				title: 'Write the engine-room version',
+				questions: [
+					{ q: 'What does the developer need that the others do not?', options: ['The mechanism: which status fields are kept, and how to switch it off', 'The budget impact', 'A one-sentence risk summary', 'The release date only'], answer: 0, why: 'People in the engine room build on the mechanism, so they need it spelled out.' },
+					{ q: 'Which statuses does the kubelet keep for containers that were already running?', options: ['Only `Ready`', '`Started` and `Ready`', 'Only `Started`', 'All statuses, including restart counts'], answer: 1, why: 'Instead of resetting them to false, the kubelet keeps both for containers that were running.' },
+					{ q: 'A pod was not Ready before the restart. What happens to it?', options: ['It becomes Ready, since its status is kept', 'It is restarted', 'It is deleted', 'It stays not Ready until its probe passes'], answer: 3, why: 'Keeping the last status works both ways: not Ready stays not Ready.' },
+					{ q: 'What brings the old behavior back?', options: ['Restarting the kubelet twice', 'Removing the readiness probe', 'The `ChangeContainerStatusOnKubeletRestart` gate', 'A flag on each pod'], answer: 2, why: 'The developer needs the off switch, so name the gate.' }
+				]
+			},
+			{
+				title: 'Write the PM version',
+				questions: [
+					{ q: 'Which gain fits the PM, in plain words?', options: ['The kubelet keeps `Started` and `Ready` fields', 'Restarting the node agent, during an upgrade, no longer takes healthy services out of rotation', 'Probes are more accurate', 'Kubernetes 1.35 is faster'], answer: 1, why: 'The PM plans upgrades and support, so the gain is told as what happens to services during an upgrade.' },
+					{ q: 'Which cost fits the PM?', options: ['A service that really broke during that restart is noticed one probe later', 'Upgrades take twice as long', 'The feature costs extra licenses', 'Support must restart pods by hand'], answer: 0, why: 'Same cost as the developer\'s, told as what support will see.' },
+					{ q: 'Why not give the PM the field names?', options: ['They are secret', 'They change every release', 'They are wrong at that altitude', 'The PM cannot act on them'], answer: 3, why: 'The mechanism is true, but useless for planning. Give the consequence instead.' },
+					{ q: 'How long is the PM version?', options: ['One sentence', 'Five lines', 'Two lines', 'A full page'], answer: 2, why: 'The task sets it: 5 lines, 2 lines, 1 sentence, from the engine room up.' }
+				]
+			},
+			{
+				title: 'Write the penthouse version and check',
+				questions: [
+					{ q: 'Which sentence fits the director?', options: ['"The kubelet now keeps container status fields across restarts."', '"Routine node maintenance will stop causing brief false outages, at the price of a slightly slower reaction to a real failure in that window."', '"We follow best practices, so restarts are safe."', '"Node upgrades are now risk-free."'], answer: 1, why: 'One gain and one honest cost, in words a director can act on.' },
+					{ q: 'Why keep the cost in the director\'s one sentence?', options: ['A director who hears only the gain learns the cost later, from someone else', 'Directors prefer bad news', 'The template requires it', 'It makes the sentence longer'], answer: 0, why: 'If the top-floor version hides the cost, trust goes the first time the cost shows up.' },
+					{ q: 'Which fact can you add, backed by the sources?', options: ['It removes all outages', 'It ships in Kubernetes 2.0', 'It is the default from Kubernetes 1.35', 'It is still only a proposal'], answer: 2, why: 'The change has shipped in Kubernetes 1.35, as the chapter\'s sources show.' },
+					{ q: 'What is the last check before you send?', options: ['That each version uses different facts', 'That the director\'s version is the longest', 'That the developer\'s version has no cost', 'Same facts in all three, one gain and one cost each, nothing you cannot back with the KEP'], answer: 3, why: 'The three people will sit in the same meeting one day. The facts must match.' }
+				]
+			}
 		]
 	},
 	quiz: [

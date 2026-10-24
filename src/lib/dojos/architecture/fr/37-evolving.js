@@ -109,6 +109,44 @@ export default {
 			'L’ordre est donc : lance d’abord cette migration d’annulation, puis redéploie l’ancien code. Jamais dans l’autre sens.',
 			'Souvent, le meilleur choix est de **corriger en avançant** : corrige le bug dans la nouvelle release, et ne touche pas au schéma.',
 			'Pour la conception : garde le point de non-retour en **une seule petite étape, le plus tard possible**. GitLab place la suppression après le déploiement pour cette raison.'
+		],
+		steps: [
+			{
+				title: 'Vois ce que le nettoyage a laissé',
+				questions: [
+					{ q: 'Qu’a supprimé `cleanup_concurrent_column_rename` ?', options: ['Seulement le trigger', 'La nouvelle colonne `updated_at_timestamp`', 'Le trigger et l’ancienne colonne `updated_at`', 'Rien encore : il marque seulement la colonne'], answer: 2, why: 'Il retire les triggers de renommage, puis appelle `remove_column(table, old)`.' },
+					{ q: 'Quelles colonnes existent maintenant sur `users` ?', options: ['Seulement `updated_at_timestamp`', '`updated_at` et `updated_at_timestamp`', 'Seulement `updated_at`', 'Aucune, jusqu’à la prochaine migration'], answer: 0, why: 'L’ancienne colonne a été supprimée. Il ne reste que le nouveau nom.' },
+					{ q: 'Quand ce nettoyage a-t-il tourné ?', options: ['Avant le déploiement du nouveau code', 'Dans la même migration que `rename_column_concurrently`', 'Quand le bug a été trouvé', 'Après le déploiement du nouveau code, en migration post-déploiement'], answer: 3, why: 'GitLab le range dans `db/post_migrate`, qui tourne une fois le nouveau code en ligne.' },
+					{ q: 'Quelle étape était le point de non-retour ?', options: ['Ajouter la nouvelle colonne', 'Supprimer l’ancienne colonne', 'Installer le trigger', 'Déployer le code qui lit le nouveau nom'], answer: 1, why: 'Jusqu’à la suppression, les deux colonnes existaient et l’annulation retirait juste la nouvelle.' }
+				]
+			},
+			{
+				title: 'Dis ce qui casse',
+				questions: [
+					{ q: 'Tu redéploies la release précédente telle quelle. Que se passe-t-il ?', options: ['Ça marche : Rails fait correspondre l’ancien nom au nouveau', 'Ça marche : le trigger recopie la valeur', 'Ça casse : son code demande `updated_at`, qui n’existe plus', 'Ça marche, mais plus lentement'], answer: 2, why: 'L’ancien code lit `updated_at`, et le nettoyage a supprimé cette colonne.' },
+					{ q: 'Pourquoi le trigger ne peut-il pas te sauver ici ?', options: ['Il a été retiré au nettoyage, avec l’ancienne colonne', 'Il ne tourne que sur les inserts, pas sur les lectures', 'Il copie le nouveau dans l’ancien, pas l’inverse', 'Il est désactivé pendant un redéploiement'], answer: 0, why: 'Le trigger relevait de l’architecture transitoire. Il ne vivait qu’entre les deux migrations.' },
+					{ q: 'Avant le nettoyage, revenir en arrière coûtait combien ?', options: ['C’était impossible sans sauvegarde', 'Il fallait copier toute la table', 'Il fallait une interruption', 'Peu : `undo_rename_column_concurrently` retire juste le trigger et la nouvelle colonne'], answer: 3, why: 'Jusqu’au nettoyage, l’ancienne colonne gardait chaque valeur, donc annuler retirait seulement ce qui avait été ajouté.' },
+					{ q: 'Quel genre de retour arrière est-ce maintenant ?', options: ['Un simple redéploiement de l’ancienne image', 'Un retour arrière qui demande d’abord une nouvelle migration', 'Un changement de config dans Rails', 'Un revert du dernier commit'], answer: 1, why: 'Passé le point de non-retour, tu ne peux revenir qu’en reconstruisant l’ancienne forme.' }
+				]
+			},
+			{
+				title: 'Prépare le retour',
+				questions: [
+					{ q: 'Quel helper reconstruit l’ancienne colonne ?', options: ['`undo_rename_column_concurrently`', '`rename_column_concurrently` avec les noms inversés', '`undo_cleanup_concurrent_column_rename`', '`cleanup_concurrent_column_rename`'], answer: 2, why: 'C’est la méthode juste après le nettoyage, et elle défait ce que le nettoyage a fait.' },
+					{ q: 'Que fait ce helper ?', options: ['Il recrée `updated_at`, copie les valeurs depuis `updated_at_timestamp` et réinstalle le trigger', 'Il renomme `updated_at_timestamp` en `updated_at` sur place', 'Il restaure `updated_at` depuis la sauvegarde de la nuit', 'Il ajoute une vue appelée `updated_at`'], answer: 0, why: 'C’est une nouvelle copie des données, donc sur une grosse table ça prend du temps.' },
+					{ q: 'Dans quel ordre reviens-tu en arrière ?', options: ['Redéployer l’ancien code, puis lancer la migration d’annulation', 'Les deux à la fois, en un seul déploiement', 'Lancer seulement la migration d’annulation, et garder le nouveau code', 'Lancer d’abord la migration d’annulation, puis redéployer l’ancien code'], answer: 3, why: 'L’ancien code a besoin de `updated_at` dès sa première requête. Déploie-le d’abord et il casse jusqu’à la fin de la copie.' },
+					{ q: 'Pourquoi l’annulation prend-elle du temps sur une grosse table ?', options: ['Elle bloque tous les utilisateurs', 'Elle recopie chaque ligne dans la colonne recréée', 'Elle doit reconstruire le trigger pour chaque ligne', 'Elle attend la prochaine release'], answer: 1, why: 'Recréer la colonne, c’est recopier toutes les valeurs, pas juste changer un nom.' }
+				]
+			},
+			{
+				title: 'Choisis, et conçois pour la prochaine fois',
+				questions: [
+					{ q: 'Quel est souvent un meilleur choix que revenir en arrière ?', options: ['Corriger en avançant : corriger le bug dans la nouvelle release', 'Restaurer toute la base', 'Faire tourner les deux releases côte à côte', 'Supprimer aussi `updated_at_timestamp`'], answer: 0, why: 'Corriger en avançant laisse le schéma tranquille et évite une seconde copie d’une grosse table.' },
+					{ q: 'Où une migration doit-elle placer son point de non-retour ?', options: ['Le plus tôt possible, pour s’en débarrasser', 'Réparti sur plusieurs étapes', 'En une seule petite étape, le plus tard possible', 'Dans la même étape que le déploiement'], answer: 2, why: 'Plus il est tardif et petit, plus longtemps chaque autre étape reste facile à annuler.' },
+					{ q: 'Pourquoi GitLab place-t-il la suppression après le déploiement ?', options: ['Parce que les migrations post-déploiement tournent plus vite', 'Parce que Rails n’a besoin de la colonne que pendant le déploiement', 'Pour que le trigger finisse de copier', 'Pour que la suppression soit la dernière étape, une fois le nouveau code en ligne'], answer: 3, why: 'Supprimer une colonne est destructif et dur à annuler, donc ça tourne en dernier.' },
+					{ q: 'Dans la logique du strangler fig, quand supprimes-tu une ancienne partie ?', options: ['À une date fixée', 'Quand plus aucune requête ne l’atteint', 'Dès que la nouvelle partie est déployée', 'Jamais : les anciennes parties restent en secours'], answer: 1, why: 'Fowler : déplace le comportement un morceau à la fois, et supprime chaque ancienne partie quand plus rien ne l’utilise.' }
+				]
+			}
 		]
 	},
 	quiz: [

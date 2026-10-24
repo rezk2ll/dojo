@@ -121,6 +121,44 @@ export default {
 			'`NetworkManager-wait-online.service` started at 3.112 s and took 10.778 s, so `network-online.target` was reached at 3.112 + 10.778 = 13.890 s (printed as 13.892 s). docker started 5 ms later and took 5.983 s, which brings the chain to 19.880 s.',
 			'Both units are on the chain, so they set the boot time. If docker did not wait for `network-online.target`, the 10.778 s wait would leave this chain. A new `critical-chain` after a reboot would show which path is then the slowest.',
 			'A unit at the top of `blame` that is not on the chain, such as `snapd.seeded.service` at 916 ms here, ran in parallel. Making it faster would not change when `graphical.target` is reached.'
+		],
+		steps: [
+			{
+				title: 'Read the stages',
+				questions: [
+					{ q: 'Which stage is the longest on the test laptop?', options: ['Firmware, 9.346 s', 'Kernel, 3.721 s', 'Userspace, 19.993 s', 'Loader, 3.185 s'], answer: 2, why: '`Startup finished in 9.346s (firmware) + 3.185s (loader) + 3.721s (kernel) + 19.993s (userspace)`: more than half of 36.246 s.' },
+					{ q: 'Userspace starts at which moment?', options: ['When the kernel starts PID 1', 'When the firmware hands over to the loader', 'When `graphical.target` is reached', 'When the first service unit starts'], answer: 0, why: 'The userspace stage is what systemd does after the kernel has started it as PID 1.' },
+					{ q: 'Can a unit file or kernel parameter shorten the firmware\'s 9.346 s?', options: ['Yes, with `quiet` on the command line', 'Yes, by masking slow units', 'Only with a smaller initramfs', 'No: the firmware runs before the kernel'], answer: 3, why: 'The firmware stage comes first. Nothing the kernel or systemd reads can change it.' },
+					{ q: 'Inside the kernel stage, which program runs first as PID 1?', options: ['`/init` from the initramfs', '`/sbin/init` from the real root', '`/bin/sh` as a fallback', 'The boot loader'], answer: 0, why: '`kernel_init` tries `ramdisk_execute_command` (`/init`) first. It mounts the real root, then executes `/sbin/init`.' }
+				]
+			},
+			{
+				title: 'Read blame',
+				questions: [
+					{ q: 'What is at the top of `blame` on the test laptop?', options: ['`docker.service` at 5.983 s', '`NetworkManager-wait-online.service` at 10.778 s', '`snapd.seeded.service` at 916 ms', '`graphical.target` at 19.880 s'], answer: 1, why: '`blame` sorts units by how long they took to start, and this one took 10.778 s.' },
+					{ q: 'What does a unit\'s time in `blame` measure?', options: ['The moment it became active', 'The time other units waited for it', 'How long the unit took to start', 'Its share of the whole boot'], answer: 2, why: '`blame` lists start-up time per unit. It says nothing about who waited.' },
+					{ q: 'Why does systemd-analyze(1) call `blame` "misleading"?', options: ['A unit can be slow only because it waits for another one', 'It rounds times to the nearest second', 'It leaves out the firmware stage', 'It only lists the ten slowest units'], answer: 0, why: 'systemd-analyze(1): "the initialization of one service might be slow simply because it waits for the initialization of another service to complete".' },
+					{ q: 'Does being first in `blame` prove a unit sets the boot time?', options: ['Yes: the slowest unit always does', 'Yes, if it took over 5 s', 'No: only if it is a target', 'No: you must check it is on the critical chain'], answer: 3, why: 'systemd starts units in parallel. A slow unit off the chain ran next to something slower.' }
+				]
+			},
+			{
+				title: 'Read the critical chain',
+				questions: [
+					{ q: 'In `critical-chain`, what do `@` and `+` mean?', options: ['`@` is the start time, `+` the time since boot', '`@` is when the unit became active, `+` how long it took to start', '`@` is the CPU time, `+` the wall time', '`@` is the PID, `+` the exit code'], answer: 1, why: 'systemd-analyze prints it at the top of the output: the time after `@` is when the unit became active, after `+` how long it took to start.' },
+					{ q: 'Wait-online starts at 3.112 s and takes 10.778 s. When is `network-online.target` reached?', options: ['At about 13.89 s', 'At 10.778 s', 'At 3.112 s', 'At 19.880 s'], answer: 0, why: '3.112 + 10.778 = 13.890 s, printed as 13.892 s.' },
+					{ q: 'Why does `docker.service` start right after `network-online.target`?', options: ['docker is the slowest unit', 'systemd starts units in alphabetical order', 'Its unit has `Wants=` and `After=network-online.target`', 'NetworkManager starts docker itself'], answer: 2, why: 'The moby unit file orders docker after the network is up, so it waits.' },
+					{ q: 'docker takes 5.983 s from 13.897 s. Where does the chain end?', options: ['At 13.897 s', 'At 36.246 s', 'At 5.983 s', 'At `graphical.target` @19.880 s'], answer: 3, why: '13.897 + 5.983 = 19.880 s, when `graphical.target` is reached.' }
+				]
+			},
+			{
+				title: 'Compare and decide',
+				questions: [
+					{ q: 'Is the top unit of `blame` on the test laptop\'s critical chain?', options: ['No, it ran in parallel', 'Yes, together with docker', 'Only in the first second', 'Only on reboot'], answer: 1, why: 'Both `NetworkManager-wait-online.service` and `docker.service` are on the chain, so they set the boot time.' },
+					{ q: '`snapd.seeded.service` is in `blame` at 916 ms but not in the chain. What does speeding it up change?', options: ['About 816 ms less boot time', 'The firmware stage gets shorter', 'Almost nothing: it ran in parallel', 'docker starts 916 ms earlier'], answer: 2, why: 'Only the units on the chain decide when the default target is reached.' },
+					{ q: 'What would take the 10.778 s wait off this chain?', options: ['docker not waiting for `network-online.target`', 'Moving docker to the top of `blame`', 'A faster firmware', 'Removing `quiet` from the command line'], answer: 0, why: 'docker is the only link from the wait to `graphical.target` here. systemd.io notes server software "should generally not pull this in".' },
+					{ q: 'After such a change, how do you see the new slowest path?', options: ['Run `blame` again and take the top line', 'Read `/proc/cmdline`', 'Count the units in `blame`', 'Reboot and run `critical-chain` again'], answer: 3, why: 'Removing one wait exposes the next slowest path, and only a fresh `critical-chain` shows which one it is.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ export default {
 			why: 'systemd starts units in parallel. Only the units on the critical chain decide when the default target is reached, and this unit is not on it.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Follow your own machine\'s boot hand-offs, from the kernel command line to the unit that holds up the chain, as a normal user.',
+		steps: [
+			'Read what the boot loader passed to the kernel: `cat /proc/cmdline`. Find `root=`.',
+			'Look inside the initramfs for its `/init` and the tools it needs to reach root. On Debian or Ubuntu: `lsinitramfs /boot/initrd.img-$(uname -r) | grep -E "^init$|sbin/lvm$"`. On Fedora, `lsinitrd` does the same job.',
+			'See what became PID 1 after the switch to the real root: `ps -p 1 -o args=` and `readlink -f /sbin/init`.',
+			'Find the chain: `systemd-analyze critical-chain --no-pager | head -8`.',
+			'Pick the slowest unit on that chain and ask systemd why it waits: `systemctl show -p Wants -p After <unit>`, then `systemd-analyze critical-chain --no-pager <unit>`.'
+		],
+		done: [
+			'You can point at the `root=` value the kernel used.',
+			'The initramfs listing shows `init` (and `usr/sbin/lvm` if your root is on LVM).',
+			'`readlink -f /sbin/init` prints the systemd binary, such as `/usr/lib/systemd/systemd`.',
+			'You can name the unit that the slowest unit on the chain waits for, from its `After=` line.'
+		],
+		solution: [
+			'On the test laptop, `/proc/cmdline` starts with `BOOT_IMAGE=/boot/vmlinuz-6.17.0-1033-oem root=/dev/mapper/data-root ro`, and the initramfs lists `init` and `usr/sbin/lvm`: LVM has to run before the root volume exists.',
+			'`ps -p 1 -o args=` prints `/sbin/init splash` and `readlink -f /sbin/init` prints `/usr/lib/systemd/systemd`.',
+			'The chain runs `NetworkManager-wait-online.service` then `network-online.target` then `docker.service` then `multi-user.target`. `systemctl show -p Wants -p After docker.service` lists `network-online.target` in both lines, which is why docker waits. Your numbers will differ from the chapter\'s from one boot to the next.'
+		]
+	},
 	recall: {
 		q: 'Name the stages of a Linux boot in order, and the first program the kernel runs as PID 1.',
 		a: 'Firmware, boot loader, kernel, initramfs, then systemd from the real root. The first PID 1 is `/init` from the initramfs, which mounts root and then executes `/sbin/init` (systemd).'

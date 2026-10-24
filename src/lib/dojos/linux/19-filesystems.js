@@ -121,6 +121,44 @@ export default {
 			'Output captured on a laptop for this chapter: `findmnt` printed `/dev/mapper/data-root ext4 rw,noatime,errors=remount-ro`. No data mode and no commit interval appear there.',
 			'`/proc/fs/ext4/dm-0/options` listed `delalloc`, `auto_da_alloc`, `commit=5` and `data=ordered`, among 27 lines. These are the defaults marked `(*)` in the ext4 admin guide.',
 			'So a crash loses at most about 5 seconds of metadata changes, file data is written before the metadata that points to it, and a rename over an existing file flushes the new data first.'
+		],
+		steps: [
+			{
+				title: 'Read findmnt',
+				questions: [
+					{ q: '`findmnt` printed `/dev/mapper/data-root ext4 rw,noatime,errors=remount-ro`. Which data mode does it show?', options: ['`data=ordered`', '`data=writeback`', 'None: the line has no `data=` option', '`data=journal`'], answer: 2, why: 'The line lists only `rw`, `noatime` and `errors=remount-ro`. No data mode and no commit interval appear.' },
+					{ q: 'Why are `data=` and `commit=` missing from that line?', options: ['They are defaults, so the mount line does not repeat them', 'The filesystem has no journal', 'Only root can see them', '`findmnt` hides every ext4 option'], answer: 0, why: 'The ext4-specific file listed `data=ordered` and `commit=5`, the defaults marked `(*)` in the admin guide.' },
+					{ q: 'What does the `ext4` column tell you about the journal?', options: ['That it journals file data', 'That it has none', 'That it commits every second', 'Nothing yet: you need the ext4 options to know the mode'], answer: 3, why: 'The type alone does not say which data mode is in use. ext4 can run `ordered`, `writeback` or `journal`.' },
+					{ q: 'Which part of this filesystem does a jbd2 journal hold?', options: ['Every byte written to files', 'Only the free block bitmap', 'Metadata changes, before they go to their final place', 'A copy of the page cache'], answer: 2, why: 'jbd2 writes each metadata change to the journal first. In ordered mode, file contents never go through it.' }
+				]
+			},
+			{
+				title: 'Find the ext4 options',
+				questions: [
+					{ q: '`ls /proc/fs/ext4/` printed `dm-0`. What is that?', options: ['The name of the journal', 'The kernel name of the device that holds the ext4 filesystem', 'A mount option', 'The first inode'], answer: 1, why: 'ext4 keeps one folder per mounted filesystem, named after the block device. `/dev/mapper/data-root` is `dm-0`.' },
+					{ q: 'Which file lists every option ext4 is really using?', options: ['`/proc/fs/ext4/dm-0/options`', '`/etc/fstab`', '`/proc/mounts`', '`/proc/fs/ext4/dm-0/journal`'], answer: 0, why: 'It listed 27 lines, defaults included, where `findmnt` showed three.' },
+					{ q: 'So which of the two commands answers the task?', options: ['`findmnt`, because it reads the kernel', 'Both give the same lines', 'Neither: only `dumpe2fs` can', 'The `options` file, because it includes the defaults'], answer: 3, why: '`findmnt` left out every default. The `options` file showed `data=ordered`, `commit=5` and `auto_da_alloc`.' },
+					{ q: 'Which inode usually holds the ext4 journal?', options: ['Inode 1', 'Inode 2', 'Inode 8', 'Inode 11'], answer: 2, why: 'The journal is a reserved area of the filesystem, usually inode 8 on ext4.' }
+				]
+			},
+			{
+				title: 'Read the options',
+				questions: [
+					{ q: 'What does `data=ordered` do?', options: ['Journals metadata only, and writes a transaction\'s data blocks before its metadata commits', 'Journals data and metadata, each written twice', 'Writes data in file order', 'Turns the journal off for data and metadata'], answer: 0, why: 'In ordered mode, only metadata goes through the journal. Data blocks that have an allocation are written first.' },
+					{ q: 'What does `commit=5` limit?', options: ['The journal size to 5 MB', 'The age of the running transaction to 5 seconds', 'The number of `fsck` runs', 'The writes per second'], answer: 1, why: '`commit=nrsec` caps how old the open transaction can get before jbd2 writes it out.' },
+					{ q: 'What does `delalloc` mean for a `write`?', options: ['The write waits for the disk', 'The write is journaled', 'The write is dropped after 5 s', 'It only reserves space; ext4 picks the blocks just before writing them out'], answer: 3, why: 'Delayed allocation defers block allocation "until just before ext4 writes out the block(s) in question".' },
+					{ q: 'What does `auto_da_alloc` do on `rename(foo.new, foo)` when `foo` exists?', options: ['It refuses the rename', 'It journals the data of `foo.new`', 'It flushes the delayed blocks of `foo.new` before the rename commits', 'It keeps a backup of the old `foo`'], answer: 2, why: '`ext4_rename` calls `ext4_alloc_da_blocks`, which maps the blocks and starts the I/O, so the data is ordered before the rename.' }
+				]
+			},
+			{
+				title: 'Say what a crash costs',
+				questions: [
+					{ q: 'With `commit=5`, how much metadata can a power loss cost?', options: ['Up to the last 5 seconds of changes', 'Nothing at all', 'The whole filesystem', 'Every file opened since boot'], answer: 0, why: 'The ext4 docs: you lose "as much as the latest 5 seconds of metadata changes", and the filesystem is not damaged.' },
+					{ q: 'After the crash, what state are directories and inodes in?', options: ['Half updated until `fsck` runs', 'Consistent, up to the last commit record', 'Empty', 'Rolled back to the last boot'], answer: 1, why: 'jbd2 replays the journal "all the way to the latest commit record", so no directory or inode is left halfway.' },
+					{ q: 'A program saves a config with `foo.new` and `rename` over the old `foo`. Is it safe here without `fsync`?', options: ['No: it comes back 0 bytes, as in 2009', 'Yes, always, for any file', 'Only with `commit=1`', 'Yes for the rename over an existing file, thanks to `auto_da_alloc`'], answer: 3, why: 'The flush runs because the target name already exists, so the data reaches the disk before the rename commits.' },
+					{ q: 'Which case does `auto_da_alloc` not cover?', options: ['A rename over an existing file', 'A truncate of an existing file', 'A brand new file written with no `fsync`', 'The KDE config save from 2009, renamed over the old file'], answer: 2, why: 'Ts\'o: the fix "only protects against a file which is replaced via rename or truncate". A new file still needs `fsync`.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,29 @@ export default {
 			why: '`commit=nrsec` limits the age of the running transaction. The ext4 docs: with the default 5 you lose "as much as the latest 5 seconds of metadata changes", and the journal keeps the filesystem undamaged. A larger value widens that window.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Build an ext4 filesystem in a file, without mounting it, and find its journal and its default data mode.',
+		steps: [
+			'Make a 64 MB image and format it: `mkdir -p ~/fs-lab && cd ~/fs-lab && truncate -s 64M disk.img && mke2fs -q -t ext4 -F disk.img`. On macOS, run the lab inside `docker run --rm -it debian:bookworm-slim bash`, which has e2fsprogs.',
+			'Read the superblock: `dumpe2fs -h disk.img 2>/dev/null | grep -iE \'features|journal|mount options\'`.',
+			'Look at the journal as a file: `debugfs -R \'stat <8>\' disk.img 2>/dev/null | head -5`.',
+			'Store a different default data mode in the image, then read it back: `tune2fs -o journal_data disk.img` and `dumpe2fs -h disk.img 2>/dev/null | grep \'Default mount\'`.',
+			'Make one with no journal: `truncate -s 64M nojournal.img && mke2fs -q -t ext4 -O ^has_journal -F nojournal.img && dumpe2fs -h nojournal.img 2>/dev/null | grep -ic journal`.',
+			'On a Linux machine with ext4, compare with the mounted filesystem: `cat /proc/fs/ext4/*/options | grep -E \'^(data=|commit=|auto_da_alloc|delalloc)\'`.'
+		],
+		done: [
+			'Step 2 shows `has_journal` in the features, `Journal inode: 8` and `Total journal size: 4096k`.',
+			'Step 3 shows `Inode: 8   Type: regular` with `Size: 4194304`.',
+			'Step 4 prints `Default mount options:    journal_data user_xattr acl`.',
+			'Step 5 prints `0`, and step 6 prints `delalloc`, `auto_da_alloc`, `commit=5` and `data=ordered`.'
+		],
+		solution: [
+			'The journal is a plain inode, number 8, that ext4 reserves at format time. jbd2 writes metadata changes there before their final place.',
+			'`Journal start: 0` in step 2 means the journal is empty: nothing to replay. After a crash, the next mount replays it to the last commit record.',
+			'`tune2fs -o` only stores a default in the superblock. Without it, a mount gets `data=ordered`, which is what step 6 shows on a live system.'
+		]
+	},
 	recall: {
 		q: 'In ext4\'s default mode, what goes through the journal, and what did `auto_da_alloc` add after the 2009 empty file reports?',
 		a: '`data=ordered`: only metadata is journaled, and data blocks are written before their metadata commits. `auto_da_alloc` (default since 2.6.30) flushes a file\'s delayed blocks before a rename or truncate replaces an existing file.'

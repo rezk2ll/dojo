@@ -121,6 +121,44 @@ durable_rename(const char *oldfile, const char *newfile, int elevel)
 			'Output captured on a laptop for this chapter, after the interpreter\'s own startup calls: `openat(AT_FDCWD, "config.json.tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3`, `write(3, "{\\"port\\": 8080}\\n", 15) = 15`, `fsync(3) = 0`, `close(3) = 0`.',
 			'Then `rename("config.json.tmp", "config.json") = 0`, `openat(AT_FDCWD, ".", O_RDONLY|O_CLOEXEC) = 3`, `fsync(3) = 0`, `close(3) = 0`. The first `fsync` covers the 15 bytes and the temp file\'s inode; the second covers the directory entry that the rename changed.',
 			'Without the first `fsync`, the rename can reach the disk before the data, which is the 0-byte file of the previous chapter. Without the directory `fsync`, a crash can bring back the old `config.json`, as if the rename never happened.'
+		],
+		steps: [
+			{
+				title: 'Trace the temp file',
+				questions: [
+					{ q: 'The first traced call is `openat(..., "config.json.tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3`. Which step is that?', options: ['Opening the old `config.json` to read it', 'Creating the temp file in the same directory', 'Opening the directory', 'Locking the config'], answer: 1, why: 'The safe replace starts with a temp file next to the target, so the later `rename` stays on one filesystem.' },
+					{ q: '`write(3, ..., 15) = 15` returns. Where are the 15 bytes now?', options: ['On the disk', 'In the journal', 'In the page cache, as dirty pages', 'In the directory entry'], answer: 2, why: '`write(2)` copies the bytes into the page cache and returns before they reach the disk.' },
+					{ q: 'Why must the temp file sit in the same directory, not in `/tmp`?', options: ['`rename` cannot move across filesystems', '`/tmp` has no page cache', 'Files in `/tmp` cannot be fsynced', 'Python refuses other paths'], answer: 0, why: '`rename` across filesystems fails with `EXDEV`. The same directory keeps both names on one filesystem.' },
+					{ q: 'Why not open `config.json` with `O_TRUNC` and write in place?', options: ['It is slower', 'It needs root', 'It breaks `strace`', 'A crash mid-write leaves an empty or partial file'], answer: 3, why: 'The old content is gone as soon as the truncate lands. The temp file keeps the old one intact until the rename.' }
+				]
+			},
+			{
+				title: 'Map the first fsync',
+				questions: [
+					{ q: 'Which call makes the 15 bytes durable?', options: ['`write(3, ..., 15)`', 'The first `fsync(3) = 0`', '`close(3)`', '`rename`'], answer: 1, why: 'Data is durable once an `fsync` on it has returned 0. `write` and `close` do not wait for the disk.' },
+					{ q: 'What does that first `fsync` cover?', options: ['The 15 bytes and the temp file\'s inode', 'The directory entry for `config.json`', 'Every file in the directory', 'Only the file size'], answer: 0, why: 'fsync writes a file\'s dirty pages and its metadata, and returns when the device reports the transfer complete.' },
+					{ q: 'The first `fsync` returns -1 with `EIO`. What is the safe reaction?', options: ['Call `fsync` again until it returns 0', 'Ignore it and rename', 'Rewrite the data from another copy, or stop', 'Close and reopen the file'], answer: 2, why: 'Linux reports a writeback error once and may drop the pages. A retry can return 0 for lost data.' },
+					{ q: 'Why does `durable_rename` in PostgreSQL fsync the source file first?', options: ['To lock it', 'To check its size', 'To release its page cache', 'So its data is on disk before any name points to it'], answer: 3, why: 'Line 13 fsyncs the old file before the rename, so the new name never points at missing data.' }
+				]
+			},
+			{
+				title: 'Map the rename and the second fsync',
+				questions: [
+					{ q: 'What does `rename("config.json.tmp", "config.json") = 0` give readers?', options: ['The old file or the new one at every moment, never a missing name', 'A short window with no `config.json`', 'A copy of both files', 'A merged file'], answer: 0, why: 'rename(2): the target "will be atomically replaced", with no point where `newpath` is missing.' },
+					{ q: 'The next `openat(AT_FDCWD, ".", O_RDONLY|O_CLOEXEC) = 3` opens what?', options: ['The new `config.json`', 'The temp file again', 'The current directory', 'The journal'], answer: 2, why: '`"."` is the directory that holds the entry the rename changed.' },
+					{ q: 'Both `fsync` lines use fd 3. Is it the same file?', options: ['Yes: fd 3 always names one file', 'Yes: the kernel reuses the inode', 'No: the second is `config.json`', 'No: fd 3 was closed and reused for the directory'], answer: 3, why: '`close(3)` freed the number, and the next `openat` got it back for `"."`.' },
+					{ q: 'What does the second `fsync` cover?', options: ['The directory entry that the rename changed', 'The 15 bytes again', 'The old `config.json` data', 'Nothing: directories cannot be fsynced'], answer: 0, why: 'fsync(2): syncing a file does not ensure its directory entry reached disk. An explicit `fsync` on the directory is needed.' }
+				]
+			},
+			{
+				title: 'Say what a crash leaves',
+				questions: [
+					{ q: 'In the empty directory, drop the first `fsync`. What can a crash leave?', options: ['The old file, always', 'A `config.json` with 0 bytes: the rename landed before the data', 'A file with half old and half new content', 'Two `config.json` files'], answer: 1, why: 'The rename can reach the disk before the data, which is the 0-byte file of the previous chapter. With no old `config.json` to replace, ext4\'s `auto_da_alloc` does not step in.' },
+					{ q: 'You run the script again, so an old `config.json` exists. Drop the directory `fsync`. What can a crash leave?', options: ['A 0-byte file', 'No file at all', 'The old `config.json`, as if the rename never happened', 'A corrupted directory'], answer: 2, why: 'The rename changed the directory, and that change can be lost. `rename` never leaves the name missing or mixed.' },
+					{ q: 'Keep both. What can a crash leave?', options: ['A 0-byte file', 'Old or new `config.json`, never a mix', 'Always the old file', 'A temp file only'], answer: 1, why: 'Data first, then an atomic rename, then the directory entry on disk. `durable_rename` promises "no mixed state or truncated files".' },
+					{ q: 'What does each durable replace cost?', options: ['Nothing extra', 'One `fsync` on the directory only', 'A full `sync` of the disk', 'Two `fsync` calls, each waiting for the device'], answer: 3, why: 'One on the file and one on its directory. "The call blocks until the device reports that the transfer has completed."' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -158,6 +196,28 @@ durable_rename(const char *oldfile, const char *newfile, int elevel)
 			why: 'fsync(2) says syncing a file does not ensure its directory entry has reached disk. The rename changed the directory, and that change can be lost. `rename` itself never leaves the name missing or mixed.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Measure what `fsync` costs, and see why a program batches its writes before one `fsync`.',
+		steps: [
+			'Make a folder on a real disk, not `tmpfs`: `mkdir -p ~/fsync-lab && cd ~/fsync-lab`.',
+			'Time 500 small writes with no `fsync`: `python3 -c "import os, time; fd = os.open(\'log.txt\', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644); t = time.time(); [os.write(fd, b\'event\\n\') for i in range(500)]; print(\'%.3f s\' % (time.time() - t))"`.',
+			'Time the same with one `fsync` after each write: replace the list with `[(os.write(fd, b\'event\\n\'), os.fsync(fd)) for i in range(500)]`.',
+			'Time it with all 500 writes, then one `fsync`: go back to the step 2 list and add `os.fsync(fd);` right after it.',
+			'On Linux, count the calls: `strace -c -e trace=fsync python3 -c "import os; fd = os.open(\'log.txt\', os.O_WRONLY); [(os.write(fd, b\'event\\n\'), os.fsync(fd)) for i in range(500)]"`.'
+		],
+		done: [
+			'Step 2 prints close to `0.000 s`.',
+			'Step 3 takes far longer on the same disk, a large part of a second or more.',
+			'Step 4 lands close to step 2.',
+			'The `strace -c` table shows 500 `fsync` calls.'
+		],
+		solution: [
+			'`write` only fills the page cache, so step 2 never waits for the disk. Each `fsync` blocks until the device reports the transfer complete, so step 3 runs at the speed of the device.',
+			'One `fsync` after many writes makes all of them durable at once, for the price of one wait on the device.',
+			'On `tmpfs` all three steps are fast: there is no device to wait for, and nothing survives a reboot anyway.'
+		]
+	},
 	recall: {
 		q: 'What did PostgreSQL change in November 2018 after the fsyncgate report, and why does it not just retry `fsync`?',
 		a: 'It now PANICs on the first `fsync` failure of a data file (`data_sync_retry` off by default) and replays WAL at restart. Linux can drop the failed pages and report the error only once, so a second `fsync` can return 0 for lost data.'

@@ -137,6 +137,44 @@ class Order(ModelWithMetadata, ModelWithExternalReference):
 			'Queue (day 24): a worker runs `select id, kind, payload from jobs where run_at <= now() order by run_at limit 10 for update skip locked`, sends the email, deletes the row, commits.',
 			'Report (days 28, 38): `select date_trunc(\'month\', created_at) as month, sum(total) from orders where status <> \'cancelled\' group by 1 order by 1`, run on the replica. When it gets slow, export orders to a columnar file and query that.',
 			'Backups (day 27): base backups plus WAL archiving to another machine, and a monthly restore drill: restore last night\'s backup to a spare server to prove it works. For the 14:05 drop, restore to 14:04:59 with point-in-time recovery, then copy the orders table back.'
+		],
+		steps: [
+			{
+				title: 'Lay out the tables and keys',
+				questions: [
+					{ q: 'Which primary key does every table get?', options: ['`id bigint generated always as identity primary key`', 'The customer\'s email, or the product\'s SKU', 'A `text` id built by the app', 'None: unique constraints are enough'], answer: 0, why: 'A surrogate key never changes. The facts people type, like an email or a SKU, get their own unique constraint (day 2).' },
+					{ q: 'Why do orders also get a `public_id uuid unique` for URLs?', options: ['UUIDs make joins faster', 'So the URL does not leak how many orders the shop has', 'Foreign keys need a UUID', 'Identity columns cannot be shown'], answer: 1, why: 'An order number in the URL tells anyone the order count. A random UUID tells nothing.' },
+					{ q: 'Why does `order_lines` copy `unit_price` instead of reading the product\'s price?', options: ['It makes the join to products faster', 'Foreign keys cannot point at prices', 'The product price will change, and the order must keep what was paid', 'To avoid NULL prices'], answer: 2, why: 'The order is a record of a past sale. The product row only knows today\'s price (day 8).' },
+					{ q: 'Which index must you create yourself?', options: ['One on `orders.id`', 'One on `products.sku`', 'One on `customers.email`', 'One on `order_lines (product_id)`'], answer: 3, why: 'Primary keys and unique constraints come with an index. PostgreSQL does not index a foreign key for you (day 22).' }
+				]
+			},
+			{
+				title: 'Write the checkout',
+				questions: [
+					{ q: 'Two customers buy the last blue mug at once. Which stock update lets only one win?', options: ['`update products set stock = stock - 1 where id = $1 and stock >= 1`', 'A plain `select stock`, then an update if it is above zero', 'A unique index on `order_lines (product_id)`', 'A stock counter in the app\'s cache'], answer: 0, why: 'The guarded update rechecks the stock on the row it locks. The second checkout waits, then sees 0 and updates nothing (day 20).' },
+					{ q: 'The guarded update reports zero rows. What do you do?', options: ['Retry it until it works', 'Roll back: the mug is sold out', 'Commit the order anyway', 'Set the stock to 0 by hand'], answer: 1, why: 'No row touched means the rule failed. Rolling back removes the order and its lines with it (day 17).' },
+					{ q: 'The order insert uses `on conflict (idempotency_key) do nothing returning id` and returns no row. What happened?', options: ['The insert failed and the stock is wrong', 'The idempotency key is missing', 'This is a retry of a checkout that already went through: return the existing order', 'The database lost the order'], answer: 2, why: 'The unique constraint turned the second try into a no-op (day 23).' },
+					{ q: 'A future code path forgets the `stock >= 1` guard. What still stops negative stock?', options: ['The unique index on `sku`', 'The foreign key from `order_lines`', 'The idempotency key', '`check (stock >= 0)` on `products`'], answer: 3, why: 'The CHECK is the last guard. The update fails with a constraint error instead of selling a mug that does not exist.' }
+				]
+			},
+			{
+				title: 'Handle what runs later',
+				questions: [
+					{ q: 'How does checkout trigger the confirmation email?', options: ['It inserts a job row in the same transaction', 'It sends the email before the commit', 'The payment provider sends it from its callback', 'A nightly job emails the day\'s orders'], answer: 0, why: 'If the checkout rolls back, the job row rolls back with it, so no email goes out for an order that does not exist (day 24).' },
+					{ q: 'How do two workers avoid sending the same email twice?', options: ['Each reads the jobs with a plain `select`', 'They claim jobs with `for update skip locked`', 'They pick jobs with `order by random()`', 'They take turns, one per minute'], answer: 1, why: 'A row locked by one worker is skipped by the other, so each job is taken once (day 24).' },
+					{ q: 'The payment provider retries its callback. What makes the retry harmless?', options: ['An app check for a payment in the last few seconds', 'A sequence that gives the retry a new number', 'A unique constraint on the provider\'s event id in `payments`', 'A CHECK that the amount is above zero'], answer: 2, why: 'The database checks the unique constraint at insert time, across concurrent transactions. An app check races (day 23).' },
+					{ q: 'Where does the monthly revenue report run?', options: ['Inside the checkout transaction, for fresh data', 'On the primary, with a B-tree on every column', 'From a running total in a JSONB column', 'On a replica, then on a columnar copy when it outgrows that'], answer: 3, why: 'It scans every order of the year. A replica keeps that away from checkouts (day 28), and a columnar copy makes the scan cheap (day 38).' }
+				]
+			},
+			{
+				title: 'Plan the way back',
+				questions: [
+					{ q: 'What lets you restore the database to any second?', options: ['Base backups plus archived WAL', 'A streaming replica', 'A nightly `pg_dump` alone', 'RAID on the database disk'], answer: 0, why: 'A base backup is the start point, and replaying archived WAL brings it forward to the second you pick (day 27).' },
+					{ q: 'Why is the replica no help after the `orders` table is dropped?', options: ['It lags a few seconds behind', 'It replays the drop too', 'It is read-only', 'It holds only the indexes'], answer: 1, why: 'A replica copies every change, mistakes included. A replica is not a backup.' },
+					{ q: 'The table was dropped at 14:05. Which recovery target do you pick?', options: ['Last night\'s backup, with no WAL', '14:06, to be safe', '14:04:59', 'The latest WAL, to lose nothing'], answer: 2, why: 'Stop one second before the drop, then copy the orders table back into the live database.' },
+					{ q: 'How do you know the backups will work on the day you need them?', options: ['The backup job exits with 0', 'The backup files have the right size', 'The WAL archive is on another machine', 'A monthly drill restores last night\'s backup to a spare server'], answer: 3, why: 'Only a restore proves a backup. The other checks show that files exist, not that they bring the shop back.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -174,6 +212,31 @@ class Order(ModelWithMetadata, ModelWithExternalReference):
 			why: 'A report that reads every order is a scan no index removes. A replica takes the load off the primary (day 28), and a columnar copy makes the scan itself cheap (day 38).'
 		}
 	],
+	lab: {
+		minutes: 25,
+		goal: 'Build the mug shop\'s core tables and prove four rules for real: one buyer for the last mug, a retried checkout is a no-op, a rolled-back order sends no email, and two workers never take the same job.',
+		steps: [
+			'Start PostgreSQL: `docker run -d --name shop-lab -e POSTGRES_PASSWORD=lab postgres:16`, wait a few seconds, then open two terminals, A and B, each running `docker exec -it shop-lab psql -U postgres`.',
+			'In A, create the tables: `CREATE TABLE products (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, sku text NOT NULL UNIQUE, price numeric(12,2) NOT NULL CHECK (price >= 0), stock integer NOT NULL CHECK (stock >= 0)); CREATE TABLE orders (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, idempotency_key text NOT NULL UNIQUE, status text NOT NULL DEFAULT \'pending\' CHECK (status IN (\'pending\', \'paid\', \'shipped\', \'cancelled\')), total numeric(12,2) NOT NULL, created_at timestamptz NOT NULL DEFAULT now()); CREATE TABLE jobs (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind text NOT NULL, payload jsonb NOT NULL, run_at timestamptz NOT NULL DEFAULT now()); INSERT INTO products (sku, price, stock) VALUES (\'MUG-BLUE\', 12.00, 1);`. Then try `UPDATE products SET stock = stock - 2 WHERE sku = \'MUG-BLUE\';`.',
+			'The last mug: in A, `BEGIN; UPDATE products SET stock = stock - 1 WHERE sku = \'MUG-BLUE\' AND stock >= 1;`. In B, run the same two statements and watch it wait. In A, `COMMIT;`. Read B\'s result, then `ROLLBACK;` in B.',
+			'The retried checkout: in A, run `INSERT INTO orders (idempotency_key, total) VALUES (\'pay-7f3a\', 12.00) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id;` twice.',
+			'The outbox: in A, `BEGIN; INSERT INTO orders (idempotency_key, total) VALUES (\'pay-9c01\', 12.00); INSERT INTO jobs (kind, payload) VALUES (\'order_confirmation\', \'{}\'); ROLLBACK; SELECT count(*) FROM jobs;`.',
+			'Two workers: in A, `INSERT INTO jobs (kind, payload) SELECT \'order_confirmation\', jsonb_build_object(\'n\', g) FROM generate_series(1, 3) g;`. Then in A and in B, `BEGIN; SELECT id FROM jobs WHERE run_at <= now() ORDER BY run_at LIMIT 2 FOR UPDATE SKIP LOCKED;`, A first. `COMMIT;` in both. When you are done: `docker rm -f shop-lab`.'
+		],
+		done: [
+			'`stock - 2` fails with `violates check constraint "products_stock_check"`.',
+			'B waits until A commits, then prints `UPDATE 0`, and `SELECT stock FROM products` shows 0.',
+			'The first idempotent insert returns an id and `INSERT 0 1`. The second returns no row and `INSERT 0 0`.',
+			'After the rollback, `SELECT count(*) FROM jobs` is 0.',
+			'A gets two job ids, B gets the third one: no id appears in both.'
+		],
+		solution: [
+			'B\'s `UPDATE 0` is the sold-out signal: the app rolls back and tells the second customer. Nobody paid for a mug that was not there.',
+			'In the app, an empty `RETURNING` means a retry: look up the order by its `idempotency_key` and return it.',
+			'Insert one more order and look at its id: it gets 4, not 2, because the conflicting insert and the rolled-back order still used up identity values. `orders.id` has holes. That is expected, and one more reason to show `public_id` instead.',
+			'Point-in-time recovery needs WAL archiving and a second server, so it is left out here. Day 27 walks through it.'
+		]
+	},
 	recall: {
 		q: 'Two customers buy the last blue mug at once. Which statement in the checkout transaction stops the second one, and what happens to its order?',
 		a: '`update products set stock = stock - 1 where id = $1 and stock >= 1`. For the second checkout it updates zero rows, so the transaction rolls back, and its order, lines and email job are never committed.'

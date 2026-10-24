@@ -114,6 +114,44 @@ static int tcp_write_timeout(struct sock *sk)
 			'Les portables sont sur le LAN à 1500, donc ils annoncent `mss 1460`. Le serveur envoie des paquets de 1500 octets que le routeur ne peut pas mettre dans `wg0`. `curl -I` marche parce que sa réponse tient dans de petits paquets.',
 			'`--clamp-mss-to-pmtu` écrit dans chaque SYN le MTU de sortie moins 40 : 1420 moins 40 donne `mss 1380`.',
 			'Depuis un hôte derrière le routeur, `ping -M do -s 1392 <server>` envoie un paquet de 1420 octets (1392 + 8 + 20) avec DF et reçoit une réponse. `-s 1393` ne reçoit rien, ou un ICMP « frag needed » si l’ICMP revient. Sur un lien à 1500, un vrai essai a affiché `1473(1501) bytes` puis `ping: local error: message too long, mtu=1500`.'
+		],
+		steps: [
+			{
+				title: 'Trouve le MTU du tunnel',
+				questions: [
+					{ q: 'Sans ligne `MTU =`, de quoi part `wg-quick` ?', options: ['D’un 1420 fixe pour tout tunnel', 'Du MTU que le pair envoie pendant la poignée de main', 'Du plus petit MTU de la route vers chaque pair', 'Du plus petit MTU du chemin, trouvé par PMTUD'], answer: 2, why: '`wg-quick` lit le plus petit MTU de la route vers chaque pair, puis retire un nombre fixe.' },
+					{ q: 'Combien `wg-quick` retire-t-il ?', options: ['40', '80', '28', '60'], answer: 1, why: 'Il lance `ip link set mtu $(( mtu - 80 ))`.' },
+					{ q: 'Quel MTU `wg0` reçoit-il sur une liaison à 1500 ?', options: ['1420', '1460', '1380', '1500'], answer: 0, why: '1500 moins 80 donne 1420.' },
+					{ q: 'Pourquoi `curl -I` marche-t-il alors que `git clone` bloque ?', options: ['`curl` met le bit DF et git non', 'git passe en UDP pour les gros transferts', 'Les requêtes HEAD évitent le tunnel', 'La réponse de `curl -I` tient dans de petits paquets'], answer: 3, why: 'La poignée de main et une réponse courte sont de petits paquets qui passent. Seuls les paquets pleins butent sur la limite de 1420.' }
+				]
+			},
+			{
+				title: 'Calcule le MSS de chaque côté',
+				questions: [
+					{ q: 'Quel MSS les portables annoncent-ils dans leur SYN ?', options: ['1500', '1460', '1420', '1380'], answer: 1, why: 'Ils sont sur un LAN à 1500 et ne savent rien du tunnel : 1500 moins 40 donne 1460.' },
+					{ q: 'D’où viennent les 40 octets ?', options: ['De l’en-tête WireGuard', 'De l’en-tête et de la fin de trame Ethernet', '20 d’en-tête IPv4 et 20 d’en-tête TCP', 'Des en-têtes UDP et ICMP'], answer: 2, why: 'Le MSS ne compte que la charge utile TCP : il laisse de côté les deux en-têtes de 20 octets.' },
+					{ q: 'Quelle taille de paquets le serveur renvoie-t-il ?', options: ['1500 octets, avec DF', '1420 octets, à la taille du tunnel', '1380 octets, grâce au clamping', '576 octets, l’ancienne valeur par défaut'], answer: 0, why: 'Le portable a dit `mss 1460` : le serveur envoie 1460 octets de charge utile dans des paquets de 1500 avec DF.' },
+					{ q: 'Que deviennent ces paquets au routeur ?', options: ['Le routeur les découpe pour qu’ils passent', 'Le routeur les laisse passer, et l’autre bout les jette', 'Ils attendent que le tunnel grandisse', 'Ils sont jetés, et un ICMP « frag needed » repart'], answer: 3, why: 'Avec DF, le routeur n’a pas le droit de les découper. Il jette chacun et renvoie un ICMP type 3 code 4 avec le MTU 1420. Si cet ICMP se perd, le transfert bloque.' }
+				]
+			},
+			{
+				title: 'Bride le MSS',
+				questions: [
+					{ q: 'Quel MSS `--clamp-mss-to-pmtu` écrit-il dans chaque SYN qui passe par `wg0` ?', options: ['1460', '1420', '1380', '1340'], answer: 2, why: 'Il écrit le MTU de sortie moins 40 : 1420 moins 40 donne 1380.' },
+					{ q: 'Quels paquets la règle de clamping modifie-t-elle ?', options: ['Les SYN TCP seulement', 'Tous les paquets TCP', 'Tous les paquets du tunnel', 'Les messages ICMP seulement'], answer: 0, why: 'La règle filtre sur `--tcp-flags SYN,RST SYN` et réécrit l’option MSS de ces paquets.' },
+					{ q: 'Pourquoi le clamping règle-t-il le blocage même si l’ICMP est toujours jeté ?', options: ['Il fait fragmenter les paquets par le routeur', 'Le serveur n’envoie jamais de segment TCP trop gros pour le tunnel', 'Il active `tcp_mtu_probing` sur le serveur', 'Il envoie les messages ICMP par un autre chemin'], answer: 1, why: 'Le serveur voit `mss 1380` et envoie des paquets de 1420 octets, qui passent. Plus besoin d’ICMP.' },
+					{ q: 'Qu’est-ce que le clamping ne règle pas ?', options: ['`git clone` en HTTPS', 'Les gros transferts SSH', 'Le TCP du datacenter vers le bureau', 'Le trafic UDP comme DNS ou QUIC'], answer: 3, why: 'La règle réécrit les SYN TCP et rien d’autre : UDP bute toujours sur la limite de 1420 octets.' }
+				]
+			},
+			{
+				title: 'Prouve-le avec ping',
+				questions: [
+					{ q: 'Combien d’octets un echo ICMP ajoute-t-il à la taille `-s` ?', options: ['28 : 8 d’ICMP et 20 d’IP', '40 : 20 d’IP et 20 de TCP', '8 : l’en-tête ICMP seul', '80 : le surcoût WireGuard'], answer: 0, why: 'Un echo porte un en-tête ICMP de 8 octets dans un en-tête IPv4 de 20 octets.' },
+					{ q: 'Quelle valeur de `-s` envoie un paquet de 1420 octets pile ?', options: ['1420', '1380', '1392', '1472'], answer: 2, why: '1392 + 8 + 20 = 1420.' },
+					{ q: 'Pourquoi ajouter `-M do` ?', options: ['Pour pinguer chaque saut tour à tour', 'Pour mettre DF, afin qu’aucun routeur ne découpe le paquet', 'Pour passer par TCP au lieu d’ICMP', 'Pour attendre plus longtemps chaque réponse'], answer: 1, why: 'Avec DF, un paquet trop gros pour un lien est jeté, pas fragmenté : la limite de taille apparaît.' },
+					{ q: '`ping -M do -s 1392` reçoit une réponse. Que reçoit `-s 1393` ?', options: ['Une réponse, un peu plus lente', 'Un reset TCP', 'Une réponse en deux fragments', 'Rien, ou un ICMP « frag needed »'], answer: 3, why: 'Un paquet de 1421 octets ne tient pas dans le tunnel de 1420. Le routeur le jette et peut renvoyer « frag needed ».' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -146,6 +184,26 @@ static int tcp_write_timeout(struct sock *sk)
 			why: 'En mode 1, `tcp_write_timeout` appelle `tcp_mtu_probing` une fois les retransmissions au-delà de `tcp_retries1`. Le premier appel active le sondage, et `tcp_sync_mss` plafonne le MSS à `search_low`, calculé depuis `tcp_base_mss` (1024). Un appel suivant le divise par deux. C’est le mode 2 qui démarre chaque connexion à `tcp_base_mss`.'
 		}
 	],
+	lab: {
+		minutes: 15,
+		goal: 'Donner à un conteneur le MTU de 1420 d’un « tunnel », puis trouver la limite avec `ping` et lire le MSS que chaque côté annonce.',
+		steps: [
+			'Lance un serveur sur le réseau Docker par défaut : `docker run -d --rm --name mtu-server nicolaka/netshoot:v0.13 python3 -m http.server 8080`. Récupère son adresse : `docker inspect -f \'{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}\' mtu-server`.',
+			'Lance un client et baisse son MTU à la taille du tunnel : `docker run -it --rm --cap-add NET_ADMIN nicolaka/netshoot:v0.13`, puis `ip link set eth0 mtu 1420`.',
+			'Depuis le client, envoie un paquet de 1420 octets avec DF, puis un octet de plus : `ping -c1 -M do -s 1392 <server-ip>`, puis `ping -c1 -M do -s 1393 <server-ip>`.',
+			'Capture la poignée de main et ouvre une connexion : `tcpdump -c2 -ni eth0 "tcp[tcpflags] & tcp-syn != 0" &`, puis `curl -s -o /dev/null <server-ip>:8080`.'
+		],
+		done: [
+			'`ip link show eth0` montre `mtu 1420`.',
+			'`-s 1392` reçoit une réponse. `-s 1393` affiche `1393(1421) bytes` et `ping: local error: message too long, mtu=1420`.',
+			'tcpdump montre `mss 1380` dans le SYN du client et `mss 1460` dans le SYN-ACK du serveur.'
+		],
+		solution: [
+			'1392 + 8 d’ICMP + 20 d’IP = 1420, le plus gros paquet que le lien accepte. Ici, c’est l’interface du client qui refuse le plus gros : l’erreur est locale, comme dans l’essai à 1500 de l’exercice.',
+			'Chaque côté annonce son propre MTU moins 40. Le serveur, à 1500, dit toujours 1460 : le même décalage qu’entre les portables et le tunnel, vu de l’autre bout. Une règle de clamping sur le chemin réécrirait ce 1460 en 1380.',
+			'Tape `exit` dans le client, puis `docker stop mtu-server`.'
+		]
+	},
 	recall: {
 		q: 'Sur quel message ICMP repose la découverte du Path MTU, et que voit l’utilisateur quand un pare-feu le jette ?',
 		a: 'ICMP type 3 code 4, "fragmentation needed and DF set", qui porte le MTU du saut suivant. Sans lui, l’émetteur renvoie sans fin des paquets pleins : la connexion s’ouvre, puis reste bloquée sans données.'

@@ -129,6 +129,44 @@ func maybeDrainBody(r io.Reader) bool {
 			'Le morceau de taille `0` suivi de la ligne vide termine le corps. La réponse est en HTTP/1.1 sans `Connection: close` : la connexion reste ouverte et la requête suivante peut partir dessus.',
 			'La deuxième réponse n’a ni `Content-Length` ni `Transfer-Encoding`. La règle 8 de la RFC 9112 s’applique : le corps est tout ce qui est "received prior to the server closing the connection".',
 			'Le client ne sait que le corps est complet qu’à la fermeture par le serveur, et `Connection: close` annonce déjà que la connexion ne durera pas. La requête suivante demande une nouvelle connexion TCP.'
+		],
+		steps: [
+			{
+				title: 'Lis les tailles des morceaux',
+				questions: [
+					{ q: 'Quel en-tête dit au client comment le corps est découpé ?', options: ['`Content-Type: text/plain`', '`Transfer-Encoding: chunked`', '`HTTP/1.1 200 OK`', 'La ligne vide après les en-têtes'], answer: 1, why: 'Il n’y a pas de `Content-Length` : ce sont les morceaux eux-mêmes qui disent où le corps finit.' },
+					{ q: 'Dans quelle base chaque taille de morceau est-elle écrite ?', options: ['Hexadécimal', 'Décimal', 'Octal', 'Binaire'], answer: 0, why: 'Les tailles de morceau sont en hexadécimal. C’est `Content-Length` qui s’écrit en décimal.' },
+					{ q: 'Combien d’octets contient le morceau après `7` ?', options: ['5', '12', '16', '7'], answer: 3, why: '`7` en hexadécimal vaut 7 : les 7 octets de `, world`, espace compris.' },
+					{ q: 'Quelle est la longueur du corps entier ?', options: ['5 octets', '12 octets', '7 octets', '18 octets'], answer: 1, why: '5 octets de `hello` plus 7 de `, world` : 12 octets, « hello, world ». Les lignes de taille et les CRLF ne font pas partie du corps.' }
+				]
+			},
+			{
+				title: 'Trouve la fin du corps',
+				questions: [
+					{ q: 'Qu’est-ce qui dit au client que le corps est complet ?', options: ['La fermeture de la connexion', 'Un `Content-Length` de 12', 'Un morceau de taille `0`, puis une ligne vide', 'Le timeout de lecture du client'], answer: 2, why: 'En chunked, un morceau de taille `0` marque la fin.' },
+					{ q: 'Que voudrait dire une ligne de taille `1a` ?', options: ['26 octets suivent', '1 octet, puis la lettre a', '10 octets suivent', '1a n’est pas une taille valide'], answer: 0, why: '`1a` vaut 1 x 16 + 10 = 26 en hexadécimal.' },
+					{ q: 'Pourquoi un serveur choisit-il le chunked ?', options: ['Le corps est plus petit sur le réseau', 'Il ne connaît pas la longueur à l’avance', 'HTTP/1.1 l’impose pour du texte', 'Le client peut sauter des morceaux'], answer: 1, why: 'Le chunked laisse un serveur envoyer en flux un corps de taille inconnue tout en gardant la connexion ouverte.' },
+					{ q: 'Où commence la réponse suivante sur cette connexion ?', options: ['Après une nouvelle poignée de main du serveur', 'Au prochain `HTTP/1.1` que le client trouve', 'Après un bloc fixe de 64 Ko', 'Juste après la ligne vide qui suit le `0`'], answer: 3, why: 'Sur une connexion HTTP/1.1, la réponse suivante commence juste après le dernier octet de la réponse en cours.' }
+				]
+			},
+			{
+				title: 'Décide de la réutilisation',
+				questions: [
+					{ q: 'Le client peut-il envoyer sa requête suivante sur cette connexion ?', options: ['Non, une réponse chunked la ferme toujours', 'Seulement après une nouvelle poignée de main TLS', 'Oui : HTTP/1.1, pas de `Connection: close`, corps lu', 'Seulement s’il envoie d’abord `Connection: keep-alive`'], answer: 2, why: 'HTTP/1.1 garde la connexion ouverte par défaut, et le client a lu tout le corps : il sait où il en est.' },
+					{ q: 'Le client arrête de lire après `hello`. Que dit la RFC 9112 ?', options: ['Il doit lire tout le corps pour réutiliser la connexion', 'Il peut réutiliser la connexion tout de suite', 'Il doit envoyer `0` au serveur', 'Le serveur renvoie la suite à la requête suivante'], answer: 0, why: '"A client MUST read the entire response message body if it intends to reuse the same connection".' },
+					{ q: 'Un client Go 1.24 ferme un corps de 10 000 octets sans le lire. Combien d’appels sur 10 ont réutilisé une connexion ?', options: ['9', '10', '5', '0'], answer: 3, why: 'Go 1.24 ne vide pas un corps fermé trop tôt, il abandonne la connexion : "0 of 10 requests reused a connection".' },
+					{ q: 'Qu’est-ce qui corrige cette boucle en Go 1.24 ?', options: ['Mettre `Connection: close` sur chaque requête', '`io.Copy(io.Discard, resp.Body)` avant `Close`', 'Appeler `Close` deux fois', 'Ne lire que les en-têtes'], answer: 1, why: 'Lire le corps jusqu’à EOF laisse le transport remettre la connexion dans le pool : 9 sur 10 réutilisées.' }
+				]
+			},
+			{
+				title: 'Lis la réponse qui ferme',
+				questions: [
+					{ q: 'La deuxième réponse n’a ni `Content-Length` ni `Transfer-Encoding`. Où finit son corps ?', options: ['Au premier CRLF', 'Après 5 octets, la longueur de `hello`', 'Quand le serveur ferme la connexion', 'À la prochaine ligne vide'], answer: 2, why: 'Règle 8 de la RFC 9112 : le corps est tout ce qui est "received prior to the server closing the connection".' },
+					{ q: 'Que dit `Connection: close` au client ?', options: ['La connexion ne durera pas après cette réponse', 'Le serveur s’arrête', 'Le client doit fermer son côté d’abord', 'Le corps est vide'], answer: 0, why: 'C’est la sortie de la connexion persistante par défaut de HTTP/1.1.' },
+					{ q: 'La requête suivante peut-elle partir sur cette connexion ?', options: ['Oui, une fois le corps lu', 'Oui, si elle porte `Host`', 'Seulement dans les 5 secondes', 'Non : il faut une nouvelle connexion TCP'], answer: 3, why: 'Le serveur ferme pour marquer la fin du corps : plus rien ne peut passer sur cette connexion.' },
+					{ q: 'Pourquoi le client ne peut-il pas distinguer ici un `hello` complet d’un `hello` coupé ?', options: ['Le corps n’a pas de checksum', 'Sans longueur, une fermeture ressemble à une autre', 'Un texte brut n’est jamais complet', 'La ligne de statut manque'], answer: 1, why: 'Le seul marqueur de fin est la fermeture. Une connexion qui tombe trop tôt termine le corps de la même façon.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ func maybeDrainBody(r io.Reader) bool {
 			why: 'Une connexion HTTP/1.1 porte une réponse à la fois. En pipelining, la RFC 9112 impose les réponses dans l’ordre des requêtes, donc l’export bloque le reste. Les clients ouvrent d’autres connexions pour l’éviter.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Parler HTTP/1.1 à la main : deux requêtes sur une connexion, un `Host` manquant, et un corps chunked vu brut.',
+		steps: [
+			'Lance nginx sur ton portable : `docker run -d --rm --name http1-lab -p 127.0.0.1:8089:80 nginx:1.27-alpine`.',
+			'Envoie deux requêtes sur une seule connexion TCP, la seconde demandant la fermeture : `printf \'GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\nGET / HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\' | nc 127.0.0.1 8089`.',
+			'Envoie une requête sans en-tête `Host` : `printf \'GET / HTTP/1.1\\r\\n\\r\\n\' | nc 127.0.0.1 8089 | head -1`.',
+			'Laisse curl réutiliser la connexion : `curl -sv -o /dev/null -o /dev/null http://localhost:8089/ http://localhost:8089/ 2>&1 | grep -iE "connected|re-us"`.',
+			'Sers la réponse chunked de l’exercice à deux clients : `python3 -c \'import socket;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(("127.0.0.1",9000));s.listen();R=b"HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n5\\r\\nhello\\r\\n7\\r\\n, world\\r\\n0\\r\\n\\r\\n";[(lambda c:(c.recv(4096),c.sendall(R),c.close()))(s.accept()[0]) for _ in range(2)]\' &`. Lance ensuite `curl -s --raw localhost:9000` et `curl -s localhost:9000`.'
+		],
+		done: [
+			'L’étape 2 affiche deux réponses `HTTP/1.1 200 OK` : la première avec `Connection: keep-alive`, la seconde avec `Connection: close`, puis `nc` se termine.',
+			'L’étape 3 affiche `HTTP/1.1 400 Bad Request`.',
+			'L’étape 4 affiche une fois `Connected to localhost` et une fois `Re-using existing connection with host localhost`.',
+			'`curl --raw` montre `5`, `hello`, `7`, `, world`, `0`. `curl` seul affiche `hello, world`.'
+		],
+		solution: [
+			'nginx a mis un `Content-Length` sur chaque réponse : `nc` a vu où finissait le premier corps et où commençait la seconde réponse, sur la même connexion.',
+			'HTTP/1.1 rend `Host` obligatoire : nginx refuse la requête nue.',
+			'En chunked, curl trouve la fin au morceau `0`. `--raw` saute le décodage et montre les lignes de taille. Arrête nginx avec `docker stop http1-lab`.'
+		]
+	},
 	recall: {
 		q: 'Comment un client HTTP/1.1 trouve-t-il la fin d’un corps de réponse, et que doit-il faire pour réutiliser la connexion ?',
 		a: 'Par `Content-Length`, ou par le codage chunked où un morceau de taille `0` clôt le corps, sinon à la fermeture par le serveur. Il doit lire tout le corps : Go 1.24 a réutilisé 0 connexion sur 10 quand le corps était fermé sans lecture.'

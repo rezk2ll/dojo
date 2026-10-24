@@ -129,6 +129,44 @@ func maybeDrainBody(r io.Reader) bool {
 			'The chunk of size `0` followed by the empty line ends the body. The response is HTTP/1.1 with no `Connection: close`, so the connection stays open and the next request can go on it.',
 			'The second response has no `Content-Length` and no `Transfer-Encoding`. RFC 9112 rule 8 applies: the body is every byte "received prior to the server closing the connection".',
 			'The client knows the body is complete only when the server closes the connection, and `Connection: close` already says it will not persist. The next request needs a new TCP connection.'
+		],
+		steps: [
+			{
+				title: 'Read the chunk sizes',
+				questions: [
+					{ q: 'Which header tells the client how the body is framed?', options: ['`Content-Type: text/plain`', '`Transfer-Encoding: chunked`', '`HTTP/1.1 200 OK`', 'The empty line after the headers'], answer: 1, why: 'There is no `Content-Length`, so the chunks themselves say where the body ends.' },
+					{ q: 'In which base is each chunk size written?', options: ['Hexadecimal', 'Decimal', 'Octal', 'Binary'], answer: 0, why: 'Chunk sizes are hexadecimal. `Content-Length` is the one written in decimal.' },
+					{ q: 'How many bytes does the chunk after `7` hold?', options: ['5', '12', '16', '7'], answer: 3, why: '`7` in hex is 7: the 7 bytes of `, world`, space included.' },
+					{ q: 'How long is the whole body?', options: ['5 bytes', '12 bytes', '7 bytes', '18 bytes'], answer: 1, why: '5 bytes of `hello` plus 7 of `, world`: 12 bytes, "hello, world". The size lines and CRLFs are not part of the body.' }
+				]
+			},
+			{
+				title: 'Find the end of the body',
+				questions: [
+					{ q: 'What tells the client the body is complete?', options: ['The connection closing', 'A `Content-Length` of 12', 'A chunk of size `0`, then an empty line', 'The client\'s read timeout'], answer: 2, why: 'In chunked coding, a chunk of size `0` marks the end.' },
+					{ q: 'What would a chunk size line of `1a` mean?', options: ['26 bytes follow', '1 byte, then the letter a', '10 bytes follow', '1a is not a valid size'], answer: 0, why: '`1a` is 1 x 16 + 10 = 26 in hexadecimal.' },
+					{ q: 'Why does a server pick chunked coding?', options: ['It makes the body smaller on the wire', 'It does not know the length in advance', 'HTTP/1.1 requires it for text', 'It lets the client skip chunks'], answer: 1, why: 'Chunked coding lets a server stream a body of unknown size and still keep the connection open.' },
+					{ q: 'Where does the next response on this connection start?', options: ['After the server\'s next handshake', 'At the next `HTTP/1.1` the client finds anywhere', 'After a fixed 64 KB block', 'Right after the empty line that follows the `0`'], answer: 3, why: 'On one HTTP/1.1 connection, the next response starts right after the last byte of the current one.' }
+				]
+			},
+			{
+				title: 'Decide on reuse',
+				questions: [
+					{ q: 'Can the client send its next request on this connection?', options: ['No, a chunked response always closes it', 'Only after a new TLS handshake', 'Yes: HTTP/1.1, no `Connection: close`, body read', 'Only if it sends `Connection: keep-alive` first'], answer: 2, why: 'HTTP/1.1 keeps the connection open by default, and the client has read the whole body, so it knows where it stands.' },
+					{ q: 'The client stops reading after `hello`. What does RFC 9112 say?', options: ['It must read the entire body to reuse the connection', 'It may reuse the connection at once', 'It must send `0` to the server', 'The server resends the rest on the next request'], answer: 0, why: '"A client MUST read the entire response message body if it intends to reuse the same connection".' },
+					{ q: 'A Go 1.24 client closes a 10,000 byte body unread. How many of 10 calls reused a connection?', options: ['9', '10', '5', '0'], answer: 3, why: 'Go 1.24 does not drain a body closed early, so it drops the connection: "0 of 10 requests reused a connection".' },
+					{ q: 'What fixes that loop in Go 1.24?', options: ['Setting `Connection: close` on each request', '`io.Copy(io.Discard, resp.Body)` before `Close`', 'Calling `Close` twice', 'Reading only the headers'], answer: 1, why: 'Reading the body to EOF lets the transport put the connection back in the idle pool: 9 of 10 reused.' }
+				]
+			},
+			{
+				title: 'Read the closing response',
+				questions: [
+					{ q: 'The second response has no `Content-Length` and no `Transfer-Encoding`. Where does its body end?', options: ['At the first CRLF', 'After 5 bytes, the length of `hello`', 'When the server closes the connection', 'At the next empty line'], answer: 2, why: 'RFC 9112 rule 8: the body is every byte "received prior to the server closing the connection".' },
+					{ q: 'What does `Connection: close` tell the client?', options: ['The connection will not persist after this response', 'The server is shutting down', 'The client must close its side first', 'The body is empty'], answer: 0, why: 'It is the opt-out from HTTP/1.1\'s default persistent connection.' },
+					{ q: 'Can the next request go on this connection?', options: ['Yes, once the body is read', 'Yes, if it carries `Host`', 'Only within 5 seconds', 'No: it needs a new TCP connection'], answer: 3, why: 'The server closes to end the body, so nothing more can go on that connection.' },
+					{ q: 'Why can the client not tell a full `hello` from a cut one here?', options: ['The body has no checksum', 'Without a length, a closed connection looks the same either way', 'Plain text is never complete', 'The status line is missing'], answer: 1, why: 'The only end marker is the close. A connection that drops early ends the body the same way.' }
+				]
+			}
 		]
 	},
 	quiz: [
@@ -161,6 +199,28 @@ func maybeDrainBody(r io.Reader) bool {
 			why: 'An HTTP/1.1 connection carries one response at a time. With pipelining, RFC 9112 requires responses in the order of the requests, so the export blocks the rest. Clients open more connections to avoid it.'
 		}
 	],
+	lab: {
+		minutes: 20,
+		goal: 'Speak HTTP/1.1 by hand: two requests on one connection, a missing `Host`, and a chunked body seen raw.',
+		steps: [
+			'Start nginx on your laptop: `docker run -d --rm --name http1-lab -p 127.0.0.1:8089:80 nginx:1.27-alpine`.',
+			'Send two requests on one TCP connection, the second asking to close: `printf \'GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\nGET / HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\' | nc 127.0.0.1 8089`.',
+			'Send a request with no `Host` header: `printf \'GET / HTTP/1.1\\r\\n\\r\\n\' | nc 127.0.0.1 8089 | head -1`.',
+			'Let curl reuse the connection: `curl -sv -o /dev/null -o /dev/null http://localhost:8089/ http://localhost:8089/ 2>&1 | grep -iE "connected|re-us"`.',
+			'Serve the task\'s chunked response to two clients: `python3 -c \'import socket;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(("127.0.0.1",9000));s.listen();R=b"HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n5\\r\\nhello\\r\\n7\\r\\n, world\\r\\n0\\r\\n\\r\\n";[(lambda c:(c.recv(4096),c.sendall(R),c.close()))(s.accept()[0]) for _ in range(2)]\' &`. Then run `curl -s --raw localhost:9000` and `curl -s localhost:9000`.'
+		],
+		done: [
+			'Step 2 prints two `HTTP/1.1 200 OK` responses: the first with `Connection: keep-alive`, the second with `Connection: close`, and `nc` exits.',
+			'Step 3 prints `HTTP/1.1 400 Bad Request`.',
+			'Step 4 prints `Connected to localhost` once and `Re-using existing connection with host localhost` once.',
+			'`curl --raw` shows `5`, `hello`, `7`, `, world`, `0`. Plain `curl` prints `hello, world`.'
+		],
+		solution: [
+			'nginx sent `Content-Length` on each response, so `nc` saw where the first body ended and the second response began on the same connection.',
+			'HTTP/1.1 makes `Host` mandatory, so nginx refuses the bare request.',
+			'With chunked coding, curl finds the end at the `0` chunk. `--raw` skips the decoding and shows the size lines. Stop nginx with `docker stop http1-lab`.'
+		]
+	},
 	recall: {
 		q: 'How does an HTTP/1.1 client find the end of a response body, and what must it do before it can reuse the connection?',
 		a: 'From `Content-Length`, or from chunked coding where a chunk of size `0` ends the body, or else when the server closes. It must read the whole body: Go 1.24 reused 0 of 10 connections when the body was closed unread.'

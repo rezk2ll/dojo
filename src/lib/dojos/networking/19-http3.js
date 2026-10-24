@@ -103,7 +103,7 @@ export default {
 			{
 				title: 'Read offer (a)',
 				questions: [
-					{ q: 'What does `h3` in `alt-svc: h3=":443"` name?', options: ['HTTP/2 over TLS', 'HTTP/3, over QUIC on UDP', 'A third server for the same site', 'HTTP/1.1 with three connections'], answer: 1, why: '`h3` is the ALPN token for HTTP/3, which runs over QUIC on UDP.' },
+					{ q: 'The browser takes offer (a). Which ALPN token does its QUIC ClientHello carry?', options: ['`h2`', '`h3`', '`http/1.1`', '`quic`'], answer: 1, why: 'The offer names the protocol by its ALPN token, and the Initial packet\'s ClientHello asks for that same token, `h3`.' },
 					{ q: 'Which port does the browser try?', options: ['TCP 443', 'UDP 80', 'UDP 443', 'TCP 8443'], answer: 2, why: '`":443"` with no host means the same host on port 443, and HTTP/3 uses UDP.' },
 					{ q: 'How long may the browser remember the offer?', options: ['86,400 seconds, 24 hours', '443 seconds', 'Until the tab closes', 'One request only'], answer: 0, why: '`ma=86400` is the number of seconds the offer stays fresh.' },
 					{ q: 'What carried this offer to the browser?', options: ['A DNS answer', 'A QUIC Initial packet', 'A TLS ServerHello', 'An HTTP response over TCP'], answer: 3, why: 'In the hook, `alt-svc` came back on an `HTTP/2 200` over TCP port 443. The browser can use it for its next connection.' }
@@ -133,7 +133,7 @@ export default {
 					{ q: 'The office firewall drops outbound UDP. What happens to the QUIC attempt to (a)?', options: ['It gets no reply', 'It gets an HTTP 403', 'It is moved to TCP by the firewall', 'It connects slower'], answer: 0, why: 'QUIC runs over UDP, so the Initial packet is dropped and nothing comes back.' },
 					{ q: 'What does RFC 9114 tell the client to do next?', options: ['Retry QUIC until it works', 'Attempt TCP based versions of HTTP', 'Show an error page', 'Lower the packet size below 1200 bytes'], answer: 1, why: '"Clients SHOULD attempt to use TCP-based versions of HTTP" when QUIC cannot connect.' },
 					{ q: 'What do users see on site (a)?', options: ['A broken page', 'A certificate warning', 'Pages load over HTTP/2, after the failed attempt\'s delay', 'Pages load over HTTP/3 anyway'], answer: 2, why: 'The fallback keeps the site working. The only cost is the time spent on the failed QUIC attempt.' },
-					{ q: 'Could lowering the packet size get QUIC through a path that only carries 1000 byte datagrams?', options: ['Yes, QUIC adapts to any size', 'Yes, with 0-RTT', 'Only on port 443', 'No: QUIC must not be used below 1200 bytes'], answer: 3, why: 'RFC 9000: "QUIC MUST NOT be used if the network path cannot support a maximum datagram size of at least 1200 bytes".' }
+					{ q: 'Another office blocks only UDP port 443. Which of the three sites can the browser still use over HTTP/3?', options: ['Site (a)', 'Site (c)', 'None of them', 'Site (b)'], answer: 3, why: 'Offer (b) points at UDP 50781, which this firewall lets through. (a) offers UDP 443, and a direct attempt on (c) would use the URL\'s port, 443.' }
 				]
 			}
 		]

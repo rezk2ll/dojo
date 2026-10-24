@@ -124,19 +124,19 @@ export default {
 			{
 				title: 'Sort answers from referrals',
 				questions: [
-					{ q: 'What did `a.root-servers.net` send back for `en.wikipedia.org A`?', options: ['A referral: the NS records for `org.`', 'The A record of `en.wikipedia.org`', 'The CNAME to `dyna.wikimedia.org`', 'An NXDOMAIN'], answer: 0, why: 'A root server answers only from the root zone. It has the delegation for `org.`, so it points the resolver there.' },
-					{ q: 'What did `b0.org.afilias-nst.org` send back?', options: ['The CNAME for `en.wikipedia.org`', 'A referral: the NS records for `wikipedia.org.`', 'The A record of `ns0.wikimedia.org` only', 'An error, because it is not authoritative'], answer: 1, why: 'The `org.` server knows who serves `wikipedia.org.` and sends another referral, closer to the name.' },
-					{ q: 'Which server answered the question itself?', options: ['`127.0.0.53`', '`a.root-servers.net`', '`ns0.wikimedia.org`', '`b0.org.afilias-nst.org`'], answer: 2, why: 'Only the last server replied with a record for `en.wikipedia.org`. The others sent referrals.' },
+					{ q: 'How many `org.` servers did `a.root-servers.net` name in its referral?', options: ['6', '13', '3', '1'], answer: 0, why: 'The trace shows 6 `org. NS` lines from `a.root-servers.net`. The 13 lines before them are the root servers, from `127.0.0.53`.' },
+					{ q: 'The `org.` referral names `ns0.wikimedia.org`, a name outside `wikipedia.org`. How does the resolver reach it without another lookup?', options: ['It first asks a root server for `ns0.wikimedia.org A`', 'The same referral carries the A and AAAA records of the three servers', 'It sends the question to `127.0.0.53`', 'It asks `b0.org.afilias-nst.org` a second question'], answer: 1, why: 'The `org.` reply holds the addresses of `ns0`, `ns1` and `ns2.wikimedia.org` next to the NS records, so the resolver goes straight to `ns0`.' },
+					{ q: 'The two referrals took 9 and 16 ms, the final answer 86 ms. How long did the walk from the root take?', options: ['86 ms', '9 ms', 'About 111 ms', 'About 6 ms'], answer: 2, why: '9 + 16 + 86 = 111 ms. A resolver pays that once, then answers from its cache, like the 6 ms reply from `127.0.0.53`.' },
 					{ q: 'Why did the first block come from `127.0.0.53`?', options: ['`127.0.0.53` is authoritative for the root zone', '`127.0.0.53` is a root server', 'dig asked it for the A record first', 'dig asks its configured server only for the list of root servers'], answer: 3, why: 'The BIND docs: "If @server is also specified, it affects only the initial query for the root zone name servers."' }
 				]
 			},
 			{
 				title: 'Name the authoritative server',
 				questions: [
-					{ q: 'Which servers are authoritative for `wikipedia.org`?', options: ['`ns0`, `ns1` and `ns2.wikimedia.org`', 'The `org.` servers', 'The root servers', '`127.0.0.53`'], answer: 0, why: 'The `org.` referral named them, and `ns0` answered from its own zone.' },
+					{ q: 'Ten minutes later, the same resolver needs `fr.wikipedia.org A`. Which server does it ask?', options: ['One of `ns0`, `ns1` or `ns2.wikimedia.org`, from its cached NS records', 'A root server', 'An `org.` server', '`127.0.0.53`'], answer: 0, why: 'The `wikipedia.org.` NS records stay cached for 3600 s. Those servers are authoritative for every name in the zone, so the resolver skips the root and `org.`.' },
 					{ q: 'Which flag marks an authoritative reply in `dig`?', options: ['`ra`', '`aa`', '`rd`', '`qr`'], answer: 1, why: '`aa` means the answer comes from the zone itself. `qr` only marks a response.' },
 					{ q: 'Why is the `org.` server not authoritative for `wikipedia.org`?', options: ['It answered too slowly, in 16 ms', 'It does not know the name at all', 'It holds only the delegation, so it sends a referral', 'It serves IPv6 only'], answer: 2, why: 'The `org.` zone holds the NS records that delegate `wikipedia.org.`, not the records inside it.' },
-					{ q: 'The reply from `127.0.0.53` has `ra`. What does that mean?', options: ['The answer is authoritative', 'The answer was checked with DNSSEC', 'The record will be cached', 'The server offers recursion'], answer: 3, why: 'RFC 1034: "RA signals availability rather than use". A resolver is not authoritative, so it has no `aa`.' }
+					{ q: 'The reply from `127.0.0.53` has no `aa`. Why?', options: ['It forgot to set the flag', 'DNSSEC removed the flag', 'Only root servers set `aa`', 'It answered from its cache, not from a zone it holds'], answer: 3, why: '`aa` is set only by a server answering from its own zone data. `127.0.0.53` is a resolver that repeats what it has learned.' }
 				]
 			},
 			{
@@ -151,8 +151,8 @@ export default {
 			{
 				title: 'Ask the next question',
 				questions: [
-					{ q: 'What is the target of the CNAME?', options: ['`dyna.wikimedia.org`', '`ns0.wikimedia.org`', '`en.wikipedia.org`', '`wikimedia.org`'], answer: 0, why: 'The CNAME makes `en.wikipedia.org` an alias of `dyna.wikimedia.org`, and curl asked for an A record.' },
-					{ q: 'Which question does a recursive resolver ask next?', options: ['`en.wikipedia.org A` again, with RD set', '`dyna.wikimedia.org A`', '`wikimedia.org NS`, at a root server', '`ns0.wikimedia.org A`'], answer: 1, why: 'RFC 1034 step 4c: cache the CNAME, change the name to the canonical name, and start over.' },
+					{ q: 'Why does the reply from `ns0.wikimedia.org` hold the CNAME and no A record?', options: ['`dyna.wikimedia.org` is in another zone, `wikimedia.org.`', 'The A record had expired', 'dig asked for CNAME records only', 'The A record went in the authority section'], answer: 0, why: 'An authoritative server answers from its own zone. The target of the CNAME lives in `wikimedia.org.`, so the reply stops at the alias.' },
+					{ q: 'To answer the client, the resolver now needs the A record of `dyna.wikimedia.org`. Once it has it, what does it send back for `en.wikipedia.org A`?', options: ['Only the A record of `dyna.wikimedia.org`', 'The CNAME and the A record of `dyna.wikimedia.org`', 'Only the CNAME', 'A referral to the `wikimedia.org.` servers'], answer: 1, why: 'The resolver returns the whole chain: the CNAME, then the A record of its target. That is the two-record answer `dig en.wikipedia.org` printed from `127.0.0.53`.' },
 					{ q: 'Where does the resolver look first?', options: ['At a root server, always', 'At `ns0.wikimedia.org`, whose address it holds', 'In its own cache', 'Back at the client'], answer: 2, why: 'Unbound goes back to `INIT_REQUEST_STATE`, which starts with a cache lookup.' },
 					{ q: 'Which server does it ask first for `dyna.wikimedia.org`?', options: ['A root server, because the name changed', '`ns0.wikimedia.org`, because it holds its address', '`127.0.0.53`', 'An `org.` server: the closest NS records it has'], answer: 3, why: 'It holds the address of `ns0` but no NS records for `wikimedia.org.`. RFC 1034 step 2 walks up the name to the closest NS records in the cache, those of `org.`.' }
 				]

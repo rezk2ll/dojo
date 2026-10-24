@@ -137,10 +137,10 @@ func hostnameInSNI(name string) string {
 			{
 				title: 'Lis l’essai B',
 				questions: [
-					{ q: 'Qu’a changé `-noservername` dans le ClientHello ?', options: ['Il a retiré TLS 1.3 de la liste', 'Il a laissé de côté l’extension `server_name`', 'Il a retiré le key share', 'Il a envoyé le nom en clair deux fois'], answer: 1, why: 'L’essai B n’envoie pas de SNI : le serveur ne sait pas quel hôte le client veut.' },
-					{ q: 'Qu’est-ce que l’alerte 40 ?', options: ['`handshake_failure`', '`bad_certificate`', '`unrecognized_name`', '`decode_error`'], answer: 0, why: 'La RFC 8446 définit `handshake_failure` comme "unable to negotiate an acceptable set of security parameters".' },
+					{ q: 'L’essai B affiche `sslv3 alert handshake failure`. Qui a envoyé cette alerte ?', options: ['openssl lui-même, avant d’envoyer quoi que ce soit', 'example.org, en réponse au ClientHello', 'Un pare-feu sur le chemin', 'L’autorité de certification'], answer: 1, why: 'Le ClientHello est parti, et example.org y a répondu par l’alerte 40. openssl ne fait qu’afficher l’alerte reçue.' },
+					{ q: 'L’essai B n’affiche aucune ligne `Verification`. Pourquoi ?', options: ['Le serveur n’a envoyé aucun certificat avant l’alerte', 'Le certificat avait expiré', 'openssl saute la vérification en TLS 1.3', 'Le magasin de confiance était vide'], answer: 0, why: 'L’alerte est arrivée juste après le ClientHello. Le serveur n’a jamais atteint l’envoi chiffré qui porte le certificat : il n’y avait rien à vérifier.' },
 					{ q: 'Pourquoi `New, (NONE), Cipher is (NONE)` apparaît-il ?', options: ['Le serveur a choisi un chiffrement nul', 'TLS 1.3 cache le nom de la suite', 'Le client a refusé la suite', 'Aucune suite n’a jamais été choisie'], answer: 3, why: 'La poignée de main s’est arrêtée à l’alerte, avant tout accord sur les paramètres.' },
-					{ q: 'Pourquoi ce serveur échoue-t-il sans SNI ?', options: ['Il ne parle que TLS 1.2', 'Il refuse les clients IPv4', 'Il choisit le certificat par nom, et n’en a aucun à proposer', 'Le key share du client était trop court'], answer: 2, why: 'Une IP sert plusieurs sites. Sans nom dans le ClientHello, le serveur n’a aucun certificat à choisir.' }
+					{ q: 'Un health check doit sonder example.org par son adresse IP et quand même réussir. Que doit-il faire ?', options: ['Passer en TLS 1.2', 'Réessayer jusqu’à ce que le serveur choisisse un certificat', 'Envoyer `example.org` en SNI, comme le fait `curl --resolve`', 'Sauter la vérification du certificat'], answer: 2, why: 'Le serveur a besoin du nom d’hôte dans le ClientHello. `--resolve` garde l’IP pour la connexion et le nom pour le SNI.' }
 				]
 			},
 			{
@@ -148,7 +148,7 @@ func hostnameInSNI(name string) string {
 				questions: [
 					{ q: 'L’aller-retour prend 40 ms. Quand le ClientHello peut-il partir ?', options: ['À 0 ms, avec le SYN', 'À 40 ms, après le SYN-ACK', 'À 80 ms', 'À 20 ms, au milieu de la poignée de main TCP'], answer: 1, why: 'TCP demande un aller-retour avant que le ClientHello puisse partir.' },
 					{ q: 'Quand l’envoi du serveur avec son Finished arrive-t-il ?', options: ['À 80 ms', 'À 40 ms', 'À 120 ms', 'À 60 ms'], answer: 0, why: 'Un aller-retour de plus après le ClientHello : 40 + 40 = 80 ms.' },
-					{ q: 'Pourquoi le `GET` peut-il partir à 80 ms avec le Finished du client ?', options: ['TLS 1.3 envoie les requêtes en clair', 'Le serveur a déjà acquitté la requête', 'Le ClientHello portait un key share : les clés existent après le ServerHello', 'La poignée de main TCP porte la requête'], answer: 2, why: 'Les deux côtés ont calculé le secret à partir des key shares : le client peut chiffrer sa requête tout de suite.' },
+					{ q: 'À 80 ms, le client envoie son Finished. Qu’est-ce qui part juste derrière ?', options: ['Un deuxième ClientHello', 'Le certificat du client', 'La requête `GET` chiffrée', 'Rien avant un autre aller-retour'], answer: 2, why: 'Le client envoie son Finished et sa première requête dans le même envoi : le `GET` part lui aussi à 80 ms.' },
 					{ q: 'Quand le premier octet de la réponse peut-il arriver ?', options: ['À 80 ms', 'À 160 ms', 'À 40 ms', 'À 120 ms'], answer: 3, why: 'La requête part à 80 ms et la réponse demande un aller-retour de plus : 120 ms au plus tôt.' }
 				]
 			},

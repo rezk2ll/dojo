@@ -108,7 +108,7 @@ export default {
 			{
 				title: 'Retire l’en-tête Ethernet',
 				questions: [
-					{ q: 'Quels octets du dump forment l’en-tête Ethernet ?', options: ['Les 14 premiers, jusqu’à `0800` compris', 'Les 20 premiers, jusqu’à `3406`', 'Les 6 premiers, `069c f20c df7a`', 'Les 32 premiers, jusqu’à `0005`'], answer: 0, why: 'Un en-tête Ethernet fait 14 octets : la MAC de destination, la MAC source, puis un type sur 2 octets.' },
+					{ q: 'La longueur totale IP `003c` vaut 60. Quelle `length` `tcpdump -e` affiche-t-il pour cette trame ?', options: ['74 : 14 octets d’Ethernet plus les 60 d’IP', '60 : la longueur totale IP', '141 : la longueur de la trame du GET', '40 : l’en-tête TCP seul'], answer: 0, why: 'La longueur totale IP ne compte pas l’en-tête Ethernet placé devant. `tcpdump -e` compte toute la trame : 14 + 60 = 74.' },
 					{ q: 'Quelle MAC est la destination de cette trame ?', options: ['`ca:20:8c:72:3c:8c`, la passerelle', '`06:9c:f2:0c:df:7a`, le conteneur', '`ff:ff:ff:ff:ff:ff`, un broadcast', '`08:00:45:00:00:3c`, lue au-delà du type'], answer: 1, why: 'La MAC de destination vient en premier. Ce paquet revient du serveur, donc la trame est adressée au conteneur.' },
 					{ q: 'Qu’annonce le type `0800` au destinataire ?', options: ['La trame fait 2048 octets', 'Un message ARP suit', 'Un paquet IPv4 suit', 'Le paquet va vers le port 2048'], answer: 2, why: 'Le champ type dit ce qui suit l’en-tête Ethernet, et `0x0800` désigne IPv4.' },
 					{ q: 'Où commence l’en-tête IP ?', options: ['Au premier octet, `06`', 'À `3406`, le TTL et le protocole', 'À `6814`, l’adresse source', 'Au `45` juste après `0800`'], answer: 3, why: 'Les 14 octets d’Ethernet viennent d’abord, donc l’en-tête IP commence à l’octet suivant, `45`.' }
@@ -117,7 +117,7 @@ export default {
 			{
 				title: 'Lis l’en-tête IP',
 				questions: [
-					{ q: 'Le premier octet IP vaut `45`. Combien mesure l’en-tête IP ?', options: ['45 octets', '5 octets', '20 octets', '40 octets'], answer: 2, why: 'Le 4 est la version. Le 5 est l’IHL, compté en mots de 32 bits : 5 × 4 = 20 octets, un en-tête sans options.' },
+					{ q: 'En comptant le `45` comme octet 0, quel octet de l’en-tête IP est le TTL ?', options: ['L’octet 1, `00`', 'L’octet 4, `da`', 'L’octet 8, `34`', 'L’octet 12, `68`'], answer: 2, why: 'Après `45` viennent 1 octet de TOS, 2 de longueur totale, 2 d’ID et 2 de drapeaux et d’offset de fragment, comme dans `struct iphdr`. Le TTL est donc l’octet 8, et le protocole `06` l’octet 9.' },
 					{ q: 'L’octet de TTL vaut `34`. Quel est le TTL ?', options: ['52', '34', '64', '6'], answer: 0, why: '`0x34` vaut 3 × 16 + 4 = 52. Les routeurs du chemin l’ont baissé d’au moins 1 chacun. Le `06` à côté est le protocole.' },
 					{ q: 'L’octet de protocole vaut `06`. Que trouve-t-on après l’en-tête IP ?', options: ['Un datagramme UDP', 'Un segment TCP', 'Un autre en-tête IP', 'Une trame Ethernet'], answer: 1, why: 'Le protocole 6 désigne TCP. UDP serait 17.' },
 					{ q: 'Quelles sont les adresses source et destination ?', options: ['De 172.17.0.5 vers 104.20.26.136', 'De 172.17.0.1 vers 172.17.0.5', 'De 104.20.26.136 vers 172.17.0.1', 'De 104.20.26.136 vers 172.17.0.5'], answer: 3, why: 'La source vient d’abord : `6814 1a88` se lit 104.20.26.136. Puis `ac11 0005` vaut 172.17.0.5. La réponse va du serveur vers le conteneur.' }

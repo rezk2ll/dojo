@@ -131,7 +131,7 @@ export default {
 			{
 				title: 'Read the Ethernet header',
 				questions: [
-					{ q: 'The destination MAC is `ffff ffff ffff`. What does that mean?', options: ['Broadcast: every host on the link receives the frame', 'The target is unknown and gets filled in later', 'The frame goes to the default gateway', 'The capture lost those bytes'], answer: 0, why: '`ff:ff:ff:ff:ff:ff` is the broadcast address. C does not know who owns the IP, so it asks everyone.' },
+					{ q: 'Once C has its answer, which destination MAC do its ping frames for 10.77.0.10 carry?', options: ['The MAC stored in its neighbour table for 10.77.0.10', '`ffff ffff ffff` again, on every frame', 'All zeros, like the ARP target field', 'C\'s own MAC, `c201 a766 6b1b`'], answer: 0, why: 'Broadcast is only for the ARP question. Once `ip neigh` holds a MAC for 10.77.0.10, C writes that MAC in the Ethernet header of each frame it sends there.' },
 					{ q: 'Which MAC is the source?', options: ['`ff:ff:ff:ff:ff:ff`', '`c2:01:a7:66:6b:1b`, C\'s own MAC', '`08:06:00:01:08:00`', 'The MAC of 10.77.0.10'], answer: 1, why: 'The source MAC follows the destination: the six bytes `c201 a766 6b1b`, the interface of C.' },
 					{ q: 'The type is `0806`. What follows?', options: ['An IPv4 packet', 'A frame of 2054 bytes', 'An ARP message', 'A TCP segment'], answer: 2, why: '`0x0806` is the type for ARP. IPv4 would be `0x0800`.' },
 					{ q: 'Where do the 28 bytes of ARP start?', options: ['At the first `ffff`', 'At `0800` on the second line', 'At the first `0a4d`', 'At the `0001` right after `0806`'], answer: 3, why: 'The Ethernet header ends with the 2-byte type, so ARP begins on byte 14.' }
@@ -161,7 +161,7 @@ export default {
 					{ q: 'How long is the whole frame?', options: ['28 bytes, all of it ARP', '64 bytes, padded', '42 bytes: 14 of Ethernet and 28 of ARP', '48 bytes: 20 of IP and 28 of ARP'], answer: 2, why: 'ARP sits right after Ethernet, with no IP header. tcpdump prints `length 42`.' },
 					{ q: 'Who answers this request, and to which MAC?', options: ['A, to C\'s MAC only', 'A, to the broadcast address', 'Every host on the network', 'The gateway, on A\'s behalf'], answer: 0, why: 'A sees its own address in the target field and replies to the sender MAC from the request.' },
 					{ q: 'Which opcode does the reply carry?', options: ['`0001`', '`0002`', '`0806`', '`0800`'], answer: 1, why: 'A reply has opcode 2.' },
-					{ q: 'B also holds 10.77.0.10 and its reply arrives first. What does C keep?', options: ['A\'s MAC, because A had the address first', 'Both MACs, and it alternates between them', 'Nothing: the entry goes to `FAILED`', 'B\'s MAC, so its frames for 10.77.0.10 go to B'], answer: 3, why: 'Linux keeps the first reply, and a second one within `LOCKTIME` cannot override it. ARP has no field that proves who owns the IP.' }
+					{ q: 'B also holds 10.77.0.10. Which check on C shows that two hosts answer?', options: ['`ip neigh` lists two entries for 10.77.0.10', 'C\'s kernel logs a duplicate address warning', '`ip neigh` marks the entry `FAILED`', '`arping -c 3 10.77.0.10` gets more responses than probes, from two MACs'], answer: 3, why: 'C keeps one MAC per address and prints no warning. `arping` shows every reply: in this chapter it printed `Received 4 response(s)` for 3 probes, from two different MACs.' }
 				]
 			}
 		]

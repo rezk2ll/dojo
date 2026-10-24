@@ -120,7 +120,7 @@ export default {
 			{
 				title: 'Set up the counter',
 				questions: [
-					{ q: 'With `rise 2` and `fall 3`, what is the highest value of `health`?', options: ['4, which is `rise + fall - 1`', '3, the value of `fall`', '2, the value of `rise`', '5, which is `rise + fall`'], answer: 0, why: 'Line 25 caps the counter at `rise + fall - 1`. With the defaults that is 4.' },
+					{ q: 'If the server line said `rise 3 fall 3` instead, what would the highest value of `health` be?', options: ['5, which is `rise + fall - 1`', '6, which is `rise + fall`', '4, as with the defaults', '3, the value of `fall`'], answer: 0, why: 'Line 25 caps the counter at `rise + fall - 1`: 3 + 3 - 1 = 5. With this task\'s defaults it is 4.' },
 					{ q: 'In counter terms, when is the server UP?', options: ['Only when `health` is 4', 'When `health >= rise`, so 2 or more', 'When `health` is above 0', 'When `health >= fall`, so 3 or more'], answer: 1, why: 'The log line shows UP while `health >= rise`, and DOWN below that.' },
 					{ q: 'What does a failed check do to the counter?', options: ['It drops it to 0 at once', 'It takes off the value of `fall`', 'It takes off one, and drops it to 0 if that goes below `rise`', 'Nothing while the server is UP'], answer: 2, why: 'Line 12 takes off one. Lines 13 and 14 set 0 once the counter is below `rise`.' },
 					{ q: 'What does a passed check do?', options: ['It sets 4 at once', 'It adds the value of `rise`', 'Nothing while the server is DOWN', 'It adds one, and jumps to 4 once it reaches `rise`'], answer: 3, why: 'Line 22 adds one. Lines 24 and 25 jump to `rise + fall - 1` once the counter reaches `rise`.' }
@@ -149,7 +149,7 @@ export default {
 				questions: [
 					{ q: 'The counter is 0. Check 9 passes. What is it?', options: ['0, no change while DOWN', '1, still DOWN', '2, now UP', '4, now UP'], answer: 1, why: 'One added: 1, still below `rise`.' },
 					{ q: 'Check 10 passes. What is it?', options: ['2, still DOWN', '3, now UP', '1, still DOWN', '2, then line 25 sets 4: UP'], answer: 3, why: '1 plus one is 2, which reaches `rise`. Line 25 jumps to 4 and the server is UP.' },
-					{ q: 'How many passes does a DOWN server need to come back?', options: ['`rise`: 2 passes in a row', '`fall`: 3 passes in a row', 'A single pass', '4 passes, one per counter step'], answer: 0, why: 'From 0, two passes reach `rise`. That is what `rise 2` means.' },
+					{ q: 'With `inter 2s`, about how long after check 8 is the server UP again?', options: ['About 4 s, two checks later', 'About 2 s, at check 9', 'About 6 s, three checks later', 'At once, at check 8'], answer: 0, why: 'Checks 9 and 10 run 2 s apart after check 8, and check 10 brings it UP: 2 × 2 s = 4 s.' },
 					{ q: 'What did this counter do during the Healthchecks.io incident, with some checks lost?', options: ['It caused a single long outage', 'It marked all backends DOWN with a 503', 'It caused flapping: backends crossing both thresholds again and again', 'Nothing: rise and fall filter out all loss'], answer: 2, why: 'With some checks passing and some failing, a server keeps reaching 0 and then 4. HAProxy reported backends "flipping between healthy / unhealthy states".' }
 				]
 			}

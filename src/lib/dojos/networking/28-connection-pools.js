@@ -149,7 +149,7 @@ export default {
 			{
 				title: 'Explain the warning',
 				questions: [
-					{ q: 'When does urllib3 log "Connection pool is full, discarding connection"?', options: ['When the server refuses a new connection', 'When a returned connection finds the queue already full', 'When a request waits longer than `pool_timeout`', 'When a dropped connection is replaced'], answer: 1, why: '`_put_conn` puts the connection back with `block=False`. On `queue.Full` it closes the connection and logs the warning.' },
+					{ q: 'At the peak, 32 connections are open and the queue has 10 slots. When all 32 come back, how many returns log the warning?', options: ['10', '22', '32', '0'], answer: 1, why: 'The first 10 returns fill the 10 slots. Each of the other 22 hits `queue.Full` in `_put_conn`, which is where the warning is logged.' },
 					{ q: 'What happens to that connection?', options: ['It is closed', 'It stays open outside the pool', 'It goes to a waiting thread', 'It is sent back to the server for reuse'], answer: 0, why: 'Lines 40 and 41 close it. Its TCP and TLS handshakes are lost.' },
 					{ q: 'What does a later request do when the queue is empty again?', options: ['It reuses the closed connection', 'It waits for the warning to clear', 'It opens a new connection, with new handshakes', 'It fails with `FullPoolError`'], answer: 2, why: 'With only 10 slots for 32 users, the queue empties again and `_new_conn()` runs. That churn is what the warning reports.' },
 					{ q: 'Do the threads see an error?', options: ['Yes: each warning is a failed request', 'Yes: they get `EmptyPoolError`', 'Only for HTTPS calls', 'No: requests still succeed, the cost is extra connections'], answer: 3, why: 'The warning is about discarding a connection after its request finished. The cost is the handshakes for the new ones.' }
@@ -168,7 +168,7 @@ export default {
 				title: 'Weigh `pool_block=True`',
 				questions: [
 					{ q: 'With `pool_block=True` and size 10, how many requests run at once?', options: ['10', '32', '22', '1'], answer: 0, why: 'A blocking pool caps connections in use at its size.' },
-					{ q: 'What do the other 22 threads do?', options: ['Open extra connections', 'Fail with `FullPoolError`', 'Wait for a connection to come back', 'Share a busy connection'], answer: 2, why: '`_get_conn` calls `self.pool.get(block=True, ...)`, which waits for another thread to put one back.' },
+					{ q: 'The other 22 threads now wait for a connection instead of opening one. Does the "pool is full" warning still appear?', options: ['Yes, 22 times at each peak', 'Yes, but as an exception in the threads', 'No: only 10 connections exist, so each one returns to a free slot', 'Only when `pool_timeout` is set'], answer: 2, why: 'A blocking pool never opens a connection beyond its size, so a returned connection always finds its slot. The code comment says a full queue "should never happen" then.' },
 					{ q: 'How long can they wait?', options: ['5 s, then `EmptyPoolError`', '90 s, the idle timeout', '60 s, like a balancer', 'With no limit: requests calls `urlopen` without `pool_timeout`'], answer: 3, why: 'With `timeout=None`, `queue.get` waits forever.' },
 					{ q: 'When does `pool_block=True` make sense?', options: ['When the warning fills the log', 'When the API must never see more than 10 connections from this worker', 'Always, it is faster', 'Never, it is deprecated'], answer: 1, why: 'It protects the server from extra connections, and the price is threads waiting on the client.' }
 				]

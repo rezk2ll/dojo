@@ -120,7 +120,7 @@ func (p Prefix) Contains(ip Addr) bool {
 				questions: [
 					{ q: 'Is `10.20.17.4` inside `10.20.0.0/20`?', options: ['Yes: it starts with 10.20', 'No: its third byte, 17, is above 15', 'Yes: the block covers all of 10.20', 'No: it is not a private address'], answer: 1, why: 'The block ends at 10.20.15.255. Matching the first two bytes is not enough when the prefix reaches into the third.' },
 					{ q: 'Which `/20` holds `10.20.17.4`?', options: ['10.20.17.0/20', '10.20.0.0/20', '10.20.16.0/20', '10.20.32.0/20'], answer: 2, why: '`/20` blocks start at multiples of 16 in the third byte, and 17 falls between 16 and 31.' },
-					{ q: 'A node at `10.20.0.5/20` sends a packet to `10.20.17.4`. Where does it go?', options: ['To the node\'s gateway, because the address is outside its `/20`', 'Straight out of `eth0`, because the first two bytes match', 'Nowhere: the kernel refuses it', 'Straight out, because both addresses are private'], answer: 0, why: 'The kernel sends a packet outside its own prefix to the gateway. Only the node\'s own prefix decides this.' },
+					{ q: 'A node is set up by mistake as `10.20.0.5/12`. Where does it send a packet for `10.20.17.4`?', options: ['To the gateway, as with the `/20`', 'Straight out of `eth0`, because the `/12` makes the address look local', 'Nowhere: the kernel refuses a `/12` on a private address', 'To the gateway, because 17 is above 15'], answer: 1, why: 'A `/12` covers 10.16.0.0 to 10.31.255.255, so 10.20.17.4 looks local. The kernel tries to reach it on `eth0` with no gateway, and if it sits behind a router nobody answers.' },
 					{ q: 'Under RFC 1918, is `10.20.17.4` private?', options: ['No: only 192.168 addresses are private', 'No: 10.20 belongs to AWS', 'Yes: every address AWS hands out is private', 'Yes: it is inside `10/8`'], answer: 3, why: 'RFC 1918 sets aside `10/8`, `172.16/12` and `192.168/16`. Anything that starts with 10 is in the first one.' }
 				]
 			},
@@ -136,7 +136,7 @@ func (p Prefix) Contains(ip Addr) bool {
 			{
 				title: 'Apply the AWS reservation',
 				questions: [
-					{ q: 'How many addresses does AWS keep in each subnet?', options: ['1, the network address', '2, the first and the last', '5, the first four and the last', '4, the first four'], answer: 2, why: 'The AWS docs: "The first four IP addresses and the last IP address in each subnet CIDR block are not available for your use".' },
+					{ q: 'Which addresses does AWS keep in `10.20.4.0/22`?', options: ['10.20.4.0 and 10.20.7.255', '10.20.4.0 to 10.20.4.4', '10.20.4.0 to 10.20.4.3, and 10.20.7.255', '10.20.4.0 to 10.20.4.3, and 10.20.4.255'], answer: 2, why: 'AWS keeps the first four addresses and the last one of each subnet. A `/22` spans 4 values of the third byte, 4 to 7, so its last address is 10.20.7.255, not 10.20.4.255.' },
 					{ q: 'How many addresses are left for nodes in each `/22`?', options: ['1024', '1019', '1022', '1020'], answer: 1, why: '1024 - 5 = 1019.' },
 					{ q: 'How many node addresses do the four subnets give in total?', options: ['4076', '4096', '4091', '4080'], answer: 0, why: '4 × 1019 = 4076.' },
 					{ q: 'Why does the split cost addresses compared with one big subnet?', options: ['A `/22` cannot use its own network address', 'Kubernetes keeps one address per zone', 'Subnets must leave a gap between them', 'Each subnet loses 5 reserved addresses of its own'], answer: 3, why: 'The reservation applies per subnet: one `/20` loses 5, four `/22` lose 20.' }

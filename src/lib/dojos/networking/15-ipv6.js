@@ -133,8 +133,8 @@ export default {
 			{
 				title: 'Read the default route',
 				questions: [
-					{ q: 'What does `proto ra` in the route mean?', options: ['A DHCPv6 server set the route', 'Someone added it with `ip route add`', 'It was learned from a Router Advertisement', 'It points to a remote access VPN'], answer: 2, why: '`proto ra` marks routes learned from Router Advertisements, which is how SLAAC hosts get their default route.' },
-					{ q: 'Why is the gateway a `fe80::` address?', options: ['The router has no global address', 'RFC 4861 requires advertisements to come from the link-local address', 'The host hides the router\'s real address', 'Link-local addresses are faster to route'], answer: 1, why: 'The router must send its advertisements from its link-local address, so that is the address the host learns as next hop.' },
+					{ q: 'In `default via fe80::… dev wlp194s0 proto ra metric 600`, which part is the next hop?', options: ['`wlp194s0`, after `dev`', '`600`, after `metric`', '`fe80::…`, after `via`', '`ra`, after `proto`'], answer: 2, why: '`via` names the gateway the packets are handed to. `dev` is the interface, `proto` where the route came from.' },
+					{ q: 'The laptop joins another Wi-Fi network. Does it keep this `fe80::…` gateway?', options: ['Yes: link-local gateways are the same on every network', 'No: the new router\'s advertisements give it a new `fe80::` next hop', 'Yes, until the metric changes', 'No: the laptop needs DHCPv6 to find a router'], answer: 1, why: 'The gateway is the link-local address of the router on this link. On a new link, the host learns the default route again from that router\'s advertisements.' },
 					{ q: 'Is a `fe80::` next hop enough to reach the internet?', options: ['No: a gateway needs a global address', 'Only for traffic inside `fe80::/10`', 'Only if DHCPv6 is also running', 'Yes: the next hop only has to be reachable on the link'], answer: 3, why: 'The host only hands packets to the router on the local link. The router then forwards them with its own addresses.' },
 					{ q: 'Why does the route name `dev wlp194s0`?', options: ['A link-local address is valid only on one link', 'The route is for wireless clients only', 'The kernel picks the fastest interface', 'IPv6 routes always name an interface for logging'], answer: 0, why: '`fe80::` addresses exist on every link, so the interface says which link this one belongs to.' }
 				]
@@ -151,10 +151,10 @@ export default {
 			{
 				title: 'Time the fallback',
 				questions: [
-					{ q: 'What does curl do when IPv6 has not connected after 200 ms?', options: ['Closes IPv6 and starts IPv4', 'Starts IPv4 in parallel, and keeps IPv6 open', 'Retries IPv6 with a new SYN', 'Gives up and reports a timeout'], answer: 1, why: 'The IPv6 socket stays open and could still win. curl races an IPv4 attempt next to it.' },
-					{ q: 'IPv4 connects in 5 ms. How long does curl take with its default?', options: ['About 5 ms', 'About 200 ms', 'About 205 ms', 'About 305 ms'], answer: 2, why: '200 ms of waiting on IPv6, then 5 ms for IPv4: about 205 ms, as measured.' },
+					{ q: 'In `cf-ip-happy.c`, which trace message marks the moment curl starts the IPv4 attempt?', options: ['`Connection timed out`', '`happy eyeballs timeout expired, start next attempt`', '`check for next AAAA address: none`', '`Trying [2001:db8::1]:80...`'], answer: 1, why: 'Once `attempt_delay_ms` has passed with the IPv6 attempt still waiting, curl logs that line and picks the next address, an A address.' },
+					{ q: 'IPv4 connects in 5 ms. How long does curl take with `--happy-eyeballs-timeout-ms 1000`?', options: ['About 205 ms', 'About 1,000 ms', 'About 1,005 ms', 'About 5 ms'], answer: 2, why: 'curl now waits 1,000 ms on IPv6 before it starts IPv4, then 5 ms for the IPv4 connect. The chapter\'s run printed 1.004 s with a 4 ms connect.' },
 					{ q: 'How long for a client with a 300 ms delay, like Firefox or Chrome?', options: ['About 305 ms', 'About 300 ms', 'About 205 ms', 'About 600 ms'], answer: 0, why: '300 ms of delay plus the 5 ms IPv4 connect.' },
-					{ q: 'And for a client that tries one address at a time?', options: ['About 5 ms, it picks IPv4', 'About 1 second', 'About 30 seconds', 'About 131 seconds'], answer: 3, why: 'It waits for the kernel to give up on the SYN: about 131 seconds with the default `tcp_syn_retries` of 6.' }
+					{ q: 'The site fixes its IPv6 path, and IPv6 now connects in 5 ms. How long does curl take?', options: ['About 205 ms', 'About 200 ms', 'About 10 ms, one connect per family', 'About 5 ms, over IPv6'], answer: 3, why: 'The first attempt is IPv6. It connects before the 200 ms delay runs out, so curl never starts IPv4.' }
 				]
 			}
 		]

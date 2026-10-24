@@ -138,8 +138,8 @@ func (addrs byPriorityWeight) sort() {
 			{
 				title: 'Read the four fields',
 				questions: [
-					{ q: 'In `10 60 8080 a.example.com.`, what is `10`?', options: ['The weight', 'The priority', 'The TTL in seconds', 'The record type'], answer: 1, why: 'An SRV answer holds a priority, a weight, a port and a target, in that order. The first number is the priority.' },
-					{ q: 'In the same line, what is `60`?', options: ['The priority', 'The port of the health check', 'The weight', 'The share of traffic in percent'], answer: 2, why: 'The second number is the weight. It only becomes a share once you divide it by the total weight of its priority group.' },
+					{ q: 'In the query name `_api._tcp.example.com`, which part names the transport protocol?', options: ['`_api`', '`_tcp`', '`example.com`', '`_api._tcp`'], answer: 1, why: 'An SRV record is named `_service._proto.name`. `_api` is the service, `_tcp` the protocol and `example.com` the domain.' },
+					{ q: '`b` and `c` both carry weight 20. What does that say about them?', options: ['They are tried only after `a` has failed', 'They are backups for `d`', 'They get the same share of first attempts in their group', 'They are tried in the order the answer lists them'], answer: 2, why: 'Weight decides the share inside one priority group. Two records with the same weight in the same group win the draw equally often.' },
 					{ q: 'What is `8080`?', options: ['The port the client connects to', 'The DNS server port', 'The weight of the record', 'The TTL of the answer'], answer: 0, why: 'The third field is the port. That is what a plain A lookup cannot give you.' },
 					{ q: 'What is `a.example.com.`?', options: ['The name the client queried', 'The DNS zone that holds the record', 'The service name with its protocol', 'The target host the client connects to'], answer: 3, why: 'The last field is the target host name. The query name was `_api._tcp.example.com`.' }
 				]
@@ -158,7 +158,7 @@ func (addrs byPriorityWeight) sort() {
 				questions: [
 					{ q: 'After the sort by weight, what are the running sums in the priority 10 group?', options: ['20 (`b`), 40 (`c`), 100 (`a`)', '60 (`a`), 80 (`b`), 100 (`c`)', '20 (`b`), 20 (`c`), 60 (`a`)', '100 (`a`), 40 (`c`), 20 (`b`)'], answer: 0, why: 'The sort puts the lowest weight first: `b` and `c` at 20, then `a` at 60. Adding them up gives 20, 40 and 100.' },
 					{ q: 'For which values of `n` does `a` win the first draw?', options: ['0 to 59', '40 to 99', '60 to 99', '40 to 100'], answer: 1, why: '`a` is chosen when its running sum, 100, is the first one above `n`. That happens when `n` is 40 or more.' },
-					{ q: 'So what share of first attempts goes to `a`?', options: ['33%, one in three', '50%', '60%', '75%'], answer: 2, why: '40 to 99 is 60 values out of 100. The share equals the weight divided by the total weight of the group.' },
+					{ q: '`a` wins the first draw, and line 31 takes its 60 out of `sum`. What share of the second picks goes to `b`?', options: ['20%', '40%', '50%', '0%, `d` comes second'], answer: 2, why: 'The second draw runs on `b` and `c` only, with `sum` = 40. `b` wins when `n` is 0 to 19: 20 values out of 40.' },
 					{ q: 'What share goes to `b`?', options: ['40%', '0%, it comes after `a`', '33%', '20%'], answer: 3, why: '`b` wins when `n` is 0 to 19: 20 draws out of 100. `c` gets the same 20%.' }
 				]
 			},
